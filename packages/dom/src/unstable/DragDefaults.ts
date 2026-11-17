@@ -24,11 +24,14 @@ interface DragInternals {
 /** A plain element's drag internals: none. */
 const NO_DRAG_INTERNALS: DragInternals = {}
 
+/** The drag props the defaults are read from: whether the element drags, and whether its own presses do. */
+export type DragProps = Pick<WardConfig.WardConfig, "drag" | "dragListener">
+
 /**
  * The drag axis a spine runs with: its static `drag` config, else `true` for a
  * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
  */
-export const dragAxisOf = (config: WardConfig.WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): boolean | "x" | "y" | undefined =>
+export const dragAxisOf = (config: DragProps, internal: DragInternals = NO_DRAG_INTERNALS): boolean | "x" | "y" | undefined =>
   Option.getOrUndefined(
     Option.orElse(Option.filter(Option.fromUndefinedOr(config.drag), (drag) => drag !== false), () =>
       Option.map(Option.fromUndefinedOr(internal.dragAxis), (): true => true)),
@@ -38,7 +41,7 @@ export const dragAxisOf = (config: WardConfig.WardConfig, internal: DragInternal
  * A drag element's defaults (ADR-0019 *Amendment (Reorder)*): its axis's, unless its own presses don't
  * drag it (`dragListener={false}`, #431), as Motion's come with its listener.
  */
-export const dragDefaultsOf = (config: WardConfig.WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): Style.DragDefaults | undefined => {
+export const dragDefaultsOf = (config: DragProps, internal: DragInternals = NO_DRAG_INTERNALS): Style.DragDefaults | undefined => {
   if (config.dragListener === false) return undefined
   return UndefinedOr.map(dragAxisOf(config, internal), Style.dragDefaults)
 }

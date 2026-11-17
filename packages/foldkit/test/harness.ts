@@ -12,8 +12,9 @@ import type * as Update from "foldkit/update"
 import * as Arr from "effect/Array"
 import * as Schema from "effect/Schema"
 import { defineMessageUnion } from "foldkit/message"
+import { expect, vi } from "vitest"
 import type * as Wardic from "@wardic/foldkit/Wardic"
-import { until } from "../../solid/test/browser-helpers.ts"
+import { raf, until } from "../../solid/test/browser-helpers.ts"
 import { type Pt } from "../../solid/test/real-mouse.ts"
 
 /** An embedded program: the host its view renders in, its one inbound port and its disposal. */
@@ -52,6 +53,34 @@ export { centreOf, mouse, type Pt } from "../../solid/test/real-mouse.ts"
 /** Where the mouse rests between gestures: off every fixture's elements. */
 export const PARK: Pt = { x: 5, y: 5 }
 
+/** The console captured: every line logged from now until `stop`. */
+export const capture = (): { readonly lines: ReadonlyArray<string>; readonly stop: () => void } => {
+  const lines: Array<string> = []
+  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
+    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+      lines.push(args.map(String).join(" "))
+    }),
+  )
+  return { lines, stop: () => spies.forEach((spy) => spy.mockRestore()) }
+}
+
+/** Every line logged while `run` runs. */
+export const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
+  const captured = capture()
+  try {
+    await run()
+  } finally {
+    captured.stop()
+  }
+  return captured.lines
+}
+
+/** Whether a logged line says `text`. */
+export const said = (lines: ReadonlyArray<string>, text: string): boolean => lines.some((line) => line.includes(text))
+
+/** How many logged lines say `text`. */
+export const saidTimes = (lines: ReadonlyArray<string>, text: string): number => lines.filter((line) => line.includes(text)).length
+
 /** `el`'s inline opacity, as the gate writes it. */
 export const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
 
@@ -60,6 +89,29 @@ export const boxOf = async (app: Pick<Embedded<never>, "container">, id = "box")
   await until(() => app.container.querySelector(`#${id}`) !== null, 2000, `#${id} renders`)
   return app.container.querySelector<HTMLElement>(`#${id}`)!
 }
+
+/** The `#box` of `app`, once it renders and two frames have passed: what mounts with it (a recognizer's or a track's listeners) is in place. */
+export const settledBox = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
+  const box = await boxOf(app)
+  await raf()
+  await raf()
+  return box
+}
+
+/** The gesture fixtures' box: 80 px square, nothing selectable. */
+export const BOX = { width: "80px", height: "80px", background: "teal", "user-select": "none" } as const
+
+/** A 50 ms tween: what a fixture's entries land with. */
+export const FAST = { type: "tween", duration: 0.05 } as const
+
+/** Wait for `el`'s opacity to land on `value`, then check it did. */
+export const landsAt = async (el: HTMLElement, value: number, what: string): Promise<void> => {
+  await until(() => opacityOf(el) === value, 2000, what)
+  expect(opacityOf(el), what).toBe(value)
+}
+
+/** `p` as a call records it: its coordinates rounded, `"x,y"`. */
+export const at = (p: Pt): string => `${Math.round(p.x)},${Math.round(p.y)}`
 
 /** A keyed list's Model: its items, in order. */
 export const ListModel = Schema.Struct({ items: Schema.Array(Schema.String) })

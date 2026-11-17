@@ -142,6 +142,27 @@ export interface DragTrackConfig {
   readonly listen?: boolean | undefined
 }
 
+/** The drag props a track's config is read from: an element's, its axis and its constraints resolved by the binding. */
+export type DragOptions = Pick<WardConfig.WardDragConfig, "dragElastic" | "dragMomentum" | "dragSnapToOrigin" | "dragPropagation" | "dragDirectionLock" | "dragListener">
+
+/**
+ * A track's config from an element's drag props (#793), for every binding: `axis` and `constraints` as
+ * the binding resolved them, `transition` the element's drag transition ({@link DragTransition.dragTransitionOf}),
+ * which its layout node shares.
+ */
+// #793 (PR 2): solid's `create-ward.tsx`'s `trackConfig`, moved to dom for both bindings' tracks.
+export const trackConfigOf = (c: DragOptions, axis: boolean | "x" | "y", constraints: Drag.Bounds | undefined, transition: ProjectionSystem.DragTransition): DragTrackConfig => ({
+  axis,
+  constraints,
+  elastic: c.dragElastic,
+  momentum: c.dragMomentum,
+  snapToOrigin: c.dragSnapToOrigin,
+  propagation: c.dragPropagation,
+  directionLock: c.dragDirectionLock,
+  transition,
+  listen: c.dragListener,
+})
+
 /** What the track's watches and responses run with: the provider's services and the gestures' input (#511). */
 export type TrackServices = WardicServices.WardicServices | InputSource.InputSource
 

@@ -8,6 +8,8 @@
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import type * as DomDragConstraints from "@wardic/dom/unstable/DragConstraints"
+import type * as DomDragControls from "@wardic/dom/unstable/DragControls"
 import type * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import type * as LayoutGroup from "@wardic/dom/unstable/LayoutGroup"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
@@ -65,6 +67,28 @@ export type Key =
   | "viewport"
   | "onViewportEnter"
   | "onViewportLeave"
+  | "drag"
+  | "whileDrag"
+  | "dragConstraints"
+  | "dragElastic"
+  | "dragMomentum"
+  | "dragSnapToOrigin"
+  | "dragTransition"
+  | "dragPropagation"
+  | "dragDirectionLock"
+  | "dragListener"
+  | "dragControls"
+  | "startsDrag"
+  | "onMeasureDragConstraints"
+  | "onDragStart"
+  | "onDrag"
+  | "onDragEnd"
+  | "onDragTransitionEnd"
+  | "onDirectionLock"
+  | "onPanSessionStart"
+  | "onPanStart"
+  | "onPan"
+  | "onPanEnd"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -92,6 +116,35 @@ export type PressInfo = GestureInfo.WardicPressInfo
 
 /** The platform's event a press callback is told: a pointer's, a **Keyboard press**'s key, or the blur that cancelled it. */
 export type PressEvent = GestureInfo.WardicPressEvent
+
+/**
+ * A drag's or a pan's info (Motion's `PanInfo`): where the pointer is, in the viewport, its `offset`
+ * from the down, its last `delta` and its `velocity` in px/s. A one-axis drag's are zeroed off its axis.
+ */
+export type DragInfo = GestureInfo.WardicDragInfo
+
+/** A box's edges (Motion's `BoundingBox`): on x, `left` and `right`; on y, `top` and `bottom`. */
+export type BoundingBox = DomDragConstraints.WardicBoundingBox
+
+/**
+ * `w.DragConstraints(…)` (Motion's `dragConstraints`; #793, Q7): a box in pixels from where the element
+ * started, an edge left out unbounded; `"parent"`, the element's parent; a selector, resolved under the
+ * `w.Provider()` element, else the document, at each measure (a drag's start, a resize of either); or
+ * `false`, none. A Fling past an edge springs back to it.
+ */
+export type DragConstraints = false | Partial<BoundingBox> | string
+
+/** The **Drag controls** `DragControls.make()` gives (Motion's `useDragControls`). */
+export type DragControls = DomDragControls.WardicDragControls
+
+/** `controls.start`'s options, as `w.StartsDrag(controls, options)` gives them: `snapToCursor` and `distanceThreshold`. */
+export type StartOptions = DomDragControls.WardicDragControlsOptions
+
+/** `w.StartsDrag(controls, options)` (#793, Q8): a pointer pressed on the element starts the controls' drags, with `options`. */
+export interface StartsDrag {
+  readonly controls: DragControls
+  readonly options?: StartOptions | undefined
+}
 
 /**
  * `w.Viewport(options)`'s options (Motion's `viewport`; #793, Q16): what "in view" means for
@@ -126,6 +179,12 @@ export interface ConfigOptions {
   readonly reducedMotion?: ReducedMotion.Config | undefined
   /** Whether every animation lands at once (#468, Motion's `MotionGlobalConfig.skipAnimations` for a subtree). */
   readonly skipAnimations?: boolean | undefined
+  /**
+   * Where a drag's and a pan's points are (Motion's `transformPagePoint`; #793, Q9): a point in the
+   * viewport, mapped to the one the gesture uses, applied to its every point and to the boxes a
+   * `DragConstraints` container is measured against. Read at each pointer down.
+   */
+  readonly transformPagePoint?: WardConfig.WardicTransformPoint | undefined
 }
 
 /**
@@ -222,8 +281,41 @@ export interface Config<Message = never>
     | "propagate"
     | "whileFocus"
     | "whileInView"
+    | "drag"
+    | "whileDrag"
+    | "dragElastic"
+    | "dragMomentum"
+    | "dragSnapToOrigin"
+    | "dragTransition"
+    | "dragPropagation"
+    | "dragDirectionLock"
+    | "dragListener"
+    | "dragControls"
+    | "onMeasureDragConstraints"
   > {
   readonly style?: Style | undefined
+  /** `w.DragConstraints(…)`: where the element can be dragged to (Motion's `dragConstraints`, in Foldkit's forms). */
+  readonly dragConstraints?: DragConstraints | undefined
+  /** `w.StartsDrag(…)`: a pointer pressed on this element starts the controls' drags. */
+  readonly startsDrag?: StartsDrag | undefined
+  /** `w.OnDragStart(…)`: sent as a drag of the element starts, past its threshold (Motion's `onDragStart`). */
+  readonly onDragStart?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
+  /** `w.OnDrag(…)`: sent as the drag moves, at its start and each move after (Motion's `onDrag`). */
+  readonly onDrag?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
+  /** `w.OnDragEnd(…)`: sent as the drag is let go; not for one its controls cancelled (Motion's `onDragEnd`). */
+  readonly onDragEnd?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
+  /** `w.OnDragTransitionEnd(…)`: sent as the element comes to rest after it's let go; not when a new grab stops it (Motion's `onDragTransitionEnd`). */
+  readonly onDragTransitionEnd?: Handler<Message, void> | undefined
+  /** `w.OnDirectionLock(…)`: with `DragDirectionLock`, sent with the axis a drag locked to, before `OnDragStart` (Motion's `onDirectionLock`). */
+  readonly onDirectionLock?: Handler<Message, "x" | "y"> | undefined
+  /** `w.OnPanSessionStart(…)`: sent as a pointer goes down on the element, ready to pan, with its point (Motion's `onPanSessionStart`). */
+  readonly onPanSessionStart?: GestureHandler<Message, PointerEvent, PointInfo> | undefined
+  /** `w.OnPanStart(…)`: sent as a pan starts, past its threshold (Motion's `onPanStart`). */
+  readonly onPanStart?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
+  /** `w.OnPan(…)`: sent as the pan moves, at its start and each move after (Motion's `onPan`). */
+  readonly onPan?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
+  /** `w.OnPanEnd(…)`: sent as a pan that started ends, or is cancelled (Motion's `onPanEnd`). */
+  readonly onPanEnd?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
   /** `w.OnHoverStart(…)`: sent as the pointer comes over the element (Motion's `onHoverStart`; a touch never hovers). */
   readonly onHoverStart?: GestureHandler<Message, PointerEvent, PointInfo> | undefined
   /** `w.OnHoverEnd(…)`: sent as it leaves (Motion's `onHoverEnd`). */

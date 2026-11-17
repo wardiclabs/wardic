@@ -209,6 +209,65 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   OnViewportEnter: Needs<F, "inView", (handler: Ward.Handler<Message, IntersectionObserverEntry>) => Ward.Attribute>
   /** Sent as it leaves the view; never after the first entry under `once` (Motion's `onViewportLeave`). */
   OnViewportLeave: Needs<F, "inView", (handler: Ward.Handler<Message, IntersectionObserverEntry>) => Ward.Attribute>
+  /**
+   * The element drags (ADR-0004; Motion's `drag`): `true` (the default) on both axes, `"x"` or `"y"` on
+   * one. On release it carries on at the speed it was let go, a Fling, and slows to a stop. It gets
+   * `touch-action`, `user-select: none` and `draggable="false"` as its drag starts, under its own
+   * `h.Style`. The drag's options (`Drag` to `DragListener`, `DragControls`) are read as its track starts,
+   * at the first render that gives `Drag`, and kept: give a changed one on a new key. Needs `Features.drag`.
+   */
+  Drag: Needs<F, "drag", (value?: Ward.Config["drag"]) => Ward.Attribute>
+  /** Where the element animates while it's dragged, and back once it's let go (Motion's `whileDrag`); a name reaches its Variant children. */
+  WhileDrag: Needs<F, "drag", (value: Ward.Config["whileDrag"]) => Ward.Attribute>
+  /** Where it can be dragged to (Motion's `dragConstraints`): a box of pixels, `"parent"`, a selector resolved under the view at each measure, or `false`. */
+  DragConstraints: Needs<F, "drag", (value: Ward.DragConstraints) => Ward.Attribute>
+  /** How far past `DragConstraints` it can be pulled, 0 to 1: 0 stops it at the edge; 0.35 by default (Motion's `dragElastic`). */
+  DragElastic: Needs<F, "drag", (value: Ward.Config["dragElastic"]) => Ward.Attribute>
+  /** `false` stops the element where it's let go, instead of carrying on at the speed it was let go (Motion's `dragMomentum`). */
+  DragMomentum: Needs<F, "drag", (value: Ward.Config["dragMomentum"]) => Ward.Attribute>
+  /** Springs the element back to where it started when it's let go (Motion's `dragSnapToOrigin`). */
+  DragSnapToOrigin: Needs<F, "drag", (value?: Ward.Config["dragSnapToOrigin"]) => Ward.Attribute>
+  /** How it carries on after it's let go: Motion's inertia options (`power`, `timeConstant`, `bounceStiffness`, …), over Motion's defaults (`dragTransition`). */
+  DragTransition: Needs<F, "drag", (value: Ward.Config["dragTransition"]) => Ward.Attribute>
+  /** Lets a draggable ancestor drag along with this element, instead of only the innermost dragging (Motion's `dragPropagation`; a **Drag claim** not taken). */
+  DragPropagation: Needs<F, "drag", (value?: Ward.Config["dragPropagation"]) => Ward.Attribute>
+  /** Waits until a drag has moved 10 px, then keeps it to the axis it moved on; `OnDirectionLock` says which (Motion's `dragDirectionLock`). */
+  DragDirectionLock: Needs<F, "drag", (value?: Ward.Config["dragDirectionLock"]) => Ward.Attribute>
+  /** `false`: pressing the element itself doesn't drag it, only its `DragControls` do, and it gets none of the drag's styles (Motion's `dragListener`). */
+  DragListener: Needs<F, "drag", (value: Ward.Config["dragListener"]) => Ward.Attribute>
+  /** The **Drag controls** that start this element's drag from elsewhere: `DragControls.make()`'s (Motion's `dragControls`). */
+  DragControls: Needs<F, "drag", (controls: Ward.DragControls) => Ward.Attribute>
+  /**
+   * The `StartsDrag` element (#793, Q8): a pointer pressed on it starts the drags of every element given
+   * `controls`, with `options` (`snapToCursor`, `distanceThreshold`). Give it `touch-action: none`, or a
+   * touch on it scrolls the page.
+   */
+  StartsDrag: Needs<F, "drag", (controls: Ward.DragControls, options?: Ward.StartOptions) => Ward.Attribute>
+  /** With a container in `DragConstraints`: called with the bounds measured against it at each measure; return other bounds to use them (a plain function, decision 24; Motion's `onMeasureDragConstraints`). */
+  OnMeasureDragConstraints: Needs<F, "drag", (fn: Ward.Config["onMeasureDragConstraints"]) => Ward.Attribute>
+  /** Sent as a drag of the element starts, with the DOM's event and the drag's info (Motion's `onDragStart`). */
+  OnDragStart: Needs<F, "drag", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => Ward.Attribute>
+  /** Sent as the drag moves: at its start, and each move after (Motion's `onDrag`). */
+  OnDrag: Needs<F, "drag", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => Ward.Attribute>
+  /** Sent as the drag is let go; not for one its controls cancelled (Motion's `onDragEnd`). */
+  OnDragEnd: Needs<F, "drag", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => Ward.Attribute>
+  /** Sent as the element comes to rest after it's let go; not when a new grab stops it (Motion's `onDragTransitionEnd`). */
+  OnDragTransitionEnd: Needs<F, "drag", (handler: Ward.Handler<Message, void>) => Ward.Attribute>
+  /** With `DragDirectionLock`: sent with the axis a drag locked to, before `OnDragStart` (Motion's `onDirectionLock`). */
+  OnDirectionLock: Needs<F, "drag", (handler: Ward.Handler<Message, "x" | "y">) => Ward.Attribute>
+  /**
+   * Sent as a pointer goes down on the element, ready to pan, with its point (Motion's `onPanSessionStart`).
+   * A pan moves nothing itself: read its offset and velocity in `OnPan`. On a touch screen, give the
+   * element a `touch-action`, such as `pan-y` for a sideways pan, or the page's scroll takes the gesture.
+   * Needs `Features.pan`.
+   */
+  OnPanSessionStart: Needs<F, "pan", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.PointInfo>) => Ward.Attribute>
+  /** Sent as a pan starts, past its threshold, with the DOM's event and the pan's info (Motion's `onPanStart`). */
+  OnPanStart: Needs<F, "pan", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => Ward.Attribute>
+  /** Sent as the pan moves: at its start, and each move after (Motion's `onPan`). */
+  OnPan: Needs<F, "pan", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => Ward.Attribute>
+  /** Sent as a pan that started ends, or is cancelled (Motion's `onPanEnd`). */
+  OnPanEnd: Needs<F, "pan", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => Ward.Attribute>
 }>
 
 /**

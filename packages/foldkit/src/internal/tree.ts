@@ -127,7 +127,8 @@ export const configValueOf = (element: Element, root: WardicConfigValue.WardicCo
     reducedMotion: () => WardicConfigValue.configReducedMotionOf(UndefinedOr.map(own(), (c) => c.reducedMotion), parent),
     skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(UndefinedOr.map(own(), (c) => c.skipAnimations), parent),
     isValidProp: () => WardicConfigValue.configIsValidPropOf(undefined, parent),
-    transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(undefined, parent),
+    // Where a drag's and a pan's points are (#793, Q9): the nearest `transformPagePoint` up the chain.
+    transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(UndefinedOr.map(own(), (c) => c.transformPagePoint), parent),
   }
   values.set(element, value)
   return value
@@ -141,6 +142,6 @@ export const rootConfigValueOf = (options: Ward.ConfigOptions | undefined): Ward
     reducedMotion: () => options.reducedMotion,
     skipAnimations: () => options.skipAnimations,
     isValidProp: constUndefined,
-    transformPagePoint: constUndefined,
+    transformPagePoint: () => options.transformPagePoint,
   }
 }

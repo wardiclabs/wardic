@@ -38,13 +38,13 @@ import * as Bool from "effect/Boolean"
 import * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { commands, userEvent } from "vitest/browser"
 import * as Features from "@wardic/foldkit/Features"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import type * as Ward from "@wardic/foldkit/Ward"
 import { raf, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
-import { boxOf, centreOf, embed, type Embedded, embedKeyedList, mouse, opacityOf, PARK, type Pt } from "./harness.ts"
+import { at, BOX, capture, centreOf, embed, type Embedded, embedKeyedList, FAST, landsAt, logged, mouse, opacityOf, PARK, said, settledBox } from "./harness.ts"
 
 const Model = Schema.Struct({ on: Schema.Boolean })
 type Model = typeof Model.Type
@@ -65,20 +65,8 @@ const update = (model: Model, message: Message) =>
 
 const wardic = Wardic.make({ env: DomLive, features: Features.domAnimation })
 
-const BOX = { width: "80px", height: "80px", background: "teal", "user-select": "none" } as const
-const FAST = { type: "tween", duration: 0.05 } as const
-
-const r = (n: number): number => Math.round(n)
-
 /** `el`'s scale, from its computed transform. */
 const scaleOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).a
-
-/** Wait for `el`'s opacity to land on `value`, then check it did. */
-const landsAt = async (el: HTMLElement, value: number, what: string): Promise<void> => {
-  await until(() => opacityOf(el) === value, 2000, what)
-  expect(opacityOf(el), what).toBe(value)
-}
-const at = (p: Pt): string => `${r(p.x)},${r(p.y)}`
 
 /** A call: its name, the event's type and whether the browser made it, and the info's point. */
 const seen = (name: string, event: Event, info: Ward.PointInfo): string => `${name} ${event.type} ${event.isTrusted} ${at(info.point)}`
@@ -97,44 +85,11 @@ const embedBox = (box: (model: Model, w: Wardic.Html<Message, typeof Features.do
     toMessage: (on) => Message.Set({ on }),
   })
 
-/** The `#box` of `app`, once it renders and two frames have passed: what mounts with it (a recognizer's listeners) is in place. */
-const settledBox = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
-  const box = await boxOf(app)
-  await raf()
-  await raf()
-  return box
-}
-
 /** Scroll the page so `top` (px down the page) sits `at` px down the window. */
 const scrollToShow = (top: number, at: number): void => window.scrollTo(0, top - at)
 
 /** A box 2000 px down its wrapper, which sits 100 px down the page: its top on the page. */
 const FAR = 2100
-
-/** The console captured: every line logged from now until `stop`. */
-const capture = (): { readonly lines: ReadonlyArray<string>; readonly stop: () => void } => {
-  const lines: Array<string> = []
-  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
-    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
-      lines.push(args.map(String).join(" "))
-    }),
-  )
-  return { lines, stop: () => spies.forEach((spy) => spy.mockRestore()) }
-}
-
-/** Every line logged while `run` runs. */
-const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
-  const captured = capture()
-  try {
-    await run()
-  } finally {
-    captured.stop()
-  }
-  return captured.lines
-}
-
-/** Whether a logged line says `text`. */
-const said = (lines: ReadonlyArray<string>, text: string): boolean => lines.some((line) => line.includes(text))
 
 /** A Handle with no Features: its `w.*` take the base attributes alone. */
 const bare = Wardic.make({ env: DomLive })

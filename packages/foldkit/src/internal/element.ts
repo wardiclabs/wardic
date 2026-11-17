@@ -9,6 +9,7 @@
  * @module
  */
 import type * as Values from "@wardic/core/Values"
+import type * as DragConstraints from "@wardic/dom/unstable/DragConstraints"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
@@ -19,6 +20,7 @@ import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
+import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
 import * as DragTransition from "@wardic/dom/unstable/DragTransition"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as Feature from "@wardic/dom/unstable/Feature"
@@ -30,7 +32,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Equal from "effect/Equal"
-import { constFalse, constVoid, identity } from "effect/Function"
+import { constUndefined, constVoid, identity } from "effect/Function"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -39,6 +41,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrameUnless, installSetter, patchTouched } from "./delivery.ts"
+import { dragOf, type SpineDragOptions } from "./drag.ts"
 import { gesturesOf } from "./gestures.ts"
 import { reactivity, recheck } from "./reactivity.ts"
 import { layoutOf } from "./layout.ts"
@@ -67,9 +70,6 @@ let ids = 0
 
 /** An element's registered projection node, as the projection system hands it back. */
 type LayoutNode = ReturnType<ProjectionSystem.Shape["register"]>
-
-/** What a layout node's release runs on, with no drag (slice 3's): Motion's release, made once. */
-const NO_DRAG_RELEASE = DragTransition.dragTransitionOf(undefined, undefined)
 
 /**
  * Development's diagnostics for the spine (#746, ADR-0067 *Amendment (#746)*, decision 6): given under
@@ -155,34 +155,45 @@ export interface ViewportResolved extends Pick<Ward.ViewportOptions, "once" | "m
 }
 
 /**
- * An element's config as its spine and its gestures read it: the delivered one, its callbacks as the
- * spine's functions (`onUpdate` the Atom's setter, the animation and layout callbacks' Messages sent),
- * and its viewport resolved.
+ * An element's config as its spine, its gestures and its drag read it: the delivered one, its callbacks
+ * as the spine's functions (`onUpdate` the Atom's setter, the animation and layout callbacks' Messages
+ * sent), its viewport and its drag constraints resolved.
  */
-export type View = Omit<Config, "viewport" | "onUpdate"> &
+export type View = Omit<Config, "viewport" | "onUpdate" | "dragConstraints"> &
   Pick<CoreConfig.SpineConfig, "onUpdate"> &
-  Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> & { readonly viewport?: ViewportResolved | undefined }
+  Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete" | "dragConstraints"> & { readonly viewport?: ViewportResolved | undefined }
+
+/** How an attribute names an element under the view (#793, Q7 and Q16): `"parent"`, the element's parent, or a selector. */
+type ElementRef = "parent" | string
 
 /**
- * `root`'s element for a viewport (#793, Q16): `"parent"`, the element's parent; a selector, resolved
- * under the `w.Provider()` element, else the document; none, the window. Read as the recognizer starts.
+ * The element `ref` names (above): the element's parent, or the selector's first match under the
+ * `w.Provider()` element, else the document. What a viewport's `root` and a `DragConstraints` container
+ * are read as: as the recognizer starts, and at each measure.
  */
-const viewportRootOf = (provider: Provider, element: Element, root: string): Element | undefined => {
-  if (root === "parent") return Option.getOrUndefined(Option.fromNullOr(element.parentElement))
+const elementUnder = (provider: Provider, element: Element, ref: ElementRef): Element | undefined => {
+  if (ref === "parent") return Option.getOrUndefined(Option.fromNullOr(element.parentElement))
   const under: ParentNode = UndefinedOr.match(provider.root, { onUndefined: (): ParentNode => document, onDefined: identity })
-  return Option.getOrUndefined(Option.fromNullOr(under.querySelector(root)))
+  return Option.getOrUndefined(Option.fromNullOr(under.querySelector(ref)))
+}
+
+/** `DragConstraints` as dom reads them (Q7): `"parent"` or a selector as the container's accessor; a box or `false` as they are. */
+const dragConstraintsOf = (provider: Provider, element: Element, constraints: Ward.DragConstraints): DragConstraints.WardicDragConstraints => {
+  if (Predicate.isString(constraints)) return () => elementUnder(provider, element, constraints)
+  return constraints
 }
 
 const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch, registry: AtomRegistry.AtomRegistry, provider: Provider, element: Element): View => {
-  const { viewport: given, ...configured } = WardicConfigValue.withConfigTransition(config, value)
+  const { viewport: given, dragConstraints: constraints, ...configured } = WardicConfigValue.withConfigTransition(config, value)
   // Its viewport as dom reads it (#793, Q16): the root resolved as the recognizer starts.
   const viewport = UndefinedOr.match(given, {
     onUndefined: () => ({}),
     onDefined: (v): { readonly viewport: ViewportResolved } => ({
-      viewport: { once: v.once, margin: v.margin, amount: v.amount, ...UndefinedOr.match(v.root, { onUndefined: () => ({}), onDefined: (root) => ({ root: () => viewportRootOf(provider, element, root) }) }) },
+      viewport: { once: v.once, margin: v.margin, amount: v.amount, ...UndefinedOr.match(v.root, { onUndefined: () => ({}), onDefined: (root) => ({ root: () => elementUnder(provider, element, root) }) }) },
     }),
   })
-  const base: View = { ...configured, ...viewport }
+  const dragConstraints = UndefinedOr.match(constraints, { onUndefined: () => ({}), onDefined: (c) => ({ dragConstraints: dragConstraintsOf(provider, element, c) }) })
+  const base: View = { ...configured, ...viewport, ...dragConstraints }
   const start = config.animationStart
   const complete = config.animationComplete
   const update = config.onUpdate
@@ -199,6 +210,31 @@ const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue 
     ...UndefinedOr.match(layoutComplete, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationComplete: () => dispatch(handler)(undefined) }) }),
   }
   return view
+}
+
+/** The `StartsDrag` element's listener (#793, Q8): installed once a delivery gives `startsDrag`, reading the controls at each down. */
+interface StartsDrag {
+  readonly check: () => void
+  readonly dispose: () => void
+}
+
+/** The `StartsDrag` element's listener (above): nothing on an element whose deliveries never give `startsDrag`. */
+const startsDragOf = (element: HTMLElement, config: () => Config): StartsDrag => {
+  const installed = MutableRef.make(false)
+  const onDown = (event: PointerEvent): void => {
+    UndefinedOr.map(config().startsDrag, (starts) => starts.controls.start(event, starts.options))
+  }
+  return {
+    check: () => {
+      if (MutableRef.get(installed)) return
+      if (Predicate.isUndefined(config().startsDrag)) return
+      MutableRef.set(installed, true)
+      element.addEventListener("pointerdown", onDown)
+    },
+    dispose: () => {
+      if (MutableRef.get(installed)) element.removeEventListener("pointerdown", onDown)
+    },
+  }
 }
 
 /** Follow `config`'s `text` Atom on the element, writing `textContent` outside the patch (decision 16); the stop. */
@@ -270,6 +306,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     const reducedMotion = reducedMotionUnder(provider, configValue)
     const skipped = WardicConfigValue.skipAnimationsOf(configValue)
     const skipAnimations = (): boolean => paused() || skipped()
+    // Where its drag's and its pan's points are (#793, Q9): its nearest `w.Config`'s `transformPagePoint`, read at each down.
+    const pagePoint = (): WardConfig.WardicTransformPoint | undefined => UndefinedOr.match(configValue, { onUndefined: constUndefined, onDefined: (v) => v.transformPagePoint() })
     // Its presence record (ADR-0007): what its presence drives its exit with after Foldkit removes it,
     // resolved from its `Exit` as it leaves; the presence owns the registration. And where it starts when
     // it takes over from a leaver under its key (#286).
@@ -281,7 +319,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     })
     const taken = PresenceRecord.presenceSeedOf(context, element)
     const recordFrame = Spine.recordFrameOf(record)
-    const spine = Spine.makeElementSpine({
+    // Its spine's options, with what its drag writes as its track starts (ADR-0004; #793, PR 2): its
+    // axis, its track and whether it drives a layout node, which the spine reads where it uses them.
+    // The axis is seeded from the config at mount too, as Solid's: the spine registers its drag hook (a
+    // Batch member's hold, #665) at make from it, so a `Drag` a later render adds registers none.
+    const spineOptions: Spine.ElementSpineOptions & SpineDragOptions = {
       runtime: provider.runtime,
       gate: provider.gate,
       id,
@@ -309,12 +351,14 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       builtFeatures: provider.registry.built,
       presence: record,
       projected: false,
-      dragAxis: undefined,
+      dragAxis: DragDefaults.dragAxisOf(view),
+      drag: undefined,
       handoff: undefined,
       // Motion's onAnimationStart / onAnimationComplete (decision 23), as Messages through `dispatch`.
       animation: Spine.animationCallbacks(provider.runtime, id),
       diagnostics: devDiagnostics(),
-    })
+    }
+    const spine = Spine.makeElementSpine(spineOptions)
     UndefinedOr.map(taken, (seed) => spine.seed(seed))
     // Its gestures (#793; decision 23): each started as a delivery wants it, its entry in the Override
     // stack re-resolved as it flips, and its Variant children told through the port's watches (#291).
@@ -328,8 +372,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
         recheck()
       },
       id,
+      pagePoint,
     })
     node.bindGestures(gestures.states)
+    // The `StartsDrag` element (Q8): its downs start its controls' drags, from the first delivery that gives them.
+    const startsDrag = startsDragOf(element, () => config)
     // Its layout (ADR-0009, ADR-0010; decision 30): one projection node for `Layout`, `LayoutId`,
     // `LayoutScroll` or `LayoutRoot`, on the provider's layout, built at the first; and, with a layout
     // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*). Each
@@ -350,7 +397,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
                 config: wardConfig,
                 parent: inherited,
                 snapshot,
-                dragTransition: NO_DRAG_RELEASE,
+                // What its release runs on (ADR-0016, *Amendment (#140)*; Q10): the element's drag transition, read now.
+                dragTransition: DragTransition.dragTransitionOf(view.dragElastic, view.dragTransition),
                 raiseWhileDragged: false,
                 taken,
                 layoutGroup: layoutGroupOf(element),
@@ -364,10 +412,30 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       if (Predicate.isUndefined(MutableRef.get(unregisterValues))) MutableRef.set(unregisterValues, UndefinedOr.map(builtProjection(), (projection) => projection.registerValues(element, () => snapshot.values)))
     }
     joinLayout()
-    // A load's Features arriving (Q15): what the element wants of them starts then.
+    // Its drag (ADR-0004; #793, PR 2): dom's track, started as a delivery wants it, driving the layout
+    // node it has then; its samples and its hold on `x`/`y` to the gestures, its release's end too.
+    const drag = dragOf({
+      provider,
+      element,
+      id,
+      config: configNow,
+      snapshot,
+      recordFrame,
+      live,
+      spine: spineOptions,
+      layoutNode: () => MutableRef.get(layoutNode),
+      pagePoint,
+      skipAnimations,
+      onDragging: gestures.dragHeld,
+      onSample: gestures.dragged,
+      onReleaseEnd: gestures.released,
+    })
+    // A load's Features arriving (Q15): what the element wants of them starts then; a `layout` from the
+    // same load makes its node first, so the drag's track drives it (#582).
     const stopRechecks = provider.onFeatures(() => {
-      gestures.check()
       joinLayout()
+      drag.check()
+      gestures.check()
     })
     // Its `LayoutDependency`, compared per delivery as Motion's `prevProps.layoutDependency !==` is: a
     // change asks for the node's measure, or, on an element with no node (a group's), the whole tree's.
@@ -413,8 +481,10 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       try {
         live.css(config.style)
         dependencyChanged()
-        // A gesture this render wants starts now (ADR-0047 decision 5): a callback added later starts its recognizer.
+        // A gesture this render wants starts now (ADR-0047 decision 5): a callback added later starts its recognizer, a `Drag` its track.
+        drag.check()
         gestures.check()
+        startsDrag.check()
         retarget()
       } catch (error) {
         provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
@@ -422,7 +492,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     })
     // Its Live values followed from its first routed key on (#130), its text (decision 16), and its
     // Transform template after the one at mount (#443), which its presence record draws its exit through.
-    spine.follow({ resolved: () => UndefinedOr.match(last, { onUndefined: () => Spine.NO_VALUES, onDefined: (resolution) => resolution.resolved }), dragging: constFalse })
+    spine.follow({ resolved: () => UndefinedOr.match(last, { onUndefined: () => Spine.NO_VALUES, onDefined: (resolution) => resolution.resolved }), dragging: gestures.dragging })
     const unfollowText = followText(element, config.text, registry)
     const unfollowTemplate = UndefinedOr.match(templateAtMount, {
       onUndefined: () => constVoid,
@@ -453,8 +523,10 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
         unwatchGate()
       }
     }
-    // Its gestures wanted at mount, then its first Retarget: from `initial` to `animate`.
+    // Its drag and its gestures wanted at mount, then its first Retarget: from `initial` to `animate`.
+    drag.check()
     gestures.check()
+    startsDrag.check()
     retarget()
     return () => {
       unwatch()
@@ -463,6 +535,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       unregisterAnimatable()
       uninstall()
       stopRechecks()
+      startsDrag.dispose()
+      drag.dispose()
       gestures.dispose()
       UndefinedOr.map(MutableRef.get(layoutNode), (node) => node.dispose())
       UndefinedOr.map(MutableRef.get(unregisterValues), (unregister) => unregister())
