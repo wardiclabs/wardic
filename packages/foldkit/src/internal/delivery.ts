@@ -17,6 +17,7 @@ import * as CustomElement from "foldkit/customElement"
 import type { Attribute, HtmlBuilder } from "foldkit/html"
 import * as Schema from "effect/Schema"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { recheck } from "./reactivity.ts"
 
 /** The property an element's config is delivered through. */
@@ -48,6 +49,9 @@ interface Delivered {
 
 /** The config last delivered to `element`: what the props module wrote at `create`, or a setter took since. */
 export const deliveredTo = (element: Element): unknown => (element as Delivered)[KEY]
+
+/** The config a view node carries for its element, before any delivery: its `wardic` property among `props` (#794's walk). */
+export const deliveredFrom = (props: Record<string, unknown> | undefined): unknown => UndefinedOr.map(props, (given) => given[KEY])
 
 /**
  * An accessor for the `wardic` property on `element`, over the value the props module wrote at

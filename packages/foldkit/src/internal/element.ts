@@ -86,10 +86,12 @@ const devDiagnostics = (): Spine.SpineDiagnostics | undefined => {
  * projected together, so a transform key of each joins one `transform` (#791, Q7); a Live value at
  * what it reads through `registry` now; its Transform template under the renderer's key (#443). What
  * `w.*` and the bundle render in their one `h.Style`, stringified for Foldkit's style module. A Variant
- * child's inherited `initial` isn't known here (the builder-time walk is slice 4's): its Mount writes it.
+ * child's inherited `initial` comes with `inherited`, the context its ancestor provides: the walk at
+ * the `w.Provider()` element's build gives it (#794, Q7), and its Mount writes it for an element with
+ * no provider element above.
  */
-export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry): Style.Style => {
-  const start = Spine.startOf(config, undefined, false, reactivity.untrack)
+export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue): Style.Style => {
+  const start = Spine.startOf(config, inherited, false, reactivity.untrack)
   return Style.starting(tag, ElementSetup.drawnAtRest({ ...(liveValuesOf(config.style, registry) as Values.Values), ...start.initialValues }, false, config.transformTemplate)).style
 }
 

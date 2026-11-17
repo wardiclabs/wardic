@@ -22,6 +22,7 @@ import { propertyOf } from "./delivery.ts"
 import { type Config, startingStyleOf, stringified } from "./element.ts"
 import { mountOf } from "./mount.ts"
 import { registryOf, type State } from "./services.ts"
+import { type ViewNode, walkProvider } from "./walk.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** The one identity every `w.*` element is stamped with (#791, Q8). */
@@ -120,11 +121,15 @@ const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: str
 /** Foldkit's element function, as `h.div` and a `h.keyed(tag)(key, …)` share it. */
 type Make = (attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Ward.Child>) => Html
 
-/** A `w.*` element: folded, rendered through Foldkit's `make`, and stamped. */
+/** A `w.*` element: folded, rendered through Foldkit's `make`, and stamped. The provider element walks its subtree once built (#794, Q7). */
 const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Ward.Child> | undefined): Html => {
   const folded = fold(attributes)
   if (DEV && Predicate.isNotUndefined(folded.config.text) && Predicate.isNotUndefined(children) && children.length > 0) throw new Error(TEXT_WITH_CHILDREN)
-  return brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
+  const node = brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
+  // The provider element's subtree exists by now, children before their parent: each Variant child's
+  // inherited Starting style goes into its node, for the server's HTML and the hydrating render alike.
+  if (Bool.and(Predicate.isNotUndefined(folded.provider), Predicate.isNotNull(node))) walkProvider(node as unknown as ViewNode, configOf(folded as Folded<never>), IDENTITY, registryOf(state))
+  return node
 }
 
 /** Whether `key` names one of `h`'s element factories: a lowercase name, a function, and neither `keyed` nor `submodel`. */
