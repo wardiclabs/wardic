@@ -1,0 +1,79 @@
+{
+  "name": "@wardic/foldkit",
+  "version": "1.1.2",
+  "private": true,
+  "description": "Wardic for Foldkit: Motion's animations on Foldkit's views, as Effect.",
+  "keywords": [
+    "animation",
+    "motion",
+    "foldkit",
+    "effect"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/foldkit"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "The Wardic contributors",
+    "email": "hello@wardic.dev",
+    "url": "https://wardic.dev"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.map",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@wardic/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./internal/dev": {
+      "development": {
+        "@wardic/source": "./src/internal/dev.ts",
+        "types": "./dist/internal/dev.d.ts",
+        "default": "./dist/internal/dev.js"
+      },
+      "@wardic/source": "./src/internal/dev.production.ts",
+      "types": "./dist/internal/dev.production.d.ts",
+      "default": "./dist/internal/dev.production.js"
+    },
+    "./internal/*": null,
+    "./*": {
+      "@wardic/source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck:tests": "../../node_modules/typescript-7/bin/tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@wardic/core": "workspace:*",
+    "@wardic/dom": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.1.1",
+    "foldkit": "~0.170.0"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "4.1.4",
+    "@wardic/test": "workspace:*",
+    "effect": "4.1.4",
+    "foldkit": "0.170.0"
+  }
+}

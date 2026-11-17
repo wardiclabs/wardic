@@ -1,0 +1,14 @@
+{
+  "name": "pack-check-foldkit-vite",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@effect/platform-browser": "4.1.4",
+    "effect": "4.1.4",
+    "foldkit": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.2"
+  }
+}

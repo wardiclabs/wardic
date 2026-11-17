@@ -16,7 +16,7 @@ import { join } from "node:path"
 
 const ROOT = join(import.meta.dirname, "..")
 const LOCKFILE = join(ROOT, "bun.lock")
-const PACKAGES = ["core", "dom", "solid", "test"] as const
+const PACKAGES = ["core", "dom", "solid", "test", "foldkit"] as const
 
 /** The `version` in `dir`'s `package.json`, if it has one. */
 const versionIn = (dir: string): string | undefined => {

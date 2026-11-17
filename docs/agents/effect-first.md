@@ -2,7 +2,7 @@
 
 How code in this repo is written: Effect's modules over vanilla TypeScript, and no ternary operators. Set in #63 and recorded, with the reasons and measurements, in [ADR-0025](../adr/0025-effect-first-core.md).
 
-**Scope.** Every package's source follows these rules: `packages/core/src`, `packages/dom/src`, `packages/solid/src` and `packages/test/src` (ADR-0025, *Amendment (#69)*). solid's Tier 1 stays Effect-free, unwrapping at its edge. Every package's tests and benches are tooling: no ternaries, and the rest where it reads well. A ternary there takes rule 2's forms, as in source (`Bool.match`, `UndefinedOr.match`, `Option.match`, `Match`), and a branch in JSX on a signal is Solid's `<Show>`.
+**Scope.** Every package's source follows these rules: `packages/core/src`, `packages/dom/src`, `packages/solid/src`, `packages/test/src` (ADR-0025, *Amendment (#69)*) and `packages/foldkit/src` (#791). solid's Tier 1 stays Effect-free, unwrapping at its edge. Every package's tests and benches are tooling: no ternaries, and the rest where it reads well. A ternary there takes rule 2's forms, as in source (`Bool.match`, `UndefinedOr.match`, `Option.match`, `Match`), and a branch in JSX on a signal is Solid's `<Show>`.
 
 ## The two rules
 
