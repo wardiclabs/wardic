@@ -127,8 +127,9 @@ const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, 
   if (DEV && Predicate.isNotUndefined(folded.config.text) && Predicate.isNotUndefined(children) && children.length > 0) throw new Error(TEXT_WITH_CHILDREN)
   const node = brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
   // The provider element's subtree exists by now, children before their parent: each Variant child's
-  // inherited Starting style goes into its node, for the server's HTML and the hydrating render alike.
-  if (Bool.and(Predicate.isNotUndefined(folded.provider), Predicate.isNotNull(node))) walkProvider(node as unknown as ViewNode, configOf(folded as Folded<never>), IDENTITY, registryOf(state))
+  // inherited Starting style goes into its node, for the server's HTML and the hydration render alike.
+  // Foldkit's node type isn't an export: the walk reads it by its shape, through `unknown`.
+  if (Bool.and(Predicate.isNotUndefined(folded.provider), Predicate.isNotNull(node))) walkProvider(node as unknown as ViewNode, configOf(folded as Folded<never>), registryOf(state))
   return node
 }
 

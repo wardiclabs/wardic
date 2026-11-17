@@ -51,7 +51,7 @@ interface Delivered {
 export const deliveredTo = (element: Element): unknown => (element as Delivered)[KEY]
 
 /** The config a view node carries for its element, before any delivery: its `wardic` property among `props` (#794's walk). */
-export const deliveredFrom = (props: Record<string, unknown> | undefined): unknown => UndefinedOr.map(props, (given) => given[KEY])
+export const carriedBy = (props: Record<string, unknown> | undefined): unknown => UndefinedOr.map(props, (given) => given[KEY])
 
 /**
  * An accessor for the `wardic` property on `element`, over the value the props module wrote at
