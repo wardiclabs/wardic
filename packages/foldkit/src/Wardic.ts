@@ -55,7 +55,7 @@ export interface MakeOptions<F> {
   /**
    * What runs a Measure pass (decision 30; #792, Q10 and Q17): `"patch"` (the default), a pass after
    * every patch that changed the DOM, found by a `MutationObserver` on the `w.Provider()` element, else
-   * the document's body; `"declared"`, only a `w.LayoutDependency` change and `Wardic.animateLayout`.
+   * the document's body; `"declared"`, only a `w.LayoutDependency` change (and `Wardic.animateLayout`, from PR 3).
    */
   readonly layoutTrigger?: "patch" | "declared" | undefined
   /** Attributes the observer watches beside `class` and `hidden` (decision 30): those the app's CSS lays out by. */
@@ -143,9 +143,10 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
    */
   Presence: (options?: Ward.PresenceOptions<Message>) => Ward.Attribute
   /**
-   * A **Layout animation** of the element (ADR-0009; Motion's `layout`): it animates from where it was
-   * to where a patch put it, measured by a pass after every patch that changed the DOM (decision 30).
-   * `true` (the default), or a Layout mode: `"position"`, `"size"`, `"preserve-aspect"`. Needs `Features.layout`.
+   * The element is a **Projection node** (ADR-0009; Motion's `layout`): it animates from where it was
+   * to where a patch put it, measured by a **Measure pass** after every patch that changed the DOM
+   * (decision 30). `true` (the default), or a Layout mode: `"position"`, `"size"`, `"preserve-aspect"`.
+   * Needs `Features.layout`.
    */
   Layout: (value?: Ward.Config["layout"]) => Ward.Attribute
   /** A **Shared layout** id (ADR-0010; Motion's `layoutId`): an element with the same one, mounting as this leaves, flies from it. */
@@ -154,7 +155,7 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   LayoutDependency: (value: Ward.Config["layoutDependency"]) => Ward.Attribute
   /** The element scrolls, and its scroll isn't read as its children moving (Motion's `layoutScroll`). */
   LayoutScroll: (value?: Ward.Config["layoutScroll"]) => Ward.Attribute
-  /** A root for the layout animations inside it, which never animates its own (Motion's `layoutRoot`). */
+  /** A stable sub-root of the projection tree (ADR-0013; Motion's `layoutRoot`): the layout animations inside it anchor to it, and it never animates its own. */
   LayoutRoot: (value?: Ward.Config["layoutRoot"]) => Ward.Attribute
   /** A **Layout group** (#432; Motion's `LayoutGroup`): the namespace of the `LayoutId`s under the element, read once. */
   LayoutGroup: (options?: Ward.LayoutGroupOptions) => Ward.Attribute

@@ -10,6 +10,7 @@
  */
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
 import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import * as Spine from "@wardic/core/unstable/Spine"
@@ -63,6 +64,9 @@ const NO_ACTIVE: Spine.Active = { inView: false, focused: false, hovered: false,
 
 // Module state (#460, Q7): an id counter, only ever compared for distinctness.
 let ids = 0
+
+/** What a layout node's release runs on, with no drag (slice 3's): Motion's release, made once. */
+const NO_DRAG_RELEASE = DragTransition.dragTransitionOf(undefined, undefined)
 
 /**
  * Development's diagnostics for the spine (#746, ADR-0067 *Amendment (#746)*, decision 6): given under
@@ -155,7 +159,7 @@ const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue 
   const update = config.onUpdate
   const layoutStart = config.layoutAnimationStart
   const layoutComplete = config.layoutAnimationComplete
-  if (Bool.every([Predicate.isUndefined(start), Predicate.isUndefined(complete), Predicate.isUndefined(update), Predicate.isUndefined(layoutStart), Predicate.isUndefined(layoutComplete)])) return configured
+  if (Predicate.isUndefined(start) && Predicate.isUndefined(complete) && Predicate.isUndefined(update) && Predicate.isUndefined(layoutStart) && Predicate.isUndefined(layoutComplete)) return configured
   const view: CoreConfig.SpineConfig & Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> = {
     ...configured,
     ...UndefinedOr.match(start, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationStart: dispatch(handler) }) }),
@@ -191,7 +195,11 @@ const followText = (element: HTMLElement, atom: Config["text"], registry: AtomRe
  */
 export const mountElement = (provider: Provider, state: State, element: HTMLElement, paused: () => boolean, offer: (message: unknown) => void, root: WardicConfigValue.WardicConfigValue | undefined): (() => void) => {
   const tag = element.localName
-  const dispatch = dispatcherOf(offer)
+  // Its callbacks' Messages (decision 23): none under replay (decision 34), whose history they'd change.
+  const dispatch = dispatcherOf((message) => {
+    if (paused()) return
+    offer(message)
+  })
   // Its place in the tree (decision 21): its node, made by its first child's Mount or here, and the
   // nearest `w.Config` above it (decision 22).
   const node = nodeOf(element)
@@ -281,17 +289,19 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // Its layout (ADR-0009, ADR-0010; decision 30): one projection node for `Layout`, `LayoutId`,
     // `LayoutScroll` or `LayoutRoot`, on the provider's layout, built at the first; and, with a layout
     // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*).
-    const layout = Bool.match(Feature.wantsLayoutNode(view as WardConfig.WardConfig), { onTrue: () => layoutOf(provider, state), onFalse: () => undefined })
+    const wardConfig = (): WardConfig.WardConfig => view as WardConfig.WardConfig
+    const builtProjection = (): ProjectionSystem.Shape | undefined => Keys.projectionIn(provider.registry.built())
+    const layout = Bool.match(Feature.wantsLayoutNode(wardConfig()), { onTrue: () => layoutOf(provider, state), onFalse: () => undefined })
     const layoutNode = UndefinedOr.map(layout, (made) =>
       made.projection.register(
         made.nodes.registrationOf(
           made.nodes.optionsOf({
             id,
             element,
-            config: () => view as WardConfig.WardConfig,
+            config: wardConfig,
             parent: inherited,
             snapshot,
-            dragTransition: DragTransition.dragTransitionOf(undefined, undefined),
+            dragTransition: NO_DRAG_RELEASE,
             raiseWhileDragged: false,
             taken,
             layoutGroup: layoutGroupOf(element),
@@ -301,7 +311,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
           }),
         ),
       ))
-    const unregisterValues = UndefinedOr.match(Keys.projectionIn(provider.registry.built()), { onUndefined: () => constVoid, onDefined: (projection) => projection.registerValues(element, () => snapshot.values) })
+    const unregisterValues = UndefinedOr.match(builtProjection(), { onUndefined: () => constVoid, onDefined: (projection) => projection.registerValues(element, () => snapshot.values) })
     // Its `LayoutDependency`, compared per delivery as Motion's `prevProps.layoutDependency !==` is: a
     // change asks for the node's measure, or, on an element with no node (a group's), the whole tree's.
     let dependency = config.layoutDependency
@@ -311,7 +321,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       dependency = next
       UndefinedOr.match(layoutNode, {
         onDefined: (node) => node.notify(),
-        onUndefined: () => UndefinedOr.map(Keys.projectionIn(provider.registry.built()), (projection) => projection.notify()),
+        onUndefined: () => UndefinedOr.map(builtProjection(), (projection) => projection.notify()),
       })
     }
     // The Override stack resolved (ADR-0007), compared by value (#470): a delivery that resolves the same

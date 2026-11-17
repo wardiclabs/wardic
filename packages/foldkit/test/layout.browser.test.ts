@@ -147,17 +147,18 @@ describe("w.LayoutDependency under layoutTrigger: declared", () => {
   type BoxMessage = typeof BoxMessage.Type
   const set = (model: Box, message: BoxMessage) => BoxMessage.match(message, { Set: ({ moved, tick }) => ({ model: { ...model, moved, tick } }) })
 
-  /** A box moved by its style, with the Model's `tick` as its dependency. */
+  /** A box moved by its class, which the patch trigger would see, with the Model's `tick` as its dependency. */
   const boxOf = (model: Box, h: HtmlBuilder<BoxMessage>): Html => {
     const w = declared.html(h)
     return h.div([h.Id("stage"), h.Style({ position: "relative", height: "100px" })], [
-      w.div([h.Id("box"), w.Layout(true), w.LayoutDependency(model.tick), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ ...ABS, left: Bool.match(model.moved, { onTrue: () => "200px", onFalse: () => "0px" }) })]),
+      h.style([], [".ld-box{position:absolute;top:0;left:0;width:100px;height:40px;background:teal}.ld-box.moved{left:200px}"]),
+      w.div([h.Id("box"), h.Class(Bool.match(model.moved, { onTrue: () => "ld-box moved", onFalse: () => "ld-box" })), w.Layout(true), w.LayoutDependency(model.tick), w.Transition({ duration: 0.3, ease: "linear" })]),
     ])
   }
   const embedBox = (): Embedded<Box> => embed<Box, BoxMessage, Box>({ Model: Box, Set: Box, init: { moved: false, tick: 0 }, update: set, view: boxOf, toMessage: (value) => BoxMessage.Set(value) })
   const boxLeft = (held: Pick<Embedded<never>, "container">): number => leftOf(held.container.querySelector("#box")!) - leftOf(held.container.querySelector("#stage")!)
 
-  it("the dependency at the same value asks for no pass: the box is at its new place at once", async () => {
+  it("the dependency at the same value asks for no pass: the class change alone moves the box to its new place at once", async () => {
     const held = embedBox()
     app = held
     await until(() => held.container.querySelector("#box") !== null, 2000, "the box renders")
@@ -174,6 +175,111 @@ describe("w.LayoutDependency under layoutTrigger: declared", () => {
     held.send({ moved: true, tick: 1 })
     await until(() => boxLeft(held) > 0 && boxLeft(held) < 150, 2000, "the box seeds back and moves")
     await until(() => Math.abs(boxLeft(held) - 200) < 0.5, 2000, "it lands")
+  })
+})
+
+describe("the observer's root", () => {
+  const Count = Schema.Struct({ extra: Schema.Number })
+  type Count = typeof Count.Type
+  const CountMessage = defineMessageUnion({ Extra: { extra: Schema.Number } })
+  type CountMessage = typeof CountMessage.Type
+  const more = (model: Count, message: CountMessage) => CountMessage.match(message, { Extra: ({ extra }) => ({ model: { ...model, extra } }) })
+
+  /** A box under the app's root, paragraphs before it as the Model says; the root carries `w.Provider()` or not. */
+  const viewOf =
+    (provided: boolean) =>
+    (model: Count, h: HtmlBuilder<CountMessage>): Html => {
+      const w = wardic.html(h)
+      return w.div([...Bool.match(provided, { onTrue: () => [w.Provider()], onFalse: () => [] }), h.Id("root")], [
+        // A paragraph before the box once asked for (`Arr.makeBy` and `Arr.range` never give an empty array).
+        ...Bool.match(model.extra > 0, { onTrue: () => [h.p([h.Id("extra-1"), h.Style({ height: "20px", margin: "0" })], ["extra 1"])], onFalse: () => [] }),
+        w.div([h.Id("box"), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ height: "40px" })], ["box"]),
+      ])
+    }
+  const embedRoot = (provided: boolean): Embedded<number> =>
+    embed<Count, CountMessage, number>({ Model: Count, Set: Schema.Number, init: { extra: 0 }, update: more, view: viewOf(provided), toMessage: (extra) => CountMessage.Extra({ extra }) })
+  /** A 50 px element put before the app's host: the whole app shifts down, a change outside the app's tree. */
+  const shoved = (held: Pick<Embedded<never>, "container">): HTMLElement => {
+    const stray = document.createElement("div")
+    stray.style.height = "50px"
+    document.body.insertBefore(stray, held.container)
+    return stray
+  }
+
+  it("with w.Provider() on the app's root, a change outside the app asks for no pass, and one inside does", async () => {
+    const held = embedRoot(true)
+    app = held
+    await until(() => held.container.querySelector("#box") !== null, 2000, "the box renders")
+    const box = (): HTMLElement => held.container.querySelector<HTMLElement>("#box")!
+    await paintedReads(() => 0, 3)
+    const at = topOf(box())
+    const stray = shoved(held)
+    // The app moved with the page: no pass, so the box doesn't fly from where it was.
+    const outside = await paintedReads(() => topOf(box()), 4)
+    expect(outside.every((top) => Math.abs(top - (at + 50)) < 0.5), `moved with the page at once: ${outside}`).toBe(true)
+    // A paragraph before it, inside the root: a pass, so the box flies from where it was.
+    held.send(1)
+    await until(() => topOf(box()) > at + 50 && topOf(box()) < at + 70, 2000, "the box seeds back and moves")
+    await until(() => Math.abs(topOf(box()) - (at + 70)) < 0.5, 2000, "it lands")
+    stray.remove()
+  })
+
+  it("without w.Provider(), the observer is the body's: a change outside the app asks for a pass too", async () => {
+    const held = embedRoot(false)
+    app = held
+    await until(() => held.container.querySelector("#box") !== null, 2000, "the box renders")
+    const box = (): HTMLElement => held.container.querySelector<HTMLElement>("#box")!
+    await paintedReads(() => 0, 3)
+    const at = topOf(box())
+    const stray = shoved(held)
+    await until(() => topOf(box()) > at && topOf(box()) < at + 50, 2000, "the box seeds back and moves")
+    await until(() => Math.abs(topOf(box()) - (at + 50)) < 0.5, 2000, "it lands")
+    stray.remove()
+  })
+})
+
+describe("w.Presence({ presenceAffectsLayout: false }) beside a layout element", () => {
+  const both = Wardic.make({ env: DomLive, features: [Features.layout, Features.presence] })
+  const Rows = Schema.Struct({ items: Schema.Array(Schema.String) })
+  type Rows = typeof Rows.Type
+  const RowsMessage = defineMessageUnion({ Items: { items: Schema.Array(Schema.String) } })
+  type RowsMessage = typeof RowsMessage.Type
+  const rows = (model: Rows, message: RowsMessage) => RowsMessage.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) })
+
+  /** A presence list, and a layout element below it, which a leaver's going would move up. */
+  const sceneOf =
+    (affects: boolean) =>
+    (model: Rows, h: HtmlBuilder<RowsMessage>): Html => {
+      const w = both.html(h)
+      return h.div([h.Id("stage")], [
+        w.ul([h.Id("list"), w.Presence({ presenceAffectsLayout: affects }), h.Style({ margin: "0", padding: "0" })], Arr.map(model.items, (key) =>
+          w.keyed("li")(key, [h.Id(`item-${key}`), w.Initial({ opacity: 1 }), w.Exit({ opacity: 0 }), w.Transition({ duration: 0.1, ease: "linear" }), h.Style(ROW)], [key]))),
+        w.div([h.Id("below"), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ height: "40px" })], ["below"]),
+      ])
+    }
+  const embedScene = (affects: boolean): Embedded<ReadonlyArray<string>> =>
+    embed<Rows, RowsMessage, ReadonlyArray<string>>({ Model: Rows, Set: Schema.Array(Schema.String), init: { items: ["a", "b"] }, update: rows, view: sceneOf(affects), toMessage: (items) => RowsMessage.Items({ items }) })
+  const belowTop = (held: Pick<Embedded<never>, "container">): number => topOf(held.container.querySelector("#below")!) - topOf(held.container.querySelector("#stage")!)
+
+  it("by default a leaver's going moves the element below it into the space, animated", async () => {
+    const held = embedScene(true)
+    app = held
+    await until(() => held.container.querySelector("#below") !== null && belowTop(held) === 80, 2000, "the scene renders")
+    held.send(["a"])
+    await until(() => held.container.querySelector("#item-b") === null, 2000, "b gone once its exit ends")
+    // The pass seeds `#below` back where it was and it flies up.
+    await until(() => belowTop(held) > 40 && belowTop(held) < 80, 2000, "below seeds back and moves")
+    await until(() => Math.abs(belowTop(held) - 40) < 0.5, 2000, "it lands")
+  })
+
+  it("told not to affect layout, the going asks for no pass: the element below jumps", async () => {
+    const held = embedScene(false)
+    app = held
+    await until(() => held.container.querySelector("#below") !== null && belowTop(held) === 80, 2000, "the scene renders")
+    held.send(["a"])
+    await until(() => held.container.querySelector("#item-b") === null, 2000, "b gone once its exit ends")
+    const reads = await paintedReads(() => belowTop(held), 4)
+    expect(reads.every((top) => top === 40), `at its new place at once: ${reads}`).toBe(true)
   })
 })
 

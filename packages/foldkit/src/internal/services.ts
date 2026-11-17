@@ -79,7 +79,7 @@ export interface Provider {
   readonly paused: () => boolean
 }
 
-/** How the layout passes are triggered (decision 30; #792, Q17): `Wardic.make`'s `layoutTrigger` and `layoutAttributes`. */
+/** How the Measure passes are triggered (decision 30; #792, Q17): `Wardic.make`'s `layoutTrigger` and `layoutAttributes`. */
 export interface LayoutOptions {
   readonly trigger: "patch" | "declared" | undefined
   readonly attributes: ReadonlyArray<string> | undefined
@@ -97,7 +97,7 @@ export interface State {
   readonly given: ReadonlyArray<Feature.Feature>
   /** The Handle's app-wide config (`Wardic.make({ config })`), the root of every element's `w.Config` chain; none without one. */
   readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
-  /** How its layout passes are triggered (decision 30). */
+  /** How its Measure passes are triggered (decision 30). */
   readonly layout: LayoutOptions
   deferred: Deferred.Deferred<Provider>
   live: Provider | undefined
@@ -276,7 +276,8 @@ export const joined = (state: State, provider: Provider, member: Element | undef
       if (state.live !== provider) return
       state.live = undefined
       state.deferred = Deferred.makeUnsafe<Provider>()
-      Effect.runFork(Scope.close(provider.scope, Exit.void))
+      // Its Features ended first (what the layout's observer goes with), then its Scope.
+      Effect.runFork(Effect.andThen(Effect.promise(() => provider.registry.dispose()), Scope.close(provider.scope, Exit.void)))
     })
   }
 }
