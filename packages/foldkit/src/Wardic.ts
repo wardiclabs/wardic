@@ -163,9 +163,7 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
     html,
     Provider: mountOf<never>(state, { provider: {}, user: undefined }),
     Element: mountOf<never>(state, { provider: undefined, user: undefined }),
-    get resources() {
-      return resourcesOf(handle)
-    },
+    resources: resourcesOf(() => handle),
   }
   remember(handle, state)
   return handle

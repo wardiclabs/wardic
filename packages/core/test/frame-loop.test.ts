@@ -164,6 +164,7 @@ const heldClock = (dts: ReadonlyArray<number>) => {
     }),
     tick: () => Effect.void,
     now: () => 0,
+    frameAt: () => Number.NaN,
   }
   return {
     shape,
@@ -399,6 +400,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
     ticks: Stream.concat(Stream.fromIterable(dts), end),
     tick: () => Effect.void,
     now: () => 0,
+    frameAt: () => Number.NaN,
   })
 
   it("a failure in the loop itself fails every run on it, and the next run starts a fresh burst", async () => {

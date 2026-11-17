@@ -8,19 +8,21 @@
  *
  * @module
  */
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import * as Imperative from "@wardic/dom/unstable/Imperative"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import { constFalse } from "effect/Function"
 import * as Layer from "effect/Layer"
+import * as MutableRef from "effect/MutableRef"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
-import { joined, providerFor, type Provider, stateOf } from "./services.ts"
+import { joined, providerFor, type Provider, reducedMotionUnder, type State, stateOf } from "./services.ts"
 
 /** The mark of a Handle, as the `Wardic` service carries it: what its Effects reach the Handle's state through. */
 export const HANDLE: unique symbol = Symbol.for("@wardic/foldkit/Handle")
@@ -33,8 +35,8 @@ export interface HandleRef {
 /** The Wardic service: a program's **Handle**, which `wardic.resources` gives its Commands. */
 export class Wardic extends Context.Service<Wardic, HandleRef>()("@wardic/foldkit/Wardic") {}
 
-/** The Layer a program's `resources` takes, giving its Commands the Handle (decision 9). */
-export const resourcesOf = (handle: HandleRef): Layer.Layer<Wardic> => Layer.succeed(Wardic)(handle)
+/** The Layer a program's `resources` takes, giving its Commands the Handle (decision 9): read when built, so the Handle can hold it. */
+export const resourcesOf = (handle: () => HandleRef): Layer.Layer<Wardic> => Layer.sync(Wardic)(handle)
 
 /** What `animate` ends with: whether every key landed, or a later animation took its keys (#791, Q21). */
 export interface AnimationEnd {
@@ -67,12 +69,15 @@ const nameOf = (subject: Imperative.WardicAnimationSubject): string => {
   return "an element list"
 }
 
-/** What a Command's animations run on: the Provider's services, as a Solid animation scope's. */
-const envOf = (provider: Provider): Imperative.AnimateEnv => ({
+/**
+ * What a Command's animations run on: the Provider's services, as a Solid animation scope's, under the
+ * Handle's `config` (decision 22): its `reducedMotion` and `skipAnimations`, read as each animation starts.
+ */
+const envOf = (state: State, provider: Provider): Imperative.AnimateEnv => ({
   runtime: provider.runtime,
   gate: provider.gate,
-  reducedMotion: provider.reducedMotion,
-  skipAnimations: constFalse,
+  reducedMotion: reducedMotionUnder(provider, state.rootConfig),
+  skipAnimations: WardicConfigValue.skipAnimationsOf(state.rootConfig),
   positionalKeys: provider.positionalKeys,
   defaultTransition: provider.defaultTransition,
   ownValues: provider.valueReads.ownValues,
@@ -88,28 +93,33 @@ const envOf = (provider: Provider): Imperative.AnimateEnv => ({
  * A Wardic element animates through its own spine, latest wins, as Motion's; a plain element through
  * a spine of its own. Wrap it in `Command.define`, with `resources: wardic.resources` on the program.
  */
-export const animate = (subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options?: AnimateOptions): Effect.Effect<AnimationEnd, AnimationFailed, Wardic> =>
-  Effect.gen(function* () {
+export const animate: (subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options?: AnimateOptions) => Effect.Effect<AnimationEnd, AnimationFailed, Wardic> = Effect.fnUntraced(
+  function* (subject, values, options) {
     const handle = yield* Wardic
     const state = stateOf(handle)
     const provider = yield* providerFor(state, undefined, undefined)
+    // A member while it runs, from before its subject is checked: a Provider built for a subject that
+    // finds nothing is left again at once, not kept up with no member.
+    const left = joined(state, provider, undefined)
     const root = provider.root
-    if (countOf(subject, root) === 0) return yield* Effect.fail(new AnimationFailed({ subject: nameOf(subject) }))
-    // A member while it runs: the Provider stays up until it ends.
-    const left = joined(state, provider, {})
-    return yield* running(provider, root, left, subject, values, options)
-  })
+    if (countOf(subject, root) === 0) {
+      left()
+      return yield* Effect.fail(new AnimationFailed({ subject: nameOf(subject) }))
+    }
+    return yield* running(state, provider, root, left, subject, values, options)
+  },
+)
 
 /** `scopedAnimate`'s element form, named plainly: its overloads' union is more than TypeScript represents at a call. */
 type Run = (subject: Imperative.WardicAnimationSubject, target: WardConfig.WardicVariant, options?: AnimateOptions) => Imperative.WardicPlaybackControls
 
 /** The animation, run until it ends: its end as the Effect's success, its interruption as its stop. */
-const running = (provider: Provider, root: Element | undefined, left: () => void, subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options: AnimateOptions | undefined): Effect.Effect<AnimationEnd> =>
+const running = (state: State, provider: Provider, root: Element | undefined, left: () => void, subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options: AnimateOptions | undefined): Effect.Effect<AnimationEnd> =>
   Effect.callback<AnimationEnd>((resume) => {
-    let controls: Imperative.WardicPlaybackControls | undefined
-    const run = Imperative.scopedAnimate(envOf(provider), () => root, {
+    const controls = MutableRef.make(Option.none<Imperative.WardicPlaybackControls>())
+    const run = Imperative.scopedAnimate(envOf(state, provider), () => root, {
       started: (made) => {
-        controls = made
+        MutableRef.set(controls, Option.some(made))
       },
       ended: (_made, landed) => {
         left()
@@ -118,7 +128,7 @@ const running = (provider: Provider, root: Element | undefined, left: () => void
     }) as unknown as Run
     run(subject, values, options)
     return Effect.sync(() => {
-      UndefinedOr.map(controls, (made) => made.stop())
+      Option.map(MutableRef.get(controls), (made) => made.stop())
       left()
     })
   })
@@ -129,12 +139,13 @@ const running = (provider: Provider, root: Element | undefined, left: () => void
  * `ManagedResource`'s `acquire`, whose Scope Foldkit closes when its Model condition drops, or an
  * `Effect.scoped` that ends with the Command. The Provider is held while that Scope lives.
  */
-export const provide = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, Exclude<R, Feature.ProviderServices> | Wardic | Scope.Scope> =>
-  Effect.gen(function* () {
+export const provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, Exclude<R, Feature.ProviderServices> | Wardic | Scope.Scope> = Effect.fnUntraced(
+  function* <A, E, R>(effect: Effect.Effect<A, E, R>) {
     const handle = yield* Wardic
     const state = stateOf(handle)
     const provider = yield* providerFor(state, undefined, undefined)
-    const left = joined(state, provider, {})
+    const left = joined(state, provider, undefined)
     yield* Effect.addFinalizer(() => Effect.sync(left))
     return yield* Effect.provideContext(effect, provider.context)
-  })
+  },
+)

@@ -30,14 +30,14 @@ import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import { constFalse } from "effect/Function"
+import { constFalse, identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
-import type * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
 import { rootConfigValueOf } from "./tree.ts"
 
@@ -181,8 +181,18 @@ export const providerFor = (state: State, element: Element | undefined, options:
   Effect.gen(function* () {
     let provider = state.live
     if (Predicate.isUndefined(provider)) provider = yield* Bool.match(state.building, { onTrue: () => Deferred.await(state.deferred), onFalse: () => first(state) })
-    if (Bool.and(Predicate.isNotUndefined(options), Predicate.isNotUndefined(element))) yield* takeRoot(provider, UndefinedOr.getOrThrow(element))
+    if (Predicate.isNotUndefined(options)) yield* UndefinedOr.match(element, { onUndefined: () => Effect.void, onDefined: (root) => takeRoot(provider, root) })
     return provider
+  })
+
+/**
+ * Reduced motion (ADR-0029) under `value`, the nearest `w.Config` (decision 22): its setting applied to
+ * the user's preference, read as each animation starts; the Provider's own where no `w.Config` is above.
+ */
+export const reducedMotionUnder = (provider: Provider, value: WardicConfigValue.WardicConfigValue | undefined): (() => boolean) =>
+  UndefinedOr.match(value, {
+    onUndefined: () => provider.reducedMotion,
+    onDefined: (config) => () => ReducedMotion.applies(UndefinedOr.match(WardicConfigValue.settingOf(config), { onUndefined: () => "user" as const, onDefined: identity }), provider.prefers()),
   })
 
 /** The first element's build: the Provider made live, and the `Deferred` done for the elements after it. */
@@ -206,18 +216,19 @@ const takeRoot = (provider: Provider, element: Element): Effect.Effect<void> => 
 }
 
 /**
- * Count a mounted element in. Returns what its release calls: the count out, the root given up when it
- * was this element, and, once the last element has left, the Scope closed at the end of the task, so a
- * patch that removes every element and inserts new ones keeps the runtime.
+ * Count a member in: a mounted element, or a Command's animation or `provide` (`undefined`, never the
+ * root). Returns what its release calls: the count out, the root given up when it was this element, and,
+ * once the last member has left, the Scope closed at the end of the task, so a patch that removes every
+ * element and inserts new ones keeps the runtime.
  */
-export const joined = (state: State, provider: Provider, owner: object): (() => void) => {
+export const joined = (state: State, provider: Provider, member: Element | undefined): (() => void) => {
   provider.elements++
   let left = false
   return () => {
     if (left) return
     left = true
     provider.elements--
-    if (provider.root === owner) provider.root = undefined
+    if (Bool.and(Predicate.isNotUndefined(member), provider.root === member)) provider.root = undefined
     if (provider.elements > 0) return
     queueMicrotask(() => {
       if (provider.elements > 0) return

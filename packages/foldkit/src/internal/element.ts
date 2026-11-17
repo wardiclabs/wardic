@@ -8,7 +8,6 @@
  *
  * @module
  */
-import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
@@ -24,7 +23,7 @@ import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
-import { constFalse, constVoid, identity } from "effect/Function"
+import { constFalse, constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -33,7 +32,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrame, installSetter, patchTouched } from "./delivery.ts"
 import { reactivity } from "./reactivity.ts"
-import type { Provider } from "./services.ts"
+import { type Provider, reducedMotionUnder } from "./services.ts"
 import { configValueOf, dropNode, nodeOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
@@ -209,10 +208,7 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
   const styleNow = (): object | string | undefined => config.style
   const links = ElementSetup.startLinksOf(element, styleNow, live)
   // Reduced motion (ADR-0029) and skipped animations (#468) under its nearest `w.Config`, read at each Retarget.
-  const reducedMotion = UndefinedOr.match(configValue, {
-    onUndefined: () => provider.reducedMotion,
-    onDefined: (value) => () => ReducedMotion.applies(UndefinedOr.match(WardicConfigValue.settingOf(value), { onUndefined: () => "user" as const, onDefined: identity }), provider.prefers()),
-  })
+  const reducedMotion = reducedMotionUnder(provider, configValue)
   const skipped = WardicConfigValue.skipAnimationsOf(configValue)
   const skipAnimations = (): boolean => paused() || skipped()
   const spine = Spine.makeElementSpine({
@@ -278,12 +274,13 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
   // Transform template after the one at mount (#443).
   spine.follow({ resolved: () => UndefinedOr.match(last, { onUndefined: () => Spine.NO_VALUES, onDefined: (resolution) => resolution.resolved }), dragging: constFalse })
   const unfollowText = followText(element, config.text, registry)
-  let unfollowTemplate: () => void = constVoid
-  if (Predicate.isNotUndefined(templateAtMount)) {
-    unfollowTemplate = ElementSetup.followTemplate(templateAtMount, () => view.transformTemplate, reactivity.watch, (next) => {
-      provider.gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
-    })
-  }
+  const unfollowTemplate = UndefinedOr.match(templateAtMount, {
+    onUndefined: () => constVoid,
+    onDefined: (template) =>
+      ElementSetup.followTemplate(template, () => view.transformTemplate, reactivity.watch, (next) => {
+        provider.gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
+      }),
+  })
   // Its Imperative animations (#433) go through its spine while it's mounted.
   const unregisterAnimatable = Imperative.registerAnimatable(element, spine)
   // What a Variant child hears without a delivery of its own (P17): the name its ancestor hands down, and

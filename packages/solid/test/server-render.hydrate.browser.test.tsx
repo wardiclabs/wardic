@@ -313,6 +313,7 @@ describe("the spine's legs start at mount, never in the hydration render (#76)",
       FrameLoop.FrameLoop.useSync((loop) => ({
         afterTick: loop.afterTick,
         inLateWindow: loop.inLateWindow,
+        hint: loop.hint,
         run: (machine, sink) =>
           Effect.suspend(() => {
             starts.push(sharedConfig.context != null)
