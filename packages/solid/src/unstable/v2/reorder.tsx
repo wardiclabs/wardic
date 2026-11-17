@@ -281,8 +281,8 @@ const isElement = (value: unknown): value is HTMLElement => Predicate.hasPropert
 
 /** The group's keyboard reorder settings, as accessors (ADR-0037). */
 const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfigValues<V>>) => ({
-  keyboard: (): boolean => cfg().keyboard !== false,
-  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity }),
+  keyboard: (): boolean => ReorderController.keyboardOn(cfg().keyboard),
+  instructions: (): string => ReorderController.instructionsOf(cfg().instructions),
 })
 
 /** The group element's style: the config's over `overflow-anchor: none`. */

@@ -14,6 +14,7 @@ import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
 import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import * as OwnValues from "@wardic/core/unstable/OwnValues"
@@ -69,6 +70,8 @@ export interface Provider {
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** Its elements' reads of their values (#672): the Environment's, the DOM's where it gives none. */
   readonly valueReads: ElementSetup.ElementValueReads
+  /** The Environment's Refresh frames (ADR-0031), for what waits a frame out; `undefined` for one that gives none. */
+  readonly frames: RefreshFrameSource.Shape | undefined
   /** Its Features (#511), each built on first need. */
   readonly registry: Feature.FeatureRegistry
   /**
@@ -238,6 +241,7 @@ const build = (state: State): Effect.Effect<Provider> =>
         measuredPairs: optional(services, MeasuredPairs.MeasuredPairs),
         variableValues: optional(services, VariableValues.VariableValues),
       }),
+      frames: optional(services, RefreshFrameSource.RefreshFrameSource),
       registry,
       features,
       onFeatures: (recheck) => {

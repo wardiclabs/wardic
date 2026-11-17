@@ -25,9 +25,13 @@
 // Its items' drivers stay plain, each with its own `dispose`, since one is made per element.
 import * as Announcer from "@wardic/core/Announcer"
 import type * as Reorder from "@wardic/core/Reorder"
+import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { constVoid } from "effect/Function"
+import { constUndefined, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
+import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Scope from "effect/Scope"
 import { PassEnds } from "./internal/pass-ends.ts"
 import * as internal from "./internal/reorder.ts"
@@ -43,7 +47,27 @@ export {
   type ReorderItemHandle as ItemHandle,
   DEFAULT_REORDER_INSTRUCTIONS as DEFAULT_INSTRUCTIONS,
   REORDER_GROUP_STYLE as GROUP_STYLE,
+  sameOrder,
 } from "./internal/reorder.ts"
+
+// The keyboard reorder's settings and attributes (ADR-0037), as every binding reads and writes them (#793, PR 3):
+// solid's `reorder.tsx` and `batch-reorder.ts` had them each.
+
+/** Whether a group's `keyboard` option turns the **Keyboard reorder** on: on unless `false`. */
+export const keyboardOn = (keyboard: boolean | undefined): boolean => keyboard !== false
+
+/** A group's instructions, the English default when it gives none. */
+export const instructionsOf = (instructions: string | undefined): string =>
+  UndefinedOr.match(instructions, { onUndefined: () => internal.DEFAULT_REORDER_INSTRUCTIONS, onDefined: identity })
+
+/** An item's `aria-describedby`: the app's own ids, then the instructions', or none. */
+export const describedByOf = (own: string | undefined, instructions: string | undefined): string | undefined => {
+  const ids = Arr.filter([own, instructions], Predicate.isNotUndefined)
+  return Bool.match(ids.length === 0, { onTrue: constUndefined, onFalse: () => ids.join(" ") })
+}
+
+/** An item's tab stop when it gives none of its own: `0` with the keyboard reorder on, or with its items pressable (a Batch Reorder group's). */
+export const tabStopOf = (keyboard: boolean, pressable: boolean): 0 | undefined => Bool.match(Bool.or(keyboard, pressable), { onTrue: (): 0 => 0, onFalse: constUndefined })
 
 /** A **Reorder group** on the DOM: what a binding attaches its group element and items to. */
 export type ReorderController<V> = Omit<internal.ReorderController<V>, "dispose">

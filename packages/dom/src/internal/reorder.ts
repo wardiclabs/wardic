@@ -623,7 +623,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
 const noop = (): void => {}
 
 /** Whether two orders hold the same items in the same order. */
-const sameOrder: Equivalence.Equivalence<ReadonlyArray<unknown>> = Arr.makeEquivalence(Equivalence.strictEqual())
+export const sameOrder: Equivalence.Equivalence<ReadonlyArray<unknown>> = Arr.makeEquivalence(Equivalence.strictEqual())
 
 /** Whether `values` is the order the group last asked for (ADR-0037, *Amendment (#721)*): its items, in its order. */
 const isAsked = (asked: ReadonlyArray<unknown> | undefined, values: ReadonlyArray<unknown>): boolean =>

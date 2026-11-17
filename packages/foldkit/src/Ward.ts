@@ -190,22 +190,6 @@ export interface ReorderGroupOptions<Message, V> {
   readonly instructions?: string | undefined
 }
 
-/**
- * A group's options as the binding reads them, whatever `V`: its handlers told an order of the group's
- * own values, which the binding passes on as they are.
- */
-export interface ReorderGroupConfig<Message> {
-  readonly values: ReadonlyArray<unknown>
-  readonly onReorder: Handler<Message, Array<never>>
-  readonly onReorderEnd?: Handler<Message, ReorderEnd<never>> | undefined
-  readonly onHoldStart?: Handler<Message, ReorderHoldStart<never>> | undefined
-  readonly onHoldEnd?: Handler<Message, ReorderHoldEnd<never>> | undefined
-  readonly axis?: ReorderAxis | undefined
-  readonly keyboard?: boolean | undefined
-  readonly announcements?: ReorderAnnouncements<never> | undefined
-  readonly instructions?: string | undefined
-}
-
 /** `w.ReorderItem(value)`: the item's value in its group's `values`, read once at mount. */
 export interface ReorderItem {
   readonly value: unknown
@@ -381,8 +365,8 @@ export interface Config<Message = never>
   readonly onPan?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
   /** `w.OnPanEnd(…)`: sent as a pan that started ends, or is cancelled (Motion's `onPanEnd`). */
   readonly onPanEnd?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
-  /** `w.ReorderGroup(…)`: the element is a **Reorder group**, its keyed `w.ReorderItem` children the items (decision 28). */
-  readonly reorderGroup?: ReorderGroupConfig<Message> | undefined
+  /** `w.ReorderGroup(…)`: the element is a **Reorder group**, its keyed `w.ReorderItem` children the items (decision 28); read over any `V`. */
+  readonly reorderGroup?: ReorderGroupOptions<Message, unknown> | undefined
   /** `w.ReorderItem(value)`: the element is an item of the group above it. */
   readonly reorderItem?: ReorderItem | undefined
   /** `w.OnHoverStart(…)`: sent as the pointer comes over the element (Motion's `onHoverStart`; a touch never hovers). */

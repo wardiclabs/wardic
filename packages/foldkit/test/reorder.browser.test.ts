@@ -22,6 +22,7 @@
 //   and an item outside a group are warned in development.
 // - R9: `Layout("position")` beside the item still reorders; the app's own reorder (a render) animates
 //   the items to their new slots.
+// - R10: under a lazy load (Q15), the group and its items join as the Features arrive, nothing said before.
 import { DomLive } from "@wardic/dom"
 import * as Arr from "effect/Array"
 import * as Schema from "effect/Schema"
@@ -69,7 +70,7 @@ const domOrder = (app: Pick<Embedded<never>, "container">): ReadonlyArray<string
 const announced = (): string => (document.querySelector(`[${DomAnnouncer.ATTRIBUTE}]`)?.textContent ?? "").replace(/ $/, "")
 
 /** A group whose reorders send `Items`, and whose holds and ends send `Seen` calls. */
-const told = (w: W, model: Model, more: Partial<Ward.ReorderGroupOptions<Message, string>> = {}): ReadonlyArray<Ward.Attribute> => [
+const telling = (w: W, model: Model, more: Partial<Ward.ReorderGroupOptions<Message, string>> = {}): ReadonlyArray<Ward.Attribute> => [
   w.ReorderGroup<string>({
     values: model.items,
     onReorder: (items) => Message.Items({ items }),
@@ -81,11 +82,11 @@ const told = (w: W, model: Model, more: Partial<Ward.ReorderGroupOptions<Message
 ]
 
 /** A program whose view is a reorderable list of `items`, with `group` on the list and `item` on each row, embedded. */
-const embedList = (
-  wardic: Wardic.Handle<typeof Features.domMax>,
+const embedList = <F>(
+  wardic: Wardic.Handle<F>,
   items: ReadonlyArray<string>,
-  group: (w: W, model: Model) => ReadonlyArray<Ward.Attribute>,
-  item: (w: W, key: string) => ReadonlyArray<Ward.Attribute> = () => [],
+  group: (w: Wardic.Html<Message, F>, model: Model) => ReadonlyArray<Ward.Attribute>,
+  item: (w: Wardic.Html<Message, F>, key: string) => ReadonlyArray<Ward.Attribute> = () => [],
   row: Record<string, string> = ROW,
 ): Embedded<ReadonlyArray<string>> =>
   embed<Model, Message, ReadonlyArray<string>>({
@@ -95,9 +96,11 @@ const embedList = (
     update,
     view: (model, h) => {
       const w = wardic.html(h)
+      // The Handle has `drag` and `layout`, given or on their way: its builder's `ReorderItem` is callable.
+      const items = w as unknown as W
       return h.div([h.Style({ position: "absolute", top: "100px", left: "100px" })], [
         w.ul([h.Id("list"), h.Style(LIST), ...group(w, model)], Arr.map(model.items, (key) =>
-          w.keyed("li")(key, [h.Id(`item-${key}`), h.Style(row), w.ReorderItem(key), ...item(w, key)], [key]))),
+          w.keyed("li")(key, [h.Id(`item-${key}`), h.Style(row), items.ReorderItem(key), ...item(w, key)], [key]))),
       ])
     },
     toMessage: (items) => Message.Items({ items }),
@@ -153,7 +156,7 @@ describe("w.ReorderGroup and w.ReorderItem (#793, PR 3; ADR-0020)", () => {
 
   it("R3: the Reorder hold: OnHoldStart at the drag's start, OnReorderEnd then OnHoldEnd at the release; a click is no hold; dropped back, no OnReorderEnd", async () => {
     const wardic = Wardic.make({ env: DomLive, features: Features.domMax })
-    const app = mounted(embedList(wardic, ["a", "b", "c"], told))
+    const app = mounted(embedList(wardic, ["a", "b", "c"], telling))
     const b = await settledBox(app, "item-b")
     const c = await boxOf(app, "item-c")
     const slotOfB = topOf(b)
@@ -190,7 +193,7 @@ describe("w.ReorderGroup and w.ReorderItem (#793, PR 3; ADR-0020)", () => {
 
   it("R4: the Keyboard reorder: a tab stop with the instructions; Space lifts and WhileDrag applies, ArrowDown sends the new order, Space drops", async () => {
     const wardic = Wardic.make({ env: DomLive, features: Features.domMax })
-    const app = mounted(embedList(wardic, ["a", "b", "c"], told, (w) => [w.Transition(FAST), w.Animate({ opacity: 1 }), w.WhileDrag({ opacity: 0.5 })]))
+    const app = mounted(embedList(wardic, ["a", "b", "c"], telling, (w) => [w.Transition(FAST), w.Animate({ opacity: 1 }), w.WhileDrag({ opacity: 0.5 })]))
     const b = await settledBox(app, "item-b")
     expect(b.getAttribute("tabindex"), "a tab stop").toBe("0")
     expect(document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent, "the instructions, described by").toBe(ReorderController.DEFAULT_INSTRUCTIONS)
@@ -212,7 +215,7 @@ describe("w.ReorderGroup and w.ReorderItem (#793, PR 3; ADR-0020)", () => {
 
   it("R5: Escape cancels: the order back from the lift, OnHoldEnd with cancel, no OnReorderEnd", async () => {
     const wardic = Wardic.make({ env: DomLive, features: Features.domMax })
-    const app = mounted(embedList(wardic, ["a", "b", "c"], told))
+    const app = mounted(embedList(wardic, ["a", "b", "c"], telling))
     const b = await settledBox(app, "item-b")
     b.focus()
     await commands.realKey("press", "Space")
@@ -373,5 +376,31 @@ describe("w.ReorderGroup and w.ReorderItem (#793, PR 3; ADR-0020)", () => {
     expect(flying, "c on its way down from its old slot").toBeGreaterThan(slotOfA + 40 - 39)
     expect(flying).toBeLessThan(slotOfA + 80)
     await until(() => Math.abs(topOf(c) - (slotOfA + 80)) < 0.5, 2000, "c lands on the last slot")
+  })
+  it("R10: under a lazy load, the group and its items join as the Features arrive, nothing said before", async () => {
+    const arrival = { resolve: (_: typeof Features.domMax): void => {} }
+    const lazy = Wardic.make({
+      env: DomLive,
+      features: () =>
+        new Promise<typeof Features.domMax>((resolve) => {
+          arrival.resolve = resolve
+        }),
+    })
+    const lines = await logged(async () => {
+      const app = mounted(embedList(lazy, ["a", "b", "c"], (w, model) => [w.ReorderGroup({ values: model.items, onReorder: (items) => Message.Items({ items }) })]))
+      const b = await settledBox(app, "item-b")
+      expect(b.hasAttribute("tabindex"), "not joined while the load is on its way").toBe(false)
+      arrival.resolve(Features.domMax)
+      await until(() => b.getAttribute("tabindex") === "0", 2000, "joined as the Features arrived")
+      const c = await boxOf(app, "item-c")
+      const slotOfC = topOf(c)
+      const g = centreOf(b)
+      await mouse.down(g)
+      await glide(g, add(g, 0, 50), 5)
+      await until(() => domOrder(app).join("") === "acb", 2000, "reordered through the group the load made")
+      await mouse.up(add(g, 0, 50))
+      await until(() => Math.abs(topOf(b) - slotOfC) < 0.5, 2000, "b on c's former slot: the node the load's layout made")
+    })
+    expect(said(lines, "needs the"), "nothing said while the load was on its way").toBe(false)
   })
 })

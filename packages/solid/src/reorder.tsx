@@ -31,7 +31,6 @@ import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
-import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constUndefined, identity, pipe } from "effect/Function"
@@ -228,7 +227,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
       axis: () => Option.fromUndefinedOr(untrack(cfg).axis),
       onAxis: setDetected,
       keyedWith: "<For>",
-      keyboard: () => untrack(cfg).keyboard !== false,
+      keyboard: () => ReorderController.keyboardOn(untrack(cfg).keyboard),
       announcements: () => Option.fromUndefinedOr(untrack(cfg).announcements),
     }).pipe(Effect.provide(useLayoutServices()), Scope.provide(scope)),
   )
@@ -262,8 +261,8 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
 
 /** A group's keyboard reorder settings, as accessors (ADR-0037). */
 const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
-  keyboard: (): boolean => cfg().keyboard !== false,
-  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: (text: string) => text }),
+  keyboard: (): boolean => ReorderController.keyboardOn(cfg().keyboard),
+  instructions: (): string => ReorderController.instructionsOf(cfg().instructions),
 })
 
 /**
@@ -347,14 +346,10 @@ const internalsOf = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLEl
  */
 const keyboardAttributes = (group: ItemGroup<never>, user: ReorderItemUserProps = NO_ITEM_PROPS, describedBy: Accessor<string | undefined>) => ({
   get tabindex() {
-    return UndefinedOr.match(user.tabIndex, {
-      onDefined: identity,
-      onUndefined: () => Bool.match(group.keyboard(), { onTrue: () => 0, onFalse: constUndefined }),
-    })
+    return UndefinedOr.match(user.tabIndex, { onDefined: identity, onUndefined: () => ReorderController.tabStopOf(group.keyboard(), false) })
   },
   get "aria-describedby"() {
-    const ids = Arr.filter([user["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined })], Predicate.isNotUndefined)
-    return Bool.match(ids.length === 0, { onTrue: () => undefined, onFalse: () => ids.join(" ") })
+    return ReorderController.describedByOf(user["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))
   },
 })
 
