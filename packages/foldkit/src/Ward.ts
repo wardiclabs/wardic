@@ -6,9 +6,12 @@
  *
  * @module
  */
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as CoreConfig from "@wardic/core/unstable/Config"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type { Html } from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
+import type * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 
 /** The mark of a Wardic attribute: a symbol, so no Foldkit `_tag` is ever mistaken for one. */
@@ -16,7 +19,31 @@ export const TypeId: unique symbol = Symbol.for("@wardic/foldkit/Ward.Attribute"
 export type TypeId = typeof TypeId
 
 /** The keys of an element's config a Wardic attribute sets (slice 1's; the rest come with the later slices). */
-export type Key = "initial" | "animate" | "transition" | "style"
+export type Key = "initial" | "animate" | "transition" | "style" | "variants" | "custom" | "inherit" | "config" | "animationStart" | "animationComplete"
+
+/**
+ * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
+ * as it is, or a function of what the callback is told, giving a Message, or an `Option` of one, where
+ * `Option.none()` sends nothing.
+ */
+export type Handler<Message, A> = Message | ((value: A) => Message | Option.Option<Message>)
+
+/** What `w.OnAnimationStart` and `w.OnAnimationComplete` are told: the variant name, or the values, the animation went to (Motion's). */
+export type AnimationDefinition = CoreConfig.WardicAnimationDefinition
+
+/**
+ * A subtree's settings (ADR-0062, Motion's `MotionConfig`; ADR-0071 decision 22): `w.Config(…)` on an
+ * element, over the nearest ancestor's, over the Handle's `config`. Each is read when an animation
+ * starts, so a change moves nothing by itself.
+ */
+export interface ConfigOptions {
+  /** The **Config transition**: what an element with no `transition` of its own runs on. */
+  readonly transition?: WardConfig.WardicVariantTransition | undefined
+  /** Reduced motion (ADR-0029): `"user"` follows the preference, `"always"` and `"never"` decide. */
+  readonly reducedMotion?: ReducedMotion.Config | undefined
+  /** Whether every animation lands at once (#468, Motion's `MotionGlobalConfig.skipAnimations` for a subtree). */
+  readonly skipAnimations?: boolean | undefined
+}
 
 /**
  * An element's `style` as Wardic sees it (Motion's `style`): every CSS property and the transform keys
@@ -46,8 +73,14 @@ export type Child = Html | string
  * values are its base values (dom's `WardConfig`'s, Motion's props). Each key is typed on its own
  * (#791, Q17): nothing is inferred across attributes.
  */
-export interface Config extends Pick<WardConfig.WardConfig, Exclude<Key, "style">> {
+export interface Config<Message = never> extends Pick<WardConfig.WardConfig, "initial" | "animate" | "transition" | "variants" | "custom" | "inherit"> {
   readonly style?: Style | undefined
+  /** `w.Config(…)`: the subtree's settings, this element's included. */
+  readonly config?: ConfigOptions | undefined
+  /** `w.OnAnimationStart(…)`: sent as an animation of the element starts (Motion's `onAnimationStart`). */
+  readonly animationStart?: Handler<Message, AnimationDefinition> | undefined
+  /** `w.OnAnimationComplete(…)`: sent as it lands, once every value it moves has settled; not for one a new target interrupted. */
+  readonly animationComplete?: Handler<Message, AnimationDefinition> | undefined
 }
 
 /**
@@ -61,6 +94,6 @@ export interface ProviderOptions {}
  * bundle fuses with Wardic's, since a second `h.OnMount` replaces the first on Foldkit 0.170 and throws
  * on its preview (ADR-0071, decision 18).
  */
-export interface Bundle<Message> extends Config {
+export interface Bundle<Message> extends Config<Message> {
   readonly mount?: MountAction<Message> | undefined
 }
