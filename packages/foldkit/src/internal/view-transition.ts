@@ -18,19 +18,26 @@ import type { State } from "./services.ts"
 // Module state (#460, Q7): the detection, held once made; `undefined` until a decision asks.
 let supported: boolean | undefined
 
-const supportedNow = (): boolean => {
+const isSupported = (): boolean => {
   if (Predicate.isNotUndefined(supported)) return supported
-  supported = Predicate.isFunction((document as Document & { readonly startViewTransition?: unknown }).startViewTransition)
+  supported = Predicate.isFunction(document.startViewTransition)
   return supported
 }
 
-/** The Handle's `viewTransition` (above): `decide`, with a transitioning decision arming the next layout delivery. */
+/** Whether a decision transitions the render: `true`, or `{ types }`. */
+const transitions = (decision: Runtime.ViewTransitionDecision): boolean => decision !== false
+
+/**
+ * The Handle's `viewTransition` (above): `decide`, with a transitioning decision arming the next pass,
+ * whichever asks for it: the observer's delivery of the app's own changes, a `w.LayoutDependency`
+ * change, or `Wardic.animateLayout`. Every render decides afresh, so a transitioned render that
+ * changed nothing of the layout's leaves no arming behind.
+ */
 export const viewTransitionOf =
   (state: State) =>
   <Model, Message>(decide: Runtime.ViewTransitionConfig<Model, Message>): Runtime.ViewTransitionConfig<Model, Message> =>
   (context) => {
     const decision = decide(context)
-    // Every render decides afresh: a transitioned render that changed nothing of the layout's leaves no arming behind.
-    state.transitioning = Bool.and(decision !== false, supportedNow())
+    state.transitioning = Bool.and(transitions(decision), isSupported())
     return decision
   }

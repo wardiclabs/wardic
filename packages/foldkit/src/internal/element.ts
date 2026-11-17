@@ -36,7 +36,7 @@ import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
-import { deliveredTo, hintFrame, installSetter, patchTouched } from "./delivery.ts"
+import { deliveredTo, hintFrameUnless, installSetter, patchTouched } from "./delivery.ts"
 import { reactivity } from "./reactivity.ts"
 import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
@@ -319,10 +319,19 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       const next = config.layoutDependency
       if (Equal.equals(dependency, next)) return
       dependency = next
-      UndefinedOr.match(layoutNode, {
-        onDefined: (node) => node.notify(),
-        onUndefined: () => UndefinedOr.map(builtProjection(), (projection) => projection.notify()),
-      })
+      const ask = (): void => {
+        UndefinedOr.match(layoutNode, {
+          onDefined: (node) => node.notify(),
+          onUndefined: () => UndefinedOr.map(builtProjection(), (projection) => projection.notify()),
+        })
+      }
+      // A View Transition's render (decision 33): the pass it asks for is an Instant change of the layout.
+      if (state.transitioning) {
+        state.transitioning = false
+        UndefinedOr.match(builtProjection(), { onUndefined: ask, onDefined: (projection) => projection.instant(ask) })
+        return
+      }
+      ask()
     }
     // The Override stack resolved (ADR-0007), compared by value (#470): a delivery that resolves the same
     // targets tells nothing, as a `transition` change alone doesn't in Motion.
@@ -342,7 +351,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       view = spineViewOf(config, configValue, dispatch, registry)
       exitConfig.current = Spine.exitConfigOf(view, inherited)
       patchTouched()
-      if (Bool.not(paused())) hintFrame(provider.loop)
+      hintFrameUnless(provider.loop, paused)
       try {
         live.css(config.style)
         dependencyChanged()

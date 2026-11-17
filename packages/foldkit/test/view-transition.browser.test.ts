@@ -110,16 +110,20 @@ describe("Wardic.animateLayout", () => {
 
 describe("wardic.viewTransition", () => {
   const wardic = Wardic.make({ env: DomLive, features: [Features.layout] })
+  const declared = Wardic.make({ env: DomLive, features: [Features.layout], layoutTrigger: "declared" })
   const Model = Schema.Struct({ clicked: Schema.Boolean })
   type Model = typeof Model.Type
-  const Message = defineMessageUnion({ Clicked: {} })
+  const Message = defineMessageUnion({ Clicked: {}, Animated: {} })
   type Message = typeof Message.Type
-  const update = (model: Model, message: Message) => Message.match(message, { Clicked: () => ({ model: { ...model, clicked: true } }) })
+  const update = (model: Model, message: Message) => Message.match(message, { Clicked: () => ({ model: { ...model, clicked: true } }), Animated: () => ({ model }) })
+  /** The declared trigger's update: the click's Command animates the change. */
+  const Animate = Command.define("Animate", { messages: [Message.Animated], execute: Wardic.animateLayout().pipe(Effect.as(Message.Animated()), Effect.catchTag("LayoutFailed", () => Effect.succeed(Message.Animated()))) })
+  const updateDeclared = (model: Model, message: Message) => Message.match(message, { Clicked: () => ({ model: { ...model, clicked: true }, commands: [Animate()] }), Animated: () => ({ model }) })
   const BOX = { position: "absolute", top: "0", width: "100px", height: "40px", background: "teal" } as const
 
   /** P10's render: a mover from 20 to 320, and a `pill` pair swapped, `tab-a` at 20 going and `tab-b` at 320 coming. */
-  const sceneOf = (model: Model, h: HtmlBuilder<Message>): Html => {
-    const w = wardic.html(h)
+  const sceneWith = (handle: typeof wardic) => (model: Model, h: HtmlBuilder<Message>): Html => {
+    const w = handle.html(h)
     return h.div([h.Id("stage"), h.Style({ position: "relative", height: "200px" })], [
       h.style([], [".vt-mover{position:absolute;top:60px;left:20px;width:100px;height:40px;background:teal}.vt-mover.clicked{left:320px}"]),
       w.div([h.Id("mover"), h.Class(Bool.match(model.clicked, { onTrue: () => "vt-mover clicked", onFalse: () => "vt-mover" })), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" })]),
@@ -143,19 +147,67 @@ describe("wardic.viewTransition", () => {
     }
   }
 
-  const embedScene = (transition: boolean): Embedded<boolean> =>
-    embed<Model, Message, boolean>({
-      Model,
-      Set: Schema.Boolean,
-      init: { clicked: false },
-      update,
-      view: sceneOf,
-      toMessage: () => Message.Clicked(),
-      viewTransition: wardic.viewTransition(() => transition),
+  const embedScene = (transition: boolean, trigger: "patch" | "declared" = "patch"): Embedded<boolean> =>
+    Bool.match(trigger === "declared", {
+      onTrue: () =>
+        embed<Model, Message, boolean, Wardic.Wardic>({
+          Model,
+          Set: Schema.Boolean,
+          init: { clicked: false },
+          update: updateDeclared,
+          view: sceneWith(declared),
+          toMessage: () => Message.Clicked(),
+          resources: declared.resources,
+          viewTransition: declared.viewTransition(() => transition),
+        }),
+      onFalse: () =>
+        embed<Model, Message, boolean>({
+          Model,
+          Set: Schema.Boolean,
+          init: { clicked: false },
+          update,
+          view: sceneWith(wardic),
+          toMessage: () => Message.Clicked(),
+          viewTransition: wardic.viewTransition(() => transition),
+        }),
     })
   const leftIn = (held: Pick<Embedded<never>, "container">, id: string): number => leftOf(held.container.querySelector(`#${id}`)!) - leftOf(held.container.querySelector("#stage")!)
 
-  it("a transitioned render lands the layout move and the layoutId handover at once, for the morph to carry (P10)", async () => {
+  for (const trigger of ["patch", "declared"] as const) {
+    it(`under the ${trigger} trigger, a transitioned render lands the layout move and the layoutId handover at once, for the morph to carry (P10)`, async () => {
+      const restore = stubbed()
+      try {
+        const held = embedScene(true, trigger)
+        app = held
+        await until(() => held.container.querySelector("#tab-a") !== null, 2000, "the scene renders")
+        await paintedReads(() => 0, 3)
+        held.send(true)
+        await until(() => held.container.querySelector("#tab-b") !== null, 2000, "the render lands")
+        const reads = await paintedReads(() => [leftIn(held, "mover"), leftIn(held, "tab-b")] as const, 4)
+        expect(reads.every(([mover, pill]) => mover === 320 && pill === 320), `both at their places at once: ${JSON.stringify(reads)}`).toBe(true)
+      } finally {
+        restore()
+      }
+    })
+  }
+
+  it("under the declared trigger, a render the predicate doesn't transition animates both through the Command", async () => {
+    const restore = stubbed()
+    try {
+      const held = embedScene(false, "declared")
+      app = held
+      await until(() => held.container.querySelector("#tab-a") !== null, 2000, "the scene renders")
+      await paintedReads(() => 0, 3)
+      held.send(true)
+      await until(() => held.container.querySelector("#tab-b") !== null, 2000, "the render lands")
+      await until(() => leftIn(held, "mover") < 300 && leftIn(held, "tab-b") < 300, 2000, "both seed back and move")
+      await until(() => Math.abs(leftIn(held, "mover") - 320) < 0.5 && Math.abs(leftIn(held, "tab-b") - 320) < 0.5, 2000, "both land")
+    } finally {
+      restore()
+    }
+  })
+
+  it("a transitioned render lands both at once, with nothing else asking for a pass", async () => {
     const restore = stubbed()
     try {
       const held = embedScene(true)

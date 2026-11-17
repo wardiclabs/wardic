@@ -18,8 +18,9 @@ import * as Bool from "effect/Boolean"
 import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { hintFrame } from "./delivery.ts"
+import { hintFrameUnless } from "./delivery.ts"
 import { type Provider, type State } from "./services.ts"
+import { underWard } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** A provider's layout: its projection system, and the `layout` Feature's element code. */
@@ -65,6 +66,9 @@ export const quietLayoutIn = (element: Element, isQuiet: boolean): void => {
   Bool.match(isQuiet, { onTrue: () => quiet.add(element), onFalse: () => quiet.delete(element) })
 }
 
+/** A record of a change of the Handle's own: on a `w.*` element or under one. */
+const isOwnChange = (record: MutationRecord): boolean => underWard(record.target)
+
 /** A record of a quiet presence's child list: the presence's own moves, or Foldkit's children going and coming under it. */
 const isQuietChange = (record: MutationRecord): boolean => Bool.and(record.type === "childList", Bool.and(record.target instanceof Element, quiet.has(record.target as Element)))
 
@@ -78,15 +82,20 @@ const observe = (provider: Provider, state: State, projection: ProjectionSystem.
   // The provider ended before this ran: nothing to watch.
   if (state.live !== provider) return
   const observer = new MutationObserver((records) => {
-    if (Arr.every(records, isQuietChange)) return
-    // A View Transition's render (decision 33): its pass is an Instant change, every node at its new box, nothing started.
+    // A View Transition's render (decision 33), its changes the Handle's own: they land as an Instant change
+    // of the layout, every node at its new box and nothing started. A foreign change under the body
+    // consumes no arming; a render that changed quiet lists alone consumes it and asks for nothing.
     if (state.transitioning) {
-      state.transitioning = false
-      projection.instant(() => projection.notify())
-      return
+      if (Arr.some(records, isOwnChange)) {
+        state.transitioning = false
+        if (Arr.every(records, isQuietChange)) return
+        projection.instant()
+        return
+      }
     }
+    if (Arr.every(records, isQuietChange)) return
     // The pass's first step paints in the patch's frame (decision 32; #792, Q7), unless replay has a view (decision 34).
-    if (Bool.not(provider.paused())) hintFrame(provider.loop)
+    hintFrameUnless(provider.loop, provider.paused)
     projection.notify()
   })
   const root = UndefinedOr.match(provider.root, { onUndefined: (): Node => document.body, onDefined: identity })
