@@ -513,6 +513,10 @@ _Avoid_: target (an animation's target values), element (the DOM's kind of Subje
 A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice. Its motion is set on it, as a **Wardic element**'s is: it's the scene's Wardic element, though it doesn't make its object. Its parent is the nearest Scene object above it, else the scene. An object that already has a parent, such as a node of a loaded model, stays where it is. Variants pass down nested Scene objects as they do down Wardic elements.
 _Avoid_: entity, presence child (the DOM's), node.
 
+**Presence**:
+The parent-driven exit before removal (ADR-0007; Motion's `AnimatePresence`): a parent that keeps each child dropping out of its children on the page, at its place in Motion's order, while the child's exit plays, and removes it once every exit inside it has landed. Its mode says what the others do meanwhile: an entering child beside the leaver at once (`sync`), the leaver popped out of the flow where it was (`popLayout`), or the entering child held off the page until the last leaver is gone (`wait`). On Solid it's `<AnimatePresence>`; on Foldkit, `w.Presence` on the parent (ADR-0071, decision 29).
+_Avoid_: exit group, transition group (solid-transition-group's), presence component (it's the concept; the component is one binding's).
+
 **Presence child**:
 An element among an `<AnimatePresence>`'s children, whatever made it (a `<Show>`'s branch, a `<For>`'s item, a Batch member's element) and whatever its kind: HTML, SVG or MathML (#702). Text is never one. One that drops out of the children is a *leaver*: with an exit to play, its own or one inside it, it stays on the page until they have landed.
 _Avoid_: presence item, exiting node.

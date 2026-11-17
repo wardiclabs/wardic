@@ -11,6 +11,7 @@
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import * as Spine from "@wardic/core/unstable/Spine"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as FlushGate from "@wardic/dom/FlushGate"
@@ -32,7 +33,8 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrame, installSetter, patchTouched } from "./delivery.ts"
 import { reactivity } from "./reactivity.ts"
-import { type Provider, reducedMotionUnder } from "./services.ts"
+import { nearestPresence } from "./presence.ts"
+import { type Provider, reducedMotionUnder, type State } from "./services.ts"
 import { configValueOf, dropNode, nodeOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
@@ -115,19 +117,19 @@ const writeStartingStyle = (element: HTMLElement, starting: Style.Style): void =
   })
 }
 
-/** What a callback's handler becomes for the spine: a function told the definition. */
-type Dispatch = (handler: Ward.Handler<unknown, Ward.AnimationDefinition>) => (definition: Ward.AnimationDefinition) => void
+/** What a callback's handler becomes for the spine or a presence: a function told what the callback is. */
+type Dispatch = <A>(handler: Ward.Handler<unknown, A>) => (value: A) => void
 
 /** A callback's dispatch (decision 23): a Message sent as it is, a function's result sent unless it's `Option.none()`. */
-const dispatcherOf =
+export const dispatcherOf =
   (offer: (message: unknown) => void): Dispatch =>
-  (handler) =>
-  (definition) => {
+  <A>(handler: Ward.Handler<unknown, A>) =>
+  (value: A) => {
     if (Bool.not(Predicate.isFunction(handler))) {
       offer(handler)
       return
     }
-    const out = (handler as (value: Ward.AnimationDefinition) => unknown)(definition)
+    const out = (handler as (value: A) => unknown)(value)
     if (Option.isOption(out)) {
       Option.map(out, offer)
       return
@@ -172,10 +174,12 @@ const followText = (element: HTMLElement, atom: Config["text"], registry: AtomRe
  * Mount a `w.*` element on `provider`: its spine, its gate registration, its place in the tree and its
  * Delivery's setter. `paused` says whether DevTools replay has the view (decision 34): every animation
  * lands at once under it. `offer` sends a callback's Message through the element's Mount Stream.
- * `root` is the Handle's app-wide config. Returns the release: the element's teardown, run at its
- * Mount's destroy, before Foldkit removes it.
+ * `root` is the Handle's app-wide config. Under a `w.Presence` (decision 29) the element is enrolled
+ * with it and starts in the presence's next delivery, after take-overs and holds are decided; else it
+ * starts now. Returns the release: the element's teardown, run at its Mount's destroy, before Foldkit
+ * removes it.
  */
-export const mountElement = (provider: Provider, element: HTMLElement, paused: () => boolean, offer: (message: unknown) => void, root: WardicConfigValue.WardicConfigValue | undefined): (() => void) => {
+export const mountElement = (provider: Provider, state: State, element: HTMLElement, paused: () => boolean, offer: (message: unknown) => void, root: WardicConfigValue.WardicConfigValue | undefined): (() => void) => {
   const tag = element.localName
   const dispatch = dispatcherOf(offer)
   // Its place in the tree (decision 21): its node, made by its first child's Mount or here, and the
@@ -189,125 +193,150 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
   let config = configOf(deliveredTo(element))
   let view = spineViewOf(config, configValue, dispatch, registry)
   const configNow = (): Config => view
-  // Its Live values in `style` (#130, ADR-0043): routed keys the spine follows through the gate.
-  const live = LiveStyle.createLiveStyle({ registry: registryNow, onDroppedTransform: droppedTransformWarning(provider, id), reactivity, ownValues: provider.valueReads.ownValues })
-  live.css(config.style)
-  // Where it starts (ADR-0003), read once: the config the view rendered it with, its inherited `initial` included (#50).
-  const start = Spine.startOf(view, inherited, false, reactivity.untrack)
-  const snapshot = Spine.snapshotOf(start)
-  // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.
-  const templateAtMount = config.transformTemplate
-  // The keys its Starting style set, switched to the user's in its first commit. A Variant child's
-  // inherited Starting style wasn't rendered by the view: written now, inside the patch (P2).
-  const starting = Style.starting(tag, ElementSetup.drawnAtRest(start.initialValues, false, templateAtMount)).style
-  if (Predicate.isNotUndefined(inherited)) writeStartingStyle(element, starting)
-  const startingKeys = Rec.keys(starting)
-  const sink: FlushGate.Sink = Spine.withOnUpdate({ target: element, beforeFirstCommit: () => switchToUserStyle(element, tag, startingKeys, config, registryNow) }, view.onUpdate, configNow)
-  const unregister = provider.gate.register(id, sink, ElementSetup.registeredValuesOf(templateAtMount))
-  // The user's style now, for its Base values (ADR-0022): the config's, as the view last delivered it.
-  const styleNow = (): object | string | undefined => config.style
-  const links = ElementSetup.startLinksOf(element, styleNow, live)
-  // Reduced motion (ADR-0029) and skipped animations (#468) under its nearest `w.Config`, read at each Retarget.
-  const reducedMotion = reducedMotionUnder(provider, configValue)
-  const skipped = WardicConfigValue.skipAnimationsOf(configValue)
-  const skipAnimations = (): boolean => paused() || skipped()
-  const spine = Spine.makeElementSpine({
-    runtime: provider.runtime,
-    gate: provider.gate,
-    id,
-    element,
-    tag,
-    config: configNow,
-    parent: inherited,
-    canStart: node.canStart,
-    extraDelay: node.extraDelay,
-    onFrame: node.onFrame,
-    byName: node.names,
-    reducedMotion,
-    skipAnimations,
-    positionalKeys: provider.positionalKeys,
-    defaultTransition: provider.defaultTransition,
-    ownValues: provider.valueReads.ownValues,
-    measuredPairs: provider.valueReads.measuredPairs,
-    variableValues: provider.valueReads.variableValues,
-    start,
-    snapshot,
-    reuse: Spine.makeReuse(),
-    links,
-    styleNow,
-    live,
-    builtFeatures: provider.registry.built,
-    presence: undefined,
-    projected: false,
-    dragAxis: undefined,
-    handoff: undefined,
-    // Motion's onAnimationStart / onAnimationComplete (decision 23), as Messages through `dispatch`.
-    animation: Spine.animationCallbacks(provider.runtime, id),
-    diagnostics: devDiagnostics(),
-  })
-  // The Override stack resolved (ADR-0007), compared by value (#470): a delivery that resolves the same
-  // targets tells nothing, as a `transition` change alone doesn't in Motion.
-  let last: Spine.Resolution | undefined
-  const retarget = (): void => {
-    const next = Spine.resolutionOf(view, inherited, start.initialLink, NO_ACTIVE, snapshot, undefined)
-    if (Predicate.isNotUndefined(last) && Spine.sameResolution(last, next)) return
-    last = next
-    spine.retarget(next)
-  }
-  // Its Delivery (decision 20): each render's fresh config, inside the patch, Retargets at once (#791, Q14),
-  // after the binding's hint (decision 32), so the Retarget's legs take their first step in this frame.
-  // A defect there is Foldkit's patch's otherwise, which would stop the whole app (decision 13): reported,
-  // and the element stays where it is.
-  const uninstall = installSetter(element, (delivered) => {
-    config = configOf(delivered)
-    view = spineViewOf(config, configValue, dispatch, registry)
-    patchTouched()
-    if (Bool.not(paused())) hintFrame(provider.loop)
-    try {
-      live.css(config.style)
-      retarget()
-    } catch (error) {
-      provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
-    }
-  })
-  // Its Live values followed from its first routed key on (#130), its text (decision 16), and its
-  // Transform template after the one at mount (#443).
-  spine.follow({ resolved: () => UndefinedOr.match(last, { onUndefined: () => Spine.NO_VALUES, onDefined: (resolution) => resolution.resolved }), dragging: constFalse })
-  const unfollowText = followText(element, config.text, registry)
-  const unfollowTemplate = UndefinedOr.match(templateAtMount, {
-    onUndefined: () => constVoid,
-    onDefined: (template) =>
-      ElementSetup.followTemplate(template, () => view.transformTemplate, reactivity.watch, (next) => {
-        provider.gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
-      }),
-  })
-  // Its Imperative animations (#433) go through its spine while it's mounted.
-  const unregisterAnimatable = Imperative.registerAnimatable(element, spine)
-  // What a Variant child hears without a delivery of its own (P17): the name its ancestor hands down, and
-  // its `when` gate opening, re-checked once a patch and at each settle that changes a gate (decision 17).
-  let unwatch: () => void = constVoid
-  if (Predicate.isNotUndefined(node.names)) {
-    const unwatchName = UndefinedOr.match(inherited, { onUndefined: () => constVoid, onDefined: (context) => reactivity.watch(context.variant, retarget) })
-    const unwatchGate = reactivity.watch(node.canStart, (open) => {
-      if (Bool.and(open, Predicate.isNotUndefined(last))) spine.retarget(UndefinedOr.getOrThrow(last))
+  // The nearest `w.Presence` above it (decision 29), told its key now, before that presence decides what it shows (#286).
+  const presence = nearestPresence(provider, state, element)
+  const context = UndefinedOr.map(presence, (p) => p.context)
+  UndefinedOr.map(context, (ctx) => UndefinedOr.map(ctx.made, (made) => made(element, config.key, false)))
+
+  const begin = (): (() => void) => {
+    // Its Live values in `style` (#130, ADR-0043): routed keys the spine follows through the gate.
+    const live = LiveStyle.createLiveStyle({ registry: registryNow, onDroppedTransform: droppedTransformWarning(provider, id), reactivity, ownValues: provider.valueReads.ownValues })
+    live.css(config.style)
+    // Where it starts (ADR-0003), read once: the config the view rendered it with, its inherited `initial`
+    // included (#50), at its `animate` under a presence's `initial: false` (#134).
+    const start = Spine.startOf(view, inherited, PresenceRecord.presenceBlocksInitial(context), reactivity.untrack)
+    const snapshot = Spine.snapshotOf(start)
+    // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.
+    const templateAtMount = config.transformTemplate
+    // The keys its Starting style set, switched to the user's in its first commit. A Variant child's
+    // inherited Starting style wasn't rendered by the view: written now, inside the patch (P2).
+    const starting = Style.starting(tag, ElementSetup.drawnAtRest(start.initialValues, false, templateAtMount)).style
+    if (Predicate.isNotUndefined(inherited)) writeStartingStyle(element, starting)
+    const startingKeys = Rec.keys(starting)
+    const sink: FlushGate.Sink = Spine.withOnUpdate({ target: element, beforeFirstCommit: () => switchToUserStyle(element, tag, startingKeys, config, registryNow) }, view.onUpdate, configNow)
+    const unregister = provider.gate.register(id, sink, ElementSetup.registeredValuesOf(templateAtMount))
+    // The user's style now, for its Base values (ADR-0022): the config's, as the view last delivered it.
+    const styleNow = (): object | string | undefined => config.style
+    const links = ElementSetup.startLinksOf(element, styleNow, live)
+    // Reduced motion (ADR-0029) and skipped animations (#468) under its nearest `w.Config`, read at each Retarget.
+    const reducedMotion = reducedMotionUnder(provider, configValue)
+    const skipped = WardicConfigValue.skipAnimationsOf(configValue)
+    const skipAnimations = (): boolean => paused() || skipped()
+    // Its presence record (ADR-0007): what its presence drives its exit with after Foldkit removes it,
+    // resolved from its `Exit` as it leaves; the presence owns the registration. And where it starts when
+    // it takes over from a leaver under its key (#286).
+    const exitConfig = { current: Spine.exitConfigOf(view, inherited) }
+    const record = UndefinedOr.map(context, (ctx) => {
+      const rec = Spine.presenceRecordOf(element, start, (custom, inheritedNames) => Spine.exitTargetOf(exitConfig.current, custom, snapshot, inheritedNames), links, Spine.presenceTreeOf(view), snapshot, reducedMotion, skipAnimations)
+      ctx.register(rec)
+      return rec
     })
-    unwatch = () => {
-      unwatchName()
-      unwatchGate()
+    const taken = PresenceRecord.presenceSeedOf(context, element)
+    const recordFrame = Spine.recordFrameOf(record)
+    const spine = Spine.makeElementSpine({
+      runtime: provider.runtime,
+      gate: provider.gate,
+      id,
+      element,
+      tag,
+      config: configNow,
+      parent: inherited,
+      canStart: node.canStart,
+      extraDelay: node.extraDelay,
+      onFrame: node.onFrame,
+      byName: node.names,
+      reducedMotion,
+      skipAnimations,
+      positionalKeys: provider.positionalKeys,
+      defaultTransition: provider.defaultTransition,
+      ownValues: provider.valueReads.ownValues,
+      measuredPairs: provider.valueReads.measuredPairs,
+      variableValues: provider.valueReads.variableValues,
+      start,
+      snapshot,
+      reuse: Spine.makeReuse(),
+      links,
+      styleNow,
+      live,
+      builtFeatures: provider.registry.built,
+      presence: record,
+      projected: false,
+      dragAxis: undefined,
+      handoff: undefined,
+      // Motion's onAnimationStart / onAnimationComplete (decision 23), as Messages through `dispatch`.
+      animation: Spine.animationCallbacks(provider.runtime, id),
+      diagnostics: devDiagnostics(),
+    })
+    UndefinedOr.map(taken, (seed) => spine.seed(seed))
+    // The Override stack resolved (ADR-0007), compared by value (#470): a delivery that resolves the same
+    // targets tells nothing, as a `transition` change alone doesn't in Motion.
+    let last: Spine.Resolution | undefined
+    const retarget = (): void => {
+      const next = Spine.resolutionOf(view, inherited, start.initialLink, NO_ACTIVE, snapshot, undefined)
+      if (Predicate.isNotUndefined(last) && Spine.sameResolution(last, next)) return
+      last = next
+      spine.retarget(next)
+    }
+    // Its Delivery (decision 20): each render's fresh config, inside the patch, Retargets at once (#791, Q14),
+    // after the binding's hint (decision 32), so the Retarget's legs take their first step in this frame.
+    // A defect there is Foldkit's patch's otherwise, which would stop the whole app (decision 13): reported,
+    // and the element stays where it is.
+    const uninstall = installSetter(element, (delivered) => {
+      config = configOf(delivered)
+      view = spineViewOf(config, configValue, dispatch, registry)
+      exitConfig.current = Spine.exitConfigOf(view, inherited)
+      patchTouched()
+      if (Bool.not(paused())) hintFrame(provider.loop)
+      try {
+        live.css(config.style)
+        retarget()
+      } catch (error) {
+        provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
+      }
+    })
+    // Its Live values followed from its first routed key on (#130), its text (decision 16), and its
+    // Transform template after the one at mount (#443), which its presence record draws its exit through.
+    spine.follow({ resolved: () => UndefinedOr.match(last, { onUndefined: () => Spine.NO_VALUES, onDefined: (resolution) => resolution.resolved }), dragging: constFalse })
+    const unfollowText = followText(element, config.text, registry)
+    const unfollowTemplate = UndefinedOr.match(templateAtMount, {
+      onUndefined: () => constVoid,
+      onDefined: (template) => {
+        recordFrame(ElementSetup.registeredValuesOf(template) as Values.Values)
+        return ElementSetup.followTemplate(template, () => view.transformTemplate, reactivity.watch, (next) => {
+          provider.gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
+          recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
+        })
+      },
+    })
+    // Its Imperative animations (#433) go through its spine while it's mounted.
+    const unregisterAnimatable = Imperative.registerAnimatable(element, spine)
+    // What a Variant child hears without a delivery of its own (P17): the name its ancestor hands down, and
+    // its `when` gate opening, re-checked once a patch and at each settle that changes a gate (decision 17).
+    let unwatch: () => void = constVoid
+    if (Predicate.isNotUndefined(node.names)) {
+      const unwatchName = UndefinedOr.match(inherited, { onUndefined: () => constVoid, onDefined: (parentContext) => reactivity.watch(parentContext.variant, retarget) })
+      const unwatchGate = reactivity.watch(node.canStart, (open) => {
+        if (Bool.and(open, Predicate.isNotUndefined(last))) spine.retarget(UndefinedOr.getOrThrow(last))
+      })
+      unwatch = () => {
+        unwatchName()
+        unwatchGate()
+      }
+    }
+    // Its first Retarget, at mount: from `initial` to `animate`.
+    retarget()
+    return () => {
+      unwatch()
+      unfollowText()
+      unfollowTemplate()
+      unregisterAnimatable()
+      uninstall()
+      spine.dispose()
+      unregister()
+      dropNode(element)
     }
   }
-  // Its first Retarget, at mount: from `initial` to `animate`.
-  retarget()
-  return () => {
-    unwatch()
-    unfollowText()
-    unfollowTemplate()
-    unregisterAnimatable()
-    uninstall()
-    spine.dispose()
-    unregister()
-    dropNode(element)
-  }
+  return UndefinedOr.match(presence, { onUndefined: begin, onDefined: (p) => p.enroll(element, begin) })
 }
 
 /** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */

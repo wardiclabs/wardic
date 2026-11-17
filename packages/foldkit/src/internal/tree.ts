@@ -23,14 +23,36 @@ import { type VariantNode, variantNodeOf } from "./variant-node.ts"
 const nodes = new WeakMap<Element, VariantNode>()
 // Module state (#460, Q7): each element's config value, held weakly by the element.
 const values = new WeakMap<Element, WardicConfigValue.WardicConfigValue>()
+// Module state (#460, Q7): the elements whose Mount has run, held weakly: what a later render's `w.Presence` is told by.
+const mounted = new WeakSet<Element>()
 
-/** The nearest Wardic ancestor of `element`: one carrying a delivered config. Per element at mount, up the tree. */
-const nearestWard = (element: Element): Element | undefined => {
+/** The nearest ancestor of `element` that `has` what's looked for, or none at the top. Per element at mount, up the tree. */
+const nearestAncestor = (element: Element, has: (ancestor: Element) => boolean): Element | undefined => {
   const ancestor = element.parentElement
   if (Predicate.isNull(ancestor)) return undefined
-  if (Predicate.isNotUndefined(deliveredTo(ancestor))) return ancestor
-  return nearestWard(ancestor)
+  if (has(ancestor)) return ancestor
+  return nearestAncestor(ancestor, has)
 }
+
+/** Whether an element carries a delivered config: a `w.*` element, or one with the bundle. */
+const isWard = (element: Element): boolean => Predicate.isNotUndefined(deliveredTo(element))
+
+/** Whether an element carries `w.Presence`. */
+const isPresence = (element: Element): boolean => Predicate.isNotUndefined(configOf(deliveredTo(element)).presence)
+
+/** The nearest Wardic ancestor of `element`: one carrying a delivered config. */
+const nearestWard = (element: Element): Element | undefined => nearestAncestor(element, isWard)
+
+/** The nearest `w.Presence` element above `element` (decision 29), found as the variant parent is. */
+export const nearestPresenceElement = (element: Element): Element | undefined => nearestAncestor(element, isPresence)
+
+/** Mark `element`'s Mount as run: from now on, a `w.Presence` a render adds to it can't run (its Mount is made once). */
+export const markMounted = (element: Element): void => {
+  mounted.add(element)
+}
+
+/** Whether `element`'s Mount has run. */
+export const isMounted = (element: Element): boolean => mounted.has(element)
 
 /** The variant context the nearest Wardic ancestor of `element` provides, or none at the top. */
 const parentContextOf = (element: Element): VariantTree.WardicVariantContextValue | undefined =>

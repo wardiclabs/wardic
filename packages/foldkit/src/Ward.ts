@@ -8,6 +8,7 @@
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type { Html } from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
@@ -21,7 +22,7 @@ import type * as Atom from "effect/reactivity/Atom"
 export const TypeId: unique symbol = Symbol.for("@wardic/foldkit/Ward.Attribute")
 export type TypeId = typeof TypeId
 
-/** The keys of an element's config a Wardic attribute sets (slice 1's; the rest come with the later slices). */
+/** The keys of an element's config a Wardic attribute sets (slices 1 and 2's; the rest come with the later slices). */
 export type Key =
   | "initial"
   | "animate"
@@ -36,6 +37,9 @@ export type Key =
   | "text"
   | "onUpdate"
   | "transformTemplate"
+  | "exit"
+  | "presence"
+  | "key"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -89,12 +93,45 @@ export const isAttribute = (value: unknown): value is Attribute => Predicate.has
 export type Child = Html | string
 
 /**
- * An element's config in slice 1: where it starts, where it animates to, how, and its `style`, whose
- * values are its base values (dom's `WardConfig`'s, Motion's props). Each key is typed on its own
- * (#791, Q17): nothing is inferred across attributes.
+ * `w.Presence(options)`'s options (ADR-0071 decision 29; Motion's `AnimatePresence` props, `@wardic/solid`'s
+ * `AnimatePresence`'s), on the leavers' parent. Each is read as it's needed: `mode` and
+ * `presenceAffectsLayout` at each change, `custom` and the anchors as a child leaves, `initial` as a
+ * child mounts, `propagate` once.
  */
-export interface Config<Message = never> extends Pick<WardConfig.WardConfig, "initial" | "animate" | "transition" | "variants" | "custom" | "inherit"> {
+export interface PresenceOptions<Message = never> {
+  /**
+   * How a change with a leaver goes: `"sync"` (the default), the entering child beside the leaver at
+   * once; `"popLayout"`, the leaver popped out of the flow where it was, so its siblings take their
+   * places at once; `"wait"`, the entering child held off the page, hidden, until the last leaver is gone.
+   */
+  readonly mode?: PresenceController.PresenceMode | undefined
+  /** `false`: the children present at the presence's first render start at their `Animate`; one entering later animates in (Motion's `initial`). */
+  readonly initial?: boolean | undefined
+  /** What a leaving child's dynamic `Exit` resolves with (Motion's `custom`), over the child's own `Custom`. */
+  readonly custom?: unknown
+  /** Sent once every leaver has animated out and been removed, the last by completing (Motion's `onExitComplete`). Not under replay. */
+  readonly onExitComplete?: Handler<Message, void> | undefined
+  /** Whether a child's going and coming moves the `layout` elements around it (Motion's prop); `true` by default. */
+  readonly presenceAffectsLayout?: boolean | undefined
+  /** Motion's `propagate`: inside another presence's child, when that child leaves, these children all leave too, and it goes once they've gone. */
+  readonly propagate?: boolean | undefined
+  /** Where `"popLayout"` pins a leaver (Motion's): by its inline start or end; the start by default. */
+  readonly anchorX?: PresenceController.PopAnchors["x"] | undefined
+  /** Where `"popLayout"` pins a leaver: by its top or bottom; the top by default. */
+  readonly anchorY?: PresenceController.PopAnchors["y"] | undefined
+}
+
+/**
+ * An element's config: where it starts, where it animates to, how, where it exits to, and its
+ * `style`, whose values are its base values (dom's `WardConfig`'s, Motion's props). Each key is typed
+ * on its own (#791, Q17): nothing is inferred across attributes.
+ */
+export interface Config<Message = never> extends Pick<WardConfig.WardConfig, "initial" | "animate" | "transition" | "variants" | "custom" | "inherit" | "exit"> {
   readonly style?: Style | undefined
+  /** `w.Presence(…)`: the element's children exit before they're removed (decision 29). */
+  readonly presence?: PresenceOptions<Message> | undefined
+  /** The element's key, as `w.keyed(tag)(key, …)` gave it: what a child re-entering a presence during its exit takes over its leaver by (#286). */
+  readonly key?: string | undefined
   /** `w.Config(…)`: the subtree's settings, this element's included. */
   readonly config?: ConfigOptions | undefined
   /** `w.OnAnimationStart(…)`: sent as an animation of the element starts (Motion's `onAnimationStart`). */

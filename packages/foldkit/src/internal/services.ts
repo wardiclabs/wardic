@@ -14,11 +14,13 @@ import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as Renderer from "@wardic/core/Renderer"
 import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import * as OwnValues from "@wardic/core/unstable/OwnValues"
 import * as VariableValues from "@wardic/core/unstable/VariableValues"
 import * as WardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
+import * as Arr from "effect/Array"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
@@ -51,6 +53,8 @@ export interface Provider {
   readonly loop: FrameLoop.FrameLoop["Service"]
   /** Its Atom registry: what Live values are read through (decision 16). */
   readonly atoms: AtomRegistry.AtomRegistry
+  /** The Environment's Renderer (ADR-0003): what a presence's retained node commits its exit through. */
+  readonly renderer: Renderer.Renderer["Service"]
   /** Its flush gate (ADR-0006). */
   readonly gate: FlushGate.Shape
   /** Whether reduced motion applies now (ADR-0029): the user's preference, read as each animation starts. */
@@ -79,6 +83,8 @@ export interface State {
    * bring them through the provider's registry. Nothing reads them in slice 1.
    */
   readonly features: Feature.InstanceFeaturesProp | undefined
+  /** Its Features given at once (#792, Q9), flattened: what a `w.Presence` element builds its Feature from. Loads come with slice 3. */
+  readonly given: ReadonlyArray<Feature.Feature>
   /** The Handle's app-wide config (`Wardic.make({ config })`), the root of every element's `w.Config` chain; none without one. */
   readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
   deferred: Deferred.Deferred<Provider>
@@ -112,11 +118,29 @@ export const registryOf =
 export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined): State => ({
   env,
   features,
+  given: givenOf(features),
   rootConfig: rootConfigValueOf(config),
   deferred: Deferred.makeUnsafe<Provider>(),
   live: undefined,
   building: false,
 })
+
+/** The Features `prop` gives at once, each once: a Feature, a list, nested lists; a load (a function) is left for slice 3. */
+const givenOf = (prop: Feature.InstanceFeaturesProp | undefined): ReadonlyArray<Feature.Feature> => {
+  if (Predicate.isUndefined(prop)) return []
+  if (Predicate.isFunction(prop)) return []
+  if (Arr.isArray(prop)) return Arr.dedupeWith(Arr.flatMap(prop as ReadonlyArray<Feature.InstanceFeaturesProp>, givenOf), (a, b) => a === b)
+  return [prop as Feature.Feature]
+}
+
+/**
+ * The service of a given Feature, built now if nothing has built it (#792, Q9): what `w.Presence`
+ * finds its controller by. `undefined` when the Handle wasn't given the Feature.
+ */
+export const featureIn = <I, S>(provider: Provider, state: State, key: Context.Key<I, S>): S | undefined => {
+  if (state.given.length === 0) return undefined
+  return Option.getOrUndefined(Context.getOption(provider.registry.build(state.given) as Context.Context<I>, key))
+}
 
 /** A second `w.Provider()` for one Handle, while the first's element is mounted: reported, then ignored. */
 const SECOND_PROVIDER =
@@ -157,6 +181,7 @@ const build = (state: State): Effect.Effect<Provider> =>
       gate: Context.get(context, FlushGate.FlushGate),
       reducedMotion,
       prefers,
+      renderer: Context.get(context, Renderer.Renderer),
       positionalKeys: Context.get(context, ReducedMotion.PositionalKeys),
       defaultTransition: Context.get(context, DefaultTransition.DefaultTransition),
       valueReads: ElementSetup.valueReadsOf({

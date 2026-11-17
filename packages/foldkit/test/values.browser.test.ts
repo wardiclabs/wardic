@@ -2,6 +2,7 @@
 // in the patch's frame, P20), `Wardic.animate` and `Wardic.provide` from Commands, Live values in
 // `w.Style`, `w.Text`, `w.OnUpdate` and `w.TransformTemplate`.
 import { DomLive } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
@@ -9,7 +10,7 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import { afterEach, describe, expect, it } from "vitest"
-import { LiveValue } from "@wardic/foldkit"
+import { Features, LiveValue } from "@wardic/foldkit"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { paintedReads, until } from "../../solid/test/browser-helpers.ts"
@@ -56,6 +57,34 @@ describe("the held frame (P20, decision 32)", () => {
     expect(reads[0], "moved in the patch's own frame").toBeGreaterThan(0)
     expect(reads[1]).toBeGreaterThan(reads[0]!)
     expect(reads[2]).toBeGreaterThan(reads[1]!)
+  })
+
+  it("a leaver's exit, started by the presence's delivery with no setter called, takes its first step in the patch's frame too (#792, Q7)", async () => {
+    const Items = Schema.Struct({ items: Schema.Array(Schema.String) })
+    type Items = typeof Items.Type
+    const ItemsMessage = defineMessageUnion({ Items: { items: Schema.Array(Schema.String) } })
+    type ItemsMessage = typeof ItemsMessage.Type
+    const presenced = Wardic.make({ env: DomLive, features: [Features.presence] })
+    const held = embed<Items, ItemsMessage, ReadonlyArray<string>>({
+      Model: Items,
+      Set: Schema.Array(Schema.String),
+      init: { items: ["a", "b"] },
+      update: (model, message) => ItemsMessage.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) }),
+      view: (model, h) => {
+        const w = presenced.html(h)
+        return w.ul([h.Id("list"), w.Presence({})], model.items.map((key) =>
+          w.keyed("li")(key, [h.Id(`item-${key}`), w.Initial({ opacity: 1 }), w.Exit({ opacity: 0 }), w.Transition({ duration: 0.5, ease: "linear" })], [key])))
+      },
+      toMessage: (items) => ItemsMessage.Items({ items }),
+    })
+    app = held
+    const b = await boxOf(held, "item-b")
+    // Settled, idle. The removal's patch calls no setter: the delivery's hint opens the window for the exit's legs.
+    held.send(["a"])
+    const reads = await paintedReads(() => Bool.match(b.style.opacity === "", { onTrue: () => 1, onFalse: () => Number(b.style.opacity) }), 3)
+    expect(reads[0], "faded in the patch's own frame").toBeLessThan(1)
+    expect(reads[1]).toBeLessThan(reads[0]!)
+    expect(reads[2]).toBeLessThan(reads[1]!)
   })
 })
 
