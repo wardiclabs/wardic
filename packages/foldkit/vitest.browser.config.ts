@@ -16,7 +16,7 @@ export default defineConfig({
   // Pre-bundled up front, as the other projects' (`vitest.browser.config.ts`): Foldkit and what it
   // imports beside Effect's modules. core's and dom's own dependencies resolve from their folders, not
   // this package's (Vite's `dep > subdep` form).
-  optimizeDeps: { include: [...PREBUNDLED.filter((dep) => dep !== "culori/fn" && dep !== "bezier-easing"), "@wardic/dom > culori/fn", "@wardic/core > bezier-easing", "foldkit", "foldkit/brand", "foldkit/command", "foldkit/customElement", "foldkit/html", "foldkit/message", "foldkit/mount", "foldkit/port", "foldkit/runtime", "foldkit/subscription", "foldkit/test", "foldkit/devtools-host", "foldkit/scene", "effect/Schema", "effect/reactivity/Atom", "effect/reactivity/AtomRegistry", "bezier-easing"] },
+  optimizeDeps: { include: [...PREBUNDLED.filter((dep) => dep !== "culori/fn" && dep !== "bezier-easing"), "@wardic/dom > culori/fn", "@wardic/core > bezier-easing", "foldkit", "foldkit/brand", "foldkit/command", "foldkit/customElement", "foldkit/html", "foldkit/message", "foldkit/mount", "foldkit/port", "foldkit/render", "foldkit/runtime", "foldkit/subscription", "foldkit/test", "foldkit/devtools-host", "foldkit/scene", "effect/Schema", "effect/reactivity/Atom", "effect/reactivity/AtomRegistry", "bezier-easing"] },
   test: {
     name: "foldkit-browser",
     include: ["test/**/*.browser.test.ts"],

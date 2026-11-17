@@ -79,6 +79,12 @@ const observe = (provider: Provider, state: State, projection: ProjectionSystem.
   if (state.live !== provider) return
   const observer = new MutationObserver((records) => {
     if (Arr.every(records, isQuietChange)) return
+    // A View Transition's render (decision 33): its pass is an Instant change, every node at its new box, nothing started.
+    if (state.transitioning) {
+      state.transitioning = false
+      projection.instant(() => projection.notify())
+      return
+    }
     // The pass's first step paints in the patch's frame (decision 32; #792, Q7), unless replay has a view (decision 34).
     if (Bool.not(provider.paused())) hintFrame(provider.loop)
     projection.notify()
