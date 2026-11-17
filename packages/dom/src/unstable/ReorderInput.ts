@@ -1,15 +1,18 @@
 /**
- * A Reorder item's input (ADR-0037), Solid-free (#379): its keys, blurs and presses told to its driver
- * by watches while a Scope is open, each inside its event, with no fiber at rest. Both bindings run it
- * in the item's watch Scope (ADR-0055, *Amendment (#379)*). A Batch Reorder group's items (#712) are
- * heard through the feeds over them instead, with no listener per item at rest.
+ * A Reorder item's input (ADR-0037), for every binding (#379): its keys, blurs and presses told to its
+ * driver by watches while a Scope is open, each inside its event, with no fiber at rest. Each binding
+ * runs it in the item's watch Scope (ADR-0055, *Amendment (#379)*). A Batch Reorder group's items (#712)
+ * are heard through the feeds over them instead, with no listener per item at rest.
+ *
+ * Unstable, for Wardic's own packages: public, with no semver promise.
  *
  * @module
  */
+// Unstable: ADR-0071, decision 5. #793 (PR 3): solid's `reorder-input.ts`, moved to dom for the Foldkit binding's items too.
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
-import type * as ReorderController from "@wardic/dom/ReorderController"
-import * as Report from "@wardic/dom/Report"
+import type * as ReorderController from "../ReorderController.ts"
+import * as Report from "../Report.ts"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Iter from "effect/Iterable"

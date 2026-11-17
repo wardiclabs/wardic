@@ -13,6 +13,7 @@ import * as Arr from "effect/Array"
 import * as Schema from "effect/Schema"
 import { defineMessageUnion } from "foldkit/message"
 import { expect, vi } from "vitest"
+import type * as Features from "@wardic/foldkit/Features"
 import type * as Wardic from "@wardic/foldkit/Wardic"
 import { raf, until } from "../../solid/test/browser-helpers.ts"
 import { type Pt } from "../../solid/test/real-mouse.ts"
@@ -90,9 +91,9 @@ export const boxOf = async (app: Pick<Embedded<never>, "container">, id = "box")
   return app.container.querySelector<HTMLElement>(`#${id}`)!
 }
 
-/** The `#box` of `app`, once it renders and two frames have passed: what mounts with it (a recognizer's or a track's listeners) is in place. */
-export const settledBox = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
-  const box = await boxOf(app)
+/** The `#id` element of `app` (`#box` by default), once it renders and two frames have passed: what mounts with it (a recognizer's or a track's listeners) is in place. */
+export const settledBox = async (app: Pick<Embedded<never>, "container">, id = "box"): Promise<HTMLElement> => {
+  const box = await boxOf(app, id)
   await raf()
   await raf()
   return box
@@ -133,7 +134,8 @@ export const embedKeyedList = <F>(handle: Pick<Wardic.Handle<F>, "html">, items:
     init: { items },
     update: (model, message) => ListMessage.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) }),
     view: (model, h) => {
-      const w = handle.html(h)
+      // The Handle has `layout`, given or on its way: its builder's `Layout` is callable.
+      const w = handle.html(h) as Wardic.Html<ListMessage, typeof Features.layout>
       return h.ul([h.Id("list"), h.Style({ position: "relative", margin: "0", padding: "0" })], Arr.map(model.items, (key) =>
         w.keyed("li")(key, [h.Id(`item-${key}`), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style(ROW)], [key])))
     },

@@ -10,14 +10,13 @@
 // Unstable: ADR-0071, decision 5. #672 (Q11, PR2-Q3): solid's `drag-defaults.ts`, out of `spine.ts` since
 // PR 2, moved to dom for every DOM binding's drag elements.
 import * as Style from "../Style.ts"
-import * as Arr from "effect/Array"
+import * as ElementSetup from "./ElementSetup.ts"
 import * as Option from "effect/Option"
-import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as WardConfig from "./WardConfig.ts"
 
-/** What a `<Reorder>` item adds to an element's drag: its gesture's axis, read at each drag's start. */
-interface DragInternals {
+/** What a Reorder item adds to an element's drag: its gesture's axis, read at each drag's start. */
+export interface DragInternals {
   readonly dragAxis?: (() => boolean | "x" | "y") | undefined
 }
 
@@ -53,8 +52,6 @@ export const dragDefaultsOf = (config: DragProps, internal: DragInternals = NO_D
  * component may not pass them on.
  */
 export const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
-  Arr.forEach(Rec.keys(defaults), (key) => {
-    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, UndefinedOr.getOrThrow(defaults[key]))
-  })
+  ElementSetup.writeUnderStyle(element, defaults)
   if (!element.hasAttribute("draggable")) element.setAttribute("draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
 }

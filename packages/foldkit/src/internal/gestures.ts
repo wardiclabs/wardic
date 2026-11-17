@@ -51,6 +51,8 @@ export interface GestureOptions {
   readonly id: string
   /** The nearest `w.Config`'s `transformPagePoint` (Q9), read at each of the pan's downs. */
   readonly pagePoint: () => WardConfig.WardicTransformPoint | undefined
+  /** Whether the element's keys are taken, as a Reorder item's are by its Keyboard reorder (ADR-0037): its press starts from no key. Read as the press starts. */
+  readonly keysTaken: () => boolean
 }
 
 /** An element's gestures (above). */
@@ -63,6 +65,8 @@ export interface Gestures {
   readonly dragging: () => boolean
   /** The drag took `x`/`y`, or handed them back (the track's `setDragging`): its entry flips once each way. */
   readonly dragHeld: (on: boolean) => void
+  /** A Keyboard reorder's lift began or ended (ADR-0037): `WhileDrag` applies as to a drag, the translate keys stay the spine's. */
+  readonly lift: (lifted: boolean) => void
   /** A drag's sample, after the track's write: `OnDirectionLock` at a locked start, `OnDragStart`, `OnDrag` at each move, `OnDragEnd`. */
   readonly dragged: (sample: Drag.Sample) => void
   /** The drag's release came to rest on its own: `OnDragTransitionEnd`. */
@@ -96,12 +100,14 @@ const HANDLER_FAILED = "wardic.gesture: a recognizer's handler failed"
 type Told = Ward.Callback<unknown, ReadonlyArray<unknown>>
 
 /** An element's gestures (above): nothing started until `check` wants it. */
-export const gesturesOf = ({ provider, element, config, dispatch, onChange, id, pagePoint }: GestureOptions): Gestures => {
+export const gesturesOf = ({ provider, element, config, dispatch, onChange, id, pagePoint, keysTaken }: GestureOptions): Gestures => {
   const started = new Map<Gesture, Scope.Closeable>()
   // Which gestures are on: the element's entries in the Override stack.
   const on = MutableRef.make<VariantTree.GestureStates>(VariantTree.NO_GESTURE_STATES)
   // Whether the drag holds `x`/`y` (ADR-0004): from its "start" through its release.
   const dragging = MutableRef.make(false)
+  // Whether a Keyboard reorder has the element lifted (ADR-0037): `WhileDrag` applies with no drag.
+  const lifted = MutableRef.make(false)
   const flip = (change: Partial<VariantTree.GestureStates>): void => {
     MutableRef.set(on, { ...MutableRef.get(on), ...change })
     onChange()
@@ -139,14 +145,19 @@ export const gesturesOf = ({ provider, element, config, dispatch, onChange, id, 
   const dragHeld = (held: boolean): void => {
     if (MutableRef.get(dragging) === held) return
     MutableRef.set(dragging, held)
-    flip({ dragged: held })
+    flip({ dragged: Bool.or(held, MutableRef.get(lifted)) })
+  }
+  const lift = (on: boolean): void => {
+    if (MutableRef.get(lifted) === on) return
+    MutableRef.set(lifted, on)
+    flip({ dragged: Bool.or(MutableRef.get(dragging), on) })
   }
   // Each gesture's recognizer: its Feature's watch, with the element's handlers. In view as its
   // `viewport` says, read as it starts (Motion's), over the Environment's Probe. A pan (Q9) moves
   // nothing: its samples to the pan callbacks, its points through the nearest `transformPagePoint`.
   const recognizers: ReadonlyArray<Recognizer> = [
     { name: "hover", wants: GestureFeatures.wantsHover, start: () => UndefinedOr.map(featureIn(provider, Keys.HoverGesture), (hover) => run(hover.watch(element, { on: hovered, onDefect }))) },
-    { name: "press", wants: GestureFeatures.wantsPress, start: () => UndefinedOr.map(featureIn(provider, Keys.PressGesture), (press) => run(press.watch(element, { on: pressed, onDefect }, false, propagates))) },
+    { name: "press", wants: GestureFeatures.wantsPress, start: () => UndefinedOr.map(featureIn(provider, Keys.PressGesture), (press) => run(press.watch(element, { on: pressed, onDefect }, keysTaken(), propagates))) },
     { name: "focus", wants: GestureFeatures.wantsFocus, start: () => UndefinedOr.map(featureIn(provider, Keys.FocusGesture), (focus) => run(focus.watch(element, VISIBLE_FOCUS, { on: focused, onDefect }))) },
     { name: "inView", wants: GestureFeatures.wantsInView, start: () => UndefinedOr.map(featureIn(provider, Keys.InViewGesture), (inView) => run(inView.watch(element, GestureFeatures.inViewOptionsOf(config().viewport), { on: viewed, onDefect }))) },
     { name: "pan", wants: GestureFeatures.wantsPan, start: () => UndefinedOr.map(featureIn(provider, Keys.PanGesture), (pan) => run(pan.watch(element, { on: teller.panned, onDefect }, { mapPoint: WardicConfigValue.pointMapOptionOf(pagePoint) }))) },
@@ -164,6 +175,7 @@ export const gesturesOf = ({ provider, element, config, dispatch, onChange, id, 
     states: () => MutableRef.get(on),
     dragging: () => MutableRef.get(dragging),
     dragHeld,
+    lift,
     dragged: teller.dragged,
     released: teller.released,
     check,

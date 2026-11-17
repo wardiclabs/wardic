@@ -298,8 +298,8 @@ const BatchGroupContext = createContext<GroupForItems<unknown>>()
 // #712, ADR-0072.
 export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatchGroupProps<V, Tag>): JSX.Element {
   const [local, rest] = splitProps(props as unknown as GroupLocal<V> & Record<string, unknown>, GROUP_OWN)
-  const keyboard = (): boolean => local.keyboard !== false
-  const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
+  const keyboard = (): boolean => ReorderController.keyboardOn(local.keyboard)
+  const instructions = (): string => ReorderController.instructionsOf(local.instructions)
   const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "ul", onDefined: identity })
   // On a server (Q39): its items' starts, and no runtime. A plain `if`, so a client build drops it (#518).
   if (isServer) {

@@ -46,6 +46,7 @@ import { gesturesOf } from "./gestures.ts"
 import { reactivity, recheck } from "./reactivity.ts"
 import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
+import { groupDelivered, reorderItemOf } from "./reorder.ts"
 import { type Provider, reducedMotionUnder, type State } from "./services.ts"
 import { configValueOf, dropNode, layoutGroupOf, nodeOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
@@ -131,6 +132,13 @@ const writeStartingStyle = (element: HTMLElement, starting: Style.Style): void =
 
 /** What a callback's handler becomes for the spine or a presence: a function told what the callback is. */
 export type Dispatch = <Args extends ReadonlyArray<unknown>>(handler: Ward.Callback<unknown, Args>) => (...args: Args) => void
+
+/** A {@link Dispatch} through `offer`, a Mount's queue, silenced while DevTools replay has the view (decision 34), whose history the Messages would change. */
+export const dispatchUnlessPaused = (paused: () => boolean, offer: (message: unknown) => void): Dispatch =>
+  dispatcherOf((message) => {
+    if (paused()) return
+    offer(message)
+  })
 
 /** What sends a callback's Message (decision 23) through `offer`: a Message as it is; a function's answer, an `Option.none()` sending nothing. */
 export const dispatcherOf =
@@ -261,11 +269,7 @@ const followText = (element: HTMLElement, atom: Config["text"], registry: AtomRe
 export const mountElement = (provider: Provider, state: State, element: HTMLElement, paused: () => boolean, offer: (message: unknown) => void, root: WardicConfigValue.WardicConfigValue | undefined): (() => void) => {
   const tag = element.localName
   // Its callbacks' Messages (decision 23): none under replay (decision 34), whose history they'd change.
-  const send = (message: unknown): void => {
-    if (paused()) return
-    offer(message)
-  }
-  const dispatch = dispatcherOf(send)
+  const dispatch = dispatchUnlessPaused(paused, offer)
   // Its place in the tree (decision 21): its node, made by its first child's Mount or here, and the
   // nearest `w.Config` above it (decision 22).
   const node = nodeOf(element)
@@ -319,6 +323,26 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     })
     const taken = PresenceRecord.presenceSeedOf(context, element)
     const recordFrame = Spine.recordFrameOf(record)
+    // Its gestures (#793; decision 23): each started as a delivery wants it, its entry in the Override
+    // stack re-resolved as it flips, and its Variant children told through the port's watches (#291).
+    const gestures = gesturesOf({
+      provider,
+      element,
+      config: configNow,
+      dispatch,
+      onChange: () => {
+        retarget()
+        recheck()
+      },
+      id,
+      pagePoint,
+      // A Reorder item's keys are its Keyboard reorder's (ADR-0037): its press starts from no key.
+      keysTaken: () => Predicate.isNotUndefined(MutableRef.get(item)),
+    })
+    node.bindGestures(gestures.states)
+    // A Reorder item (decision 28): joined to the group above it, which decides its drag's axis and hears
+    // its samples; its keyboard lift turns `WhileDrag` on. Joined now, or as a load brings the Features (Q15).
+    const item = MutableRef.make(reorderItemOf(provider, element, id, () => config, dispatch, gestures.lift))
     // Its spine's options, with what its drag writes as its track starts (ADR-0004; #793, PR 2): its
     // axis, its track and whether it drives a layout node, which the spine reads where it uses them.
     // The axis is seeded from the config at mount too, as Solid's: the spine registers its drag hook (a
@@ -351,7 +375,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       builtFeatures: provider.registry.built,
       presence: record,
       projected: false,
-      dragAxis: DragDefaults.dragAxisOf(view),
+      dragAxis: DragDefaults.dragAxisOf(view, { dragAxis: UndefinedOr.map(MutableRef.get(item), (joined) => joined.dragAxis) }),
       drag: undefined,
       handoff: undefined,
       // Motion's onAnimationStart / onAnimationComplete (decision 23), as Messages through `dispatch`.
@@ -360,21 +384,6 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     }
     const spine = Spine.makeElementSpine(spineOptions)
     UndefinedOr.map(taken, (seed) => spine.seed(seed))
-    // Its gestures (#793; decision 23): each started as a delivery wants it, its entry in the Override
-    // stack re-resolved as it flips, and its Variant children told through the port's watches (#291).
-    const gestures = gesturesOf({
-      provider,
-      element,
-      config: configNow,
-      dispatch,
-      onChange: () => {
-        retarget()
-        recheck()
-      },
-      id,
-      pagePoint,
-    })
-    node.bindGestures(gestures.states)
     // The `StartsDrag` element (Q8): its downs start its controls' drags, from the first delivery that gives them.
     const startsDrag = startsDragOf(element, () => config)
     // Its layout (ADR-0009, ADR-0010; decision 30): one projection node for `Layout`, `LayoutId`,
@@ -399,7 +408,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
                 snapshot,
                 // What its release runs on (ADR-0016, *Amendment (#140)*; Q10): the element's drag transition, read now.
                 dragTransition: DragTransition.dragTransitionOf(view.dragElastic, view.dragTransition),
-                raiseWhileDragged: false,
+                // Raised while dragged as a Reorder item (ADR-0020), over the rest.
+                raiseWhileDragged: Predicate.isNotUndefined(MutableRef.get(item)),
                 taken,
                 layoutGroup: layoutGroupOf(element),
                 reducedMotion,
@@ -408,8 +418,19 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
               }),
             ),
           )))
+        registerItemNode()
       }
       if (Predicate.isUndefined(MutableRef.get(unregisterValues))) MutableRef.set(unregisterValues, UndefinedOr.map(builtProjection(), (projection) => projection.registerValues(element, () => snapshot.values)))
+    }
+    /** A Reorder item's node, registered with its group once both are there (ADR-0020): its box, its drag offset and its lift. */
+    const registerItemNode = (): void => {
+      UndefinedOr.map(MutableRef.get(layoutNode), (made) => UndefinedOr.map(MutableRef.get(item), (joined) => joined.onLayoutHandle(made)))
+    }
+    /** The item joined as a load brings the Features (Q15): its group made by it if its own Mount hasn't, its node registered. */
+    const joinItem = (): void => {
+      if (Predicate.isNotUndefined(MutableRef.get(item))) return
+      MutableRef.set(item, reorderItemOf(provider, element, id, () => config, dispatch, gestures.lift))
+      registerItemNode()
     }
     joinLayout()
     // Its drag (ADR-0004; #793, PR 2): dom's track, started as a delivery wants it, driving the layout
@@ -424,15 +445,21 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       live,
       spine: spineOptions,
       layoutNode: () => MutableRef.get(layoutNode),
+      // A Reorder item's axis at each gesture's start, and its samples to its group before the callbacks (ADR-0020).
+      itemAxis: () => UndefinedOr.map(MutableRef.get(item), (joined) => joined.dragAxis),
       pagePoint,
       skipAnimations,
       onDragging: gestures.dragHeld,
-      onSample: gestures.dragged,
+      onSample: (sample) => {
+        UndefinedOr.map(MutableRef.get(item), (joined) => joined.onDragSample(sample))
+        gestures.dragged(sample)
+      },
       onReleaseEnd: gestures.released,
     })
-    // A load's Features arriving (Q15): what the element wants of them starts then; a `layout` from the
-    // same load makes its node first, so the drag's track drives it (#582).
+    // A load's Features arriving (Q15): what the element wants of them starts then; an item joins its
+    // group first, and a `layout` from the same load makes its node before the drag's track drives it (#582).
     const stopRechecks = provider.onFeatures(() => {
+      joinItem()
       joinLayout()
       drag.check()
       gestures.check()
@@ -475,6 +502,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     const uninstall = installSetter(element, (delivered) => {
       config = configOf(delivered)
       view = spineViewOf(config, configValue, dispatch, registry, provider, element)
+      // A Reorder group's values that changed (decision 28): its controller told, before the pass that lays the items out in them.
+      groupDelivered(element)
       exitConfig.current = Spine.exitConfigOf(view, inherited)
       patchTouched()
       hintFrameUnless(provider.loop, paused)
@@ -536,6 +565,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       uninstall()
       stopRechecks()
       startsDrag.dispose()
+      UndefinedOr.map(MutableRef.get(item), (joined) => joined.dispose())
       drag.dispose()
       gestures.dispose()
       UndefinedOr.map(MutableRef.get(layoutNode), (node) => node.dispose())

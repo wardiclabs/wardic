@@ -276,6 +276,17 @@ export const draggingWithWillChange = (live: LiveStyle.LiveStyle | undefined, se
  */
 export const claimForDrag = (element: Element): (() => void) => () => Spine.tellDrag(element, true)
 
+/**
+ * Write `style` on `element` under its own inline style (#793): each key its inline style doesn't set,
+ * so the app's wins, as a drag element's defaults and a Reorder group's style go on (ADR-0019
+ * *Amendment (Reorder)*).
+ */
+export const writeUnderStyle = (element: HTMLElement, style: Readonly<Record<string, string>>): void => {
+  Arr.forEach(Rec.keys(style), (key) => {
+    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, UndefinedOr.getOrThrow(style[key]))
+  })
+}
+
 /** Log, once per element, that a `transform` string gave way to the transform keys in its `style` (#130). */
 export const warnDroppedTransform = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string): void => {
   runtime.runFork(

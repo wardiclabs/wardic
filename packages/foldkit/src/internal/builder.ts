@@ -9,6 +9,7 @@
  * @module
  */
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -78,6 +79,8 @@ const fold = <Message>(attributes: Attributes<Message>): Folded<Message> => {
     }
     folded.rest.push(attribute)
   })
+  // A Reorder item is a layout element (#793, Q17): `true` unless `w.Layout("position")` is beside it.
+  if (Bool.and(Predicate.isNotUndefined(config.reorderItem), Predicate.isUndefined(config.layout))) config.layout = true
   folded.config = config as Ward.Config<Message>
   return folded
 }
@@ -110,7 +113,7 @@ const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: str
     ...folded.rest,
     h.Style(stringified(starting)),
     propertyOf(h, config),
-    h.OnMount(mountOf(state, { provider: folded.provider, user: folded.mount, presence: Predicate.isNotUndefined(folded.config.presence) })),
+    h.OnMount(mountOf(state, { provider: folded.provider, user: folded.mount, presence: Predicate.isNotUndefined(folded.config.presence), reorder: Predicate.isNotUndefined(folded.config.reorderGroup) })),
   ]
 }
 
@@ -215,5 +218,8 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.OnPanStart = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => attribute("onPanStart", handler)
   w.OnPan = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => attribute("onPan", handler)
   w.OnPanEnd = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => attribute("onPanEnd", handler)
+  // Reorder (#793, PR 3; decision 28): the group's options, and each item's value.
+  w.ReorderGroup = (options: Ward.ReorderGroupOptions<Message, unknown>) => attribute("reorderGroup", options)
+  w.ReorderItem = (value: unknown) => attribute("reorderItem", { value } satisfies Ward.ReorderItem)
   return w
 }

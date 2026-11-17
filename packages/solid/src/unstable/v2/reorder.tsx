@@ -64,7 +64,7 @@ import * as Pan from "@wardic/dom/unstable/features/Pan"
 import * as Press from "@wardic/dom/unstable/features/Press"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
-import { watchItemInput } from "../../reorder-input.ts"
+import { watchItemInput } from "@wardic/dom/unstable/ReorderInput"
 import { plainOrder } from "../../reorder-values.ts"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { configView, type PerKey } from "./config-view.ts"
@@ -281,8 +281,8 @@ const isElement = (value: unknown): value is HTMLElement => Predicate.hasPropert
 
 /** The group's keyboard reorder settings, as accessors (ADR-0037). */
 const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfigValues<V>>) => ({
-  keyboard: (): boolean => cfg().keyboard !== false,
-  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity }),
+  keyboard: (): boolean => ReorderController.keyboardOn(cfg().keyboard),
+  instructions: (): string => ReorderController.instructionsOf(cfg().instructions),
 })
 
 /** The group element's style: the config's over `overflow-anchor: none`. */

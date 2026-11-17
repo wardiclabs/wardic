@@ -33,7 +33,7 @@ import * as Equivalence from "effect/Equivalence"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { constFalse, constUndefined, identity } from "effect/Function"
+import { constFalse, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -74,7 +74,7 @@ import * as Input from "@wardic/dom/unstable/features/Input"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
-import { watchItemsInputAmong } from "./reorder-input.ts"
+import { watchItemsInputAmong } from "@wardic/dom/unstable/ReorderInput"
 
 export {
   type BatchReorderDirection,
@@ -107,11 +107,8 @@ const releaseVelocityOf: (sample: Drag.Sample) => XY = Match.type<Drag.Sample>()
 /** What a group brings (ADR-0067 decision 12): the gestures' input, its items' drags heard through it. Either binding's. */
 export const GROUP_BRINGS: ReadonlyArray<Feature.Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: Input.input }]
 
-/** An item's `aria-describedby`: the app's own ids, then the instructions', or none. */
-export const describedByOf = (own: string | undefined, instructions: string | undefined): string | undefined => {
-  const ids = Arr.filter([own, instructions], Predicate.isNotUndefined)
-  return Bool.match(ids.length === 0, { onTrue: () => undefined, onFalse: () => ids.join(" ") })
-}
+// The keyboard reorder's attributes are dom's (#793, PR 3), for both bindings; re-exported for this file's readers.
+export { describedByOf, tabStopOf } from "@wardic/dom/ReorderController"
 
 /**
  * The direction `el` inherits: its parent's computed one, which its own `direction` (its group's prop, which
@@ -271,9 +268,6 @@ export interface BatchReorderItem {
 
 /** Whether two orders hold the same items in the same order. */
 const sameOrder: Equivalence.Equivalence<ReadonlyArray<unknown>> = Arr.makeEquivalence(Equivalence.strictEqual())
-
-/** An item's tab stop when it gives none of its own: `0` with the keyboard reorder on, or with its items pressable. */
-export const tabStopOf = (keyboard: boolean, pressable: boolean): 0 | undefined => Bool.match(Bool.or(keyboard, pressable), { onTrue: (): 0 => 0, onFalse: constUndefined })
 
 /** What a group's Scope reports when one of its finalizers fails as it goes. */
 const CLOSE_FAILED = "Reorder.BatchGroup: a finalizer failed"

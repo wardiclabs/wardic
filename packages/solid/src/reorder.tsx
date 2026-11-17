@@ -31,11 +31,9 @@ import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
-import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constUndefined, identity, pipe } from "effect/Function"
-import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
@@ -61,7 +59,7 @@ import { Dynamic } from "solid-js/web"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.tsx"
-import { watchItemInput } from "./reorder-input.ts"
+import { watchItemInput } from "@wardic/dom/unstable/ReorderInput"
 import { plainOrder } from "./reorder-values.ts"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Drag from "@wardic/dom/unstable/features/Drag"
@@ -229,7 +227,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
       axis: () => Option.fromUndefinedOr(untrack(cfg).axis),
       onAxis: setDetected,
       keyedWith: "<For>",
-      keyboard: () => untrack(cfg).keyboard !== false,
+      keyboard: () => ReorderController.keyboardOn(untrack(cfg).keyboard),
       announcements: () => Option.fromUndefinedOr(untrack(cfg).announcements),
     }).pipe(Effect.provide(useLayoutServices()), Scope.provide(scope)),
   )
@@ -263,8 +261,8 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
 
 /** A group's keyboard reorder settings, as accessors (ADR-0037). */
 const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfig<V>>) => ({
-  keyboard: (): boolean => cfg().keyboard !== false,
-  instructions: (): string => UndefinedOr.match(cfg().instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: (text: string) => text }),
+  keyboard: (): boolean => ReorderController.keyboardOn(cfg().keyboard),
+  instructions: (): string => ReorderController.instructionsOf(cfg().instructions),
 })
 
 /**
@@ -321,7 +319,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
   )
   return {
     brings: ITEM_BRINGS,
-    dragAxis: () => dragAxisFor(driver.dragAxis()),
+    dragAxis: () => ReorderController.itemDragAxis(driver.dragAxis()),
     onDragSample: driver.onSample,
     onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
     raiseWhileDragged: true,
@@ -348,14 +346,10 @@ const internalsOf = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLEl
  */
 const keyboardAttributes = (group: ItemGroup<never>, user: ReorderItemUserProps = NO_ITEM_PROPS, describedBy: Accessor<string | undefined>) => ({
   get tabindex() {
-    return UndefinedOr.match(user.tabIndex, {
-      onDefined: identity,
-      onUndefined: () => Bool.match(group.keyboard(), { onTrue: () => 0, onFalse: constUndefined }),
-    })
+    return UndefinedOr.match(user.tabIndex, { onDefined: identity, onUndefined: () => ReorderController.tabStopOf(group.keyboard(), false) })
   },
   get "aria-describedby"() {
-    const ids = Arr.filter([user["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined })], Predicate.isNotUndefined)
-    return Bool.match(ids.length === 0, { onTrue: () => undefined, onFalse: () => ids.join(" ") })
+    return ReorderController.describedByOf(user["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))
   },
 })
 
@@ -426,12 +420,6 @@ const noop = (): void => {}
 /** A group's spread's user props when it's given none. */
 const NO_GROUP_PROPS: ReorderGroupUserProps = {}
 const NO_ITEM_PROPS: ReorderItemUserProps = {}
-
-/** A Reorder item's drag axis for its gesture's axis: a grid's `xy` is a free drag. Built once, at module load. */
-const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<CoreReorder.Axis>().pipe(
-  Match.when("xy", (): true => true),
-  Match.orElse((axis) => axis as "x" | "y"),
-)
 
 /**
  * {@link createReorderGroup} during a server render (ADR-0021): the group's element style
