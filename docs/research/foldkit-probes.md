@@ -1,4 +1,4 @@
-# @wardic/foldkit (#561): the frame-order probes, P1–P10, P13, P14, P17 and P19–P22
+# @wardic/foldkit (#561): the frame-order probes, P1–P10, P13, P14, P17 and P19–P23
 
 > **Read at:** 2026-11-08 (UTC) · **Sources:**
 > - **Foldkit:** `foldkit@0.170.0` from npm, installed with `--ignore-scripts --legacy-peer-deps` into `probes:node_modules/`. Its `dist/runtime/renderer.js` is byte-identical to the note's tarball (`shasum` `cb22adee…`). Source citations are to the note's clone (`fk:`, `fkweb:`).
@@ -115,6 +115,9 @@ Companion to [`foldkit-binding.md`](foldkit-binding.md): it runs the note's B.4 
 18. **Solid 1's presence drifts from Motion's order when the list reorders during an exit** (P22; 6 runs, Chromium). It's a real bug, and it needs only one leaver.
     - `[a, b, c]` to `[a, c]`, then `[c, a]` while b exits, draws `c b a` until the exit ends. Motion draws `c a b`.
     - Solid's `reconcileArrays` moves its nodes around the leaver, and the controller re-places only the change's own leavers. P19's fix (re-place every leaver after every change) would apply (*inferred*).
+19. **`mode="wait"` works on Foldkit, held child hidden or detached** (P23, for #792's slice 2 PR 1; 7 scenarios × 5 runs per browser plus 3 fuzz seeds of 100 steps per hold, both browsers). An entering child is held until the last leaver is gone: no held child painted in any frame, every final order the Model's, no error, no rejected patch.
+    - **Detached,** Foldkit re-inserts the held node when a reorder moves it (the controller re-held it in the same delivery) and skips its removal silently (`removeChild` of a node that isn't a child is never called): the binding learns of the removal from the node's Mount release alone, and places the node itself when shown.
+    - **Hidden** (`display: none`), Foldkit keeps the node's place and its removal is a record like any other: nothing for the binding to place. The binding hides.
 
 ## P1, the frame order (with P3)
 
@@ -827,6 +830,44 @@ Every prediction held, in all 5 runs of each scenario in both browsers (identica
 - **The smallest reproduction:** `[a, b, c]` to `[a, c]`, then to `[c, a]` within the exit. The DOM is `c b a`, where Motion draws `c a b`.
 - **The fix is *inferred*:** P19's (re-place every leaver after every change, in the order's order) applied to Solid's controller. Not filed.
 - Solid 2's binding wasn't run.
+
+## P23, `mode="wait"` on Foldkit
+
+**The question** (#792's grill, Q5): `wait` holds an entering child off the page until the last leaver is gone. Foldkit has already inserted it by the time the presence's delivery runs. Does holding it fight Foldkit's next patch: a reorder that moves it, a removal while held, a key re-entering while held?
+
+**Setup** (`probes:src/p23.ts`, `run-p23-all.sh`, `analyze-p23.mjs`): P19's controller (re-insertion, every leaver re-placed by `orderOf` with a cursor, take-overs, own records dropped), plus the hold, one of:
+- `detach`: the entering child is taken out of the list in the delivery and put back at its Model place once the last exit ends;
+- `hidden`: it stays a child with `display: none` until then;
+- `none`: the control.
+Each item carries a Mount whose release tells the controller its vnode was destroyed (what the binding hears). A heartbeat rAF loop checks every frame that no held child could paint (detached: not connected; hidden: `display: none`). Exits are 400 ms WAAPI fades.
+
+| # | Scenario (from a b c d) | Final, both holds |
+|---|---|---|
+| W1 | b leaves and x enters in one change | `a x c d` |
+| W2 | W1, then a reverse while x is held | `d c x a` |
+| W3 | W1, then x removed while held: never shown, never exits | `a c d` |
+| W4 | b leaves; x enters a later change during the exit | `a x c d` |
+| W5 | a, b, c leave and x enters: x waits for all three | `x d` |
+| W6 | W1, then b back while x is held: the take-over ends the wait, x shows at once | `a x b c d` |
+| W7 | W4, then the presence element removed while x is held | (gone) |
+| fuzz | 3 seeds × 100 steps (leave-and-enter swaps weighted), 60 ms apart | the Model's |
+
+**Results** (5 runs per scenario per browser, Chromium 147 and Firefox 148; the fuzz once per seed):
+
+| Check | detach | hidden |
+|---|---|---|
+| Final order the Model's, every held child shown, none leaving | every run | every run |
+| Known children in the Model's order after every delivery | every delivery | every delivery |
+| A held child painted while a leaver exits | 0 frames | 0 frames |
+| Controller throws, page errors, rejected patches | 0 | 0 |
+| Holds / shows / drops, W3 | 1 / 0 / 1 (via the Mount release) | 1 / 0 / 1 (via the record) |
+| Holds, W2 | 3: Foldkit re-inserted the detached x as it moved it, re-held in the same delivery | 3: hidden, moved as a known child |
+
+**What differs:**
+- **Detached,** Foldkit's reverse moves x by `insertBefore`, which puts the detached node back in the list; the delivery re-holds it before paint. Its removal (W3) makes no record and throws nothing: 0.170's `removeChild` is never called for a node that isn't a child, so the binding would learn of it from the item's Mount release alone. When shown, the binding places it itself (here, by the Model's order, which the binding doesn't have: it would record a neighbour at each hold).
+- **Hidden,** Foldkit keeps the node's place through every move, and its removal is a record like any other. Nothing to place.
+
+**Verdict: both hold; the binding hides.** High confidence: 70 runs per hold plus 6 fuzz runs, 0 misses. `display: none` takes the child out of the layout as Motion's unrendered child is, and its spine doesn't start until it's shown (the binding defers a presence child's start to the delivery).
 
 ## The note's *inferred* claims, settled
 

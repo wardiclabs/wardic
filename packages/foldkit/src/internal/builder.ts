@@ -110,7 +110,7 @@ const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: str
     ...folded.rest,
     h.Style(stringified(starting)),
     propertyOf(h, config),
-    h.OnMount(mountOf(state, { provider: folded.provider, user: folded.mount })),
+    h.OnMount(mountOf(state, { provider: folded.provider, user: folded.mount, presence: Predicate.isNotUndefined(folded.config.presence) })),
   ]
 }
 
@@ -143,7 +143,8 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   })
   w.keyed = (tag: string) => {
     const keyed = (h.keyed as unknown as (tag: string) => (key: string, attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Ward.Child>) => Html)(tag)
-    return (key: string, attributes: Attributes<Message>, children?: ReadonlyArray<Ward.Child>) => elementOf(state, h, tag, (attrs, kids) => keyed(key, attrs, kids), attributes, children)
+    // The key rides in the element's config (#792, Q4): what a presence pairs a re-entering child with its leaver by.
+    return (key: string, attributes: Attributes<Message>, children?: ReadonlyArray<Ward.Child>) => elementOf(state, h, tag, (attrs, kids) => keyed(key, attrs, kids), [...attributes, attribute("key", key)], children)
   }
   w.attributes = (bundle: Ward.Bundle<Message>) => {
     const { mount, ...config } = bundle
@@ -164,5 +165,7 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.Text = (atom: Ward.Config["text"]) => attribute("text", atom)
   w.OnUpdate = (atom: Ward.Config["onUpdate"]) => attribute("onUpdate", atom)
   w.TransformTemplate = (template: Ward.Config["transformTemplate"]) => attribute("transformTemplate", template)
+  w.Exit = (value: Ward.Config["exit"]) => attribute("exit", value)
+  w.Presence = (options: Ward.PresenceOptions<Message> = {}) => attribute("presence", options)
   return w
 }

@@ -121,6 +121,19 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   OnUpdate: (atom: Ward.Config["onUpdate"]) => Ward.Attribute
   /** The element's transform from its values and the generated string (Motion's `transformTemplate`). Hoist the function. */
   TransformTemplate: (template: Ward.Config["transformTemplate"]) => Ward.Attribute
+  /**
+   * Where the element animates to as it leaves, under a `w.Presence` above it (Motion's `exit`): values,
+   * a variant name, or a dynamic variant resolved with the presence's `custom`. Its presence keeps it on
+   * the page, in its place, until it lands.
+   */
+  Exit: (value: Ward.Config["exit"]) => Ward.Attribute
+  /**
+   * The **Presence** (ADR-0007; decision 29), on the leavers' parent: each child Foldkit removes stays
+   * where it was while its `Exit` plays, in Motion's order through the patches that follow, and one that
+   * comes back under its key mid-exit takes over from where the leaver is. Needs `Features.presence`.
+   * Give it on the element's first render.
+   */
+  Presence: (options?: Ward.PresenceOptions<Message>) => Ward.Attribute
 }>
 
 /**
@@ -136,6 +149,8 @@ export interface Handle<F = never> {
   readonly Provider: MountAction<never>
   /** An element's raw Mount, for a Scene test to resolve by name (decision 36): one per `w.*` element in the view. */
   readonly Element: MountAction<never>
+  /** A `w.Presence` element's raw Mount, for a Scene test to resolve by name (#792, Q19). */
+  readonly Presence: MountAction<never>
   /**
    * The Layer a program's `resources` takes (decision 9): its Commands then run `Wardic.animate` and
    * `Wardic.provide`, which need the `Wardic` service, this Handle.
@@ -161,8 +176,9 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
   const handle: Handle<F> = {
     [HANDLE]: true,
     html,
-    Provider: mountOf<never>(state, { provider: {}, user: undefined }),
-    Element: mountOf<never>(state, { provider: undefined, user: undefined }),
+    Provider: mountOf<never>(state, { provider: {}, user: undefined, presence: false }),
+    Element: mountOf<never>(state, { provider: undefined, user: undefined, presence: false }),
+    Presence: mountOf<never>(state, { provider: undefined, user: undefined, presence: true }),
     resources: resourcesOf(() => handle),
   }
   remember(handle, state)

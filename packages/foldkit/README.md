@@ -27,7 +27,8 @@ const view = (model: Model, h: HtmlBuilder<Message>): Html => {
 - Live values are Atoms: `w.Style({ x: atom })` follows one through the gate, `w.Text(atom)` writes one as the element's text, `w.OnUpdate(atom)` sets one to the element's values each frame. Derived ones (`LiveValue.spring`, `follow`, `velocity`, `scroll`, re-exported from the root) are made in a Command through `Wardic.provide(effect)`, with `resources: wardic.resources` on the program; their Scope is the caller's, a `ManagedResource`'s or an `Effect.scoped`.
 - `Wardic.animate(subject, values, options)` is an Effect for a Command: an element, a selector or a list, landing as `{ landed }`, failing `AnimationFailed` when the subject finds nothing.
 - A Retarget a patch makes paints its first step in the patch's frame: the binding tells the Frame loop it runs inside the frame (the **Held frame**'s cure).
-- Scene tests resolve Wardic's Mounts by name: `Scene.Mount.resolve(wardic.Element, Done())`, and `wardic.Provider`.
+- Presence: `w.ul([w.Presence({ mode, initial, custom, onExitComplete, propagate })], items.map((key) => w.keyed("li")(key, [w.Exit({ opacity: 0 }), …], [key])))` keeps each item Foldkit removes in its place while its `Exit` plays, in Motion's order through the patches that follow; one back under its key mid-exit takes over from where the leaver is. It needs `Wardic.make({ env, features: [Features.presence] })`, with `Features` from the root.
+- Scene tests resolve Wardic's Mounts by name: `Scene.Mount.resolve(wardic.Element, Done())`, `wardic.Provider` and `wardic.Presence`.
 
 - Docs: https://wardic.dev
 - Source: https://github.com/wardiclabs/wardic/tree/main/packages/foldkit

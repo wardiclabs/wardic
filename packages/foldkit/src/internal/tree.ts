@@ -32,6 +32,17 @@ const nearestWard = (element: Element): Element | undefined => {
   return nearestWard(ancestor)
 }
 
+/**
+ * The nearest `w.Presence` element above `element` (decision 29): the ancestor whose delivered config
+ * carries `presence`, found as the variant parent is. Per element at mount, up the tree.
+ */
+export const nearestPresenceElement = (element: Element): HTMLElement | undefined => {
+  const ancestor = element.parentElement
+  if (Predicate.isNull(ancestor)) return undefined
+  if (Predicate.isNotUndefined(configOf(deliveredTo(ancestor)).presence)) return ancestor
+  return nearestPresenceElement(ancestor)
+}
+
 /** The variant context the nearest Wardic ancestor of `element` provides, or none at the top. */
 const parentContextOf = (element: Element): VariantTree.WardicVariantContextValue | undefined =>
   UndefinedOr.match(nearestWard(element), { onUndefined: constUndefined, onDefined: (ancestor) => nodeOf(ancestor).provided })
