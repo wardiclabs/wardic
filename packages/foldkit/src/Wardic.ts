@@ -157,25 +157,38 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
    * (decision 30). `true` (the default), or a Layout mode: `"position"`, `"size"`, `"preserve-aspect"`.
    * Needs `Features.layout`.
    */
-  Layout: (value?: Ward.Config["layout"]) => Ward.Attribute
+  Layout: Needs<F, "layout", (value?: Ward.Config["layout"]) => Ward.Attribute>
   /** A **Shared layout** id (ADR-0010; Motion's `layoutId`): an element with the same one, mounting as this leaves, flies from it. */
-  LayoutId: (id: Ward.Config["layoutId"]) => Ward.Attribute
+  LayoutId: Needs<F, "layout", (id: Ward.Config["layoutId"]) => Ward.Attribute>
   /** A value whose change asks for a Measure pass (Motion's `layoutDependency`): the trigger under `layoutTrigger: "declared"`. */
-  LayoutDependency: (value: Ward.Config["layoutDependency"]) => Ward.Attribute
+  LayoutDependency: Needs<F, "layout", (value: Ward.Config["layoutDependency"]) => Ward.Attribute>
   /** The element scrolls, and its scroll isn't read as its children moving (Motion's `layoutScroll`). */
-  LayoutScroll: (value?: Ward.Config["layoutScroll"]) => Ward.Attribute
+  LayoutScroll: Needs<F, "layout", (value?: Ward.Config["layoutScroll"]) => Ward.Attribute>
   /** A stable sub-root of the projection tree (ADR-0013; Motion's `layoutRoot`): the layout animations inside it anchor to it, and it never animates its own. */
-  LayoutRoot: (value?: Ward.Config["layoutRoot"]) => Ward.Attribute
+  LayoutRoot: Needs<F, "layout", (value?: Ward.Config["layoutRoot"]) => Ward.Attribute>
   /** A **Layout group** (#432; Motion's `LayoutGroup`): the namespace of the `LayoutId`s under the element, read once. */
-  LayoutGroup: (options?: Ward.LayoutGroupOptions) => Ward.Attribute
+  LayoutGroup: Needs<F, "layout", (options?: Ward.LayoutGroupOptions) => Ward.Attribute>
   /** Sent at the frame a layout animation's first step is painted (Motion's `onLayoutAnimationStart`). */
-  OnLayoutAnimationStart: (handler: Ward.Handler<Message, void>) => Ward.Attribute
+  OnLayoutAnimationStart: Needs<F, "layout", (handler: Ward.Handler<Message, void>) => Ward.Attribute>
   /** Sent once it has landed (Motion's `onLayoutAnimationComplete`). */
-  OnLayoutAnimationComplete: (handler: Ward.Handler<Message, void>) => Ward.Attribute
+  OnLayoutAnimationComplete: Needs<F, "layout", (handler: Ward.Handler<Message, void>) => Ward.Attribute>
   /** Called as each measure of the element begins (Motion's `onBeforeLayoutMeasure`): a plain function, which can't send (decision 24). */
-  OnBeforeLayoutMeasure: (fn: Ward.Config["onBeforeLayoutMeasure"]) => Ward.Attribute
+  OnBeforeLayoutMeasure: Needs<F, "layout", (fn: Ward.Config["onBeforeLayoutMeasure"]) => Ward.Attribute>
   /** Called with the element's box after each measure, and the one before (Motion's `onLayoutMeasure`): a plain function (decision 24). */
-  OnLayoutMeasure: (fn: Ward.Config["onLayoutMeasure"]) => Ward.Attribute
+  OnLayoutMeasure: Needs<F, "layout", (fn: Ward.Config["onLayoutMeasure"]) => Ward.Attribute>
+  /**
+   * A **Reorder group** (ADR-0020; decision 28; #793, Q11): the element's keyed `w.ReorderItem` children
+   * are put in order by dragging them, or from the keyboard (ADR-0037). The order lives in the Model:
+   * `values` is its, and `onReorder` sends a Message with each new order; each item is a layout element
+   * dragged on the group's axis and raised while it's in hand. Needs `Features.layout` and `Features.drag`.
+   */
+  ReorderGroup: Needs<F, "layout", Needs<F, "drag", <V>(options: Ward.ReorderGroupOptions<Message, V>) => Ward.Attribute>>
+  /**
+   * An item of the group above it, with its `value` in the group's `values`, read once: on a keyed element
+   * (`w.keyed("li")(key, …)`), which a render reorders by its key. `w.Layout("position")` beside it moves
+   * its place alone, as Motion's `Reorder.Item` takes.
+   */
+  ReorderItem: Needs<F, "layout", Needs<F, "drag", (value: unknown) => Ward.Attribute>>
   /**
    * Where the element animates while the pointer is over it, and back when it leaves (Motion's
    * `whileHover`): values or a variant name, which Variant children follow too. Needs `Features.hover`.
@@ -285,6 +298,8 @@ export interface Handle<F = never> {
   readonly Element: MountAction<never>
   /** A `w.Presence` element's raw Mount, for a Scene test to resolve by name (#792, Q19). */
   readonly Presence: MountAction<never>
+  /** A `w.ReorderGroup` element's raw Mount, for a Scene test to resolve by name (#793, Q18); its items stay `Element`. */
+  readonly Reorder: MountAction<never>
   /**
    * The Layer a program's `resources` takes (decision 9): its Commands then run `Wardic.animate`,
    * `Wardic.animateLayout` and `Wardic.provide`, which need the `Wardic` service, this Handle.
@@ -317,9 +332,10 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
   const handle: Handle<F> = {
     [HANDLE]: true,
     html,
-    Provider: mountOf<never>(state, { provider: {}, user: undefined, presence: false }),
-    Element: mountOf<never>(state, { provider: undefined, user: undefined, presence: false }),
-    Presence: mountOf<never>(state, { provider: undefined, user: undefined, presence: true }),
+    Provider: mountOf<never>(state, { provider: {}, user: undefined, presence: false, reorder: false }),
+    Element: mountOf<never>(state, { provider: undefined, user: undefined, presence: false, reorder: false }),
+    Presence: mountOf<never>(state, { provider: undefined, user: undefined, presence: true, reorder: false }),
+    Reorder: mountOf<never>(state, { provider: undefined, user: undefined, presence: false, reorder: true }),
     resources: resourcesOf(() => handle),
     viewTransition: viewTransitionOf(state),
   }

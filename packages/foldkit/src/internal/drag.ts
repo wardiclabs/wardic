@@ -55,6 +55,8 @@ export interface DragOptions {
   readonly spine: SpineDragOptions
   /** The element's layout node now: the track's projection as it starts (ADR-0016). */
   readonly layoutNode: () => ProjectionSystem.DragHandle | undefined
+  /** A Reorder item's axis, read at each gesture's start in place of `Drag`'s (ADR-0020): the group's. `undefined` for any other element. */
+  readonly axisAt: (() => true | "x" | "y") | undefined
   /** The nearest `w.Config`'s `transformPagePoint` (Q9), read at each down. */
   readonly pagePoint: () => WardConfig.WardicTransformPoint | undefined
   readonly skipAnimations: () => boolean
@@ -89,7 +91,7 @@ export const dragOf = (opts: DragOptions): ElementDrag => {
   /** The track, from this delivery's options: its defaults written first, its Scope the element's own. */
   const start = (service: Keys.DragGesture["Service"], axis: boolean | "x" | "y"): void => {
     const c = config()
-    UndefinedOr.map(DragDefaults.dragDefaultsOf(c), (defaults) => DragDefaults.applyDragDefaults(element, defaults))
+    UndefinedOr.map(DragDefaults.dragDefaultsOf(c, { dragAxis: opts.axisAt }), (defaults) => DragDefaults.applyDragDefaults(element, defaults))
     const constraints = service.constraintsOf(c.dragConstraints, element, () => config().onMeasureDragConstraints, opts.pagePoint)
     const projection = opts.layoutNode()
     const owner = OwnerScope.open(provider.runtime)
@@ -108,6 +110,7 @@ export const dragOf = (opts: DragOptions): ElementDrag => {
       config: DragTrack.trackConfigOf(c, axis, constraints.constraints, DragTransition.dragTransitionOf(c.dragElastic, c.dragTransition)),
       // A drag on a layout node feeds the projection (ADR-0016): it follows the pointer and FLIPs to its slot on release.
       projection,
+      axisAt: opts.axisAt,
       onSample: opts.onSample,
       onReleaseEnd: opts.onReleaseEnd,
       skipAnimations: opts.skipAnimations,
@@ -122,7 +125,8 @@ export const dragOf = (opts: DragOptions): ElementDrag => {
   return {
     check: () => {
       if (Predicate.isNotUndefined(MutableRef.get(scope))) return
-      const axis = DragDefaults.dragAxisOf(config())
+      // A Reorder item drags on its group's axis, read at each gesture's start: `true` to the spine (ADR-0020).
+      const axis = DragDefaults.dragAxisOf(config(), { dragAxis: opts.axisAt })
       if (Predicate.isUndefined(axis)) return
       UndefinedOr.match(featureIn(provider, Keys.DragGesture), { onUndefined: () => warnMissing(provider, "drag", GestureFeatures.GESTURE_WORDS.drag), onDefined: (service) => start(service, axis) })
     },

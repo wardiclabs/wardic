@@ -74,7 +74,7 @@ import * as Input from "@wardic/dom/unstable/features/Input"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
-import { watchItemsInputAmong } from "./reorder-input.ts"
+import { watchItemsInputAmong } from "@wardic/dom/unstable/ReorderInput"
 
 export {
   type BatchReorderDirection,

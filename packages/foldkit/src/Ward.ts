@@ -7,7 +7,9 @@
  * @module
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as CoreReorder from "@wardic/core/Reorder"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import type * as ReorderController from "@wardic/dom/ReorderController"
 import type * as DomDragConstraints from "@wardic/dom/unstable/DragConstraints"
 import type * as DomDragControls from "@wardic/dom/unstable/DragControls"
 import type * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
@@ -89,6 +91,8 @@ export type Key =
   | "onPanStart"
   | "onPan"
   | "onPanEnd"
+  | "reorderGroup"
+  | "reorderItem"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -144,6 +148,67 @@ export type StartOptions = DomDragControls.WardicDragControlsOptions
 export interface StartsDrag {
   readonly controls: DragControls
   readonly options?: StartOptions | undefined
+}
+
+/** A **Reorder group**'s direction (core's): `"y"`, a column; `"x"`, a row; `"xy"`, a grid that wraps. */
+export type ReorderAxis = CoreReorder.Axis
+
+/** A reorder that changed the order, at its end (Motion-free, #257 item 3): the order, the item that moved, its index `from` and `to`. */
+export type ReorderEnd<V> = ReorderController.End<V>
+
+/** A **Reorder hold**'s start (#348): the item taken in hand, by a drag's start or a keyboard lift, and its index then. */
+export type ReorderHoldStart<V> = ReorderController.HoldStart<V>
+
+/** A **Reorder hold**'s end (#348), once, however it ended: `how` is `"drop"`, `"cancel"` or `"unmount"`. */
+export type ReorderHoldEnd<V> = ReorderController.HoldEnd<V>
+
+/** What a screen reader hears at each step of a **Keyboard reorder**, over the English defaults (ADR-0037). */
+export type ReorderAnnouncements<V> = Partial<CoreReorder.Announcements<V>>
+
+/**
+ * `w.ReorderGroup(options)`'s options (ADR-0020; ADR-0071 decision 28; #793, Q11): the list's `values`
+ * in order, from the Model, and the Messages its reorders send. `V` is inferred from `values`.
+ */
+export interface ReorderGroupOptions<Message, V> {
+  /** The list's values, in order: the Model's. */
+  readonly values: ReadonlyArray<V>
+  /** Sent with the whole new order at each **Crossover** (Q12): set the Model's values from it. */
+  readonly onReorder: Handler<Message, Array<V>>
+  /** Sent once at the end of a reorder that changed the order: a drag let go, or a keyboard lift dropped; not a cancel. What an app saves. */
+  readonly onReorderEnd?: Handler<Message, ReorderEnd<V>> | undefined
+  /** Sent as an item is taken in hand: a drag past its threshold (not the press), or a keyboard lift. */
+  readonly onHoldStart?: Handler<Message, ReorderHoldStart<V>> | undefined
+  /** Sent once as an item in hand is let go, however: after `onReorderEnd` when it moved. */
+  readonly onHoldEnd?: Handler<Message, ReorderHoldEnd<V>> | undefined
+  /** The list's direction; left out, found from the items' boxes. */
+  readonly axis?: ReorderAxis | undefined
+  /** The **Keyboard reorder** (ADR-0037): on unless `false`. Off, the items have no keys, no tab stop and no instructions. */
+  readonly keyboard?: boolean | undefined
+  /** The announcements over the English defaults. */
+  readonly announcements?: ReorderAnnouncements<V> | undefined
+  /** What each item's `aria-describedby` reads, over the English default. */
+  readonly instructions?: string | undefined
+}
+
+/**
+ * A group's options as the binding reads them, whatever `V`: its handlers told an order of the group's
+ * own values, which the binding passes on as they are.
+ */
+export interface ReorderGroupConfig<Message> {
+  readonly values: ReadonlyArray<unknown>
+  readonly onReorder: Handler<Message, Array<never>>
+  readonly onReorderEnd?: Handler<Message, ReorderEnd<never>> | undefined
+  readonly onHoldStart?: Handler<Message, ReorderHoldStart<never>> | undefined
+  readonly onHoldEnd?: Handler<Message, ReorderHoldEnd<never>> | undefined
+  readonly axis?: ReorderAxis | undefined
+  readonly keyboard?: boolean | undefined
+  readonly announcements?: ReorderAnnouncements<never> | undefined
+  readonly instructions?: string | undefined
+}
+
+/** `w.ReorderItem(value)`: the item's value in its group's `values`, read once at mount. */
+export interface ReorderItem {
+  readonly value: unknown
 }
 
 /**
@@ -316,6 +381,10 @@ export interface Config<Message = never>
   readonly onPan?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
   /** `w.OnPanEnd(…)`: sent as a pan that started ends, or is cancelled (Motion's `onPanEnd`). */
   readonly onPanEnd?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
+  /** `w.ReorderGroup(…)`: the element is a **Reorder group**, its keyed `w.ReorderItem` children the items (decision 28). */
+  readonly reorderGroup?: ReorderGroupConfig<Message> | undefined
+  /** `w.ReorderItem(value)`: the element is an item of the group above it. */
+  readonly reorderItem?: ReorderItem | undefined
   /** `w.OnHoverStart(…)`: sent as the pointer comes over the element (Motion's `onHoverStart`; a touch never hovers). */
   readonly onHoverStart?: GestureHandler<Message, PointerEvent, PointInfo> | undefined
   /** `w.OnHoverEnd(…)`: sent as it leaves (Motion's `onHoverEnd`). */

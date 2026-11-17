@@ -16,8 +16,8 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as WardConfig from "./WardConfig.ts"
 
-/** What a `<Reorder>` item adds to an element's drag: its gesture's axis, read at each drag's start. */
-interface DragInternals {
+/** What a Reorder item adds to an element's drag: its gesture's axis, read at each drag's start. */
+export interface DragInternals {
   readonly dragAxis?: (() => boolean | "x" | "y") | undefined
 }
 

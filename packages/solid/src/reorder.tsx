@@ -35,7 +35,6 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constUndefined, identity, pipe } from "effect/Function"
-import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
@@ -61,7 +60,7 @@ import { Dynamic } from "solid-js/web"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.tsx"
-import { watchItemInput } from "./reorder-input.ts"
+import { watchItemInput } from "@wardic/dom/unstable/ReorderInput"
 import { plainOrder } from "./reorder-values.ts"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Drag from "@wardic/dom/unstable/features/Drag"
@@ -321,7 +320,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
   )
   return {
     brings: ITEM_BRINGS,
-    dragAxis: () => dragAxisFor(driver.dragAxis()),
+    dragAxis: () => ReorderController.itemDragAxis(driver.dragAxis()),
     onDragSample: driver.onSample,
     onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
     raiseWhileDragged: true,
@@ -426,12 +425,6 @@ const noop = (): void => {}
 /** A group's spread's user props when it's given none. */
 const NO_GROUP_PROPS: ReorderGroupUserProps = {}
 const NO_ITEM_PROPS: ReorderItemUserProps = {}
-
-/** A Reorder item's drag axis for its gesture's axis: a grid's `xy` is a free drag. Built once, at module load. */
-const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<CoreReorder.Axis>().pipe(
-  Match.when("xy", (): true => true),
-  Match.orElse((axis) => axis as "x" | "y"),
-)
 
 /**
  * {@link createReorderGroup} during a server render (ADR-0021): the group's element style

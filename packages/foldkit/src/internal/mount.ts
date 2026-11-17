@@ -23,6 +23,7 @@ import type * as Ward from "../Ward.ts"
 import { patchTouched } from "./delivery.ts"
 import { mountElement } from "./element.ts"
 import { mountPresence } from "./presence.ts"
+import { mountReorderGroup } from "./reorder.ts"
 import { joined, type Provider, providerFor, type State } from "./services.ts"
 import { markMounted } from "./tree.ts"
 
@@ -30,6 +31,7 @@ import { markMounted } from "./tree.ts"
 export const PROVIDER_NAME = "Wardic.Provider"
 export const ELEMENT_NAME = "Wardic.Element"
 export const PRESENCE_NAME = "Wardic.Presence"
+export const REORDER_NAME = "Wardic.Reorder"
 
 /** A Mount's `f`: what runs on the element. */
 type MountFn<Message> = MountAction<Message>["f"]
@@ -72,8 +74,11 @@ const wardicPart =
         markMounted(element)
         // Its presence, when it carries `w.Presence` (decision 29): its children's exits, run by this Mount.
         const releasePresence = mountPresence(on, state, element, isPaused, offer)
+        // Its Reorder group, when it carries `w.ReorderGroup` (decision 28): made by its first item's Mount or here, released here.
+        const releaseReorder = mountReorderGroup(on, element as HTMLElement, isPaused, offer)
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
+            releaseReorder()
             releasePresence()
             release()
             on.pausedViews.delete(element)
@@ -93,6 +98,8 @@ export interface Parts<Message> {
   readonly user: MountAction<Message> | undefined
   /** Whether the element carries `w.Presence` (decision 29): its Mount is then named `Wardic.Presence` (#792, Q19). */
   readonly presence: boolean
+  /** Whether the element carries `w.ReorderGroup` (decision 28): its Mount is then named `Wardic.Reorder` (#793, Q18). */
+  readonly reorder: boolean
 }
 
 /** A `w.*` element's one Mount (above). */
@@ -102,6 +109,7 @@ export const mountOf = <Message>(state: State, parts: Parts<Message>): MountActi
   if (Predicate.isUndefined(user)) {
     if (Predicate.isNotUndefined(parts.provider)) return { name: PROVIDER_NAME, f: wardic }
     if (parts.presence) return { name: PRESENCE_NAME, f: wardic }
+    if (parts.reorder) return { name: REORDER_NAME, f: wardic }
     return { name: ELEMENT_NAME, f: wardic }
   }
   // Wardic's part first, so it starts before the user's (decision 31).

@@ -30,7 +30,7 @@ const values = new WeakMap<Element, WardicConfigValue.WardicConfigValue>()
 const mounted = new WeakSet<Element>()
 
 /** The nearest ancestor of `element` that `has` what's looked for, or none at the top. Per element at mount, up the tree. */
-const nearestAncestor = (element: Element, has: (ancestor: Element) => boolean): Element | undefined => {
+export const nearestAncestor = (element: Element, has: (ancestor: Element) => boolean): Element | undefined => {
   const ancestor = element.parentElement
   if (Predicate.isNull(ancestor)) return undefined
   if (has(ancestor)) return ancestor

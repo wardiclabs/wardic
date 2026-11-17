@@ -24,8 +24,10 @@
 // and `placed` where `make`'s hears a Measure pass's end.
 // Its items' drivers stay plain, each with its own `dispose`, since one is made per element.
 import * as Announcer from "@wardic/core/Announcer"
+import type * as Reorder from "@wardic/core/Reorder"
 import * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
+import * as Match from "effect/Match"
 import type * as Scope from "effect/Scope"
 import { PassEnds } from "./internal/pass-ends.ts"
 import * as internal from "./internal/reorder.ts"
@@ -45,6 +47,13 @@ export {
 
 /** A **Reorder group** on the DOM: what a binding attaches its group element and items to. */
 export type ReorderController<V> = Omit<internal.ReorderController<V>, "dispose">
+
+/** An item's drag axis for its gesture's axis, the group's: a grid's `"xy"` is a free drag. Built once, at module load. */
+// #793 (PR 3): solid's `reorder.tsx`'s `dragAxisFor`, here for both bindings' items.
+export const itemDragAxis: (axis: Reorder.Axis) => true | "x" | "y" = /*#__PURE__*/ Match.type<Reorder.Axis>().pipe(
+  /*#__PURE__*/ Match.when("xy", (): true => true),
+  /*#__PURE__*/ Match.orElse((axis) => axis as "x" | "y"),
+)
 
 /** What a binding hands its group: the app's values, its axis, its keyboard and its announcements. */
 export type Options<V> = internal.ReorderControllerOptions<V>
