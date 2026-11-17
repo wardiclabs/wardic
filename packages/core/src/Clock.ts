@@ -78,6 +78,13 @@ export class Clock extends Context.Service<Clock, {
    */
   // #464; #460, Q7.
   readonly now: () => number
+  /**
+   * The Refresh frame time of the last tick, in ms, as the Environment's frame clock stamps it (the DOM's
+   * `requestAnimationFrame` timestamp, which `document.timeline.currentTime` reads inside the frame): what
+   * a binding's hint compares its frame's time with (`FrameLoop`'s `hint`). `NaN` before any tick.
+   */
+  // #791 (ADR-0071, decision 32): the Frame loop's hint rule, "the last tick's frame time equals this frame's".
+  readonly frameAt: () => number
 }>()("@wardic/core/Clock") {}
 
 /**
@@ -145,6 +152,8 @@ export const fromRefreshFrames: <Handle>(
     // The previous Refresh frame's raw timestamp, and `now()` when it was delivered.
     const lastStamp = MutableRef.make(Option.none<number>())
     const lastNow = MutableRef.make(0)
+    // The last tick's raw timestamp, for `frameAt` (#791): `NaN` before any.
+    const lastFrameAt = MutableRef.make(Number.NaN)
 
     /**
      * A Refresh frame's time and dt, from its timestamp `t` and `now()` at its delivery: see
@@ -186,6 +195,7 @@ export const fromRefreshFrames: <Handle>(
         MutableRef.set(lastTime, Option.some(current))
         MutableRef.set(lastStamp, Option.some(t))
         MutableRef.set(lastNow, at)
+        MutableRef.set(lastFrameAt, t)
         Arr.forEach(hearers, (hear) => hear(delta))
       })
 
@@ -295,7 +305,7 @@ export const fromRefreshFrames: <Handle>(
       "wardic.clock",
     )
 
-    return { ticks, tick, now: syncNow(now) }
+    return { ticks, tick, now: syncNow(now), frameAt: () => MutableRef.get(lastFrameAt) }
   })
 
 /**

@@ -21,16 +21,20 @@ import * as UndefinedOr from "effect/UndefinedOr"
 // `now`: #460.
 export const make = (frames: ReadonlyArray<number> = []): Clock.Clock["Service"] => {
   const time = MutableRef.make(0)
+  // The last frame's time, for `frameAt` (#791): `NaN` before any.
+  const frameAt = MutableRef.make(Number.NaN)
   // Each frame with the time it reaches, in ms from 0 (#618, decision 7: each subscriber added its
   // frames to one sum).
   const reached = Arr.zip(frames, Arr.drop(Arr.scan(frames, 0, (at, dt) => at + dt * 1000), 1))
   return {
     ticks: Stream.map(Stream.fromIterable(reached), ([dt, at]) => {
       MutableRef.update(time, (t) => Math.max(t, at))
+      MutableRef.set(frameAt, at)
       return dt
     }),
     tick: (_t: number) => Effect.sync(() => {}),
     now: () => MutableRef.get(time),
+    frameAt: () => MutableRef.get(frameAt),
   }
 }
 
@@ -118,17 +122,24 @@ export const pushable: () => Effect.Effect<{
     const pubsub = yield* PubSub.unbounded<number>()
     const frames = makeFrames()
     const time = MutableRef.make(0)
+    // The last frame's time, for `frameAt` (#791): `NaN` before any.
+    const frameAt = MutableRef.make(Number.NaN)
     return {
       layer: Layer.merge(
         Layer.succeed(Clock.Clock, {
           ticks: Stream.fromPubSub(pubsub),
           tick: (_t: number) => Effect.sync(() => {}),
           now: () => MutableRef.get(time),
+          frameAt: () => MutableRef.get(frameAt),
         }),
         RefreshFrameSource.layer(frames.source),
       ),
       advance: (dt = 1 / 60) =>
-        Effect.sync(() => frames.fire(MutableRef.updateAndGet(time, (t) => t + dt * 1000))).pipe(
+        Effect.sync(() => {
+          const at = MutableRef.updateAndGet(time, (t) => t + dt * 1000)
+          MutableRef.set(frameAt, at)
+          frames.fire(at)
+        }).pipe(
           Effect.andThen(PubSub.publish(pubsub, dt)),
           Effect.asVoid,
         ),

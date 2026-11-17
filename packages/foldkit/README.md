@@ -24,6 +24,9 @@ const view = (model: Model, h: HtmlBuilder<Message>): Html => {
 - Variants go down the DOM: a child with `w.Variants(…)` and no `Animate` of its own follows the name its nearest `w.*` ancestor hands down, staggered by that ancestor's `Transition` (`staggerChildren`, `delayChildren`, `when`). `w.Custom(value)` resolves its dynamic variants; `w.Inherit(false)` keeps it out.
 - `w.Config({ transition, reducedMotion, skipAnimations })` sets a subtree's defaults, over the Handle's `Wardic.make({ config })`.
 - `w.OnAnimationStart(message | (definition) => message)` and `w.OnAnimationComplete(…)` send Messages to `update`; `Option.none()` from a function sends nothing.
+- Live values are Atoms: `w.Style({ x: atom })` follows one through the gate, `w.Text(atom)` writes one as the element's text, `w.OnUpdate(atom)` sets one to the element's values each frame. Derived ones (`LiveValue.spring`, `follow`, `velocity`, `scroll`, re-exported from the root) are made in a Command through `Wardic.provide(effect)`, with `resources: wardic.resources` on the program; their Scope is the caller's, a `ManagedResource`'s or an `Effect.scoped`.
+- `Wardic.animate(subject, values, options)` is an Effect for a Command: an element, a selector or a list, landing as `{ landed }`, failing `AnimationFailed` when the subject finds nothing.
+- A Retarget a patch makes paints its first step in the patch's frame: the binding tells the Frame loop it runs inside the frame (the **Held frame**'s cure).
 - Scene tests resolve Wardic's Mounts by name: `Scene.Mount.resolve(wardic.Element, Done())`, and `wardic.Provider`.
 
 - Docs: https://wardic.dev

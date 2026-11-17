@@ -24,15 +24,21 @@
  *
  * @module
  */
+import * as Stagger from "@wardic/core/Stagger"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as Feature from "@wardic/dom/unstable/Feature"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import type * as Layer from "effect/Layer"
 import type * as FoldkitHtml from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
 import * as Predicate from "effect/Predicate"
 import type * as Ward from "./Ward.ts"
 import { type Attributes, builderOf } from "./internal/builder.ts"
+import { HANDLE, resourcesOf, type Wardic as WardicTag } from "./internal/commands.ts"
 import { mountOf } from "./internal/mount.ts"
-import { makeState, type State } from "./internal/services.ts"
+import { makeState, remember, type State } from "./internal/services.ts"
+
+export { animate, type AnimateOptions, AnimationFailed, type AnimationEnd, provide, Wardic } from "./internal/commands.ts"
 
 /** What {@link make} takes. */
 export interface MakeOptions<F> {
@@ -106,6 +112,15 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   OnAnimationStart: (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => Ward.Attribute
   /** Sent as that animation lands (Motion's `onAnimationComplete`); not for one a new target interrupted. */
   OnAnimationComplete: (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => Ward.Attribute
+  /**
+   * The element's text, from an Atom, written outside the patch as it changes (a **Live value**, decision
+   * 16): the element takes no children from the view, an error in development. Format with a derived Atom.
+   */
+  Text: (atom: Ward.Config["text"]) => Ward.Attribute
+  /** The element's values each committed frame, set on a writable Atom (Motion's `onUpdate`): a copy per frame. */
+  OnUpdate: (atom: Ward.Config["onUpdate"]) => Ward.Attribute
+  /** The element's transform from its values and the generated string (Motion's `transformTemplate`). Hoist the function. */
+  TransformTemplate: (template: Ward.Config["transformTemplate"]) => Ward.Attribute
 }>
 
 /**
@@ -113,12 +128,19 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
  * Features `F`. Made once, at module scope.
  */
 export interface Handle<F = never> {
+  /** The Handle's mark: what the `Wardic` service carries. */
+  readonly [HANDLE]: true
   /** The builder `w` for a view's `h`, made once per `h`. */
   readonly html: <Message>(h: FoldkitHtml.HtmlBuilder<Message>) => Html<Message, F>
   /** The provider's raw Mount, for a Scene test to resolve by name (decision 36): `Scene.Mount.resolve(wardic.Provider, Done())`. */
   readonly Provider: MountAction<never>
   /** An element's raw Mount, for a Scene test to resolve by name (decision 36): one per `w.*` element in the view. */
   readonly Element: MountAction<never>
+  /**
+   * The Layer a program's `resources` takes (decision 9): its Commands then run `Wardic.animate` and
+   * `Wardic.provide`, which need the `Wardic` service, this Handle.
+   */
+  readonly resources: Layer.Layer<WardicTag>
 }
 
 /**
@@ -136,9 +158,24 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
     builders.set(h, made)
     return made as Html<Message, F>
   }
-  return {
+  const handle: Handle<F> = {
+    [HANDLE]: true,
     html,
     Provider: mountOf<never>(state, { provider: {}, user: undefined }),
     Element: mountOf<never>(state, { provider: undefined, user: undefined }),
+    get resources() {
+      return resourcesOf(handle)
+    },
   }
+  remember(handle, state)
+  return handle
 }
+
+/** `stagger(duration, options)`'s options (#436, Motion's `stagger`): `startDelay`, `from` and `ease`, core's. */
+export type StaggerOptions = Stagger.Options
+
+/**
+ * A stagger for a transition's `delayChildren`, or an `animate`'s `delay` (Motion's `stagger`): `duration`
+ * seconds between children, from `options.from`, after `options.startDelay`.
+ */
+export const stagger = (duration = 0.1, options: StaggerOptions = {}): WardConfig.WardicStagger => Stagger.make(duration, options)

@@ -1,0 +1,190 @@
+// Values and Effects (#791, PR 3): the held frame's cure (a Retarget from a patch paints its first step
+// in the patch's frame, P20), `Wardic.animate` and `Wardic.provide` from Commands, Live values in
+// `w.Style`, `w.Text`, `w.OnUpdate` and `w.TransformTemplate`.
+import { DomLive } from "@wardic/dom"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+import * as Atom from "effect/reactivity/Atom"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
+import * as Command from "foldkit/command"
+import { defineMessageUnion } from "foldkit/message"
+import { afterEach, describe, expect, it } from "vitest"
+import { LiveValue } from "@wardic/foldkit"
+import type * as Ward from "@wardic/foldkit/Ward"
+import * as Wardic from "@wardic/foldkit/Wardic"
+import { paintedReads, until } from "../../solid/test/browser-helpers.ts"
+import { embed, type Embedded } from "./harness.ts"
+
+const Model = Schema.Struct({ x: Schema.Number })
+type Model = typeof Model.Type
+const Message = defineMessageUnion({ Set: { x: Schema.Number } })
+type Message = typeof Message.Type
+const update = (model: Model, message: Message) => Message.match(message, { Set: ({ x }) => ({ model: { ...model, x } }) })
+
+const wardic = Wardic.make({ env: DomLive })
+
+const xOf = (app: Pick<Embedded<never>, "container">, box: HTMLElement): number => box.getBoundingClientRect().left - app.container.getBoundingClientRect().left
+const boxOf = async (app: Pick<Embedded<never>, "container">, id = "box"): Promise<HTMLElement> => {
+  await until(() => app.container.querySelector(`#${id}`) !== null, 2000, `#${id} renders`)
+  return app.container.querySelector<HTMLElement>(`#${id}`)!
+}
+
+let app: Pick<Embedded<never>, "dispose"> | undefined
+afterEach(() => {
+  app?.dispose()
+  app = undefined
+})
+
+describe("the held frame (P20, decision 32)", () => {
+  it("a Retarget from a patch paints its first step in the patch's frame, not its origin", async () => {
+    const held = embed<Model, Message, number>({
+      Model,
+      Set: Schema.Number,
+      init: { x: 0 },
+      update,
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return w.div([h.Id("box"), w.Initial({ x: 0 }), w.Animate({ x: model.x }), w.Transition({ duration: 0.5, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])
+      },
+      toMessage: (x) => Message.Set({ x }),
+    })
+    app = held
+    const box = await boxOf(held)
+    // Settled at 0, idle. The Message's patch runs in the next Refresh frame; the first read is after that frame's paint.
+    held.send(300)
+    const reads = await paintedReads(() => xOf(held, box), 3)
+    expect(reads[0], "moved in the patch's own frame").toBeGreaterThan(0)
+    expect(reads[1]).toBeGreaterThan(reads[0]!)
+    expect(reads[2]).toBeGreaterThan(reads[1]!)
+  })
+})
+
+describe("Wardic.animate from a Command", () => {
+  it("animates a w.* element and a plain one by selector, and answers with the landing", async () => {
+    const Model = Schema.Struct({ ended: Schema.Array(Schema.String) })
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Go: {}, Ended: { landed: Schema.Boolean }, Missing: { subject: Schema.String } })
+    type Message = typeof Message.Type
+    const Animate = Command.define("Animate", {
+      messages: [Message.Ended, Message.Missing],
+      execute: Wardic.animate(".mover", { x: 100 }, { duration: 0.2, ease: "linear" }).pipe(
+        Effect.map((end) => Message.Ended({ landed: end.landed })),
+        Effect.catchTag("AnimationFailed", (failure) => Effect.succeed(Message.Missing({ subject: failure.subject }))),
+      ),
+    })
+    const Nothing = Command.define("Nothing", {
+      messages: [Message.Ended, Message.Missing],
+      execute: Wardic.animate("#nowhere", { x: 100 }).pipe(
+        Effect.map((end) => Message.Ended({ landed: end.landed })),
+        Effect.catchTag("AnimationFailed", (failure) => Effect.succeed(Message.Missing({ subject: failure.subject }))),
+      ),
+    })
+    const held = embed<Model, Message, boolean, Wardic.Wardic>({
+      Model,
+      Set: Schema.Boolean,
+      init: { ended: [] },
+      update: (model, message) =>
+        Message.match(message, {
+          Go: () => ({ model, commands: [Animate(), Nothing()] }),
+          Ended: ({ landed }) => ({ model: { ended: [...model.ended, `landed:${landed}`] } }),
+          Missing: ({ subject }) => ({ model: { ended: [...model.ended, `missing:${subject}`] } }),
+        }),
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return h.div([h.Id("root")], [
+          w.div([h.Id("ward"), h.Class("mover"), w.Initial({ x: 0 }), h.Style({ width: "40px", height: "40px" })]),
+          h.div([h.Id("plain"), h.Class("mover"), h.Style({ width: "40px", height: "40px" })]),
+          h.ul([h.Id("ended")], model.ended.map((e) => h.li([], [e]))),
+        ])
+      },
+      toMessage: () => Message.Go(),
+      resources: wardic.resources,
+    })
+    app = held
+    const ward = await boxOf(held, "ward")
+    const plain = await boxOf(held, "plain")
+    const ended = (): ReadonlyArray<string> => Array.from(held.container.querySelectorAll("#ended li")).map((li) => li.textContent)
+    held.send(true)
+    await until(() => ended().length === 2, 3000, "both Commands answer")
+    expect(ended()).toContain("landed:true")
+    expect(ended()).toContain("missing:#nowhere")
+    expect(xOf(held, ward)).toBe(100)
+    expect(xOf(held, plain)).toBe(100)
+  })
+})
+
+/** A Live value an app makes at module scope. */
+const liveX = Atom.make(50)
+
+describe("Live values", () => {
+  it("w.Style follows an Atom set through Wardic.provide, from a Starting style read before the provider exists", async () => {
+    const Model = Schema.Struct({ done: Schema.Boolean })
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Go: {}, Done: { at: Schema.Number } })
+    type Message = typeof Message.Type
+    // A spring made on the provider's services, in the Command's own Scope: held until it rests at 200.
+    const Spring = Command.define("Spring", {
+      messages: [Message.Done],
+      execute: Effect.scoped(
+        Wardic.provide(
+          Effect.gen(function* () {
+            const registry = yield* AtomRegistry.AtomRegistry
+            const smooth = yield* LiveValue.spring(liveX, { stiffness: 400, damping: 40 })
+            registry.set(liveX, 200)
+            yield* Effect.repeat(Effect.sleep("20 millis"), { until: () => Math.abs(registry.get(smooth) - 200) < 0.5 })
+            return Message.Done({ at: registry.get(smooth) })
+          }),
+        ),
+      ),
+    })
+    const held = embed<Model, Message, boolean, Wardic.Wardic>({
+      Model,
+      Set: Schema.Boolean,
+      init: { done: false },
+      update: (model, message) => Message.match(message, { Go: () => ({ model, commands: [Spring()] }), Done: () => ({ model: { done: true } }) }),
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return h.div([h.Id("root")], [
+          w.div([h.Id("box"), w.Style({ x: liveX }), h.Style({ width: "40px", height: "40px" })]),
+          h.span([h.Id("done")], [String(model.done)]),
+        ])
+      },
+      toMessage: () => Message.Go(),
+      resources: wardic.resources,
+    })
+    app = held
+    const box = await boxOf(held)
+    // The Starting style read the Atom's value before any provider: the view rendered it.
+    expect(box.style.transform).toBe("translateX(50px)")
+    held.send(true)
+    await until(() => xOf(held, box) === 200, 3000, "the element follows the Atom to 200")
+    await until(() => held.container.querySelector("#done")?.textContent === "true", 3000, "the spring rested and the Command answered")
+  })
+
+  it("w.Text writes an Atom's text, w.OnUpdate sinks the element's values, and w.TransformTemplate shapes its transform", async () => {
+    const latest = Atom.make<Ward.Latest>({})
+    const label = Atom.map(latest, (values) => Math.round(Number(values["x"] ?? 0)))
+    const template = (_values: Readonly<Record<string, string | number>>, generated: string): string => `${generated} rotate(10deg)`
+    const held = embed<Model, Message, number>({
+      Model,
+      Set: Schema.Number,
+      init: { x: 0 },
+      update,
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return h.div([h.Id("root")], [
+          w.div([h.Id("box"), w.Initial({ x: 0 }), w.Animate({ x: model.x }), w.Transition({ duration: 0.2, ease: "linear" }), w.OnUpdate(latest), w.TransformTemplate(template), h.Style({ width: "40px", height: "40px" })]),
+          w.span([h.Id("label"), w.Text(label)]),
+        ])
+      },
+      toMessage: (x) => Message.Set({ x }),
+    })
+    app = held
+    const box = await boxOf(held)
+    const labelEl = await boxOf(held, "label")
+    expect(labelEl.textContent, "the Atom's value, written at mount").toBe("0")
+    held.send(100)
+    await until(() => labelEl.textContent === "100", 3000, "the text follows the element's values")
+    await until(() => box.style.transform === "translateX(100px) rotate(10deg)", 2000, "the template shapes the landed transform")
+  })
+})

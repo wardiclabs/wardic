@@ -140,6 +140,17 @@ export interface Shape {
   // ADR-0027 *Amendment (#680)* (was `ticking()`, #673): the projection's Measure pass reads it at a
   // trigger, to know it will run after its frame's tick.
   readonly inLateWindow: () => boolean
+  /**
+   * A binding's hint: its code runs inside the Refresh frame whose time is `frameTime`, after the
+   * frame's rAF callbacks the engine knows of (Foldkit's patch, ADR-0071 decision 32). Opens the **Late
+   * window** when a burst's last tick was this frame's (`Clock.frameAt`) or no burst runs (no tick is
+   * coming this frame), so the runs added after it, in the rest of the callback and its microtasks, take
+   * their Late step and paint in this frame, and a queued Measure pass runs as an after-tick one. With a
+   * tick still to come in the frame, nothing: that tick is their first step. Idle, the Late step's dt is
+   * the last tick's, or a nominal frame before any.
+   */
+  // #791 (ADR-0018 *Amendment (#673)*'s deferred "binding's hint"; ADR-0071 decision 32).
+  readonly hint: (frameTime: number) => void
 }
 
 /** One hook on the loop's ticks, one object per `afterTick`, so removing it removes only that one. */
@@ -332,8 +343,9 @@ export const make = Effect.fnUntraced(
     // it before a checkpoint (a test firing frames back to back).
     let windowOpen = false
     let windowQueued = false
-    // The dt of the tick that opened the window: a Late step's.
-    let windowDt = 0
+    // The dt of the tick that opened the window: a Late step's. A nominal frame before any tick, for a
+    // window a hint opens while idle (#791).
+    let windowDt = Clock.NOMINAL_DT
     // The `run` runs added in the window, in add order: their Late step is due. The `runLast` runs added
     // in it take none, and are marked only so the dt-0 step leaves them out: they step at the next tick.
     const lateFirst: Array<Entry> = []
@@ -555,6 +567,17 @@ export const make = Effect.fnUntraced(
     /** The burst's fiber, if one holds the subscription. */
     const burstFiber = (): Fiber.Fiber<void, unknown> | undefined => held
 
+    /** A binding's hint (above): the window opened under the rule, closed by the microtask it queues. */
+    const hint = (frameTime: number): void => {
+      if (windowOpen) return
+      if (bursting && clock.frameAt() !== frameTime) return
+      windowOpen = true
+      if (!windowQueued) {
+        windowQueued = true
+        queueMicrotask(endLateWindow)
+      }
+    }
+
     const afterTick = (hook: (dt: number) => undefined): Effect.Effect<void, never, Scope.Scope> => {
       const added: Hook = { hook }
       return Effect.acquireRelease(
@@ -704,7 +727,7 @@ export const make = Effect.fnUntraced(
 
     const inLateWindow = (): boolean => windowOpen
 
-    return { run: runIn(entries, lateFirst), runLast: runIn(lastEntries, lateLast), afterTick, inLateWindow } satisfies Shape
+    return { run: runIn(entries, lateFirst), runLast: runIn(lastEntries, lateLast), afterTick, inLateWindow, hint } satisfies Shape
   },
   (self) => traced(self, "wardic.frameloop.make"),
 )

@@ -83,7 +83,7 @@ const F = 1 / 60
 /** A Clock whose ticks the test pushes, each handled inside the push, as `@wardic/test`'s `pushable` is. */
 const pushable = Effect.fnUntraced(function* () {
   const pubsub = yield* PubSub.unbounded<number>()
-  const clock = Layer.succeed(Clock.Clock, { ticks: Stream.fromPubSub(pubsub), tick: () => Effect.void, now: () => 0 })
+  const clock = Layer.succeed(Clock.Clock, { ticks: Stream.fromPubSub(pubsub), tick: () => Effect.void, now: () => 0, frameAt: () => Number.NaN })
   return { loop: FrameLoop.layer.pipe(Layer.provideMerge(clock)), advance: () => PubSub.publish(pubsub, F) }
 })
 

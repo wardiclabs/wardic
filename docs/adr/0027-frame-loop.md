@@ -784,3 +784,7 @@ The projection's Measure pass takes the first step of the nodes it seeded when i
 | the Measure pass reading no window | AT1, AT6, AT8–AT11, LV4 |
 | a last-lane run added in the window given a Late step (Q8 as first decided) | LW6b, AT1, AT6 |
 
+## Amendment (#791, 2026-11-17): a binding's hint
+
+The loop gains `hint(frameTime)` (ADR-0071, decision 32; the hint ADR-0018's *Amendment (#673)* deferred): a binding whose code runs inside a Refresh frame after the frame's rAF callbacks the engine knows of (Foldkit's patch) says so, with the frame's time. The loop opens the *Amendment (#680)* Late window when a burst's last tick was that frame's, which it reads from the Clock's new `frameAt`, the last tick's Refresh frame time, or when no burst runs, so no tick is coming in the frame. The runs added after the hint take their Late step in the window's microtask, at the last tick's dt, or `NOMINAL_DT` before any; with a tick still to come in the frame, the hint opens nothing, and that tick is their first step. `frame-loop.test.ts` HT1–HT3.
+

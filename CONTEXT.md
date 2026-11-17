@@ -549,6 +549,10 @@ _Avoid_: spread (Solid's), attribute group, mixin.
 The one Foldkit identity every `w.*` element is stamped with (`foldkit/brand`'s `brandViewResult`; ADR-0071, decision 19), so a `w.*` element rendered where a plain element was is recreated and its Mount runs, where Foldkit would keep the node and never start a Mount added to it (P2). A `w.*` element replacing a `w.*` element is kept, and its **Delivery** carries the new config.
 _Avoid_: key (Foldkit's keyed axis), brand (the mechanism), marker.
 
+**Held frame**:
+A Refresh frame that paints an animation's origin because the code that started it ran after the frame's tick, so its first step waits for the next tick (ADR-0071, decision 32; P20): one frame of delay on every Retarget, layout move or pointer-driven swap a Foldkit patch makes, since Foldkit patches in a rAF callback after Wardic's. Its cure is the binding's hint: the patch tells the Frame loop it runs inside the frame, and the runs it adds take their first step there (#791).
+_Avoid_: dropped frame (nothing is dropped: the origin paints), lag, jank.
+
 **Raw Mount**:
 A Mount in Foldkit's plain shape (`{ name, f }`, with no Definition and no Schema), as a **Handle**'s `Provider` and `Element` are (ADR-0071, decision 36): what a Scene test resolves Wardic's Mounts by, by name. A `w.*` element's Mount is one, fused with the user's own `OnMount` when the element has one, which then keeps the user's name (#791).
 _Avoid_: mount definition (Foldkit's `Mount.define`), hook, lifecycle.

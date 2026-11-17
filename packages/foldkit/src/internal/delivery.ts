@@ -12,6 +12,7 @@
  *
  * @module
  */
+import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as CustomElement from "foldkit/customElement"
 import type { Attribute, HtmlBuilder } from "foldkit/html"
 import * as Schema from "effect/Schema"
@@ -88,4 +89,18 @@ export const patchTouched = (): void => {
   if (queued) return
   queued = true
   queueMicrotask(afterPatch)
+}
+
+/** The frame's time, as every rAF callback of a frame sees it: what the hint compares the last tick's with. */
+const frameTime = (): number => Number(document.timeline.currentTime)
+
+/**
+ * The binding's hint (ADR-0071, decision 32; #673's deferred rule): a setter runs inside Foldkit's
+ * patch, a Refresh frame callback after Wardic's tick, so the Frame loop opens its Late window for the
+ * Retargets the patch makes, and they paint in this frame rather than the next. Called before the
+ * Retarget, after {@link patchTouched}, so the window's microtask runs after the patch's. Not for a
+ * replay's patch, which runs in a task (P6): the time read there is a past frame's.
+ */
+export const hintFrame = (loop: FrameLoop.FrameLoop["Service"]): void => {
+  loop.hint(frameTime())
 }

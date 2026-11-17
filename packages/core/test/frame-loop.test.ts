@@ -1225,3 +1225,65 @@ describe("the Frame loop: superseded runs (#200, ADR-0027 *Amendment (#200)*)", 
     expect(countOf(after["wardic_frameloop_failed"]) - countOf(before["wardic_frameloop_failed"])).toBe(0)
   })
 })
+
+describe("the Frame loop: a binding's hint (ADR-0018 *Amendment (#673)*, ADR-0071 decision 32; #791)", () => {
+  /** Fire the Refresh frame at `t`, then its callback's microtasks: one browser frame, up to its paint. */
+  const frame = async (h: Awaited<ReturnType<typeof makeHarness>>, t: number): Promise<void> => {
+    h.frames.fire(t)
+    await endOfTask()
+  }
+
+  it("HT1: after the frame's tick, a hint with that frame's time opens the window: a run added then takes its Late step at the tick's dt", async () => {
+    const h = await makeHarness()
+    h.start(counting(Infinity))
+    await endOfTask()
+    await frame(h, 1000)
+    await frame(h, 1020)
+    expect(h.loop.inLateWindow(), "the window closed with the frame's microtasks").toBe(false)
+    // Foldkit's patch, a later Refresh frame callback of the same frame: it says so, then adds its runs.
+    h.loop.hint(1020)
+    expect(h.loop.inLateWindow()).toBe(true)
+    const added = h.start(counting(Infinity))
+    await endOfTask()
+    expect(dtsOf(added.received), "stepped in the frame, at its tick's dt").toEqual([0.02])
+    expect(h.loop.inLateWindow()).toBe(false)
+    await frame(h, 1040)
+    expect(dtsOf(added.received)).toHaveLength(2)
+  })
+
+  it("HT2: with a tick still to come in the frame, the hint opens nothing: the run's first step is that tick's", async () => {
+    const h = await makeHarness()
+    h.start(counting(Infinity))
+    await endOfTask()
+    await frame(h, 1000)
+    // A patch that runs before this frame's tick: its time isn't the last tick's.
+    h.loop.hint(1016)
+    expect(h.loop.inLateWindow()).toBe(false)
+    const added = h.start(counting(Infinity))
+    await endOfTask()
+    expect(added.received).toHaveLength(0)
+    await frame(h, 1016)
+    expect(added.received).toHaveLength(1)
+  })
+
+  it("HT3: idle, the hint opens the window: the run steps now, by the last tick's dt, or a nominal frame before any", async () => {
+    const h = await makeHarness()
+    // Before any tick: a nominal frame.
+    h.loop.hint(500)
+    const first = h.start(counting(1))
+    await endOfTask()
+    expect(dtsOf(first.received)).toEqual([Clock.NOMINAL_DT])
+    expect(h.loop.inLateWindow()).toBe(false)
+    // A burst that measured 20 ms, then idle: the last dt.
+    const ticked = h.start(counting(2))
+    await endOfTask()
+    await frame(h, 1000)
+    await frame(h, 1020)
+    expect(ticked.received).toHaveLength(2)
+    await frame(h, 1040)
+    h.loop.hint(3000)
+    const later = h.start(counting(1))
+    await endOfTask()
+    expect(dtsOf(later.received)).toEqual([0.02])
+  })
+})

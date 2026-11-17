@@ -11,6 +11,7 @@
  * @module
  */
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
@@ -22,6 +23,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as Feature from "@wardic/dom/unstable/Feature"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
@@ -32,6 +34,7 @@ import { constFalse } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
 import type * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
@@ -42,6 +45,12 @@ import { rootConfigValueOf } from "./tree.ts"
 export interface Provider {
   /** Its runtime: the Runner the legs fork on, with the memo map its Features build into. */
   readonly runtime: Feature.FeatureRuntime
+  /** Its services, built: what `Wardic.provide` runs a Command's Effect with. */
+  readonly context: Context.Context<Feature.ProviderServices>
+  /** Its Frame loop, for the binding's hint (decision 32). */
+  readonly loop: FrameLoop.FrameLoop["Service"]
+  /** Its Atom registry: what Live values are read through (decision 16). */
+  readonly atoms: AtomRegistry.AtomRegistry
   /** Its flush gate (ADR-0006). */
   readonly gate: FlushGate.Shape
   /** Whether reduced motion applies now (ADR-0029): the user's preference, read as each animation starts. */
@@ -56,9 +65,9 @@ export interface Provider {
   readonly registry: Feature.FeatureRegistry
   /** The Scope the Handle owns it in: closed once its last element has left. */
   readonly scope: Scope.Closeable
-  /** The element carrying `w.Provider(options)`, while it's mounted: what the subtree options (slice 2) hang on. */
+  /** The element carrying `w.Provider(options)`, while it's mounted: what the subtree options (slice 2) hang on, and what a selector resolves under. */
   root: Element | undefined
-  /** Its mounted `w.*` elements, counted. */
+  /** Its members, counted: its mounted `w.*` elements, and the Commands' animations and `provide`s while they run. */
   elements: number
 }
 
@@ -77,6 +86,27 @@ export interface State {
   /** Whether a build is in flight: an `env` that waits as it builds has the elements after the first await the `Deferred`. */
   building: boolean
 }
+
+// Module state (#460, Q7): each Handle's state, held weakly by the Handle, for the Commands' Effects.
+const states = new WeakMap<object, State>()
+
+/** Keep `state` as `handle`'s, for {@link stateOf}. */
+export const remember = (handle: object, state: State): void => {
+  states.set(handle, state)
+}
+
+/** The state of a Handle `Wardic.make` made: what `Wardic.animate` and `provide` reach through the `Wardic` service. */
+export const stateOf = (handle: object): State => UndefinedOr.getOrThrow(states.get(handle))
+
+/**
+ * The registry a Handle's Live values are read through now (#791, Q12): the live Provider's, else a
+ * scratch one, which gives a plain Atom its value and a derived one its initial, as a server render
+ * reads them, for a Starting style rendered before the Provider exists.
+ */
+export const registryOf =
+  (state: State): (() => AtomRegistry.AtomRegistry) =>
+  () =>
+    UndefinedOr.match(state.live, { onUndefined: LiveStyle.serverRegistryOf, onDefined: (provider) => provider.atoms })
 
 /** A Handle's state: no provider yet. */
 export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined): State => ({
@@ -121,6 +151,9 @@ const build = (state: State): Effect.Effect<Provider> =>
     const services = context as Context.Context<never>
     return {
       runtime,
+      context,
+      loop: Context.get(context, FrameLoop.FrameLoop),
+      atoms: registry,
       gate: Context.get(context, FlushGate.FlushGate),
       reducedMotion,
       prefers,
@@ -144,11 +177,11 @@ const build = (state: State): Effect.Effect<Provider> =>
  * its `Deferred` completes with; else built now, on this fiber. With `options` (the element carries
  * `w.Provider(options)`), `element` becomes the Provider's root, unless another is mounted as one.
  */
-export const providerFor = (state: State, element: Element, options: Ward.ProviderOptions | undefined): Effect.Effect<Provider> =>
+export const providerFor = (state: State, element: Element | undefined, options: Ward.ProviderOptions | undefined): Effect.Effect<Provider> =>
   Effect.gen(function* () {
     let provider = state.live
     if (Predicate.isUndefined(provider)) provider = yield* Bool.match(state.building, { onTrue: () => Deferred.await(state.deferred), onFalse: () => first(state) })
-    if (Predicate.isNotUndefined(options)) yield* takeRoot(provider, element)
+    if (Bool.and(Predicate.isNotUndefined(options), Predicate.isNotUndefined(element))) yield* takeRoot(provider, UndefinedOr.getOrThrow(element))
     return provider
   })
 
@@ -177,11 +210,14 @@ const takeRoot = (provider: Provider, element: Element): Effect.Effect<void> => 
  * was this element, and, once the last element has left, the Scope closed at the end of the task, so a
  * patch that removes every element and inserts new ones keeps the runtime.
  */
-export const joined = (state: State, provider: Provider, element: Element): (() => void) => {
+export const joined = (state: State, provider: Provider, owner: object): (() => void) => {
   provider.elements++
+  let left = false
   return () => {
+    if (left) return
+    left = true
     provider.elements--
-    if (provider.root === element) provider.root = undefined
+    if (provider.root === owner) provider.root = undefined
     if (provider.elements > 0) return
     queueMicrotask(() => {
       if (provider.elements > 0) return

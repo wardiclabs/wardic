@@ -20,7 +20,7 @@ import * as Ward from "../Ward.ts"
 import { propertyOf } from "./delivery.ts"
 import { type Config, startingStyleOf, stringified } from "./element.ts"
 import { mountOf } from "./mount.ts"
-import type { State } from "./services.ts"
+import { registryOf, type State } from "./services.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** The one identity every `w.*` element is stamped with (#791, Q8). */
@@ -43,6 +43,13 @@ interface Folded<Message> {
 
 /** A Foldkit attribute of `_tag`. */
 const tagged = <Message>(attribute: Attribute<Message> | ChildAttribute, tag: string): boolean => Predicate.hasProperty(attribute, "_tag") && attribute._tag === tag
+
+/** A function in `w.Style`: a Live value on Foldkit is an Atom (#791, Q4). Development only. */
+const functionInStyle = (key: string): string =>
+  `wardic: \`${key}\` in w.Style is a function. A Live value on Foldkit is an Atom (effect/reactivity): make one, and set it from a Command or a Live value helper.`
+
+/** `w.Text` beside children: the Atom owns the element's text (#791, Q24). Development only. */
+const TEXT_WITH_CHILDREN = "wardic: a w.* element with w.Text(atom) takes no children: the Atom owns its text. Drop the children, or the Text."
 
 /** A key in both the user's `h.Style` and `w.Style`: two writers would own it (#791, Q7). Development only. */
 const overlapping = (key: string): string =>
@@ -78,14 +85,18 @@ const fold = <Message>(attributes: Attributes<Message>): Folded<Message> => {
 /** The element's config as delivered: its Wardic keys, its `style` the user's `h.Style` under `w.Style`'s base values. */
 const configOf = (folded: Folded<never>): Config => {
   const own = folded.config.style
+  if (DEV && Predicate.isNotUndefined(own)) {
+    const fn = Arr.findFirst(Rec.keys(own as Record<string, unknown>), (key) => Predicate.isFunction((own as Record<string, unknown>)[key]))
+    if (Option.isSome(fn)) throw new Error(functionInStyle(fn.value))
+  }
   const user = folded.style
-  if (Predicate.isUndefined(user)) return folded.config as Config
-  if (Predicate.isUndefined(own)) return { ...folded.config, style: user } as Config
+  if (Predicate.isUndefined(user)) return folded.config as unknown as Config
+  if (Predicate.isUndefined(own)) return { ...folded.config, style: user } as unknown as Config
   if (DEV) {
     const both = Arr.findFirst(Rec.keys(user), (key) => Object.hasOwn(own, key))
     if (Option.isSome(both)) throw new Error(overlapping(both.value))
   }
-  return { ...folded.config, style: { ...user, ...(own as object) } } as Config
+  return { ...folded.config, style: { ...user, ...(own as object) } } as unknown as Config
 }
 
 /**
@@ -94,7 +105,7 @@ const configOf = (folded: Folded<never>): Config => {
  */
 const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: string | undefined, folded: Folded<Message>): ReadonlyArray<Attribute<Message> | ChildAttribute> => {
   const config = configOf(folded as Folded<never>)
-  const starting = startingStyleOf(tag, config)
+  const starting = startingStyleOf(tag, config, registryOf(state))
   return [
     ...folded.rest,
     h.Style(stringified(starting)),
@@ -107,8 +118,11 @@ const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: str
 type Make = (attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Ward.Child>) => Html
 
 /** A `w.*` element: folded, rendered through Foldkit's `make`, and stamped. */
-const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Ward.Child> | undefined): Html =>
-  brandViewResult<Html>(make(wardAttributes(state, h, tag, fold(attributes)) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
+const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Ward.Child> | undefined): Html => {
+  const folded = fold(attributes)
+  if (DEV && Predicate.isNotUndefined(folded.config.text) && Predicate.isNotUndefined(children) && children.length > 0) throw new Error(TEXT_WITH_CHILDREN)
+  return brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
+}
 
 /** Whether `key` names one of `h`'s element factories: a lowercase name, a function, and neither `keyed` nor `submodel`. */
 const isTag = (h: object, key: string): boolean => {
@@ -147,5 +161,8 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.Config = (options: Ward.ConfigOptions) => attribute("config", options)
   w.OnAnimationStart = (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => attribute("animationStart", handler)
   w.OnAnimationComplete = (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => attribute("animationComplete", handler)
+  w.Text = (atom: Ward.Config["text"]) => attribute("text", atom)
+  w.OnUpdate = (atom: Ward.Config["onUpdate"]) => attribute("onUpdate", atom)
+  w.TransformTemplate = (template: Ward.Config["transformTemplate"]) => attribute("transformTemplate", template)
   return w
 }
