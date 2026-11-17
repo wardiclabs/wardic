@@ -73,6 +73,16 @@ export interface Provider {
   root: Element | undefined
   /** Its members, counted: its mounted `w.*` elements, and the Commands' animations and `provide`s while they run. */
   elements: number
+  /** The Mounts whose view DevTools replay has (decision 34): while any, no hint is given from a provider-wide delivery. */
+  readonly pausedViews: Set<object>
+  /** Whether DevTools replay has a view now. */
+  readonly paused: () => boolean
+}
+
+/** How the layout passes are triggered (decision 30; #792, Q17): `Wardic.make`'s `layoutTrigger` and `layoutAttributes`. */
+export interface LayoutOptions {
+  readonly trigger: "patch" | "declared" | undefined
+  readonly attributes: ReadonlyArray<string> | undefined
 }
 
 /** What a Handle holds of its provider: the live one, the `Deferred` a build in flight completes, and its Features. */
@@ -87,6 +97,8 @@ export interface State {
   readonly given: ReadonlyArray<Feature.Feature>
   /** The Handle's app-wide config (`Wardic.make({ config })`), the root of every element's `w.Config` chain; none without one. */
   readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
+  /** How its layout passes are triggered (decision 30). */
+  readonly layout: LayoutOptions
   deferred: Deferred.Deferred<Provider>
   live: Provider | undefined
   /** Whether a build is in flight: an `env` that waits as it builds has the elements after the first await the `Deferred`. */
@@ -115,11 +127,12 @@ export const registryOf =
     UndefinedOr.match(state.live, { onUndefined: LiveStyle.serverRegistryOf, onDefined: (provider) => provider.atoms })
 
 /** A Handle's state: no provider yet. */
-export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined): State => ({
+export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined, layout: LayoutOptions): State => ({
   env,
   features,
   given: givenOf(features),
   rootConfig: rootConfigValueOf(config),
+  layout,
   deferred: Deferred.makeUnsafe<Provider>(),
   live: undefined,
   building: false,
@@ -157,6 +170,7 @@ const optional = <S extends Context.Service<any, any>>(context: Context.Context<
  */
 const build = (state: State): Effect.Effect<Provider> =>
   Effect.gen(function* () {
+    const pausedViews = new Set<object>()
     const scope = Scope.makeUnsafe()
     const memoMap = Layer.makeMemoMapUnsafe()
     // Read as each layout animation starts (slice 2), through the Provider's own reader once it's made.
@@ -194,6 +208,8 @@ const build = (state: State): Effect.Effect<Provider> =>
       scope,
       root: undefined,
       elements: 0,
+      pausedViews,
+      paused: () => pausedViews.size > 0,
     }
   })
 

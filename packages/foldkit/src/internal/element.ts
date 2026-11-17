@@ -17,13 +17,17 @@ import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
+import * as DragTransition from "@wardic/dom/unstable/DragTransition"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
+import * as Feature from "@wardic/dom/unstable/Feature"
 import * as Imperative from "@wardic/dom/unstable/Imperative"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import * as Equal from "effect/Equal"
 import { constFalse, constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -33,9 +37,10 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrame, installSetter, patchTouched } from "./delivery.ts"
 import { reactivity } from "./reactivity.ts"
+import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
 import { type Provider, reducedMotionUnder, type State } from "./services.ts"
-import { configValueOf, dropNode, nodeOf } from "./tree.ts"
+import { configValueOf, dropNode, layoutGroupOf, nodeOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** An element's config as the spine reads it: what the view delivered, with its merged `style`. */
@@ -148,12 +153,17 @@ const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue 
   const start = config.animationStart
   const complete = config.animationComplete
   const update = config.onUpdate
-  if (Bool.and(Predicate.isUndefined(start), Bool.and(Predicate.isUndefined(complete), Predicate.isUndefined(update)))) return configured
-  const view: CoreConfig.SpineConfig = {
+  const layoutStart = config.layoutAnimationStart
+  const layoutComplete = config.layoutAnimationComplete
+  if (Bool.every([Predicate.isUndefined(start), Predicate.isUndefined(complete), Predicate.isUndefined(update), Predicate.isUndefined(layoutStart), Predicate.isUndefined(layoutComplete)])) return configured
+  const view: CoreConfig.SpineConfig & Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> = {
     ...configured,
     ...UndefinedOr.match(start, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationStart: dispatch(handler) }) }),
     ...UndefinedOr.match(complete, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationComplete: dispatch(handler) }) }),
     ...UndefinedOr.match(update, { onUndefined: () => ({}), onDefined: (atom) => ({ onUpdate: (latest: Ward.Latest) => registry.set(atom, { ...latest }) }) }),
+    // Motion's onLayoutAnimationStart / onLayoutAnimationComplete (decision 23), as Messages, told nothing.
+    ...UndefinedOr.match(layoutStart, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationStart: () => dispatch(handler)(undefined) }) }),
+    ...UndefinedOr.match(layoutComplete, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationComplete: () => dispatch(handler)(undefined) }) }),
   }
   return view as Config
 }
@@ -196,7 +206,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
   // The nearest `w.Presence` above it (decision 29), told its key now, before that presence decides what it shows (#286).
   const presence = nearestPresence(provider, state, element)
   const context = UndefinedOr.map(presence, (p) => p.context)
-  UndefinedOr.map(context, (ctx) => UndefinedOr.map(ctx.made, (made) => made(element, config.key, false)))
+  UndefinedOr.map(context, (ctx) => UndefinedOr.map(ctx.made, (made) => made(element, config.key, Predicate.isNotUndefined(config.layoutId))))
 
   const begin = (): (() => void) => {
     // Its Live values in `style` (#130, ADR-0043): routed keys the spine follows through the gate.
@@ -268,6 +278,42 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       diagnostics: devDiagnostics(),
     })
     UndefinedOr.map(taken, (seed) => spine.seed(seed))
+    // Its layout (ADR-0009, ADR-0010; decision 30): one projection node for `Layout`, `LayoutId`,
+    // `LayoutScroll` or `LayoutRoot`, on the provider's layout, built at the first; and, with a layout
+    // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*).
+    const layout = Bool.match(Feature.wantsLayoutNode(view as WardConfig.WardConfig), { onTrue: () => layoutOf(provider, state), onFalse: () => undefined })
+    const layoutNode = UndefinedOr.map(layout, (made) =>
+      made.projection.register(
+        made.nodes.registrationOf(
+          made.nodes.optionsOf({
+            id,
+            element,
+            config: () => view as WardConfig.WardConfig,
+            parent: inherited,
+            snapshot,
+            dragTransition: DragTransition.dragTransitionOf(undefined, undefined),
+            raiseWhileDragged: false,
+            taken,
+            layoutGroup: layoutGroupOf(element),
+            reducedMotion,
+            skipAnimations,
+            heldTransform: ElementSetup.heldTransformFor(snapshot, templateAtMount, () => view.transformTemplate),
+          }),
+        ),
+      ))
+    const unregisterValues = UndefinedOr.match(Keys.projectionIn(provider.registry.built()), { onUndefined: () => constVoid, onDefined: (projection) => projection.registerValues(element, () => snapshot.values) })
+    // Its `LayoutDependency`, compared per delivery as Motion's `prevProps.layoutDependency !==` is: a
+    // change asks for the node's measure, or, on an element with no node (a group's), the whole tree's.
+    let dependency = config.layoutDependency
+    const dependencyChanged = (): void => {
+      const next = config.layoutDependency
+      if (Equal.equals(dependency, next)) return
+      dependency = next
+      UndefinedOr.match(layoutNode, {
+        onDefined: (node) => node.notify(),
+        onUndefined: () => UndefinedOr.map(Keys.projectionIn(provider.registry.built()), (projection) => projection.notify()),
+      })
+    }
     // The Override stack resolved (ADR-0007), compared by value (#470): a delivery that resolves the same
     // targets tells nothing, as a `transition` change alone doesn't in Motion.
     let last: Spine.Resolution | undefined
@@ -289,6 +335,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       if (Bool.not(paused())) hintFrame(provider.loop)
       try {
         live.css(config.style)
+        dependencyChanged()
         retarget()
       } catch (error) {
         provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
@@ -331,6 +378,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       unfollowTemplate()
       unregisterAnimatable()
       uninstall()
+      UndefinedOr.map(layoutNode, (node) => node.dispose())
+      unregisterValues()
       spine.dispose()
       unregister()
       dropNode(element)

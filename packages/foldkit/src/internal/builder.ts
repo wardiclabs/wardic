@@ -167,5 +167,15 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.TransformTemplate = (template: Ward.Config["transformTemplate"]) => attribute("transformTemplate", template)
   w.Exit = (value: Ward.Config["exit"]) => attribute("exit", value)
   w.Presence = (options: Ward.PresenceOptions<Message> = {}) => attribute("presence", options)
+  w.Layout = (value: Ward.Config["layout"] = true) => attribute("layout", value)
+  w.LayoutId = (id: Ward.Config["layoutId"]) => attribute("layoutId", id)
+  w.LayoutDependency = (value: Ward.Config["layoutDependency"]) => attribute("layoutDependency", value)
+  w.LayoutScroll = (value: Ward.Config["layoutScroll"] = true) => attribute("layoutScroll", value)
+  w.LayoutRoot = (value: Ward.Config["layoutRoot"] = true) => attribute("layoutRoot", value)
+  w.LayoutGroup = (options: Ward.LayoutGroupOptions = {}) => attribute("layoutGroup", options)
+  w.OnLayoutAnimationStart = (handler: Ward.Handler<Message, void>) => attribute("layoutAnimationStart", handler)
+  w.OnLayoutAnimationComplete = (handler: Ward.Handler<Message, void>) => attribute("layoutAnimationComplete", handler)
+  w.OnBeforeLayoutMeasure = (fn: Ward.Config["onBeforeLayoutMeasure"]) => attribute("onBeforeLayoutMeasure", fn)
+  w.OnLayoutMeasure = (fn: Ward.Config["onLayoutMeasure"]) => attribute("onLayoutMeasure", fn)
   return w
 }

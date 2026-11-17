@@ -25,6 +25,7 @@ import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrame } from "./delivery.ts"
 import { configOf, dispatcherOf } from "./element.ts"
 import { PresenceMaker, type PresenceMakerShape } from "./keys.ts"
+import { dropLayoutRecords } from "./layout.ts"
 import { featureIn, type Provider, type State } from "./services.ts"
 import { isMounted, nearestPresenceElement } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
@@ -256,6 +257,8 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
     Arr.forEach(current, (child) => Bool.match(onPage.has(child), { onTrue: () => show(child), onFalse: () => hide(child) }))
     Arr.forEach(pending.splice(0), start)
     controller.present(Arr.filter(current, (child) => onPage.has(child)))
+    // Told not to affect layout (Motion's `presenceAffectsLayout: false`): its moves make no pass either (#792, Q21).
+    if (optionsNow().presenceAffectsLayout === false) dropLayoutRecords(provider)
     known = new Set(current)
     // Its own moves, and the controller's, make records too: dropped, so they deliver nothing (P19).
     UndefinedOr.map(observer, (watching) => watching.takeRecords())
