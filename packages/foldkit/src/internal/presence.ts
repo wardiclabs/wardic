@@ -96,7 +96,7 @@ const presenceOf = (provider: Provider, state: State, element: Element, own: boo
     if (DEV) provider.registry.warnOnce("presence-late", LATE)
     return undefined
   }
-  const maker = featureIn(provider, state, PresenceMaker)
+  const maker = featureIn(provider, PresenceMaker)
   if (Predicate.isUndefined(maker)) {
     provider.registry.warnOnce("presence", MISSING)
     return undefined

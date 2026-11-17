@@ -71,6 +71,13 @@ export type ElementFunction<Message> = (attributes: Attributes<Message>, childre
 declare const FEATURES: unique symbol
 
 /**
+ * A Feature's attribute factory on a builder whose Handle has Features `F` (ADR-0071 *Amendment
+ * (#516)*; #793, Q11): the factory when `F` names the Feature `N`; else what names the missing one, so
+ * calling it is a type error reading `NeedsFeature<"hover">`.
+ */
+type Needs<F, N extends Feature.PropFeature, Factory> = N extends Feature.PropFeatureNames<F> ? Factory : Feature.NeedsFeature<N>
+
+/**
  * The builder `w` of `wardic.html(h)`: `h`'s element factories, each taking Wardic's attributes beside
  * Foldkit's; `keyed`; the `attributes` bundle, for an element `w` doesn't make (a custom element, a
  * component library's); and Wardic's attribute factories. Foldkit's own attributes stay on `h`.
@@ -169,6 +176,39 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   OnBeforeLayoutMeasure: (fn: Ward.Config["onBeforeLayoutMeasure"]) => Ward.Attribute
   /** Called with the element's box after each measure, and the one before (Motion's `onLayoutMeasure`): a plain function (decision 24). */
   OnLayoutMeasure: (fn: Ward.Config["onLayoutMeasure"]) => Ward.Attribute
+  /**
+   * Where the element animates while the pointer is over it, and back when it leaves (Motion's
+   * `whileHover`): values or a variant name, which Variant children follow too. Needs `Features.hover`.
+   */
+  WhileHover: Needs<F, "hover", (value: Ward.Config["whileHover"]) => Ward.Attribute>
+  /** Sent as the pointer comes over the element, with the DOM's event and its viewport point (Motion's `onHoverStart`). A touch never hovers. */
+  OnHoverStart: Needs<F, "hover", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.PointInfo>) => Ward.Attribute>
+  /** Sent as the pointer leaves the element (Motion's `onHoverEnd`). */
+  OnHoverEnd: Needs<F, "hover", (handler: Ward.GestureHandler<Message, PointerEvent, Ward.PointInfo>) => Ward.Attribute>
+  /**
+   * Where the element animates while it's pressed, by a pointer or by Enter or Space while it has
+   * focus (Motion's `whileTap`; a **Keyboard press**). An element that can't take focus is made
+   * focusable. Needs `Features.press`.
+   */
+  WhileTap: Needs<F, "press", (value: Ward.Config["whileTap"]) => Ward.Attribute>
+  /** `{ tap: false }` keeps a press to this element (a **Press claim**): a pressable ancestor neither plays its `WhileTap` nor hears the tap (Motion's `propagate`). */
+  Propagate: Needs<F, "press", (options: Ward.Config["propagate"]) => Ward.Attribute>
+  /** Sent as a press begins: a pointer going down, or Enter or Space while focused (`info.input` says which; Motion's `onTapStart`). */
+  OnTapStart: Needs<F, "press", (handler: Ward.GestureHandler<Message, Ward.PressEvent, Ward.PressInfo>) => Ward.Attribute>
+  /** Sent as that press ends on the element, or its key comes up (Motion's `onTap`). */
+  OnTap: Needs<F, "press", (handler: Ward.GestureHandler<Message, Ward.PressEvent, Ward.PressInfo>) => Ward.Attribute>
+  /** Sent as that press ends elsewhere, or is cancelled; a press a drag took over is neither (Motion's `onTapCancel`). */
+  OnTapCancel: Needs<F, "press", (handler: Ward.GestureHandler<Message, Ward.PressEvent, Ward.PressInfo>) => Ward.Attribute>
+  /** Where the element animates while it has the keyboard's focus, as `:focus-visible` shows it, not a click's (Motion's `whileFocus`). Needs `Features.focus`. */
+  WhileFocus: Needs<F, "focus", (value: Ward.Config["whileFocus"]) => Ward.Attribute>
+  /** Where the element animates while it's in view, as `Viewport` defines it (Motion's `whileInView`). Needs `Features.inView`. */
+  WhileInView: Needs<F, "inView", (value: Ward.Config["whileInView"]) => Ward.Attribute>
+  /** What "in view" means (Motion's `viewport`): `once`, `margin`, `amount`, and `root` as `"parent"` or a selector. */
+  Viewport: Needs<F, "inView", (options: Ward.ViewportOptions) => Ward.Attribute>
+  /** Sent as the element comes into view, with the browser's `IntersectionObserverEntry` (Motion's `onViewportEnter`). */
+  OnViewportEnter: Needs<F, "inView", (handler: Ward.Handler<Message, IntersectionObserverEntry>) => Ward.Attribute>
+  /** Sent as it leaves the view; never after the first entry under `once` (Motion's `onViewportLeave`). */
+  OnViewportLeave: Needs<F, "inView", (handler: Ward.Handler<Message, IntersectionObserverEntry>) => Ward.Attribute>
 }>
 
 /**

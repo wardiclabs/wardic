@@ -20,11 +20,11 @@ import * as OwnValues from "@wardic/core/unstable/OwnValues"
 import * as VariableValues from "@wardic/core/unstable/VariableValues"
 import * as WardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
-import * as Arr from "effect/Array"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as Feature from "@wardic/dom/unstable/Feature"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -32,7 +32,8 @@ import * as Context from "effect/Context"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import { constFalse, identity } from "effect/Function"
+import { constFalse, constVoid, identity } from "effect/Function"
+import * as Iter from "effect/Iterable"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -41,6 +42,8 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
+import { ownOf } from "./features.ts"
+import { reactivity } from "./reactivity.ts"
 import { rootConfigValueOf } from "./tree.ts"
 
 /** A live **Provider**: Wardic's services built on an app's `env`, read once, as a Solid provider's context value holds them. */
@@ -67,6 +70,13 @@ export interface Provider {
   readonly valueReads: ElementSetup.ElementValueReads
   /** Its Features (#511), each built on first need. */
   readonly registry: Feature.FeatureRegistry
+  /**
+   * The Handle's Features in it (#516; #793, Q2): their services now, those given built on first need
+   * and each load's built as it arrives, and whether a load is still on its way.
+   */
+  readonly features: Feature.Own
+  /** Run `hook` as a load's Features arrive, until what's returned is called: an element re-checks what it wants then (Q15). */
+  readonly onFeatures: (hook: () => void) => () => void
   /** The Scope the Handle owns it in: closed once its last element has left. */
   readonly scope: Scope.Closeable
   /** The element carrying `w.Provider(options)`, while it's mounted: what the subtree options (slice 2) hang on, and what a selector resolves under. */
@@ -88,13 +98,8 @@ export interface LayoutOptions {
 /** What a Handle holds of its provider: the live one, the `Deferred` a build in flight completes, and its Features. */
 export interface State {
   readonly env: WardicServices.WardicEnv
-  /**
-   * Its Features (#516), as given: kept for slice 3, where its elements' gesture and layout attributes
-   * bring them through the provider's registry. Nothing reads them in slice 1.
-   */
+  /** Its Features (#516), as given: Features, loads, and lists of either, which each provider builds its own from (`features.ts`). */
   readonly features: Feature.InstanceFeaturesProp | undefined
-  /** Its Features given at once (#792, Q9), flattened: what a `w.Presence` element builds its Feature from. Loads come with slice 3. */
-  readonly given: ReadonlyArray<Feature.Feature>
   /** The Handle's app-wide config (`Wardic.make({ config })`), the root of every element's `w.Config` chain; none without one. */
   readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
   /** How its Measure passes are triggered (decision 30). */
@@ -136,7 +141,6 @@ export const registryOf =
 export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined, layout: LayoutOptions): State => ({
   env,
   features,
-  given: givenOf(features),
   rootConfig: rootConfigValueOf(config),
   layout,
   transitioning: false,
@@ -145,22 +149,23 @@ export const makeState = (env: WardicServices.WardicEnv, features: Feature.Insta
   building: false,
 })
 
-/** The Features `prop` gives at once, each once: a Feature, a list, nested lists; a load (a function) is left for slice 3. */
-const givenOf = (prop: Feature.InstanceFeaturesProp | undefined): ReadonlyArray<Feature.Feature> => {
-  if (Predicate.isUndefined(prop)) return []
-  if (Predicate.isFunction(prop)) return []
-  if (Arr.isArray(prop)) return Arr.dedupeWith(Arr.flatMap(prop as ReadonlyArray<Feature.InstanceFeaturesProp>, givenOf), (a, b) => a === b)
-  return [prop as Feature.Feature]
-}
+/**
+ * The service of a Feature the Handle has, built now if nothing has built it (#792, Q9): what
+ * `w.Presence` finds its controller by, and a gesture its recognizer. `undefined` when the Handle wasn't
+ * given the Feature, or its load hasn't arrived.
+ */
+export const featureIn = <I, S>(provider: Provider, key: Context.Key<I, S>): S | undefined => GestureFeatures.serviceIn(provider.features.services(), key)
+
+/** A load of the Handle's Features that failed (#793, Q15): reported once, and the rest stand. */
+const LOAD_FAILED = "wardic.features: a load of the Handle's Features failed; its Features are left out"
 
 /**
- * The service of a given Feature, built now if nothing has built it (#792, Q9): what `w.Presence`
- * finds its controller by. `undefined` when the Handle wasn't given the Feature.
+ * Development's word on a Feature the Handle wasn't given (#511, ADR-0067 decision 7), in Foldkit's
+ * terms: what needed it (`what`), and how a Handle takes it.
  */
-export const featureIn = <I, S>(provider: Provider, state: State, key: Context.Key<I, S>): S | undefined => {
-  if (state.given.length === 0) return undefined
-  return Option.getOrUndefined(Context.getOption(provider.registry.build(state.given) as Context.Context<I>, key))
-}
+export const missingMessage = (feature: string, what: string): string =>
+  `wardic: ${what} needs the \`${feature}\` Feature, which this Handle wasn't given. ` +
+  `Add it: \`import { Features } from "@wardic/foldkit"\`, then \`Wardic.make({ env, features: [Features.${feature}] })\`.`
 
 /** A second `w.Provider()` for one Handle, while the first's element is mounted: reported, then ignored. */
 const SECOND_PROVIDER =
@@ -188,17 +193,25 @@ const build = (state: State): Effect.Effect<Provider> =>
     const runner = yield* Effect.provideContext(WardicServices.makeRunner<Feature.ProviderServices>(), Context.add(context, Scope.Scope, scope))
     const runtime: Feature.FeatureRuntime = { ...runner, memoMap }
     // The user's preference, through the Probe's atom (ADR-0029); an app's setting comes with `w.Config` (slice 1, PR 2).
-    const registry = Context.get(context, AtomRegistry.AtomRegistry)
+    const atoms = Context.get(context, AtomRegistry.AtomRegistry)
     const probe = Context.get(context, Probe.Probe)
-    const prefers = (): boolean => registry.get(probe.prefersReducedMotion)
+    const prefers = (): boolean => atoms.get(probe.prefersReducedMotion)
     const reducedMotion = (): boolean => ReducedMotion.applies("user", prefers())
     reducedMotionNow = reducedMotion
     const services = context as Context.Context<never>
+    // Its Features' Scope is a child of the runtime's, closed with it: nothing more to dispose.
+    const registry = Feature.clientRegistry(runtime, () => Promise.resolve())
+    // The Handle's Features in it (#793, Q2 and Q15): each load started now, its arrival told to the
+    // elements' hooks directly, since no patch ran; a failed load reported once.
+    const hooks = new Set<() => void>()
+    const arrived = (): void => Iter.forEach(hooks, (hook) => hook())
+    const host: Feature.SectionHost = { reactivity: { ...reactivity, trigger: () => ({ track: constVoid, notify: arrived }) }, server: false, onCleanup: registry.onEnd }
+    const features = ownOf(state.features, registry.build, (cause) => runner.runFork(Report.failure(LOAD_FAILED, cause)), host)
     return {
       runtime,
       context,
       loop: Context.get(context, FrameLoop.FrameLoop),
-      atoms: registry,
+      atoms,
       gate: Context.get(context, FlushGate.FlushGate),
       reducedMotion,
       prefers,
@@ -210,8 +223,14 @@ const build = (state: State): Effect.Effect<Provider> =>
         measuredPairs: optional(services, MeasuredPairs.MeasuredPairs),
         variableValues: optional(services, VariableValues.VariableValues),
       }),
-      // Its Features' Scope is a child of the runtime's, closed with it: nothing more to dispose.
-      registry: Feature.clientRegistry(runtime, () => Promise.resolve()),
+      registry,
+      features,
+      onFeatures: (hook) => {
+        hooks.add(hook)
+        return () => {
+          hooks.delete(hook)
+        }
+      },
       scope,
       root: undefined,
       elements: 0,

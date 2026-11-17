@@ -10,6 +10,8 @@ import * as Port from "foldkit/port"
 import * as Runtime from "foldkit/runtime"
 import * as Subscription from "foldkit/subscription"
 import type * as Update from "foldkit/update"
+import { commands } from "vitest/browser"
+import "../../solid/test/browser-commands.ts"
 
 /** An embedded program: the host its view renders in, its one inbound port and its disposal. */
 export interface Embedded<Value> {
@@ -39,6 +41,28 @@ export interface Program<Model, Message extends Tagged, Value, R = never> {
   readonly devTools?: boolean | undefined
   /** The program's `viewTransition` predicate (a Handle's `wardic.viewTransition(…)` around the app's). */
   readonly viewTransition?: Runtime.ViewTransitionConfig<Model, Message> | undefined
+}
+
+/** A point in the test page's viewport. */
+export interface Pt {
+  readonly x: number
+  readonly y: number
+}
+
+/** Where the mouse rests between gestures: off every fixture's elements. */
+export const PARK: Pt = { x: 5, y: 5 }
+
+/** `el`'s centre in the viewport. */
+export const centreOf = (el: Element): Pt => {
+  const box = el.getBoundingClientRect()
+  return { x: box.left + box.width / 2, y: box.top + box.height / 2 }
+}
+
+/** The browser's own mouse (Playwright's), at viewport points: each event is the browser's (`isTrusted`), through its input pipeline. */
+export const mouse = {
+  move: (p: Pt): Promise<void> => commands.realMouse("move", p.x, p.y),
+  down: (p: Pt): Promise<void> => commands.realMouse("down", p.x, p.y),
+  up: (p: Pt): Promise<void> => commands.realMouse("up", p.x, p.y),
 }
 
 // Each container's id, counted.

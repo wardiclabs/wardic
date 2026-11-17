@@ -8,6 +8,7 @@
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import type * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import type * as LayoutGroup from "@wardic/dom/unstable/LayoutGroup"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
@@ -23,7 +24,7 @@ import type * as Atom from "effect/reactivity/Atom"
 export const TypeId: unique symbol = Symbol.for("@wardic/foldkit/Ward.Attribute")
 export type TypeId = typeof TypeId
 
-/** The keys of an element's config a Wardic attribute sets (slices 1 and 2's; the rest come with the later slices). */
+/** The keys of an element's config a Wardic attribute sets (slices 1 to 3's; the rest come with the later slices). */
 export type Key =
   | "initial"
   | "animate"
@@ -51,6 +52,19 @@ export type Key =
   | "layoutAnimationComplete"
   | "onBeforeLayoutMeasure"
   | "onLayoutMeasure"
+  | "whileHover"
+  | "onHoverStart"
+  | "onHoverEnd"
+  | "whileTap"
+  | "propagate"
+  | "onTapStart"
+  | "onTap"
+  | "onTapCancel"
+  | "whileFocus"
+  | "whileInView"
+  | "viewport"
+  | "onViewportEnter"
+  | "onViewportLeave"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -58,6 +72,41 @@ export type Key =
  * `Option.none()` sends nothing.
  */
 export type Handler<Message, A> = Message | ((value: A) => Message | Option.Option<Message>)
+
+/**
+ * A gesture callback as a Message (decision 23; ADR-0047's `(event, info)`): a Message, sent as it
+ * is, or a function of the platform's event and the gesture's info, giving a Message, or an `Option`
+ * of one. The function runs at the event, inside the recognizer's dispatch, so `stopPropagation()`
+ * and `preventDefault()` do what they say; its Message reaches `update` a microtask later.
+ */
+export type GestureHandler<Message, Event, Info> = Message | ((event: Event, info: Info) => Message | Option.Option<Message>)
+
+/** A hover's info (Motion's `EventInfo`): where the pointer was, in the viewport. */
+export type PointInfo = GestureInfo.WardicPointInfo
+
+/** A press's info (Motion's `TapInfo`): where it was, in the viewport, and whether a pointer or the keyboard made it. */
+export type PressInfo = GestureInfo.WardicPressInfo
+
+/** The platform's event a press callback is told: a pointer's, a **Keyboard press**'s key, or the blur that cancelled it. */
+export type PressEvent = GestureInfo.WardicPressEvent
+
+/**
+ * `w.Viewport(options)`'s options (Motion's `viewport`; #793, Q16): what "in view" means for
+ * `WhileInView` and the viewport callbacks, read as the recognizer starts.
+ */
+export interface ViewportOptions {
+  /** Stays in view after its first entry. */
+  readonly once?: boolean | undefined
+  /** Grown around the root, as CSS `rootMargin`: `"0px 0px -100px 0px"` counts it in 100 px later at the bottom. */
+  readonly margin?: string | undefined
+  /** How much of the element must show: `"some"` (the default), `"all"`, or 0 to 1. */
+  readonly amount?: "some" | "all" | number | undefined
+  /**
+   * The scrolling container it's in view of: `"parent"`, the element's parent, or a selector, resolved
+   * under the `w.Provider()` element, else the document, as the recognizer starts; the window if none.
+   */
+  readonly root?: string | undefined
+}
 
 /** What `w.OnAnimationStart` and `w.OnAnimationComplete` are told: the variant name, or the values, the animation went to (Motion's). */
 export type AnimationDefinition = CoreConfig.WardicAnimationDefinition
@@ -149,8 +198,45 @@ export interface LayoutGroupOptions {
  * typed on its own (#791, Q17): nothing is inferred across attributes.
  */
 export interface Config<Message = never>
-  extends Pick<WardConfig.WardConfig, "initial" | "animate" | "transition" | "variants" | "custom" | "inherit" | "exit" | "layout" | "layoutId" | "layoutDependency" | "layoutScroll" | "layoutRoot" | "onBeforeLayoutMeasure" | "onLayoutMeasure"> {
+  extends Pick<
+    WardConfig.WardConfig,
+    | "initial"
+    | "animate"
+    | "transition"
+    | "variants"
+    | "custom"
+    | "inherit"
+    | "exit"
+    | "layout"
+    | "layoutId"
+    | "layoutDependency"
+    | "layoutScroll"
+    | "layoutRoot"
+    | "onBeforeLayoutMeasure"
+    | "onLayoutMeasure"
+    | "whileHover"
+    | "whileTap"
+    | "propagate"
+    | "whileFocus"
+    | "whileInView"
+  > {
   readonly style?: Style | undefined
+  /** `w.OnHoverStart(…)`: sent as the pointer comes over the element (Motion's `onHoverStart`; a touch never hovers). */
+  readonly onHoverStart?: GestureHandler<Message, PointerEvent, PointInfo> | undefined
+  /** `w.OnHoverEnd(…)`: sent as it leaves (Motion's `onHoverEnd`). */
+  readonly onHoverEnd?: GestureHandler<Message, PointerEvent, PointInfo> | undefined
+  /** `w.OnTapStart(…)`: sent as a press begins, a pointer's down or Enter or Space while focused (Motion's `onTapStart`). */
+  readonly onTapStart?: GestureHandler<Message, PressEvent, PressInfo> | undefined
+  /** `w.OnTap(…)`: sent as that press ends on the element, or its key comes up (Motion's `onTap`). */
+  readonly onTap?: GestureHandler<Message, PressEvent, PressInfo> | undefined
+  /** `w.OnTapCancel(…)`: sent as that press ends elsewhere, or is cancelled; a press a drag took over is neither (Motion's `onTapCancel`). */
+  readonly onTapCancel?: GestureHandler<Message, PressEvent, PressInfo> | undefined
+  /** `w.Viewport(…)`: what "in view" means (Motion's `viewport`). */
+  readonly viewport?: ViewportOptions | undefined
+  /** `w.OnViewportEnter(…)`: sent as the element comes into view, with the browser's entry (Motion's `onViewportEnter`). */
+  readonly onViewportEnter?: Handler<Message, IntersectionObserverEntry> | undefined
+  /** `w.OnViewportLeave(…)`: sent as it leaves the view; never after the first entry under `once` (Motion's `onViewportLeave`). */
+  readonly onViewportLeave?: Handler<Message, IntersectionObserverEntry> | undefined
   /** `w.LayoutGroup(…)`: the namespace of the `layoutId`s under the element (decision 30). */
   readonly layoutGroup?: LayoutGroupOptions | undefined
   /** `w.OnLayoutAnimationStart(…)`: sent at the frame a layout animation's first step is painted (Motion's `onLayoutAnimationStart`). */
