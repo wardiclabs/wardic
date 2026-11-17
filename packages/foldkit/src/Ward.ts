@@ -8,6 +8,7 @@
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import type * as LayoutGroup from "@wardic/dom/unstable/LayoutGroup"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type { Html } from "foldkit/html"
@@ -40,6 +41,16 @@ export type Key =
   | "exit"
   | "presence"
   | "key"
+  | "layout"
+  | "layoutId"
+  | "layoutDependency"
+  | "layoutScroll"
+  | "layoutRoot"
+  | "layoutGroup"
+  | "layoutAnimationStart"
+  | "layoutAnimationComplete"
+  | "onBeforeLayoutMeasure"
+  | "onLayoutMeasure"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -122,12 +133,30 @@ export interface PresenceOptions<Message = never> {
 }
 
 /**
- * An element's config: where it starts, where it animates to, how, where it exits to, and its
- * `style`, whose values are its base values (dom's `WardConfig`'s, Motion's props). Each key is typed
- * on its own (#791, Q17): nothing is inferred across attributes.
+ * `w.LayoutGroup(options)`'s options (#432; Motion's `LayoutGroup`, ADR-0071 decision 22): a namespace
+ * for the `layoutId`s under the element, read once as the first of them mounts.
  */
-export interface Config<Message = never> extends Pick<WardConfig.WardConfig, "initial" | "animate" | "transition" | "variants" | "custom" | "inherit" | "exit"> {
+export interface LayoutGroupOptions {
+  /** An id put before every `layoutId` under it: under `{ id: "tabs" }`, a `LayoutId("underline")` is `tabs-underline`. */
+  readonly id?: string | undefined
+  /** Whether it joins the id of the group above it: `true` (the default) and `"id"` both do, `outer-inner`; `false` starts afresh. */
+  readonly inherit?: LayoutGroup.LayoutGroupInherit | undefined
+}
+
+/**
+ * An element's config: where it starts, where it animates to, how, where it exits to, its layout, and
+ * its `style`, whose values are its base values (dom's `WardConfig`'s, Motion's props). Each key is
+ * typed on its own (#791, Q17): nothing is inferred across attributes.
+ */
+export interface Config<Message = never>
+  extends Pick<WardConfig.WardConfig, "initial" | "animate" | "transition" | "variants" | "custom" | "inherit" | "exit" | "layout" | "layoutId" | "layoutDependency" | "layoutScroll" | "layoutRoot" | "onBeforeLayoutMeasure" | "onLayoutMeasure"> {
   readonly style?: Style | undefined
+  /** `w.LayoutGroup(…)`: the namespace of the `layoutId`s under the element (decision 30). */
+  readonly layoutGroup?: LayoutGroupOptions | undefined
+  /** `w.OnLayoutAnimationStart(…)`: sent at the frame a layout animation's first step is painted (Motion's `onLayoutAnimationStart`). */
+  readonly layoutAnimationStart?: Handler<Message, void> | undefined
+  /** `w.OnLayoutAnimationComplete(…)`: sent once it has landed (Motion's `onLayoutAnimationComplete`). */
+  readonly layoutAnimationComplete?: Handler<Message, void> | undefined
   /** `w.Presence(…)`: the element's children exit before they're removed (decision 29). */
   readonly presence?: PresenceOptions<Message> | undefined
   /** The element's key, as `w.keyed(tag)(key, …)` gave it: what a child re-entering a presence during its exit takes over its leaver by (#286). */

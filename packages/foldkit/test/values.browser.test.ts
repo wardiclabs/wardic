@@ -86,6 +86,38 @@ describe("the held frame (P20, decision 32)", () => {
     expect(reads[1]).toBeLessThan(reads[0]!)
     expect(reads[2]).toBeLessThan(reads[1]!)
   })
+
+  it("a layout move, measured by the pass the layout observer's delivery asks for, takes its first step in the patch's frame too (#792, Q7)", async () => {
+    const Items = Schema.Struct({ items: Schema.Array(Schema.String) })
+    type Items = typeof Items.Type
+    const ItemsMessage = defineMessageUnion({ Items: { items: Schema.Array(Schema.String) } })
+    type ItemsMessage = typeof ItemsMessage.Type
+    const laid = Wardic.make({ env: DomLive, features: [Features.layout] })
+    const held = embed<Items, ItemsMessage, ReadonlyArray<string>>({
+      Model: Items,
+      Set: Schema.Array(Schema.String),
+      init: { items: ["a", "b", "c"] },
+      update: (model, message) => ItemsMessage.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) }),
+      view: (model, h) => {
+        const w = laid.html(h)
+        return h.ul([h.Id("list"), h.Style({ position: "relative", margin: "0", padding: "0" })], model.items.map((key) =>
+          w.keyed("li")(key, [h.Id(`item-${key}`), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ height: "40px", margin: "0", padding: "0", listStyle: "none" })], [key])))
+      },
+      toMessage: (items) => ItemsMessage.Items({ items }),
+    })
+    app = held
+    const c = await boxOf(held, "item-c")
+    const list = await boxOf(held, "list")
+    const topOfC = (): number => c.getBoundingClientRect().top - list.getBoundingClientRect().top
+    await until(() => topOfC() === 80, 2000, "c rests in the third row")
+    // Settled, idle. The reorder's patch moves c's node to the top; the pass seeds it back at 80 and its first step paints in that frame.
+    held.send(["c", "a", "b"])
+    const reads = await paintedReads(topOfC, 3)
+    expect(reads[0], "moved in the patch's own frame: below 80, above 0").toBeLessThan(79.5)
+    expect(reads[0]).toBeGreaterThan(0)
+    expect(reads[1]).toBeLessThan(reads[0]!)
+    expect(reads[2]).toBeLessThan(reads[1]!)
+  })
 })
 
 describe("Wardic.animate from a Command", () => {

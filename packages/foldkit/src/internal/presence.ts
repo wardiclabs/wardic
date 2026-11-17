@@ -25,6 +25,7 @@ import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrame } from "./delivery.ts"
 import { configOf, dispatcherOf } from "./element.ts"
 import { PresenceMaker, type PresenceMakerShape } from "./keys.ts"
+import { quietLayoutIn } from "./layout.ts"
 import { featureIn, type Provider, type State } from "./services.ts"
 import { isMounted, nearestPresenceElement } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
@@ -149,6 +150,8 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
   let observer: MutationObserver | undefined
   let torn = false
   const dispatch = dispatcherOf((message) => offer(message))
+  /** Whether its children's going and coming moves the `layout` elements around them (Motion's `presenceAffectsLayout`), `true` unless told otherwise. */
+  const affectsLayout = (): boolean => optionsNow().presenceAffectsLayout !== false
   // `onExitComplete` as a Message (decision 23), read when the last leaver has gone; none under replay (decision 34).
   const exitCompleteOf = (): (() => void) | undefined => {
     if (paused()) return undefined
@@ -255,6 +258,8 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
     const onPage = new Set(elementsOf(controller.shown(current)))
     Arr.forEach(current, (child) => Bool.match(onPage.has(child), { onTrue: () => show(child), onFalse: () => hide(child) }))
     Arr.forEach(pending.splice(0), start)
+    // Told not to affect layout (Motion's `presenceAffectsLayout: false`): its child list's changes make no pass either (#792, Q21).
+    quietLayoutIn(element, Bool.not(affectsLayout()))
     controller.present(Arr.filter(current, (child) => onPage.has(child)))
     known = new Set(current)
     // Its own moves, and the controller's, make records too: dropped, so they deliver nothing (P19).
@@ -286,6 +291,7 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
         UndefinedOr.map(observer, (watching) => watching.disconnect())
         observer = undefined
         tearDown()
+        quietLayoutIn(element, false)
         presences.delete(element)
       }
     },

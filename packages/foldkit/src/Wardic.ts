@@ -52,6 +52,14 @@ export interface MakeOptions<F> {
   readonly features?: F | undefined
   /** The app-wide settings (ADR-0062; ADR-0071 decision 22): what `w.Config(…)` takes, under every subtree's. */
   readonly config?: Ward.ConfigOptions | undefined
+  /**
+   * What runs a Measure pass (decision 30; #792, Q10 and Q17): `"patch"` (the default), a pass after
+   * every patch that changed the DOM, found by a `MutationObserver` on the `w.Provider()` element, else
+   * the document's body; `"declared"`, only a `w.LayoutDependency` change (and `Wardic.animateLayout`, from PR 3).
+   */
+  readonly layoutTrigger?: "patch" | "declared" | undefined
+  /** Attributes the observer watches beside `class` and `hidden` (decision 30): those the app's CSS lays out by. */
+  readonly layoutAttributes?: ReadonlyArray<string> | undefined
 }
 
 /** A `w.*` element's function: `h.div`'s shape, taking Wardic's attributes too. */
@@ -134,6 +142,31 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
    * Give it on the element's first render.
    */
   Presence: (options?: Ward.PresenceOptions<Message>) => Ward.Attribute
+  /**
+   * The element is a **Projection node** (ADR-0009; Motion's `layout`): it animates from where it was
+   * to where a patch put it, measured by a **Measure pass** after every patch that changed the DOM
+   * (decision 30). `true` (the default), or a Layout mode: `"position"`, `"size"`, `"preserve-aspect"`.
+   * Needs `Features.layout`.
+   */
+  Layout: (value?: Ward.Config["layout"]) => Ward.Attribute
+  /** A **Shared layout** id (ADR-0010; Motion's `layoutId`): an element with the same one, mounting as this leaves, flies from it. */
+  LayoutId: (id: Ward.Config["layoutId"]) => Ward.Attribute
+  /** A value whose change asks for a Measure pass (Motion's `layoutDependency`): the trigger under `layoutTrigger: "declared"`. */
+  LayoutDependency: (value: Ward.Config["layoutDependency"]) => Ward.Attribute
+  /** The element scrolls, and its scroll isn't read as its children moving (Motion's `layoutScroll`). */
+  LayoutScroll: (value?: Ward.Config["layoutScroll"]) => Ward.Attribute
+  /** A stable sub-root of the projection tree (ADR-0013; Motion's `layoutRoot`): the layout animations inside it anchor to it, and it never animates its own. */
+  LayoutRoot: (value?: Ward.Config["layoutRoot"]) => Ward.Attribute
+  /** A **Layout group** (#432; Motion's `LayoutGroup`): the namespace of the `LayoutId`s under the element, read once. */
+  LayoutGroup: (options?: Ward.LayoutGroupOptions) => Ward.Attribute
+  /** Sent at the frame a layout animation's first step is painted (Motion's `onLayoutAnimationStart`). */
+  OnLayoutAnimationStart: (handler: Ward.Handler<Message, void>) => Ward.Attribute
+  /** Sent once it has landed (Motion's `onLayoutAnimationComplete`). */
+  OnLayoutAnimationComplete: (handler: Ward.Handler<Message, void>) => Ward.Attribute
+  /** Called as each measure of the element begins (Motion's `onBeforeLayoutMeasure`): a plain function, which can't send (decision 24). */
+  OnBeforeLayoutMeasure: (fn: Ward.Config["onBeforeLayoutMeasure"]) => Ward.Attribute
+  /** Called with the element's box after each measure, and the one before (Motion's `onLayoutMeasure`): a plain function (decision 24). */
+  OnLayoutMeasure: (fn: Ward.Config["onLayoutMeasure"]) => Ward.Attribute
 }>
 
 /**
@@ -163,7 +196,7 @@ export interface Handle<F = never> {
  * `w.Provider()` for it while the first's element is mounted is reported and ignored.
  */
 export const make = <const F extends Feature.InstanceFeaturesProp = never>(options: MakeOptions<F>): Handle<F> => {
-  const state: State = makeState(options.env, options.features, options.config)
+  const state: State = makeState(options.env, options.features, options.config, { trigger: options.layoutTrigger, attributes: options.layoutAttributes })
   // Made once per `h` (decision 18): as `===`-stable as `h` is, for `createLazy`.
   const builders = new WeakMap<object, object>()
   const html = <Message>(h: FoldkitHtml.HtmlBuilder<Message>): Html<Message, F> => {

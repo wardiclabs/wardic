@@ -10,8 +10,11 @@
  * @module
  */
 import * as Report from "@wardic/dom/Report"
+import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as MutableRef from "effect/MutableRef"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
@@ -20,7 +23,7 @@ import type * as Ward from "../Ward.ts"
 import { patchTouched } from "./delivery.ts"
 import { mountElement } from "./element.ts"
 import { mountPresence } from "./presence.ts"
-import { joined, providerFor, type State } from "./services.ts"
+import { joined, type Provider, providerFor, type State } from "./services.ts"
 import { markMounted } from "./tree.ts"
 
 /** The names a Scene test resolves Wardic's Mounts by (decision 36). */
@@ -51,10 +54,18 @@ const wardicPart =
           Queue.offerUnsafe(queue, message as Message)
         }
         let paused = false
+        // The element among the provider's paused views (decision 34), once the provider is known.
+        const counted = MutableRef.make(Option.none<Provider>())
+        const count = (): void => {
+          Option.map(MutableRef.get(counted), (on) => Bool.match(paused, { onTrue: () => on.pausedViews.add(element), onFalse: () => on.pausedViews.delete(element) }))
+        }
         yield* Effect.forkScoped(Stream.runForEach(viewStateChanges, (view: ViewState) => Effect.sync(() => {
           paused = view === "Paused"
+          count()
         })))
         const on = yield* providerFor(state, element, provider)
+        MutableRef.set(counted, Option.some(on))
+        count()
         const left = joined(state, on, element)
         const isPaused = (): boolean => paused
         const release = mountElement(on, state, element as HTMLElement, isPaused, offer, state.rootConfig)
@@ -65,6 +76,7 @@ const wardicPart =
           Effect.sync(() => {
             releasePresence()
             release()
+            on.pausedViews.delete(element)
             left()
           }),
         )

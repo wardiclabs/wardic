@@ -10,7 +10,9 @@
  */
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as VariantTree from "@wardic/core/unstable/VariantTree"
-import { constUndefined } from "effect/Function"
+import * as LayoutGroup from "@wardic/dom/unstable/LayoutGroup"
+import { constUndefined, identity } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
@@ -45,6 +47,31 @@ const nearestWard = (element: Element): Element | undefined => nearestAncestor(e
 
 /** The nearest `w.Presence` element above `element` (decision 29), found as the variant parent is. */
 export const nearestPresenceElement = (element: Element): Element | undefined => nearestAncestor(element, isPresence)
+
+/** Whether an element carries `w.LayoutGroup`. */
+const isLayoutGroup = (element: Element): boolean => Predicate.isNotUndefined(configOf(deliveredTo(element)).layoutGroup)
+
+// Module state (#460, Q7): each `w.LayoutGroup` element's id, held weakly, read once as the first `layoutId` under it mounts.
+const groupIds = new WeakMap<Element, Option.Option<string>>()
+
+/**
+ * The id of the **Layout group** `element` is in (#432, Motion's `LayoutGroup`): the nearest
+ * `w.LayoutGroup` above it, its own id joined with the group's above as its `inherit` says
+ * (`layoutGroupIdOf`), or none outside any. Read once, at mount, as Solid's is.
+ */
+export const layoutGroupOf = (element: Element): string | undefined => UndefinedOr.match(nearestAncestor(element, isLayoutGroup), { onUndefined: constUndefined, onDefined: groupIdOf })
+
+/** A `w.LayoutGroup` element's id: made at the first ask, from the group above it and its own options. */
+const groupIdOf = (group: Element): string | undefined =>
+  UndefinedOr.match(groupIds.get(group), {
+    onDefined: Option.getOrUndefined,
+    onUndefined: () => {
+      const options = UndefinedOr.match(configOf(deliveredTo(group)).layoutGroup, { onUndefined: (): Ward.LayoutGroupOptions => ({}), onDefined: identity })
+      const id = LayoutGroup.layoutGroupIdOf(layoutGroupOf(group), options.id, options.inherit)
+      groupIds.set(group, Option.fromUndefinedOr(id))
+      return id
+    },
+  })
 
 /** Mark `element`'s Mount as run: from now on, a `w.Presence` a render adds to it can't run (its Mount is made once). */
 export const markMounted = (element: Element): void => {
