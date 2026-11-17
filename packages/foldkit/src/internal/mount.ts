@@ -21,6 +21,7 @@ import { patchTouched } from "./delivery.ts"
 import { mountElement } from "./element.ts"
 import { mountPresence } from "./presence.ts"
 import { joined, providerFor, type State } from "./services.ts"
+import { markMounted } from "./tree.ts"
 
 /** The names a Scene test resolves Wardic's Mounts by (decision 36). */
 export const PROVIDER_NAME = "Wardic.Provider"
@@ -57,8 +58,9 @@ const wardicPart =
         const left = joined(state, on, element)
         const isPaused = (): boolean => paused
         const release = mountElement(on, state, element as HTMLElement, isPaused, offer, state.rootConfig)
+        markMounted(element)
         // Its presence, when it carries `w.Presence` (decision 29): its children's exits, run by this Mount.
-        const releasePresence = mountPresence(on, state, element as HTMLElement, isPaused, offer)
+        const releasePresence = mountPresence(on, state, element, isPaused, offer)
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             releasePresence()

@@ -129,7 +129,7 @@ export const makeState = (env: WardicServices.WardicEnv, features: Feature.Insta
 const givenOf = (prop: Feature.InstanceFeaturesProp | undefined): ReadonlyArray<Feature.Feature> => {
   if (Predicate.isUndefined(prop)) return []
   if (Predicate.isFunction(prop)) return []
-  if (Array.isArray(prop)) return Arr.dedupeWith(Arr.flatMap(prop as ReadonlyArray<Feature.InstanceFeaturesProp>, givenOf), (a, b) => a === b)
+  if (Arr.isArray(prop)) return Arr.dedupeWith(Arr.flatMap(prop as ReadonlyArray<Feature.InstanceFeaturesProp>, givenOf), (a, b) => a === b)
   return [prop as Feature.Feature]
 }
 

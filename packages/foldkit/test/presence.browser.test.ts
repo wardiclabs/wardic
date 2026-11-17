@@ -142,6 +142,37 @@ describe("w.Presence", () => {
     await until(() => opacityOf(itemOf(held, "x")) === 1, 2000, "x animates in")
   })
 
+  it("mode wait: a held item Foldkit removes while held never shows, never exits and leaves nothing behind (P23's W3)", async () => {
+    const held = embedList(["a", "b", "c", "d"], { presence: { mode: "wait" }, enters: true })
+    app = held
+    await until(() => orderOf(held) === "abcd" && opacityOf(itemOf(held, "a")) === 1, 2000, "the list renders and lands")
+    held.send(["a", "c", "d"])
+    await until(() => opacityOf(itemOf(held, "b")) < 1 && opacityOf(itemOf(held, "b")) > 0, 2000, "b's exit runs")
+    held.send(["a", "x", "c", "d"])
+    await until(() => itemOf(held, "x")?.style.display === "none", 2000, "x is held")
+    held.send(["a", "c", "d"])
+    await until(() => itemOf(held, "x") === null, 2000, "x is gone")
+    expect(orderOf(held)).toBe("abcd")
+    await until(() => orderOf(held) === "acd", 2000, "b gone once its exit ends, nothing else left")
+    expect(itemOf(held, "x")).toBeNull()
+  })
+
+  it("mode wait: a leaver's key back while another item is held takes over and ends the wait, the held item shown at once (P23's W6)", async () => {
+    const held = embedList(["a", "b", "c", "d"], { presence: { mode: "wait" }, enters: true })
+    app = held
+    await until(() => orderOf(held) === "abcd" && opacityOf(itemOf(held, "a")) === 1, 2000, "the list renders and lands")
+    held.send(["a", "c", "d"])
+    await until(() => opacityOf(itemOf(held, "b")) < 1 && opacityOf(itemOf(held, "b")) > 0, 2000, "b's exit runs")
+    const leaver = itemOf(held, "b")!
+    held.send(["a", "x", "c", "d"])
+    await until(() => itemOf(held, "x")?.style.display === "none", 2000, "x is held")
+    held.send(["a", "x", "b", "c", "d"])
+    await until(() => itemOf(held, "b") !== leaver && held.container.querySelectorAll("#item-b").length === 1, 2000, "the fresh b takes over")
+    await until(() => itemOf(held, "x")?.style.display === "", 2000, "x shown, the wait over")
+    expect(orderOf(held)).toBe("axbcd")
+    await until(() => opacityOf(itemOf(held, "x")) === 1 && opacityOf(itemOf(held, "b")) === 1, 2000, "both land")
+  })
+
   it("mode popLayout: pops a leaver out of the flow where it was, so its siblings take their places at once", async () => {
     const held = embedList(["a", "b", "c", "d"], { presence: { mode: "popLayout" } })
     app = held
