@@ -5,6 +5,9 @@
  * requests its flushes from the same member, so the Clock and the gate share the browser's
  * frames. Everything else — the ref-counted Refresh frame loop, the `dt` computation and the
  * `wardic.clock` span — lives in core, so every Environment's Clock behaves the same (ADR-0004).
+ * So the Clock's `frameAt` (#791) is the last tick's `requestAnimationFrame` timestamp: what
+ * `document.timeline.currentTime` reads inside that frame, which a binding's hint passes to the
+ * Frame loop (ADR-0071, decision 32).
  */
 import * as Clock from "@wardic/core/Clock"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"

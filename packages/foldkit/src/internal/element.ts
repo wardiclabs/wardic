@@ -8,7 +8,8 @@
  *
  * @module
  */
-import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Values from "@wardic/core/Values"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
 import * as Spine from "@wardic/core/unstable/Spine"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
@@ -16,19 +17,22 @@ import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
+import * as Imperative from "@wardic/dom/unstable/Imperative"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
-import { constVoid, identity } from "effect/Function"
+import { constFalse, constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
-import { deliveredTo, installSetter, patchTouched } from "./delivery.ts"
+import { deliveredTo, hintFrame, installSetter, patchTouched } from "./delivery.ts"
 import { reactivity } from "./reactivity.ts"
-import type { Provider } from "./services.ts"
+import { type Provider, reducedMotionUnder } from "./services.ts"
 import { configValueOf, dropNode, nodeOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
@@ -64,12 +68,19 @@ const devDiagnostics = (): Spine.SpineDiagnostics | undefined => {
 
 /**
  * The element's Starting style, rendered by the view: the user's `style` with its `initial` on top,
- * projected together, so a transform key of each joins one `transform` (#791, Q7). What `w.*` and the
- * bundle render in their one `h.Style`, stringified for Foldkit's style module. A Variant child's
- * inherited `initial` isn't known here (the builder-time walk is slice 4's): its Mount writes it.
+ * projected together, so a transform key of each joins one `transform` (#791, Q7); a Live value at
+ * what it reads through `registry` now; its Transform template under the renderer's key (#443). What
+ * `w.*` and the bundle render in their one `h.Style`, stringified for Foldkit's style module. A Variant
+ * child's inherited `initial` isn't known here (the builder-time walk is slice 4's): its Mount writes it.
  */
-export const startingStyleOf = (tag: string | undefined, config: Config): Style.Style =>
-  Style.starting(tag, { ...styleRecordOf(config.style), ...Spine.startOf(config, undefined, false, reactivity.untrack).initialValues }).style
+export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry): Style.Style => {
+  const start = Spine.startOf(config, undefined, false, reactivity.untrack)
+  return Style.starting(tag, ElementSetup.drawnAtRest({ ...(liveValuesOf(config.style, registry) as Values.Values), ...start.initialValues }, false, config.transformTemplate)).style
+}
+
+/** The user's `style` with each Live value read now (#130): what a Starting style is projected from. */
+const liveValuesOf = (style: Config["style"], registry: () => AtomRegistry.AtomRegistry): Readonly<Record<string, unknown>> =>
+  Rec.map(styleRecordOf(style), (value) => LiveStyle.readLive(value, registry, reactivity.untrack))
 
 /** The user's `style` as a record: what `w.Style` and `h.Style` gave, merged by the builder. */
 const styleRecordOf = (style: Config["style"]): Readonly<Record<string, unknown>> => {
@@ -87,8 +98,8 @@ export const stringified = (patch: Style.Style): Record<string, string> => Rec.m
  * the key's own value and restores it when it lets the key go. Foldkit's style module rewrites a key
  * only when the view changes it, so the switch holds until the view does.
  */
-const switchToUserStyle = (element: HTMLElement, tag: string, starting: ReadonlyArray<string>, config: Config): void => {
-  const user = Style.starting(tag, styleRecordOf(config.style)).style
+const switchToUserStyle = (element: HTMLElement, tag: string, starting: ReadonlyArray<string>, config: Config, registry: () => AtomRegistry.AtomRegistry): void => {
+  const user = Style.starting(tag, liveValuesOf(config.style, registry)).style
   Arr.forEach(starting, (key) => {
     UndefinedOr.match(user[key], {
       onUndefined: () => element.style.removeProperty(key),
@@ -126,20 +137,35 @@ const dispatcherOf =
 
 /**
  * The config as the spine reads it: the delivered one, its **Config transition** as its own when it
- * gives none (#434, Motion's `{ ...config, ...props }`), and its callback Messages as the spine's
- * functions. Per delivery; the delivered record itself when nothing is added.
+ * gives none (#434, Motion's `{ ...config, ...props }`), its callback Messages as the spine's
+ * functions, and its `OnUpdate` Atom as the sink's `onUpdate`, set to a copy of each frame's values
+ * (#791, Q6). Per delivery; the delivered record itself when nothing is added.
  */
-const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch): Config => {
+const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch, registry: AtomRegistry.AtomRegistry): Config => {
   const configured = WardicConfigValue.withConfigTransition(config, value)
   const start = config.animationStart
   const complete = config.animationComplete
-  if (Bool.and(Predicate.isUndefined(start), Predicate.isUndefined(complete))) return configured
+  const update = config.onUpdate
+  if (Bool.and(Predicate.isUndefined(start), Bool.and(Predicate.isUndefined(complete), Predicate.isUndefined(update)))) return configured
   const view: CoreConfig.SpineConfig = {
     ...configured,
     ...UndefinedOr.match(start, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationStart: dispatch(handler) }) }),
     ...UndefinedOr.match(complete, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationComplete: dispatch(handler) }) }),
+    ...UndefinedOr.match(update, { onUndefined: () => ({}), onDefined: (atom) => ({ onUpdate: (latest: Ward.Latest) => registry.set(atom, { ...latest }) }) }),
   }
   return view as Config
+}
+
+/** Follow `config`'s `text` Atom on the element, writing `textContent` outside the patch (decision 16); the stop. */
+const followText = (element: HTMLElement, atom: Config["text"], registry: AtomRegistry.AtomRegistry): (() => void) => {
+  if (Predicate.isUndefined(atom)) return constVoid
+  return registry.subscribe(
+    atom,
+    (value) => {
+      element.textContent = String(value)
+    },
+    { immediate: true },
+  )
 }
 
 /**
@@ -157,28 +183,32 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
   const node = nodeOf(element)
   const inherited = node.inherited
   const configValue = configValueOf(element, root)
+  const registry = provider.atoms
+  const registryNow = (): AtomRegistry.AtomRegistry => registry
+  const id = `wardic-foldkit-${ids++}`
   let config = configOf(deliveredTo(element))
-  let view = spineViewOf(config, configValue, dispatch)
+  let view = spineViewOf(config, configValue, dispatch, registry)
   const configNow = (): Config => view
+  // Its Live values in `style` (#130, ADR-0043): routed keys the spine follows through the gate.
+  const live = LiveStyle.createLiveStyle({ registry: registryNow, onDroppedTransform: droppedTransformWarning(provider, id), reactivity, ownValues: provider.valueReads.ownValues })
+  live.css(config.style)
   // Where it starts (ADR-0003), read once: the config the view rendered it with, its inherited `initial` included (#50).
   const start = Spine.startOf(view, inherited, false, reactivity.untrack)
   const snapshot = Spine.snapshotOf(start)
-  const id = `wardic-foldkit-${ids++}`
+  // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.
+  const templateAtMount = config.transformTemplate
   // The keys its Starting style set, switched to the user's in its first commit. A Variant child's
   // inherited Starting style wasn't rendered by the view: written now, inside the patch (P2).
-  const starting = Style.starting(tag, ElementSetup.drawnAtRest(start.initialValues, false, undefined)).style
+  const starting = Style.starting(tag, ElementSetup.drawnAtRest(start.initialValues, false, templateAtMount)).style
   if (Predicate.isNotUndefined(inherited)) writeStartingStyle(element, starting)
   const startingKeys = Rec.keys(starting)
-  const sink: FlushGate.Sink = { target: element, beforeFirstCommit: () => switchToUserStyle(element, tag, startingKeys, config) }
-  const unregister = provider.gate.register(id, sink)
+  const sink: FlushGate.Sink = Spine.withOnUpdate({ target: element, beforeFirstCommit: () => switchToUserStyle(element, tag, startingKeys, config, registryNow) }, view.onUpdate, configNow)
+  const unregister = provider.gate.register(id, sink, ElementSetup.registeredValuesOf(templateAtMount))
   // The user's style now, for its Base values (ADR-0022): the config's, as the view last delivered it.
   const styleNow = (): object | string | undefined => config.style
-  const links = ElementSetup.startLinksOf(element, styleNow, undefined)
+  const links = ElementSetup.startLinksOf(element, styleNow, live)
   // Reduced motion (ADR-0029) and skipped animations (#468) under its nearest `w.Config`, read at each Retarget.
-  const reducedMotion = UndefinedOr.match(configValue, {
-    onUndefined: () => provider.reducedMotion,
-    onDefined: (value) => () => ReducedMotion.applies(UndefinedOr.match(WardicConfigValue.settingOf(value), { onUndefined: () => "user" as const, onDefined: identity }), provider.prefers()),
-  })
+  const reducedMotion = reducedMotionUnder(provider, configValue)
   const skipped = WardicConfigValue.skipAnimationsOf(configValue)
   const skipAnimations = (): boolean => paused() || skipped()
   const spine = Spine.makeElementSpine({
@@ -205,7 +235,7 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
     reuse: Spine.makeReuse(),
     links,
     styleNow,
-    live: undefined,
+    live,
     builtFeatures: provider.registry.built,
     presence: undefined,
     projected: false,
@@ -224,19 +254,35 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
     last = next
     spine.retarget(next)
   }
-  // Its Delivery (decision 20): each render's fresh config, inside the patch, Retargets at once (#791, Q14).
+  // Its Delivery (decision 20): each render's fresh config, inside the patch, Retargets at once (#791, Q14),
+  // after the binding's hint (decision 32), so the Retarget's legs take their first step in this frame.
   // A defect there is Foldkit's patch's otherwise, which would stop the whole app (decision 13): reported,
   // and the element stays where it is.
   const uninstall = installSetter(element, (delivered) => {
     config = configOf(delivered)
-    view = spineViewOf(config, configValue, dispatch)
+    view = spineViewOf(config, configValue, dispatch, registry)
+    patchTouched()
+    if (Bool.not(paused())) hintFrame(provider.loop)
     try {
+      live.css(config.style)
       retarget()
     } catch (error) {
       provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
     }
-    patchTouched()
   })
+  // Its Live values followed from its first routed key on (#130), its text (decision 16), and its
+  // Transform template after the one at mount (#443).
+  spine.follow({ resolved: () => UndefinedOr.match(last, { onUndefined: () => Spine.NO_VALUES, onDefined: (resolution) => resolution.resolved }), dragging: constFalse })
+  const unfollowText = followText(element, config.text, registry)
+  const unfollowTemplate = UndefinedOr.match(templateAtMount, {
+    onUndefined: () => constVoid,
+    onDefined: (template) =>
+      ElementSetup.followTemplate(template, () => view.transformTemplate, reactivity.watch, (next) => {
+        provider.gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
+      }),
+  })
+  // Its Imperative animations (#433) go through its spine while it's mounted.
+  const unregisterAnimatable = Imperative.registerAnimatable(element, spine)
   // What a Variant child hears without a delivery of its own (P17): the name its ancestor hands down, and
   // its `when` gate opening, re-checked once a patch and at each settle that changes a gate (decision 17).
   let unwatch: () => void = constVoid
@@ -254,9 +300,18 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
   retarget()
   return () => {
     unwatch()
+    unfollowText()
+    unfollowTemplate()
+    unregisterAnimatable()
     uninstall()
     spine.dispose()
     unregister()
     dropNode(element)
   }
+}
+
+/** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */
+const droppedTransformWarning = (provider: Provider, id: string): (() => void) | undefined => {
+  if (DEV) return () => ElementSetup.warnDroppedTransform(provider.runtime, id)
+  return undefined
 }

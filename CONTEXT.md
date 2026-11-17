@@ -349,7 +349,7 @@ _Avoid_: snapshot (reserved), layout boundary (avoided for a **Layout sub-root**
 
 **Drag block**:
 While a **Projection node** is dragged, it and its subtree are drag-blocked. A **Measure pass** updates their slots but starts no layout animation there, and counts the ones whose box changed in its `dragBlocked` attribute, not as seeded. The dragged node is its subtree's relative parent, so the subtree rides the drag, and then its **Release offset** (ADR-0016, *Amendment (#26)*). A dragged node that opts in (a **Reorder group**'s items do) is also raised above its siblings until its release settles: `z-index: 2` while dragged and `1` while its **Release offset** runs, so the item under the pointer paints above one still flying back (ADR-0016, *Amendment (Reorder)*).
-_Avoid_: held (the layout lab's held frames), drag lock (that's a **Drag claim**).
+_Avoid_: held (the layout lab's held frames, and the binding's **Held frame**, are frames, not nodes), drag lock (that's a **Drag claim**).
 
 **Shared layout**:
 A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from where the leaver paints, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Where it paints counts everything that moves it on screen: its own layout animation mid-flight, its **Release offset**, a drag, its carriers; at rest that is its Measurement. So a handover that interrupts another goes on from where the twin was seen, as Motion's does. The entering element also starts with the leaver's look as drawn — its corner radius and tilt, and in a **Switch** its opacity — and eases into its own over the handover, so the twins read as one object changing shape. Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from where the leaver last painted, captured in the **Root frame** at the leaver's removal and held by the **Projection system** until the end of the current task) and a **Crossfade** (the twins coexist). The per-element box geometry stays in core.
@@ -548,6 +548,10 @@ _Avoid_: spread (Solid's), attribute group, mixin.
 **Identity stamp**:
 The one Foldkit identity every `w.*` element is stamped with (`foldkit/brand`'s `brandViewResult`; ADR-0071, decision 19), so a `w.*` element rendered where a plain element was is recreated and its Mount runs, where Foldkit would keep the node and never start a Mount added to it (P2). A `w.*` element replacing a `w.*` element is kept, and its **Delivery** carries the new config.
 _Avoid_: key (Foldkit's keyed axis), brand (the mechanism), marker.
+
+**Held frame**:
+A Refresh frame that paints an animation's origin because the code that started it ran after the frame's tick, so its first step waits for the next tick (ADR-0071, decision 32; P20): one frame of delay on every Retarget, layout move or pointer-driven swap a Foldkit patch makes, since Foldkit patches in a rAF callback after Wardic's. Its cure is the binding's hint: the patch tells the Frame loop it runs inside the frame, and the runs it adds take their first step there (#791).
+_Avoid_: dropped frame (nothing is dropped: the origin paints), lag, jank.
 
 **Raw Mount**:
 A Mount in Foldkit's plain shape (`{ name, f }`, with no Definition and no Schema), as a **Handle**'s `Provider` and `Element` are (ADR-0071, decision 36): what a Scene test resolves Wardic's Mounts by, by name. A `w.*` element's Mount is one, fused with the user's own `OnMount` when the element has one, which then keeps the user's name (#791).

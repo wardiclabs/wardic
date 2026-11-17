@@ -11,15 +11,31 @@ import type * as CoreConfig from "@wardic/core/unstable/Config"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type { Html } from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
+import type * as Values from "@wardic/core/Values"
+import type * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import type * as Atom from "effect/reactivity/Atom"
 
 /** The mark of a Wardic attribute: a symbol, so no Foldkit `_tag` is ever mistaken for one. */
 export const TypeId: unique symbol = Symbol.for("@wardic/foldkit/Ward.Attribute")
 export type TypeId = typeof TypeId
 
 /** The keys of an element's config a Wardic attribute sets (slice 1's; the rest come with the later slices). */
-export type Key = "initial" | "animate" | "transition" | "style" | "variants" | "custom" | "inherit" | "config" | "animationStart" | "animationComplete"
+export type Key =
+  | "initial"
+  | "animate"
+  | "transition"
+  | "style"
+  | "variants"
+  | "custom"
+  | "inherit"
+  | "config"
+  | "animationStart"
+  | "animationComplete"
+  | "text"
+  | "onUpdate"
+  | "transformTemplate"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -47,10 +63,14 @@ export interface ConfigOptions {
 
 /**
  * An element's `style` as Wardic sees it (Motion's `style`): every CSS property and the transform keys
- * (`x`, `scale`, `rotate`, …), each a value: the element's base values, where a key returns when
- * nothing animates it. Live values (Atoms) join in slice 1's PR 3.
+ * (`x`, `scale`, `rotate`, …), each a value or a **Live value**, an `effect/reactivity` Atom, followed
+ * through the gate (ADR-0043). A value is the element's base value, where a key returns when nothing
+ * animates it. Atoms alone are Live here (#791, Q4): a function is a development error.
  */
-export type Style = { readonly [K in keyof WardConfig.WardicValues]?: WardConfig.WardicValues[K] }
+export type Style = { readonly [K in keyof WardConfig.WardicValues]?: WardConfig.WardicValues[K] | Atom.Atom<WardConfig.WardicValues[K]> }
+
+/** What `w.OnUpdate(atom)` sets each committed frame: the element's values before projection, a copy per frame (#791, Q6). */
+export type Latest = Values.Values
 
 /**
  * A Wardic attribute: what `w.Initial(…)`, `w.Animate(…)`, `w.Transition(…)`, `w.Style(…)` and
@@ -81,6 +101,12 @@ export interface Config<Message = never> extends Pick<WardConfig.WardConfig, "in
   readonly animationStart?: Handler<Message, AnimationDefinition> | undefined
   /** `w.OnAnimationComplete(…)`: sent as it lands, once every value it moves has settled; not for one a new target interrupted. */
   readonly animationComplete?: Handler<Message, AnimationDefinition> | undefined
+  /** `w.Text(atom)`: the element's text, written outside the patch as the Atom changes (decision 16). */
+  readonly text?: Atom.Atom<string | number> | undefined
+  /** `w.OnUpdate(atom)`: set to the element's values each committed frame (decision 24, Motion's `onUpdate`). */
+  readonly onUpdate?: Atom.Writable<Latest> | undefined
+  /** `w.TransformTemplate(fn)`: the element's transform from its values and the generated string (Motion's). Hoist it: it's followed by reference. */
+  readonly transformTemplate?: DomRenderer.TransformTemplate | undefined
 }
 
 /**

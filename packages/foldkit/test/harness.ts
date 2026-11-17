@@ -2,6 +2,8 @@
 // changed through one inbound port (a Subscription turns each value into a Message) and disposed with
 // the test. Interactions go through real clicks on the view's elements.
 import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
+import type * as Layer from "effect/Layer"
 import type * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import * as Port from "foldkit/port"
@@ -24,11 +26,13 @@ export interface Tagged {
 }
 
 /** What {@link embed} takes: a program over `Model` and `Message`, and the port's `Set` Schema with its Message. */
-export interface Program<Model, Message extends Tagged, Value> {
+export interface Program<Model, Message extends Tagged, Value, R = never> {
   readonly Model: Schema.Codec<Model, any, unknown, unknown>
   readonly Set: Schema.Codec<Value, Value>
   readonly init: Model
-  readonly update: (model: Model, message: Message) => Update.Return<Model, Message>
+  readonly update: (model: Model, message: Message) => Update.Return<Model, Message, R>
+  /** The program's `resources` (a Handle's `wardic.resources`), for its Commands. */
+  readonly resources?: Layer.Layer<R> | undefined
   readonly view: (model: Model, h: HtmlBuilder<Message>) => Html
   readonly toMessage: (value: Value) => Message
   /** Foldkit's DevTools on, in time-travel mode, for a replay test: the store comes through `__setDevToolsOverlay`. */
@@ -39,7 +43,7 @@ export interface Program<Model, Message extends Tagged, Value> {
 let embedded = 0
 
 /** Embeds `program` in a fresh container appended to the body, run by Foldkit's own runtime (`Runtime.embed`). */
-export const embed = <Model, Message extends Tagged, Value>(program: Program<Model, Message, Value>): Embedded<Value> => {
+export const embed = <Model, Message extends Tagged, Value, R = never>(program: Program<Model, Message, Value, R>): Embedded<Value> => {
   const host = document.createElement("div")
   document.body.appendChild(host)
   const container = document.createElement("div")
@@ -55,8 +59,9 @@ export const embed = <Model, Message extends Tagged, Value>(program: Program<Mod
     view: program.view,
     container,
     ports,
-    subscriptions: Subscription.make<Model, Message>()(() => ({ set: Port.subscriptionEntry(set, program.toMessage) })),
+    subscriptions: Subscription.make<Model, Message, R>()(() => ({ set: Port.subscriptionEntry(set, program.toMessage) })),
     ...Bool.match(program.devTools === true, { onTrue: () => ({ devTools: { show: "Always", mode: "TimeTravel" } as const }), onFalse: () => ({}) }),
+    ...UndefinedOr.match(program.resources, { onUndefined: () => ({}), onDefined: (resources) => ({ resources }) }),
   })
   const handle = Runtime.embed(element)
   return {
