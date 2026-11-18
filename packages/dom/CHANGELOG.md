@@ -1,5 +1,18 @@
 # @wardic/dom
 
+## 1.1.3
+
+### Patch Changes
+
+- b5b7a04: Three of `Imperative`'s exported for a binding whose `animate` is its own (#798): `isSequence`, whether what `animate` was given is a sequence rather than a subject; `segmentAnimates`, whether a Segment animates anything under a scope; and `alsoTold`, a watch with another told after it, which the scope's own watch is now built on.
+- de02b9d: A server render's Appear sheet takes a slot's name from the binding (`Sheet.slot(name)`, through `ServerAppear.enter`, `enterServer`'s `ServerElement.slot` and `ElementSetup.appearEntryOf`), for one that names slots by the element's place; the sheet's count stays for the rest. `AppearAnimations.serverAppearUnder(appear, reducedMotion, nonce)` makes a render's Appear state from a provider's settings for every binding, and `AppearAnimations.OWN_ANIMATION` is the veto each says for a style with its own `animation` (#794).
+- 42f868d: `unstable/GestureFeatures` gains the gesture teller (an element's gesture callbacks told in Motion's order, each binding saying how a handler is invoked; a throw reported by name, a per-move run of throws at its first) with the drag and pan phase tables, and `unstable/DragTrack` the track's config from an element's drag props, for every binding (#793).
+- 608e434: The wanted-gesture predicates, the in-view options and a Wardic instance's Features (`unstable/GestureFeatures`, `unstable/InstanceFeatures`) for every binding, and the missing-Feature message takes how a binding adds one (#793).
+- 6db0705: For every binding's Reorder (#793): `unstable/ReorderInput` (a Reorder item's keys, blurs and presses told to its driver, Solid's module moved); `ReorderController` gains `itemDragAxis`, `sameOrder` and the keyboard reorder's `keyboardOn`, `instructionsOf`, `describedByOf` and `tabStopOf`; `unstable/ElementSetup.writeUnderStyle`, a style written under an element's inline style; `unstable/DragDefaults` exports `DragInternals`.
+- Updated dependencies [8169171]
+- Updated dependencies [fcb08e3]
+  - @wardic/core@1.1.3
+
 ## 1.1.2
 
 ### Patch Changes

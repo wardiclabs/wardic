@@ -1,5 +1,12 @@
 # @wardic/core
 
+## 1.1.3
+
+### Patch Changes
+
+- 8169171: `AnimationControls.controlsOf(animate)` reads an element's `animate` as Animation controls, or none: the one read each binding makes at an element's mount (#798).
+- fcb08e3: The Frame loop takes a binding's hint (`FrameLoop`'s `hint(frameTime)`, ADR-0071 decision 32): a binding whose code runs inside a Refresh frame after the frame's tick, rendering in a frame callback of its own, says so, and the runs it then adds take their first step in that frame instead of the next. For it, the Clock exposes the last tick's Refresh frame time (`frameAt`), on every Clock the packages ship.
+
 ## 1.1.2
 
 ### Patch Changes
