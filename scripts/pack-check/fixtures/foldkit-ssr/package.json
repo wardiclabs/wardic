@@ -9,7 +9,7 @@
   "dependencies": {
     "@effect/platform-browser": "4.1.4",
     "effect": "4.1.4",
-    "foldkit": "0.170.0"
+    "foldkit": "0.171.0"
   },
   "devDependencies": {
     "vite": "6.4.2"
