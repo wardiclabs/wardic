@@ -1,5 +1,5 @@
 {
-  "name": "pack-check-compiled",
+  "name": "pack-check-solid1-compiled",
   "private": true,
   "type": "module",
   "scripts": { "build": "vite build", "preview": "vite preview" },

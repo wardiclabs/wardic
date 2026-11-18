@@ -11,7 +11,8 @@
  *    - `solid1-start`: SolidStart with Solid 1, rendered on the server and hydrated;
  *    - `solid2-start`: Solid 2 in `@solidjs/vite-plugin`'s start mode, the same, on the root, its drag Feature
  *      through the deprecated `/unstable/v2` alias (#566);
- *    - `compiled`: Vite with no Solid plugin, so `@wardic/solid/v1` is its compiled browser build (#566);
+ *    - `solid1-compiled` and `solid2-compiled`: Vite with no Solid plugin, so `@wardic/solid/v1` and the root
+ *      are their compiled browser builds (#566);
  *    - `foldkit-vite`: Foldkit on Vite, client-rendered, on `@wardic/foldkit` (#791);
  *    - `foldkit-ssr`: Foldkit rendered on a server (Node, at build time, into the client build's page)
  *      and hydrated through the Handle's `hydrate`, its Appear animation playing from first paint (#794).
@@ -53,7 +54,8 @@ const ALL: ReadonlyArray<Fixture> = [
   { name: "solid1-vite", installs: ["core", "dom", "solid"], ssr: false },
   { name: "solid1-start", installs: ["core", "dom", "solid", "test"], ssr: true, nodeImport: { spec: "@wardic/solid/v1", dist: "/dist/server/v1/" } },
   { name: "solid2-start", installs: ["core", "dom", "solid"], ssr: true, nodeImport: { spec: "@wardic/solid", dist: "/dist/server/index.js" } },
-  { name: "compiled", installs: ["core", "dom", "solid"], ssr: false },
+  { name: "solid1-compiled", installs: ["core", "dom", "solid"], ssr: false },
+  { name: "solid2-compiled", installs: ["core", "dom", "solid"], ssr: false },
   // `@wardic/foldkit` on Vite, client-rendered (#791, Q12): private until 1.2, packed and installed all the same.
   { name: "foldkit-vite", installs: ["core", "dom", "foldkit"], ssr: false, drag: false },
   // `@wardic/foldkit` server-rendered and hydrated (#794, Q12): Node's import reads the package's `node` condition.

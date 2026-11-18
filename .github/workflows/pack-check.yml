@@ -1,9 +1,10 @@
 name: Pack check
 
-# The four packages checked from their packed tarballs (#554, `bun run pack:check`): packed as npm
-# will have them, linted (are-the-types-wrong, publint), installed into four fixture apps outside the
-# workspace, built, served and opened in Chromium. On demand, on a PR that changes how the packages
-# are built or what they ship, and from the release workflow (#559) before it publishes.
+# The packages checked from their packed tarballs (#554, `bun run pack:check`): packed as npm will
+# have them, linted (are-the-types-wrong, publint), installed into the fixture apps outside the
+# workspace (`scripts/pack-check/run.ts` lists them), built, served and opened in Chromium. On
+# demand, on a PR that changes how the packages are built or what they ship, and from the release
+# workflow (#559) before it publishes.
 
 on:
   workflow_dispatch:
