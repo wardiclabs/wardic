@@ -4,14 +4,14 @@
  * (#548)*). `@wardic/foldkit` (#791) builds with them, private until 1.2.
  *
  * 1. `tsc --build`: `core`, `dom`, `test` and `foldkit` into `dist/` (ESM `.js`, `.d.ts`, maps), and
- *    `@wardic/solid`'s Solid 1 binding into `dist/solid/`, its JSX kept as JSX: the `solid` export
- *    condition, which Vite and SolidStart compile with the app's own settings.
- * 2. `tsc --build tsconfig.v2.build.json`: the Solid 2 binding, `src/unstable/v2`, the same way.
+ *    `@wardic/solid`'s Solid 2 binding, its root (#566), into `dist/solid/`, its JSX kept as JSX: the
+ *    `solid` export condition, which Vite and SolidStart compile with the app's own settings.
+ * 2. `tsc --build tsconfig.v1.build.json`: the Solid 1 binding, `src/v1`, the same way.
  * 3. The root's `LICENSE` and `THIRD_PARTY_NOTICES.md` copied into each package, which ships them:
  *    one source for all four.
  * 4. Babel over `dist/solid/`: each module compiled for the browser (`dist/browser/`) and for the
  *    server (`dist/server/`), hydratable, for a tool that doesn't read the `solid` condition. Solid
- *    1's compiler for the root entry, Solid 2's for `unstable/v2`, without its dev checks. A `.jsx`
+ *    2's compiler, without its dev checks, but Solid 1's for `v1/`. A `.jsx`
  *    module becomes `.js`, and the imports of it follow. Each map chains to `tsc`'s, so it still
  *    points into `src/`.
  *
@@ -20,7 +20,7 @@
 import type { PluginObj, types } from "@babel/core"
 import { execFileSync } from "node:child_process"
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, sep } from "node:path"
 import { createRequire } from "node:module"
 
 const ROOT = join(import.meta.dirname, "..")
@@ -71,11 +71,11 @@ const jsxImportsToJs = (): PluginObj => {
 /** One module of `dist/solid/` compiled for `target`, into its folder. */
 const compile = async (file: string, target: (typeof TARGETS)[number]): Promise<void> => {
   const rel = relative(join(SOLID, "dist", "solid"), file)
-  const v2 = rel.startsWith(join("unstable", "v2"))
+  const v1 = rel.startsWith(`v1${sep}`)
   const code = readFileSync(file, "utf8").replace(/\n\/\/# sourceMappingURL=.*$/, "")
   const inputSourceMap = JSON.parse(readFileSync(`${file}.map`, "utf8"))
-  let compiler: object = { presets: [[solid1Preset, { generate: target.generate, hydratable: true }]], plugins: [jsxImportsToJs] }
-  if (v2) compiler = { plugins: [[solid2Plugin, { generate: target.generate, hydratable: true, dev: false }], jsxImportsToJs] }
+  let compiler: object = { plugins: [[solid2Plugin, { generate: target.generate, hydratable: true, dev: false }], jsxImportsToJs] }
+  if (v1) compiler = { presets: [[solid1Preset, { generate: target.generate, hydratable: true }]], plugins: [jsxImportsToJs] }
   const result = await transformAsync(code, { filename: file, babelrc: false, configFile: false, sourceMaps: true, inputSourceMap, ...compiler })
   if (result?.code === null || result?.code === undefined) throw new Error(`build: Babel gave nothing for ${rel}`)
   const out = join(SOLID, "dist", target.dir, rel.replace(/\.jsx$/, ".js"))
@@ -96,7 +96,7 @@ for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
   if (!existsSync(join(ROOT, name))) continue
   for (const pkg of ["core", "dom", "solid", "test", "foldkit"]) copyFileSync(join(ROOT, name), join(ROOT, "packages", pkg, name))
 }
-run(["--build", join(SOLID, "tsconfig.v2.build.json")])
+run(["--build", join(SOLID, "tsconfig.v1.build.json")])
 for (const target of TARGETS) rmSync(join(SOLID, "dist", target.dir), { recursive: true, force: true })
 const modules = filesUnder(join(SOLID, "dist", "solid")).filter((file) => /\.jsx?$/.test(file))
 await Promise.all(TARGETS.flatMap((target) => modules.map((file) => compile(file, target))))

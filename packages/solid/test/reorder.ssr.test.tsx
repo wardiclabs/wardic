@@ -1,27 +1,35 @@
-// `<Reorder>` and drag elements on a server (ADR-0020 *SSR*, ADR-0003): rendered with
-// Solid's server build in the `node` environment (no `window`, no `document`), on
-// DomLive (ADR-0021).
+// `<Reorder>` on a server, on Solid 2 (#209 PR 3b, ADR-0020 *SSR*, ADR-0021), with `@solidjs/web`'s
+// server build in the `node` environment: Motion's server markup, as the Solid 1 binding pins it
+// (`../reorder.ssr.test.tsx`): the group's `overflow-anchor: none`, the items in `values` order, every
+// item's drag defaults with its group's `touch-action`, and the keyboard reorder's tab stop.
 //
-// The contract is Motion's server markup (Reorder/__tests__/server.ssr.test.tsx:6-20 at
-// 16c61222c4166bbef5ff6ab0051192faa79fa8c8):
-//
-//   <article style="overflow-anchor:none"><main draggable="false" style="z-index:unset;
-//   transform:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
-//   touch-action:pan-x"></main></article>
-//
-// pinned by what it carries: the group's `overflow-anchor: none`, the items in `values`
-// order, and every drag element's defaults. Motion's `z-index:unset` and
-// `transform:none` are its motion values' resting output; Wardic writes no z-index at
-// rest (the raise is the engine's, while dragged) and no transform at its Initial value,
-// so neither is pinned. The markup is parsed rather than compared whole, because Solid's
-// `renderToString` adds hydration keys.
-import { createReorderGroup, Reorder, type ReorderItemProps, wardic } from "@wardic/solid"
+// - RS1: a ul with overflow-anchor none, its lis in values order, each with the drag defaults.
+// - RS2: `as` renders other tags; the user's style merges on the group and the items, over the defaults.
+// - RS3: `reorderGroup` / `reorderItem` spread on a plain ul / li render the same.
+// - RS4: each item is a tab stop, with no `aria-describedby` until the client's instructions exist;
+//   the app's own `tabindex` and ids (props, or a kept item's config) win or come first; with the
+//   keyboard reorder off, no tab stop.
+// - RS5: `Reorder.Item` outside a `Reorder.Group` throws, as Motion's does.
+// - RS6 (#257 item 3): a group's `next("reorderEnd")` never settles on a server and its `each` ends at
+//   once: nothing happens there. `Reorder.Group`'s `groupRef` hands the group over there too.
+// - RS7 (#748): an item's `value` is of any type, never its element's own `value` attribute; an item made
+//   with `reorderItem` and given as `wardRef` still takes none beside it.
+import { Reorder, type ReorderGroup, reorderGroup, type ReorderItemComponentProps, reorderItem } from "@wardic/solid"
+import type { JSX } from "@solidjs/web"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { For, type JSX } from "solid-js"
+import { For } from "solid-js"
 import { describe, expect, expectTypeOf, it } from "vitest"
-import { expectDragDefaults, serve, tagsOf } from "./ssr-helpers.ts"
+import { serve, type Tag, tagsOf } from "./ssr.ts"
 
 const VALUES = ["a", "b", "c"]
+
+/** A drag element's defaults, with `touchAction`. */
+const expectDragDefaults = (tag: Tag | undefined, touchAction: string): void => {
+  expect(tag?.style["touch-action"], "touch-action").toBe(touchAction)
+  expect(tag?.style["user-select"], "user-select").toBe("none")
+  expect(tag?.attrs.draggable, "draggable").toBe("false")
+}
+
 const list = (props: { readonly groupAs?: "div"; readonly itemAs?: "span"; readonly groupStyle?: JSX.CSSProperties; readonly itemStyle?: JSX.CSSProperties } = {}) => () => (
   <Reorder.Group values={VALUES} onReorder={() => {}} {...UndefinedOr.match(props.groupAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })} style={props.groupStyle}>
     <For each={VALUES}>
@@ -34,16 +42,9 @@ const list = (props: { readonly groupAs?: "div"; readonly itemAs?: "span"; reado
   </Reorder.Group>
 )
 
-describe("server rendering", () => {
-  it("SS0 (guard): the tier renders a wardic element's Initial value on the server", () => {
-    const [div] = tagsOf(serve(() => <wardic.div initial={{ opacity: 0 }} />))
-    expect(div?.name).toBe("div")
-    expect(div?.style.opacity).toBe("0")
-  })
-
-  it("SS1: Motion's markup: a ul with overflow-anchor none, its li in values order, each with the drag defaults", () => {
-    const tags = tagsOf(serve(list()))
-    const [group, ...items] = tags
+describe("<Reorder> on a server, on Solid 2", () => {
+  it("RS1: a ul with overflow-anchor none, its lis in values order, each with the drag defaults", () => {
+    const [group, ...items] = tagsOf(serve(list()))
     expect(group?.name).toBe("ul")
     expect(group?.style["overflow-anchor"]).toBe("none")
     expect(items.map((t) => [t.name, t.attrs["data-value"]])).toEqual([
@@ -54,16 +55,11 @@ describe("server rendering", () => {
     for (const item of items) expectDragDefaults(item, "pan-x")
   })
 
-  it("SS2: `as` renders other tags", () => {
-    const [group, ...items] = tagsOf(serve(list({ groupAs: "div", itemAs: "span" })))
-    expect(group?.name).toBe("div")
-    expect(items.map((t) => t.name)).toEqual(["span", "span", "span"])
-  })
-
-  it("SS3: the user's style merges on the group and the items, over the defaults", () => {
-    const [group, ...items] = tagsOf(
-      serve(list({ groupStyle: { color: "red", "overflow-anchor": "auto" }, itemStyle: { margin: "10px", "user-select": "text" } })),
-    )
+  it("RS2: as renders other tags; the user's style merges on the group and the items, over the defaults", () => {
+    const [div, ...spans] = tagsOf(serve(list({ groupAs: "div", itemAs: "span" })))
+    expect(div?.name).toBe("div")
+    expect(spans.map((t) => t.name)).toEqual(["span", "span", "span"])
+    const [group, ...items] = tagsOf(serve(list({ groupStyle: { color: "red", "overflow-anchor": "auto" }, itemStyle: { margin: "10px", "user-select": "text" } })))
     expect(group?.style.color).toBe("red")
     expect(group?.style["overflow-anchor"]).toBe("auto")
     for (const item of items) {
@@ -74,44 +70,72 @@ describe("server rendering", () => {
     }
   })
 
-  it("SS4: a wardic drag element renders the drag defaults for its axis; one without drag renders none", () => {
-    const [x] = tagsOf(serve(() => <wardic.div drag="x" />))
-    expectDragDefaults(x!, "pan-y")
-    const [plain] = tagsOf(serve(() => <wardic.div initial={{ opacity: 1 }} />))
-    expect(plain?.attrs.draggable).toBeUndefined()
-    expect(plain?.style["touch-action"]).toBeUndefined()
-    expect(plain?.style["user-select"]).toBeUndefined()
-  })
-
-  it("SS5: createReorderGroup's spread on a plain ul renders overflow-anchor none", () => {
-    function Group(): JSX.Element {
-      const group = createReorderGroup({ values: VALUES, onReorder: () => {} })
-      return <ul {...group()} />
+  it("RS3: reorderGroup and reorderItem spread on a plain ul and li render the same", () => {
+    const List = () => {
+      const list = reorderGroup({ values: VALUES, onReorder: () => {}, axis: "x", style: { color: "red" } })
+      return (
+        <ul {...list}>
+          <For each={VALUES}>
+            {(value) => {
+              const row = reorderItem(list, { value, style: { margin: "10px" } })
+              return (
+                <li {...row} data-value={value}>
+                  {value}
+                </li>
+              )
+            }}
+          </For>
+        </ul>
+      )
     }
-    const [ul] = tagsOf(serve(() => <Group />))
-    expect(ul?.name).toBe("ul")
-    expect(ul?.style["overflow-anchor"]).toBe("none")
-  })
-
-  it("SS6: a group of items renders with no window or document, and nothing throws", () => {
-    expect(typeof window, "a server has no window").toBe("undefined")
-    expect(typeof document, "a server has no document").toBe("undefined")
-    expect(() => serve(list())).not.toThrow()
-  })
-
-  it("SS7: each item is a tab stop for the keyboard reorder (#43), with no aria-describedby until the client's instructions exist", () => {
-    const [, ...items] = tagsOf(serve(list()))
+    const [group, ...items] = tagsOf(serve(() => <List />))
+    expect(group?.style["overflow-anchor"]).toBe("none")
+    expect(group?.style.color).toBe("red")
+    expect(items.map((t) => t.attrs["data-value"])).toEqual(VALUES)
     for (const item of items) {
+      expectDragDefaults(item, "pan-y")
+      expect(item.style.margin).toBe("10px")
+      expect(item.attrs.tabindex).toBe("0")
+    }
+  })
+
+  it("RS4: tab stops with no aria-describedby until the client's; the app's own win or come first; none with the keyboard off", () => {
+    for (const item of tagsOf(serve(list())).slice(1)) {
       expect(item.attrs.tabindex).toBe("0")
       expect(item.attrs["aria-describedby"]).toBeUndefined()
     }
-    // The app's own tabIndex wins; with the keyboard reorder off, no tab stop.
     const own = () => (
       <Reorder.Group values={VALUES} onReorder={() => {}}>
-        <For each={VALUES}>{(value) => <Reorder.Item value={value} tabIndex={-1}>{value}</Reorder.Item>}</For>
+        <For each={VALUES}>
+          {(value) => (
+            <Reorder.Item value={value} tabindex={-1} aria-describedby="hint">
+              {value}
+            </Reorder.Item>
+          )}
+        </For>
       </Reorder.Group>
     )
-    for (const item of tagsOf(serve(own)).slice(1)) expect(item.attrs.tabindex).toBe("-1")
+    for (const item of tagsOf(serve(own)).slice(1)) {
+      expect(item.attrs.tabindex).toBe("-1")
+      expect(item.attrs["aria-describedby"]).toBe("hint")
+    }
+    const Kept = () => {
+      const list = reorderGroup({ values: VALUES, onReorder: () => {} })
+      return (
+        <ul {...list}>
+          <For each={VALUES}>
+            {(value) => {
+              const row = reorderItem(list, { value, tabindex: -1, "aria-describedby": "hint" })
+              return <li {...row}>{value}</li>
+            }}
+          </For>
+        </ul>
+      )
+    }
+    for (const item of tagsOf(serve(() => <Kept />)).slice(1)) {
+      expect(item.attrs.tabindex).toBe("-1")
+      expect(item.attrs["aria-describedby"]).toBe("hint")
+    }
     const off = () => (
       <Reorder.Group values={VALUES} onReorder={() => {}} keyboard={false}>
         <For each={VALUES}>{(value) => <Reorder.Item value={value}>{value}</Reorder.Item>}</For>
@@ -120,7 +144,32 @@ describe("server rendering", () => {
     for (const item of tagsOf(serve(off)).slice(1)) expect(item.attrs.tabindex).toBeUndefined()
   })
 
-  it("SS8 (#748): an item's value is of any type, never its element's own value attribute", () => {
+  it("RS5: Reorder.Item outside a Reorder.Group throws, as Motion's does", () => {
+    expect(() => serve(() => <Reorder.Item value="a">a</Reorder.Item>)).toThrow("Reorder.Item must be a child of Reorder.Group")
+  })
+
+  it("RS6: a group's next never settles on a server, its each ends at once, and groupRef hands it over (#257 item 3)", async () => {
+    let made: ReorderGroup<string> | undefined
+    let handed: ReorderGroup<string> | undefined
+    serve(() => {
+      made = reorderGroup({ values: ["a"], onReorder: () => {} })
+      return (
+        <Reorder.Group values={["a"]} onReorder={() => {}} groupRef={(list: ReorderGroup<string>) => (handed = list)}>
+          <Reorder.Item value="a">a</Reorder.Item>
+        </Reorder.Group>
+      )
+    })
+    expect(handed, "groupRef hands the group over").toBeDefined()
+    let settled = false
+    void made!.next("reorderEnd").then(() => (settled = true))
+    const seen: Array<unknown> = []
+    for await (const end of handed!.each("reorderEnd")) seen.push(end)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(seen, "each ends at once").toEqual([])
+    expect(settled, "next never settles").toBe(false)
+  })
+
+  it("RS7 (#748): an item's value is of any type, never its element's own value attribute; a kept item takes none beside it", () => {
     type Todo = { readonly id: number; readonly name: string }
     const TODOS: ReadonlyArray<Todo> = [{ id: 1, name: "One" }, { id: 2, name: "Two" }]
     const todoList = () => (
@@ -134,7 +183,14 @@ describe("server rendering", () => {
     // element's `value` attribute's.
     const direct = () => <Reorder.Item value={{ id: 1 }}>one</Reorder.Item>
     void direct
-    const valueOf = <V,>(props: ReorderItemProps<V>): V => props.value
-    expectTypeOf(valueOf({ value: { id: 1 } })).toEqualTypeOf<{ id: number }>()
+    const valueOf = <V,>(props: ReorderItemComponentProps<V>): V | undefined => props.value
+    expectTypeOf(valueOf({ value: { id: 1 } })).toEqualTypeOf<{ id: number } | undefined>()
+    const kept = () => {
+      const list = reorderGroup({ values: VALUES, onReorder: () => {} })
+      const row = reorderItem(list, { value: "a" })
+      // @ts-expect-error an item made with `reorderItem` is made with its value: none beside it
+      return <Reorder.Item wardRef={row} value="a" />
+    }
+    void kept
   })
 })

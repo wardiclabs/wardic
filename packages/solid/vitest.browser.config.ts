@@ -1,193 +1,24 @@
 import { playwright } from "@vitest/browser-playwright"
-import type { CDPSession } from "playwright"
-import solidPlugin from "vite-plugin-solid"
-import { solid1 } from "./vite.solid1.ts"
 import { configDefaults, defineConfig } from "vitest/config"
-import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
+import { solid2 } from "./vite.solid2.ts"
+import { sourceNames } from "./vite.source-names.ts"
+import { BROWSER_COMMANDS, PREBUNDLED } from "./vitest.browser-commands.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
-// Real-browser test project for @wardic/solid — layout/projection behaviours that
-// happy-dom CANNOT verify (it has no layout engine, so getBoundingClientRect is
-// all-zeros). Here Chromium (Playwright) gives REAL layout + real CSS transform
-// composition, so projection FLIP / treeScale / relativeTarget can be asserted
-// against actual measured geometry.
-//
-// Browsers come from the nix devshell (PLAYWRIGHT_BROWSERS_PATH, set in flake.nix
-// to nixpkgs' playwright-driver.browsers — the prebuilt Playwright download fails
-// on nix with a missing libnspr4.so). npm `playwright` is pinned to 1.59.1 to
-// match those browsers (chromium revision 1217).
-//
-// Kept OUT of the default `bun run test` gate (slower + env-specific); run via
-// `bun run test:browser`. Files are named `*.browser.test.tsx` and are excluded
-// from the happy-dom solid project.
-
-/** Where the test iframe sits on the page, so a client point inside it maps to a page point. */
-const iframeOffset = async (ctx: BrowserCommandContext): Promise<{ x: number; y: number }> => {
-  const box = await (await (await ctx.frame()).frameElement()).boundingBox()
-  return { x: box?.x ?? 0, y: box?.y ?? 0 }
-}
-
-/**
- * Real pointer input for the drag tests (#26, #31): moves Playwright's mouse to the
- * client point `(x, y)` inside the test iframe, then presses or releases `button` for
- * `down` / `up`. Synthetic `PointerEvent`s are dispatched straight to their target, so
- * they can't show when the browser delivers input relative to a Refresh frame, or a
- * pointer leaving its element; these go through the browser's own input pipeline.
- * `move: false` presses or releases where the mouse already is, with no move first.
- */
-/** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames (ADR-0029's tests). */
-const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
-  await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
-}
-
-/**
- * Two full garbage collections, through Chromium's DevTools protocol, as @wardic/dom's (#418): for a
- * test of what a binding lets go of, read through a `WeakRef` afterwards (#431).
- */
-const collectGarbage: BrowserCommand<[]> = async (ctx) => {
-  const cdp: CDPSession = await ctx.page.context().newCDPSession(ctx.page)
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.detach()
-}
-
-/** One line to the test runner's stdout, so a browser test can leave numbers in a CI log (#206). */
-const report: BrowserCommand<[line: string]> = (_ctx, line) => {
-  process.stdout.write(`[report] ${line}\n`)
-}
-
-const realMouse: BrowserCommand<[
-  type: "move" | "down" | "up",
-  x: number,
-  y: number,
-  options?: { readonly button?: "left" | "right"; readonly move?: boolean },
-]> = async (ctx, type, x, y, options) => {
-  if (options?.move !== false) {
-    const offset = await iframeOffset(ctx)
-    await ctx.page.mouse.move(offset.x + x, offset.y + y)
-  }
-  const button = options?.button ?? "left"
-  if (type === "down") await ctx.page.mouse.down({ button })
-  if (type === "up") await ctx.page.mouse.up({ button })
-}
-
-/**
- * Real Playwright keyboard input (#43): `press` a key (down and up), or hold it with `down` (a
- * second `down` before its `up` is a repeat, as a held key's) and let it go with `up`. Sent to
- * whatever has focus in the page, through the browser's own input pipeline.
- */
-const realKey: BrowserCommand<[type: "press" | "down" | "up", key: string]> = async (ctx, type, key) => {
-  if (type === "press") await ctx.page.keyboard.press(key)
-  if (type === "down") await ctx.page.keyboard.down(key)
-  if (type === "up") await ctx.page.keyboard.up(key)
-}
-
-/** One DevTools session per page, with touch emulation on. */
-const touchSessions = new WeakMap<object, Promise<CDPSession>>()
-
-/**
- * Real touch input (#31) through Chromium's DevTools protocol (`Input.dispatchTouchEvent`),
- * Chromium only. `points` are the fingers down after the event, at client points in the
- * test iframe. The protocol's `touchEnd` lifts every finger, and leaving a finger out of a
- * `touchMove` doesn't lift it.
- */
-const realTouch: BrowserCommand<[
-  type: "touchStart" | "touchMove" | "touchEnd",
-  points: ReadonlyArray<{ readonly x: number; readonly y: number; readonly id: number }>,
-]> = async (ctx, type, points) => {
-  let session = touchSessions.get(ctx.page)
-  if (session === undefined) {
-    session = ctx.context.newCDPSession(ctx.page).then(async (cdp) => {
-      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 })
-      return cdp
-    })
-    touchSessions.set(ctx.page, session)
-  }
-  const cdp = await session
-  const offset = await iframeOffset(ctx)
-  await cdp.send("Input.dispatchTouchEvent", {
-    type,
-    touchPoints: points.map((p) => ({ x: offset.x + p.x, y: offset.y + p.y, id: p.id })),
-  })
-}
-
-/** Pre-bundled up front, here and in the Solid 2 project (vitest.browser-v2.config.ts, #209). */
-export const PREBUNDLED: ReadonlyArray<string> = [
-      "culori/fn",
-      "effect/Array",
-      "effect/Boolean",
-      "effect/Cause",
-      "effect/Channel",
-      "effect/Combiner",
-      "effect/Context",
-      "effect/Data",
-      "effect/Deferred",
-      "effect/devtools",
-      "effect/Duration",
-      "effect/Effect",
-      "effect/Equal",
-      "effect/Equivalence",
-      "effect/ErrorReporter",
-      "effect/Exit",
-      "effect/Fiber",
-      "effect/FiberHandle",
-      "effect/FiberSet",
-      "effect/Function",
-      "effect/Hash",
-      "effect/Inspectable",
-      "effect/Iterable",
-      "effect/Latch",
-      "effect/Layer",
-      "effect/LogLevel",
-      "effect/ManagedRuntime",
-      "effect/Match",
-      "effect/Metric",
-      "effect/MutableRef",
-      "effect/Number",
-      "effect/Option",
-      "effect/Order",
-      "effect/Pipeable",
-      "effect/Predicate",
-      "effect/PubSub",
-      "effect/Queue",
-      "effect/RcMap",
-      "effect/RcRef",
-      "effect/reactivity",
-      "effect/Record",
-      "effect/References",
-      "effect/Result",
-      "effect/Scheduler",
-      "effect/Scope",
-      "effect/Stream",
-      "effect/String",
-      "effect/Tracer",
-      "effect/UndefinedOr",
-]
-
-/** The real-input commands, and the garbage collection, shared with the Solid 2 project (#209). */
-export const BROWSER_COMMANDS = { collectGarbage, emulateReducedMotion, realKey, realMouse, realTouch, report }
-
+// Real-browser tests for the Solid 2 binding, `@wardic/solid/unstable/v2` (#209): Solid 2's DOM
+// compile in Chromium. Solid 2 and `@solidjs/web` aren't pre-bundled: served through Vite, their
+// `solid-js` resolves to Solid 2 (vite.solid2.ts). Files are `test/**/*.browser.test.tsx`, but Solid 1's in `test/v1/` (#566).
 export default defineConfig({
-  // Run via `--config` (not as a project), so anchor the root at this package so
-  // `test/**` resolves to packages/solid/test (mirrors how the project config's
-  // root is its own dir).
   root: import.meta.dirname,
-  plugins: [wardicSource(), solid1(), solidPlugin()],
-  resolve: {
-    conditions: ["development", "browser"],
-  },
-  // Pre-bundled up front: Vite otherwise discovers a test's first import of it mid-run
-  // and reloads the page, failing that file (the provider imports it, ADR-0021).
-  optimizeDeps: { include: [...PREBUNDLED] },
+  plugins: [wardicSource(), sourceNames(), solid2()],
+  resolve: { conditions: ["development", "browser"] },
+  optimizeDeps: { include: [...PREBUNDLED], exclude: ["solid-js", "@solidjs/web", "@solidjs/signals", "@solidjs/router"] },
   test: {
     name: "browser",
     include: ["test/**/*.browser.test.{ts,tsx}"],
-    // The hydration tests need the hydratable compile: they're vitest.hydrate.config.ts's.
-    // The Solid 2 binding's are vitest.browser-v2.config.ts's (#209).
-    exclude: [...configDefaults.exclude, "test/**/*.hydrate.browser.test.tsx", "test/v2/**"],
-    // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).
-    setupFiles: ["./test/browser-setup.ts"],
-    server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },
+    // Hydration tests run in their own project, compiled hydratable (vitest.hydrate.config.ts).
+    exclude: [...configDefaults.exclude, "test/**/*.hydrate.browser.test.{ts,tsx}", "test/v1/**"],
+    setupFiles: ["./test/browser-setup.ts", "./test/diagnostics-setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),

@@ -790,7 +790,7 @@ const RETAINED_ROWS: ReadonlyArray<readonly [RetainedKind, string]> = [
   ["retained", "hover + press"],
   ["retained-reorder", "reorder item"],
 ]
-const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid)", solid2: "Solid 2 (@wardic/solid/unstable/v2)" }
+const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid/v1)", solid2: "Solid 2 (@wardic/solid)" }
 
 /** Ratios' median and quartiles, as the tables print them. */
 const spread = (ratios: ReadonlyArray<number>): string => `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`

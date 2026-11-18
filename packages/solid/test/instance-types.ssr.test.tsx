@@ -1,32 +1,57 @@
-// A Wardic instance's types (#516, ADR-0067 *Amendment (#516)*), checked by the type checker
-// (`typecheck:tests`): each element is only type-checked here, never rendered. Each
+// A Wardic instance's types on Solid 2 (#516, ADR-0067 *Amendment (#516)*), checked by the type checker
+// (`typecheck:tests`): each element and ward is only type-checked here, never made. Each
 // `@ts-expect-error` is something the types reject.
 //
-// - IT1: an instance's `w.<tag>` takes the base props whatever its Features, and each of its Features'
-//   props; a prop of a Feature it lacks is `NeedsFeature<"name">` (Q15), so the error names it. One
-//   Feature at a time, every prop of each.
-// - IT2: a preset's Features, a nested list's and a load's are the instance's (Q8).
-// - IT3: an instance's element infers its keys as `wardic.*` does (#305): its `transition` takes the
-//   keys its targets and drag axis set, and another's is an error.
-// - IT4: the defaults are the props as they were: `WardicComponent<Tag>`, `W`, and an instance of every
-//   Feature (`domMax`), with no `NeedsFeature` anywhere.
-// - IT5: the other forms of an instance's `w` take its Features' props alone: `w.create(tag)`,
-//   `w.create(Component)`, `w.create(string)` and `w.createWard(config)`, a value or an accessor.
-// - IT6: `WardConfigOf<F>` is what an instance's element takes, its Features' props: a wrapper typed
+// - ITV1: an instance's `w.<tag>` takes the base props whatever its Features, and each of its
+//   Features' props; a prop of a Feature it lacks is `NeedsFeature<"name">` (Q15). Solid 2's props have
+//   no Solid 1 callbacks, so `pan` adds none, and `onDrag` is the DOM's, whatever the Features.
+// - ITV2: a preset's Features, a nested list's and a load's are the instance's (Q8).
+// - ITV3: an instance's element infers its keys as `wardic.*` does (#305), a given ward's too.
+// - ITV4: the defaults are the props as they were: `WardicComponent<Tag>`, `W`, and an instance of
+//   every Feature, with no `NeedsFeature` anywhere.
+// - ITV5: the other forms take its Features' props alone: `w.create(tag)`, `w.create(Component)`,
+//   `w.create(string)` and `w.ward(config)`, whose unknown key is still `NotAWardKey` (#756).
+// - ITV6: `WardConfigOf<F>` is what an instance's element takes, its Features' props: a wrapper typed
 //   with it rejects another's, and hands them on to the instance's element, to one with more Features,
-//   and to a plain `w.*`. It has no `NeedsFeature`, which nothing else's props would take.
-// - IT7: an instance with `layout`, given at once or loaded, has the three layout hooks, as the global
-//   ones are typed (Q6); one without it hasn't them.
-// - IT8: `createWardic`'s instance is typed from its list literal: a preset, a nested list, one
+//   and to a plain `w.*`.
+// - ITV7: an instance with `layout`, given at once or loaded, has the three layout hooks (Q6).
+// - ITV8: an instance's ward's `next`, `each` and `when` take `settled` and its Features' events; another
+//   Feature's event is an error (Q19): `w.ward()`'s, and the one its element hands to `wardRef`. It's a
+//   `Ward<C, F>`, `F` its Features, and still a `Ward`. A plain ward's take every event, as they did.
+// - ITV9: `createWardic`'s instance is typed from its list literal: a preset, a nested list, one
 //   Feature, and a load, its Features from what it resolves to.
-import { createWardic, domAnimation, domMax, drag, type Feature, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, type WardicVariantLabels, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
-import type { JSX } from "solid-js"
+import type { JSX } from "@solidjs/web"
+import {
+  createInstantLayoutTransition,
+  createWardic,
+  createResetProjection,
+  domAnimation,
+  domMax,
+  drag,
+  type Feature,
+  focus,
+  hover,
+  inView,
+  layout,
+  pan,
+  press,
+  useAnimateLayout,
+  type W as PlainW,
+  w,
+  type Ward,
+  ward,
+  type WardConfigOf,
+  type WardicComponent,
+  type WardicInstance,
+  type WardicMotionProps,
+} from "@wardic/solid"
 import { describe, expectTypeOf, it } from "vitest"
-import type { WardicMotionProps, WardicProps } from "../src/element.tsx"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type * as DomFeature from "@wardic/dom/unstable/Feature"
-import type { InferredMotion, TargetKey } from "../src/ward-keys.ts"
+import type { DrivenKey, InferredMotion, TargetKey } from "../src/ward-keys.ts"
+import type { WardicProps } from "../src/element.tsx"
 
-/** An element, type-checked only: the function is never called. */
+/** An element or a ward, type-checked only: the function is never called. */
 const typed = (make: () => unknown): void => void make
 
 /** A value typed as Feature `N`'s brand: only a prop typed `NeedsFeature<N>` takes it. Never called. */
@@ -34,12 +59,13 @@ declare const needs: <N extends string>(name: N) => DomFeature.NeedsFeature<N>
 
 /** `WardicComponent<Tag>` as it was before #516, word for word: what its default must still be. */
 type Before<Tag extends keyof JSX.IntrinsicElements> = <
+  C = {},
   K extends TargetKey = never,
   N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
+  LI extends WardConfig.WardicVariantLabels = never,
+  LA extends WardConfig.WardicVariantLabels = never,
   D extends boolean | "x" | "y" = never,
->(props: WardicProps<Tag, InferredMotion<WardicMotionProps, K, N, LI, LA, D>>) => JSX.Element
+>(props: WardicProps<Tag, C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
 
 /** The `w` of an instance of Features `F`. */
 type W<F> = WardicInstance<F>["w"]
@@ -49,16 +75,18 @@ declare const hovers: W<[typeof hover]>
 declare const presses: W<[typeof press]>
 declare const focuses: W<[typeof focus]>
 declare const inViews: W<[typeof inView]>
-declare const pans: W<[typeof pan]>
 declare const drags: W<[typeof drag]>
 declare const layouts: W<[typeof layout]>
 
 const noop = (): void => {}
 
+/** A component of your own, forwarding its ref, as `w.create(Component)` takes: declared, never rendered. */
+declare function Buy(props: { readonly ref?: JSX.Ref<HTMLElement>; readonly label: string }): JSX.Element
+
 const FAST = { type: "tween", duration: 0.1 } as const
 
-describe("a Wardic instance's element props (#516)", () => {
-  it("IT1: the base props whatever its Features, its Features' props, and NeedsFeature for the rest", () => {
+describe("a Wardic instance's types on Solid 2 (#516)", () => {
+  it("ITV1: the base props whatever its Features, its Features' props, and NeedsFeature for the rest", () => {
     typed(() => (
       <base.div
         initial={{ opacity: 0 }}
@@ -68,32 +96,28 @@ describe("a Wardic instance's element props (#516)", () => {
         transition={{ duration: 0.2 }}
         custom={1}
         inherit={false}
-        onAnimationStart={noop}
-        onAnimationComplete={noop}
         onUpdate={noop}
         transformTemplate={(_, generated) => generated}
         appear={false}
+        onDrag={noop}
         class="card"
       />
     ))
 
-    // hover
-    typed(() => <hovers.div whileHover={{ scale: 1.1 }} onHoverStart={noop} onHoverEnd={noop} />)
-    typed(() => <base.div whileHover={needs("hover")} onHoverStart={needs("hover")} onHoverEnd={needs("hover")} />)
+    typed(() => <hovers.div whileHover={{ scale: 1.1 }} />)
+    typed(() => <base.div whileHover={needs("hover")} />)
     typed(() => (
       // @ts-expect-error hover isn't the instance's
       <base.div whileHover={{ scale: 1.1 }} />
     ))
 
-    // press
-    typed(() => <presses.div whileTap={{ scale: 0.9 }} propagate={{ tap: false }} onTapStart={noop} onTap={noop} onTapCancel={noop} />)
-    typed(() => <base.div whileTap={needs("press")} propagate={needs("press")} onTapStart={needs("press")} onTap={needs("press")} onTapCancel={needs("press")} />)
+    typed(() => <presses.div whileTap={{ scale: 0.9 }} propagate={{ tap: false }} />)
+    typed(() => <base.div whileTap={needs("press")} propagate={needs("press")} />)
     typed(() => (
       // @ts-expect-error press isn't the instance's
       <hovers.div whileTap={{ scale: 0.9 }} />
     ))
 
-    // focus
     typed(() => <focuses.div whileFocus={{ opacity: 1 }} />)
     typed(() => <base.div whileFocus={needs("focus")} />)
     typed(() => (
@@ -101,23 +125,13 @@ describe("a Wardic instance's element props (#516)", () => {
       <base.div whileFocus={{ opacity: 1 }} />
     ))
 
-    // inView
-    typed(() => <inViews.div whileInView={{ opacity: 1 }} viewport={{ once: true }} onViewportEnter={noop} onViewportLeave={noop} />)
-    typed(() => <base.div whileInView={needs("inView")} viewport={needs("inView")} onViewportEnter={needs("inView")} onViewportLeave={needs("inView")} />)
+    typed(() => <inViews.div whileInView={{ opacity: 1 }} viewport={{ once: true }} />)
+    typed(() => <base.div whileInView={needs("inView")} viewport={needs("inView")} />)
     typed(() => (
       // @ts-expect-error inView isn't the instance's
       <base.div viewport={{ once: true }} />
     ))
 
-    // pan
-    typed(() => <pans.div onPanSessionStart={noop} onPanStart={noop} onPan={noop} onPanEnd={noop} />)
-    typed(() => <base.div onPanSessionStart={needs("pan")} onPanStart={needs("pan")} onPan={needs("pan")} onPanEnd={needs("pan")} />)
-    typed(() => (
-      // @ts-expect-error pan isn't the instance's
-      <drags.div onPan={noop} />
-    ))
-
-    // drag
     typed(() => (
       <drags.div
         drag="x"
@@ -131,11 +145,6 @@ describe("a Wardic instance's element props (#516)", () => {
         dragDirectionLock
         dragListener={false}
         onMeasureDragConstraints={(box) => box}
-        onDragStart={noop}
-        onDrag={noop}
-        onDragEnd={noop}
-        onDragTransitionEnd={noop}
-        onDirectionLock={noop}
       />
     ))
     typed(() => (
@@ -152,11 +161,6 @@ describe("a Wardic instance's element props (#516)", () => {
         dragControls={needs("drag")}
         dragListener={needs("drag")}
         onMeasureDragConstraints={needs("drag")}
-        onDragStart={needs("drag")}
-        onDrag={needs("drag")}
-        onDragEnd={needs("drag")}
-        onDragTransitionEnd={needs("drag")}
-        onDirectionLock={needs("drag")}
       />
     ))
     typed(() => (
@@ -168,7 +172,6 @@ describe("a Wardic instance's element props (#516)", () => {
       <base.div drag={needs("layout")} />
     ))
 
-    // layout
     typed(() => (
       <layouts.li
         layout="position"
@@ -178,8 +181,6 @@ describe("a Wardic instance's element props (#516)", () => {
         layoutRoot
         layoutAnchor={{ x: 0.5, y: 0 }}
         layoutCrossfade={false}
-        onLayoutAnimationStart={noop}
-        onLayoutAnimationComplete={noop}
         onBeforeLayoutMeasure={noop}
         onLayoutMeasure={noop}
       />
@@ -193,8 +194,6 @@ describe("a Wardic instance's element props (#516)", () => {
         layoutRoot={needs("layout")}
         layoutAnchor={needs("layout")}
         layoutCrossfade={needs("layout")}
-        onLayoutAnimationStart={needs("layout")}
-        onLayoutAnimationComplete={needs("layout")}
         onBeforeLayoutMeasure={needs("layout")}
         onLayoutMeasure={needs("layout")}
       />
@@ -205,27 +204,23 @@ describe("a Wardic instance's element props (#516)", () => {
     ))
   })
 
-  it("IT2: a preset's Features, a nested list's and a load's are the instance's", () => {
+  it("ITV2: a preset's Features, a nested list's and a load's are the instance's", () => {
     const shell = null as unknown as W<typeof domAnimation>
     typed(() => <shell.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} whileFocus={{ opacity: 1 }} whileInView={{ opacity: 1 }} />)
     typed(() => (
       // @ts-expect-error domAnimation has no drag
       <shell.div drag />
     ))
-
     const page = null as unknown as W<[typeof domAnimation, typeof layout]>
     typed(() => <page.li whileHover={{ scale: 1.1 }} layout layoutId="card" />)
-    typed(() => <page.li drag={needs("drag")} onPan={needs("pan")} />)
-
     const later = null as unknown as W<[typeof domAnimation, () => Promise<typeof drag>]>
     typed(() => <later.div whileHover={{ scale: 1.1 }} drag="x" />)
     typed(() => (
       // @ts-expect-error neither the list nor its load has layout
       <later.div layout />
     ))
-
     const all = null as unknown as W<() => Promise<typeof domMax>>
-    typed(() => <all.div whileHover={{ scale: 1.1 }} drag layout onPan={noop} />)
+    typed(() => <all.div whileHover={{ scale: 1.1 }} drag layout />)
 
     // A Feature typed without its name adds no props of its own, and takes none from the rest.
     const unnamed = null as unknown as W<[typeof hover, Feature]>
@@ -236,7 +231,7 @@ describe("a Wardic instance's element props (#516)", () => {
     ))
   })
 
-  it("IT3: an instance's element infers its keys as wardic.* does (#305)", () => {
+  it("ITV3: an instance's element infers its keys as wardic.* does (#305)", () => {
     typed(() => <hovers.div animate={{ x: 10 }} whileHover={{ scale: 1.1 }} transition={{ x: FAST, scale: FAST, default: FAST }} />)
     typed(() => (
       <hovers.div
@@ -247,7 +242,7 @@ describe("a Wardic instance's element props (#516)", () => {
         }}
       />
     ))
-    typed(() => <drags.div drag="y" animate={{ opacity: 1 }} transition={{ y: FAST, opacity: FAST }} />)
+    typed(() => <drags.div drag="y" transition={{ y: FAST }} />)
     typed(() => (
       <drags.div
         drag="y"
@@ -257,41 +252,42 @@ describe("a Wardic instance's element props (#516)", () => {
         }}
       />
     ))
-    typed(() => (
-      <base.div
-        animate={{ opacity: 1 }}
-        transition={{
-          // @ts-expect-error the element never animates scale
-          scale: FAST,
-        }}
-      />
-    ))
+    // A ward given to the element: the keys it animates are the element's too (#398).
+    typed(() => {
+      const card = hovers.ward({ animate: { x: 10 } })
+      return <hovers.div wardRef={card} whileHover={{ scale: 1.1 }} transition={{ x: FAST, scale: FAST }} />
+    })
+    typed(() => {
+      const card = hovers.ward({ animate: { x: 10 } })
+      return (
+        <hovers.div
+          wardRef={card}
+          transition={{
+            // @ts-expect-error neither the ward nor the element animates rotate
+            rotate: FAST,
+          }}
+        />
+      )
+    })
   })
 
-  it("IT4: the defaults are the props as they were, and an instance of every Feature has them too", () => {
+  it("ITV4: the defaults are the props as they were, and an instance of every Feature has them too", () => {
     expectTypeOf<WardicComponent<"div">>().toEqualTypeOf<Before<"div">>()
     expectTypeOf<WardicComponent<"li", typeof domMax>>().toEqualTypeOf<Before<"li">>()
     expectTypeOf<W<typeof domMax>>().toEqualTypeOf<PlainW>()
     expectTypeOf<W<[typeof domAnimation, typeof pan, typeof drag, typeof layout]>>().toEqualTypeOf<PlainW>()
-
-    const all = null as unknown as W<typeof domMax>
-    typed(() => <w.div drag whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} whileFocus={{ opacity: 1 }} whileInView={{ opacity: 1 }} onPan={noop} layout />)
-    typed(() => <all.div drag whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} whileFocus={{ opacity: 1 }} whileInView={{ opacity: 1 }} onPan={noop} layout />)
+    typed(() => <w.div drag whileHover={{ scale: 1.1 }} layout />)
     typed(() => (
       // @ts-expect-error every Feature is there, so no prop is NeedsFeature
       <w.div drag={needs("drag")} />
     ))
-    typed(() => (
-      // @ts-expect-error nor on an instance of every Feature
-      <all.div layout={needs("layout")} />
-    ))
   })
 
-  it("IT5: the other forms of an instance's w take its Features' props alone", () => {
+  it("ITV5: the other forms of an instance's w take its Features' props alone", () => {
     const shell = null as unknown as W<typeof domAnimation>
     typed(() => {
       const Card = shell.create("article")
-      return <Card whileHover={{ scale: 1.1 }} animate={{ x: 1 }} transition={{ x: FAST }} />
+      return <Card whileHover={{ scale: 1.1 }} />
     })
     typed(() => {
       const Card = shell.create("article")
@@ -299,46 +295,49 @@ describe("a Wardic instance's element props (#516)", () => {
       return <Card layout />
     })
     typed(() => {
-      const Buy = shell.create((props: { readonly ref?: (el: HTMLElement) => void; readonly label: string }) => <button ref={props.ref}>{props.label}</button>)
-      return <Buy label="Buy" whileTap={{ scale: 0.9 }} />
+      const Wrapped = shell.create(Buy)
+      return <Wrapped label="Buy" whileTap={{ scale: 0.9 }} />
     })
     typed(() => {
-      const Buy = shell.create((props: { readonly ref?: (el: HTMLElement) => void; readonly label: string }) => <button ref={props.ref}>{props.label}</button>)
+      const Wrapped = shell.create(Buy)
       // @ts-expect-error domAnimation has no drag
-      return <Buy label="Buy" drag />
+      return <Wrapped label="Buy" drag />
     })
     typed(() => {
       const tag: string = "section"
       const Section = shell.create(tag)
       // @ts-expect-error domAnimation has no drag
-      return <Section whileHover={{ scale: 1.1 }} drag />
+      return <Section drag />
     })
-    typed(() => shell.createWard({ whileHover: { scale: 1.1 }, animate: { x: 1 }, transition: { x: FAST } }))
-    typed(() => shell.createWard(() => ({ whileFocus: { opacity: 1 } })))
+    typed(() => shell.ward({ whileHover: { scale: 1.1 }, animate: { x: 1 }, transition: { x: FAST } }))
+    typed(() => shell.ward({ whileFocus: () => ({ opacity: 1 }) }))
     typed(() =>
-      shell.createWard({
+      shell.ward({
         animate: { opacity: 1 },
         // @ts-expect-error domAnimation has no drag
         drag: "x",
       }),
     )
     typed(() =>
-      // @ts-expect-error nor has it layout, in an accessor's config
-      shell.createWard(() => ({ layoutId: "card" })),
+      shell.ward({
+        animate: { opacity: 1 },
+        // @ts-expect-error still not a key any ward takes (#756)
+        foo: 1,
+      }),
     )
+    typed(() => shell.ward())
   })
 
-  it("IT6: WardConfigOf<F> is what an instance's element takes, for a wrapper's props", () => {
+  it("ITV6: WardConfigOf<F> is what an instance's element takes, for a wrapper's props", () => {
     type HoverCard = WardConfigOf<[typeof hover]>
-    typed((): HoverCard => ({ whileHover: { scale: 1.1 }, animate: { opacity: 1 }, onHoverStart: noop }))
+    typed((): HoverCard => ({ whileHover: { scale: 1.1 }, animate: { opacity: 1 } }))
     typed(
       (): HoverCard => ({
         // @ts-expect-error hover alone has no drag
         drag: "x",
       }),
     )
-    expectTypeOf<WardConfigOf<typeof domMax>>().toEqualTypeOf<WardConfig>()
-
+    expectTypeOf<WardConfigOf<typeof domMax>>().toEqualTypeOf<WardicMotionProps>()
     typed(() => {
       const Card = (props: WardConfigOf<[typeof hover]> & { readonly title: string }) => <hovers.article {...props}>{props.title}</hovers.article>
       return <Card title="Lamp" whileHover={{ scale: 1.05 }} />
@@ -351,24 +350,65 @@ describe("a Wardic instance's element props (#516)", () => {
     })
   })
 
-  it("IT7: an instance with layout has the layout hooks, as the global ones are typed; one without hasn't", () => {
+  it("ITV7: an instance with layout has the layout hooks, as the global ones are typed; one without hasn't", () => {
     type Laid = WardicInstance<[typeof domAnimation, typeof layout]>
     expectTypeOf<Laid["useAnimateLayout"]>().toEqualTypeOf<typeof useAnimateLayout>()
     expectTypeOf<Laid["createInstantLayoutTransition"]>().toEqualTypeOf<typeof createInstantLayoutTransition>()
     expectTypeOf<Laid["createResetProjection"]>().toEqualTypeOf<typeof createResetProjection>()
     expectTypeOf<WardicInstance<[typeof hover, () => Promise<typeof layout>]>["useAnimateLayout"]>().toEqualTypeOf<typeof useAnimateLayout>()
-
     expectTypeOf<WardicInstance<typeof domAnimation>>().not.toHaveProperty("useAnimateLayout")
-    expectTypeOf<WardicInstance<typeof domAnimation>>().not.toHaveProperty("createInstantLayoutTransition")
-    expectTypeOf<WardicInstance<typeof domAnimation>>().not.toHaveProperty("createResetProjection")
+  })
+
+  it("ITV8: an instance's ward hears settled and its Features' events; another Feature's is an error", () => {
+    const shell = null as unknown as W<typeof domAnimation>
     typed(() => {
-      const shell = null as unknown as WardicInstance<typeof domAnimation>
-      // @ts-expect-error domAnimation has no layout
-      return shell.useAnimateLayout
+      const card = shell.ward({ whileHover: { scale: 1.1 } })
+      return [card.next("settled"), card.next("hoverEnd"), card.when("tap"), card.each("viewportEnter"), card.next("pressStart")]
+    })
+    typed(() => {
+      const card = shell.ward()
+      // @ts-expect-error domAnimation has no drag
+      return card.next("dragEnd")
+    })
+    typed(() => {
+      const card = shell.ward()
+      // @ts-expect-error nor pan
+      return card.when("panStart")
+    })
+    typed(() => {
+      const card = shell.ward()
+      // @ts-expect-error nor layout
+      return card.each("layoutComplete")
+    })
+    const page = null as unknown as W<[typeof domAnimation, typeof drag, typeof layout]>
+    typed(() => {
+      const card = page.ward({ drag: "x" })
+      return [card.next("dragEnd"), card.when("directionLock"), card.each("layoutComplete")]
+    })
+    typed(() => {
+      const card = ward({ animate: { opacity: 1 } })
+      return [card.next("dragEnd"), card.when("panStart"), card.each("layoutComplete"), w.ward().next("tap")]
+    })
+
+    typed(() => <shell.div wardRef={(card) => void card.next("hoverEnd")} />)
+    typed(() => (
+      // @ts-expect-error the ward its element hands out hears no drag either
+      <shell.div wardRef={(card) => void card.next("dragEnd")} />
+    ))
+    typed(() => <w.div wardRef={(card) => void card.next("dragEnd")} />)
+
+    typed((): Ward<{}, typeof domAnimation> => shell.ward())
+    expectTypeOf<Ward<{}, typeof domMax>>().toEqualTypeOf<Ward<{}>>()
+
+    // Still a Ward, for an app's `Array<Ward>` or `(card: Ward) => …`: from w.ward(), and from wardRef.
+    typed(() => {
+      const wards: Array<Ward> = []
+      wards.push(shell.ward({ whileHover: { scale: 1.1 } }))
+      return <shell.div wardRef={(card) => wards.push(card)} />
     })
   })
 
-  it("IT8: createWardic's instance is typed from its list literal, loads included", () => {
+  it("ITV9: createWardic's instance is typed from its list literal, loads included", () => {
     typed(() => {
       const { w: page } = createWardic([domAnimation, layout])
       return <page.li layout whileHover={{ scale: 1.1 }} />

@@ -1,4 +1,4 @@
-// Which elements name their own variants, Motion's `isControllingVariants` (#618, decision 8): a name
+// Solid 2: which elements name their own variants, Motion's `isControllingVariants` (#618, decision 8): a name
 // on any variant prop, `initial`, `animate`, the five `while*` or `exit`. Such an element is no Variant
 // child: it doesn't take its parent's names, nor a stagger slot among its children.
 //
@@ -6,13 +6,11 @@
 //   its siblings, and takes no stagger slot: the sibling after it starts first.
 // - VC2: a child with a named `exit` doesn't follow its parent's names either.
 // - VC3: a child with an object `whileHover` is still a Variant child: it follows.
-import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
-import { afterEach, expect, it } from "vitest"
+import { expect, it } from "vitest"
 import { opacityOf, raf, until } from "./browser-helpers.ts"
-
-afterEach(cleanup)
+import { mount } from "./mount.tsx"
 
 const CHILD = { hidden: { opacity: 0.2 }, shown: { opacity: 0.8 }, hover: { opacity: 0.5 } }
 const PARENT = { hidden: {}, shown: { transition: { staggerChildren: 0.5 } } }
@@ -24,7 +22,7 @@ const shownOpacity = (el: HTMLElement): number => Number(getComputedStyle(el).op
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 it("VC1: a child with a named whileHover keeps its own look and takes no stagger slot", async () => {
-  const { container } = render(() => (
+  const { host: container } = mount(() => (
     <WardicProvider env={DomLive}>
       <wardic.div variants={PARENT} initial="hidden" animate="shown">
         <wardic.div data-named variants={CHILD} whileHover="hover" transition={QUICK} />
@@ -43,7 +41,7 @@ it("VC1: a child with a named whileHover keeps its own look and takes no stagger
 })
 
 it("VC2: a child with a named exit doesn't follow its parent's names", async () => {
-  const { container } = render(() => (
+  const { host: container } = mount(() => (
     <WardicProvider env={DomLive}>
       <wardic.div variants={PARENT} initial="hidden" animate="shown">
         <wardic.div data-named variants={CHILD} exit="hidden" transition={QUICK} />
@@ -58,7 +56,7 @@ it("VC2: a child with a named exit doesn't follow its parent's names", async () 
 })
 
 it("VC3: a child with an object whileHover is still a Variant child", async () => {
-  const { container } = render(() => (
+  const { host: container } = mount(() => (
     <WardicProvider env={DomLive}>
       <wardic.div variants={PARENT} initial="hidden" animate="shown">
         <wardic.div data-child variants={CHILD} whileHover={{ scale: 1.1 }} transition={QUICK} />

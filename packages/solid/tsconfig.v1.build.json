@@ -1,0 +1,21 @@
+{
+  "// note": "The Solid 1 binding's published output (#566): `src/v1` into `dist/solid/v1`, its JSX kept as JSX for the `solid` export condition, with `.d.ts` and maps, against Solid 1. The modules it shares with the Solid 2 binding come from that project (tsconfig.json), built first. `scripts/build-packages.ts` runs it.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "outDir": "${configDir}/dist/solid",
+    "tsBuildInfoFile": "${configDir}/dist/solid-v1.tsbuildinfo",
+    // Solid 1 for every importer, which this package holds as `solid-js-1`: its own `solid-js` is Solid 2 (#566).
+    "paths": {
+      "solid-js": ["./node_modules/solid-js-1/types/index.d.ts"],
+      "solid-js/web": ["./node_modules/solid-js-1/web/types/index.d.ts"],
+      "solid-js/store": ["./node_modules/solid-js-1/store/types/index.d.ts"],
+      "solid-js/jsx-runtime": ["./node_modules/solid-js-1/types/jsx.d.ts"],
+      "@solidjs/router": ["./node_modules/@solidjs/router-1/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/v1"],
+  "references": [{ "path": "./tsconfig.json" }]
+}

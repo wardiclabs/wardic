@@ -1,303 +1,502 @@
 /**
- * `@wardic/solid/unstable/v2`: Wardic for Solid 2 (#209). Unstable: it tracks Solid 2's release
- * candidate (`solid-js@2.0.0-rc`), and any release may change it. It lives here, inside
- * `@wardic/solid`, until Solid 2.0 is stable, when `@wardic/solid` itself becomes it and the Solid 1
- * binding moves to `@wardic/solid/v1`.
+ * `@wardic/solid/unstable/v2`, deprecated: `@wardic/solid` since 2.0, where Solid 2's binding left
+ * `unstable/` (#566). An app that adopted it before 2.0 keeps working; each name it re-exports is
+ * `@deprecated`, so an editor marks the import. It goes at Wardic's next major. Every name the root
+ * exports is here, held so by `test/entries.ssr.test.tsx`.
  *
  * @module
  */
 export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createInstantLayoutTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createInstantTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createResetProjection,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   runScoped,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   useAnimateLayout,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   useWardicFiber,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   useWardicGate,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   useWardicRuntime,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   WardicProvider,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   LazyWardic,
-} from "./provider.tsx"
-/**
- * **Features** (#511, ADR-0067): what a Slim element (`w.*`, `w.ward()`) has only when it's chosen, on
- * a `WardicProvider` or a `LazyWardic` (`features={[colors]}`), each its own import so an app ships
- * only those it uses; a Complete element (`wardic.*`, `ward()`) has every one. `colors`: every CSS
- * colour space beyond a hex, `rgb()`, `hsl()` and the colour names. `layout`: layout animations, the
- * props `layout`, `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it
- * themselves). `scroll`: a container's scroll, which `createScroll` brings itself (#518).
- */
-export type { Feature, FeatureLoad, Features, FeaturesProp } from "@wardic/dom/unstable/Feature"
-export { colors } from "@wardic/dom/unstable/features/Colors"
-export { layout } from "@wardic/dom/unstable/features/Layout"
-export { scroll } from "@wardic/dom/unstable/features/Scroll"
-/**
- * The gestures (#511, ADR-0067 decision 3), a Feature each: `hover`, `press` (its Keyboard presses
- * included), `focus`, `inView`, `pan` and `drag` (`dragControls` and the release's inertia included).
- * Every one but `inView` stands on the gestures' input: the Environment's when it gives one, else the
- * DOM's. Motion's bundles: `domAnimation` (`hover`, `press`, `focus`, `inView`) and `domMax` (every
- * Feature).
- */
-export { drag } from "@wardic/dom/unstable/features/Drag"
-export { focus } from "@wardic/dom/unstable/features/Focus"
-export { hover } from "@wardic/dom/unstable/features/Hover"
-export { inView } from "@wardic/dom/unstable/features/InView"
-export { pan } from "@wardic/dom/unstable/features/Pan"
-export { press } from "@wardic/dom/unstable/features/Press"
-export { domAnimation } from "@wardic/dom/unstable/features/DomAnimation"
-export { domMax } from "@wardic/dom/unstable/features/DomMax"
-// The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
-export type { InstantTransition } from "@wardic/dom/unstable/Instant"
-// `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
-export { correctParentTransform, transformViewBoxPoint } from "../../page-point.ts"
-export type { WardicEnv, WardicRuntime, WardicServices } from "../../runtime.ts"
-export type { AnimateLayout } from "./provider.tsx"
-
-/**
- * `<WardicConfig>` (#434, Motion's `MotionConfig`): settings for the Wardic elements below it, its
- * **Config transition** their default `transition`. It nests anywhere under a `WardicProvider`.
- */
-export { WardicConfig, type WardicConfigProps } from "./wardic-config.tsx"
-
-/**
- * `ward(config)`: a **Ward**, one element's motion, as a ref that carries its props. Make it once and
- * spread it (`const card = ward(config)`, then `<div {...card} />`, its Starting style in server HTML),
- * or give it to `ref` inline (`ref={ward(config)}`, client-only). A spread runs again on each change
- * of the element's props, so an inline `{...ward(config)}` would make a new one each time, and throws.
- * A kept ward has `.Provider` for its Variant children, `.read(key)` and `.atom(key)` for its values.
- */
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type Feature,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type FeatureLoad,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type Features,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type FeaturesProp,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  colors,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  layout,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  scroll,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  drag,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  focus,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  hover,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  inView,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  pan,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  press,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  domAnimation,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  domMax,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type InstantTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  correctParentTransform,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  transformViewBoxPoint,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicEnv,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicRuntime,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicServices,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type AnimateLayout,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  WardicConfig,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicConfigProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type AnyWard,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type Ward,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardChecked,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardConfig,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardRead,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardStyle,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardWithProps,
-} from "./ward.tsx"
-export { ward } from "./complete.tsx"
-export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
-export type { WardicAnimationDefinition } from "@wardic/dom/unstable/WardConfig"
-export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
-
-/** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */
-export { useVariantContext, WardicVariantContext } from "./variant-node.ts"
-export type { WardicVariantContextValue } from "@wardic/core/unstable/VariantTree"
-export type {
-  WardicOrchestration,
-  WardicReducedMotion,
-  WardicSkipAnimations,
-  WardicInertia,
-  WardicStagger,
-  WardicPath,
-  WardicPropagate,
-  WardicTransformShorthands,
-  WardicTransition,
-  WardicTransitionEntries,
-  WardicValueKey,
-  WardicValueTransition,
-  WardicKeyframes,
-  WardicTargetValues,
-  WardicValues,
-  WardicVariant,
-  WardicVariantLabels,
-  WardicVariantResolver,
-  WardicVariants,
-  WardicVariantTransition,
-} from "@wardic/dom/unstable/WardConfig"
-
-/**
- * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the
- * element's own props and the motion props; a `wardic.create(Component)` component forwards its `ref`.
- */
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  ward,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardDragInfo,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardElement,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardEvent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardGestures,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardPoint,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardPointInfo,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardPressInfo,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardSettled,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimationDefinition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type AnimatedKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardValueOf,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  useVariantContext,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  WardicVariantContext,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicVariantContextValue,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicOrchestration,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicReducedMotion,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSkipAnimations,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicInertia,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicStagger,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicPath,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicPropagate,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicTransformShorthands,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicTransitionEntries,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicValueKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicValueTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicKeyframes,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicTargetValues,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicValues,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicVariant,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicVariantLabels,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicVariantResolver,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicVariants,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicVariantTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type GivenWard,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type Wardic,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBeside,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicComponent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicMotion,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicWrappable,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicWrapped,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardNodeKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardRefCallback,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   wardic,
-} from "./wardic.tsx"
-/**
- * `w` (#511, ADR-0067; Motion's `m`): the **Slim element**'s forms, `w.<tag>`, `w.create` and
- * `w.ward()`, each as its Complete form but with only the Features chosen above it.
- */
-export { type W, w } from "./w.tsx"
-// #516: what `createWardic(features)` returns, its `w` and its ward typed to its Features.
-export type { WardConfigOf, WardicInstance } from "./wardic-instance.ts"
-export { createWardic } from "./create-wardic.tsx"
-export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
-// #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
-// wraps; whether a prop is a motion prop, Solid 2's own list.
-export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } from "../../wardic-component.ts"
-export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
-
-/**
- * `<AnimatePresence>` (ADR-0007): each child's exit before it's removed, from its ward's `exit`;
- * `initial={false}` starts the child present at its first render at its `animate` (#134).
- */
-export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
-export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.tsx"
-export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
-export type { PresenceContextValue, PresenceMode, PresenceRecord } from "@wardic/dom/unstable/PresenceController"
-
-/**
- * Layout (ADR-0009, ADR-0010): a ward's `layout`, `layoutId`, `layoutScroll`, `layoutRoot` and
- * `layoutAnchor` register its projection node; `<LayoutGroup layoutDependency>` re-measures them all.
- */
-export { LayoutGroup } from "./layout.tsx"
-export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
-
-/**
- * Sensors (#209 PR 3's Q1): each a ref that's also its reading. `createHover`, `createPress`,
- * `createFocus`, `createInView` and `createDrag` attach to the element they're given as a ref;
- * `createReducedMotion` follows the user's preference, `createReducedMotionConfig` the nearest config's
- * setting over it, and `createPageInView` whether the page is shown (#443).
- */
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type W,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  w,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardConfigOf,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicInstance,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createWardic,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicMotionProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  isWardicComponent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  unwrapWardicComponent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicCreateOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  isValidWardicProp,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  AnimatePresence,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type AnimatePresenceProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  PresenceContext,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  usePresenceContext,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type IsPresent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceExit,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceLeaveEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  useIsPresent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  usePresence,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  usePresenceData,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createPresence,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type Presence,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceEvent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceContextValue,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceMode,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type PresenceRecord,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  LayoutGroup,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  measureLayoutBox,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type CreateDragOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createInView,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createPageInView,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createReducedMotion,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createReducedMotionConfig,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type Sensor,
-} from "./sensors.tsx"
-export { createDrag } from "./drag-sensor.tsx"
-export { createFocus } from "./focus-sensor.tsx"
-export { createHover } from "./hover-sensor.tsx"
-export { createPress } from "./press-sensor.tsx"
-// `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
-export { createCycle, type Cycle } from "./cycle.ts"
-
-/** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
-export { fromAtom, streamToSignal } from "./bridge.tsx"
-export type { WardicDragTransition, WardicLayoutBox, WardicScaleCorrector, WardicTransformPoint, WardicTransformTemplate, WardicViewport } from "@wardic/dom/unstable/WardConfig"
-export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "@wardic/dom/unstable/DragConstraints"
-// Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
-export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "@wardic/dom/unstable/DragControls"
-// Imperative animation (#433, Motion's `useAnimate`): an Animation scope with `settled()`, its `animate` and its Playback controls.
-// `WardicAnimationScope` on both bindings, each its own (#618, P1), as `isValidWardicProp` is.
-export { createAnimate, type WardicAnimationScopeV2 as WardicAnimationScope, type WardicScopeLanding } from "./create-animate.tsx"
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createDrag,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createFocus,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createHover,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createPress,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createCycle,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type Cycle,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  fromAtom,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  streamToSignal,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicDragTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicLayoutBox,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicScaleCorrector,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicTransformPoint,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicTransformTemplate,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicViewport,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBoundingBox,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicDragConstraints,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicMeasureDragConstraints,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createDragControls,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicDragControls,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicDragControlsOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createAnimate,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimationScope,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicScopeLanding,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createBatch,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatch,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatchConfig,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatchEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatchMember,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatchMemberProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatchPointInfo,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicBatchPressInfo,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicKeyedBatch,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type WardicKeyedBatchConfig,
-} from "./create-batch.tsx"
-export type {
-  WardicBatchExit,
-  WardicBatchGesture,
-  WardicBatchKey,
-  WardicBatchLanding,
-  WardicBatchSegmentTarget,
-  WardicBatchSegmentValue,
-  WardicBatchStop,
-  WardicBatchSubject,
-  WardicBatchTarget,
-  WardicBatchTransition,
-  WardicBatchValues,
-} from "@wardic/dom/unstable/BatchMembers"
-export type {
-  WardicAnimate,
-  WardicAnimateOptions,
-  WardicAnimationSequence,
-  WardicAnimationSubject,
-  WardicBatchSegment,
-  WardicElementSegment,
-  WardicFunctionSegment,
-  WardicPlaybackControls,
-  WardicPlayState,
-  WardicSegment,
-  WardicSegmentOptions,
-  WardicSegmentTarget,
-  WardicSequenceLabel,
-  WardicSequenceOptions,
-  WardicSequenceTime,
-} from "@wardic/dom/unstable/Imperative"
-export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "@wardic/core/unstable/AnimationControls"
-
-
-/**
- * Live values (#130, ADR-0043; #209 PR 3's Q2): core's `LiveValue` helpers as accessors. One derived
- * on an Atom (a ward's `read(key)`, another helper's) carries it, so a `style` given it is written in
- * the frame its source moves. `createAnimationFrame` tells a callback each frame, and `createWillChange` makes a
- * `willChange` that turns on as its element animates (#443).
- */
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchExit,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchGesture,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchLanding,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchSegmentTarget,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchSegmentValue,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchStop,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchSubject,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchTarget,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchTransition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchValues,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimate,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimateOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimationSequence,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimationSubject,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicBatchSegment,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicElementSegment,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicFunctionSegment,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicPlaybackControls,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicPlayState,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSegment,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSegmentOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSegmentTarget,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSequenceLabel,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSequenceOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicSequenceTime,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createAnimationControls,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicAnimationControls,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicControlsDefinition,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createAnimationFrame,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createFollowValue,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createSpring,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createTime,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createTransform,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createVelocity,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   createWillChange,
-} from "./live-value.tsx"
-export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.tsx"
-export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "@wardic/dom/unstable/LiveStyle"
-
-/**
- * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,
- * refs carrying their props as a ward is, and Motion's `Reorder.Group` / `Reorder.Item` on them.
- */
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createScroll,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type ElementSource,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type ScrollOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type ScrollValues,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type FollowAccessor,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type FollowValueOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type Live,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type LiveSource,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type SpringAccessor,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WillChange,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type AnyReorderGroup,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type AnyReorderItem,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type GroupRefCallback,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   Reorder,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderElementTag,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderGroup,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderGroupComponentProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderGroupConfig,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderGroupEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderGroupOf,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderGroupProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   reorderGroup,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderItem,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderItemComponentProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderItemConfig,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderItemLayout,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderItemOf,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   reorderItem,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchColumnSize,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchGap,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchGroup,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchGroupProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchItemProps,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchItemSize,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type ReorderBatchSizing,
-} from "./reorder.tsx"
-
-/**
- * Motion's easing functions, by Motion's names (#360, ADR-0052), so a port's imports carry over:
- * `import { easeOut, cubicBezier } from "@wardic/solid"`. An `ease` also takes the names as
- * strings (`ease: "easeOut"`) and a bézier's four numbers. The Penner set and `Easing.spring` are
- * in `@wardic/core/Easing`.
- */
-export {
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   anticipate,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   backIn,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   backInOut,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   backOut,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   circIn,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   circInOut,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   circOut,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   cubicBezier,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   easeIn,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   easeInOut,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   easeOut,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   steps,
-} from "@wardic/core/Easing"
-export { stagger, type WardicStaggerOptions } from "../../stagger.ts"
-export { arc, type WardicArcOptions } from "../../arc.ts"
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  stagger,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicStaggerOptions,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  arc,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type WardicArcOptions,
+} from "../../index.tsx"

@@ -66,7 +66,22 @@ export const sourcesInto = (root: string, commit: string | undefined, manifests 
 }
 
 /** A `@wardic/*` subpath that's a folder, not a module: its index, without its extension. */
-const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index" }
+const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index", v1: "v1/index" }
+
+/**
+ * `@wardic/solid`'s module for `sub` on a side. Since #566 the root is Solid 2's binding and `v1` Solid 1's;
+ * a side from before it (no `src/v1`) had Solid 1 at its root and Solid 2 at `unstable/v2`, so its pages and
+ * apps, which name the bindings as after it, build each binding there.
+ */
+const solidModuleOf = (root: string, sub: string | undefined): string => {
+  const before = Bool.not(existsSync(join(root, "packages/solid/src/v1")))
+  if (Bool.and(before, sub === undefined)) return "unstable/v2/index"
+  if (Bool.and(before, sub === "v1")) return "index"
+  return UndefinedOr.match(sub, {
+    onUndefined: () => "index",
+    onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => name),
+  })
+}
 
 /**
  * A side's module `stem`: `.tsx` when the side has it, else `.ts`. `@wardic/solid`'s entries are `index.tsx`,
@@ -99,9 +114,13 @@ export const sideResolver = (root: string, deps: string): Plugin => ({
         "packages",
         pkg!,
         "src",
-        UndefinedOr.match(sub, {
-          onUndefined: () => "index",
-          onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => name),
+        Bool.match(pkg === "solid", {
+          onTrue: () => solidModuleOf(root, sub),
+          onFalse: () =>
+            UndefinedOr.match(sub, {
+              onUndefined: () => "index",
+              onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => name),
+            }),
         }),
       ))
       return { id, moduleSideEffects: sideEffectsOf(root, pkg!) }

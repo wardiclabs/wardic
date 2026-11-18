@@ -1,9 +1,10 @@
-// Fixtures for `createBatch`'s server render to hydration on Solid 1 (#665's PR 6): each export is
+// Fixtures for `createBatch`'s server render to hydration on Solid 2 (#665's PR 6): each export is
 // rendered on the server by the `serverRender` command and hydrated from this same module, as
 // `hydrate-fixtures.tsx`'s are.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createBatch, WardicProvider } from "@wardic/solid"
-import { For, type JSX } from "solid-js"
+import type { JSX } from "@solidjs/web"
+import { For } from "solid-js"
 
 const TWEEN = { type: "tween", duration: 0.3 } as const
 const BOX: JSX.CSSProperties = { width: "20px", height: "20px", background: "teal" }

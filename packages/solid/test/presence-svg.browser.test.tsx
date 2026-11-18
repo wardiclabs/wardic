@@ -1,41 +1,32 @@
-// SVG presence children on Solid 1 (#702, ADR-0048 *Amendment (#702)*): every element is a presence
-// child, so an SVG one runs its exit as an HTML one does. Under `popLayout`, an `<svg>` root is popped
-// (#744, ADR-0048 *Amendment (#744)*, beyond Motion's) and the elements inside an `<svg>` aren't. Real frames.
+// SVG presence children on Solid 2 (#702, ADR-0048 *Amendment (#702)*), as the Solid 1 binding's PS
+// tests pin them, with an `<svg>` root popped under `popLayout` (#744, ADR-0048 *Amendment (#744)*).
+// Real frames, under the diagnostics gate.
 //
-// - PS1: a `wardic.circle` under a presence inside an `<svg>` runs its exit; it stays until it ends;
-//   `onExitComplete` after.
-// - PS2: its exit runs on an attribute key (`r`).
-// - PS3: `mode="wait"`: the leaving circle exits on `r` and `opacity`; the entering one waits off the page
-//   until that exit has ended.
-// - PS4: a plain `<g>` with a Wardic element inside stays until that element's exit ends (#392).
-// - PS5: an SVG Wardic element inside an HTML leaver runs its exit, and the leaver stays for it.
-// - PS6: `popLayout`: an `<svg>` root is popped (#744): pinned where it was, out of the flow, taking no
+// - PSV1: a `wardic.circle` under a presence inside an `<svg>` runs its exit; it stays until it ends.
+// - PSV2: its exit runs on an attribute key (`r`).
+// - PSV3: `mode="wait"`: the leaving circle exits on `r` and `opacity`; the entering one waits off the
+//   page until that exit has ended.
+// - PSV4: a plain `<g>` with a Wardic element inside stays until that element's exit ends (#392).
+// - PSV5: `popLayout`: an `<svg>` root is popped (#744): pinned where it was, out of the flow, taking no
 //   input; a `layout` sibling slides into its place while it fades.
-// - PS7: `popLayout`: an inner SVG leaver isn't popped either: a circle exits on `r` where it was.
-// - PS8: `sync`: once an `<svg>` root is removed, a `layout` sibling slides into its space.
-// - PS9: an icon swap anchored right and bottom, in a positioned container with padding and a border:
-//   the `<svg>` root popped in place, at a fractional place (#744's pins aren't whole pixels), and
-//   nothing left in the container but the two icons.
-// - PS10: the container narrowing as it pops: by the right it keeps its distance from the container's
-//   right, by the left from its left, as an HTML leaver.
-// - PS11: right to left, the default anchor is the inline start: pinned by its right, in place.
-// - PS12: in a scaled container, popped in place.
-// - PS13: in a scrolled container, popped in place.
-// - PS14: with a transform of its own (its `x`), popped in place, not moved by it twice.
-// - PS15: kept where it was seen through the page's scroll to the top at its change (#480).
-// - PS16: an `<svg>` root with no width isn't popped.
-// - PS17: an inner `<svg>` isn't popped: it exits where it is, keeping its input.
-// - PS18: a page rule on the container's children (margins, a max size) doesn't move where it's pinned.
-import { cleanup, render } from "@solidjs/testing-library"
+// - PSV6: `sync`: once an `<svg>` root is removed, a `layout` sibling slides into its space.
+// - PSV7: an SVG Wardic element inside an HTML leaver runs its exit, and the leaver stays for it.
+// - PSV8: `popLayout`: an inner SVG leaver isn't popped either: a circle exits on `r` where it was.
+// - PSV9: an icon swap anchored right and bottom, in a positioned container with padding and a border:
+//   the `<svg>` root popped in place, at a fractional place, and nothing left in the container but
+//   the two icons.
+// - PSV10: the container narrowing as it pops: pinned by the right, it keeps its distance from the
+//   container's right.
+// - PSV11: in a scaled container, with a transform of its own (its `x`), popped in place.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, type PresenceMode, wardic, WardicProvider } from "@wardic/solid"
+import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { createSignal, For, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { createSignal, flush, Show } from "solid-js"
+import { describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
-
-afterEach(cleanup)
+import { mount } from "./mount.tsx"
 
 const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
@@ -69,57 +60,37 @@ const between = (o: number): boolean => Math.min(o, 1 - o) > 0.1
 /** 1 when a 20-radius circle's `r` and its opacity are both partway, else 0. */
 const bothPartway = (el: Element): number => Number(Bool.and(between(rOf(el) / 20), between(opacityOf(el))))
 
-/**
- * A presence around one child, inside an `<svg>` or, with `html`, a `<div>` with `after` after it;
- * `close` takes it out; `q` finds a `data-k`.
- */
+/** A presence around one child, inside an `<svg>` or, with `html`, a `<div>` before `after`; `close` takes it out. */
 const mountOne = (child: () => JSX.Element, options: { readonly mode?: PresenceMode; readonly html?: boolean; readonly after?: () => JSX.Element } = {}) => {
   const [open, setOpen] = createSignal(true)
-  let completes = 0
   const presence = () => (
-    <AnimatePresence mode={options.mode} onExitComplete={() => completes++}>
+    <AnimatePresence mode={options.mode}>
       <Show when={open()}>{child()}</Show>
     </AnimatePresence>
   )
-  const { container } = render(() => (
+  const { host } = mount(() => (
     <WardicProvider env={DomLive}>
-      {Bool.match(options.html === true, {
-        onTrue: () => (
-          <div style={{ position: "relative", width: "200px" }}>
-            {presence()}
-            {options.after?.()}
-          </div>
-        ),
-        onFalse: () => (
+      <Show
+        when={options.html}
+        fallback={
           <svg width="200" height="100">
             {presence()}
           </svg>
-        ),
-      })}
+        }
+      >
+        <div style={{ position: "relative", width: "200px" }}>
+          {presence()}
+          {options.after?.()}
+        </div>
+      </Show>
     </WardicProvider>
   ))
   return {
-    q: (k: string): Element => container.querySelector(`[data-k="${k}"]`)!,
-    close: () => setOpen(false),
-    completes: () => completes,
-  }
-}
-
-/** A presence in `mode`, inside an `<svg>`, around a `<For>` of circles. */
-const mountCircles = (start: ReadonlyArray<string>, mode: PresenceMode) => {
-  const [items, setItems] = createSignal<ReadonlyArray<string>>(start)
-  const { container } = render(() => (
-    <WardicProvider env={DomLive}>
-      <svg width="200" height="100">
-        <AnimatePresence mode={mode}>
-          <For each={items()}>{(k) => <wardic.circle data-k={k} cx={50} cy={50} r={20} exit={{ opacity: 0, r: 0 }} transition={TWEEN} />}</For>
-        </AnimatePresence>
-      </svg>
-    </WardicProvider>
-  ))
-  return {
-    q: (k: string): Element | null => container.querySelector(`[data-k="${k}"]`),
-    setItems,
+    q: (k: string): Element => host.querySelector(`[data-k="${k}"]`)!,
+    close: () => {
+      setOpen(false)
+      flush()
+    },
   }
 }
 
@@ -152,13 +123,10 @@ const after = () => <wardic.div data-k="after" layout transition={{ layout: TWEE
 interface SwapOptions {
   readonly anchorX?: "left" | "right"
   readonly anchorY?: "top" | "bottom"
-  readonly dir?: "rtl"
   /** The container's style: a positioned one is the popped icon's containing block. */
   readonly box?: JSX.CSSProperties
-  /** What comes before the container, in the page. */
-  readonly before?: () => JSX.Element
-  /** Each icon's style, by its key. */
-  readonly iconStyle?: (k: "a" | "b") => JSX.CSSProperties
+  /** Each icon's style. */
+  readonly iconStyle?: JSX.CSSProperties
   /** Each icon's width, by its key: 40 when left out. */
   readonly width?: (k: "a" | "b") => number
   /** Icon "a"'s `x`, landed at once. */
@@ -182,7 +150,7 @@ const mountSwap = (options: SwapOptions = {}) => {
         data-k={k}
         width={width}
         height="40"
-        style={{ display: "block", ...options.iconStyle?.(k) }}
+        style={{ display: "block", ...options.iconStyle }}
         animate={animate}
         exit={{ opacity: 0 }}
         transition={{ ...SLOW, x: { duration: 0 } }}
@@ -191,10 +159,9 @@ const mountSwap = (options: SwapOptions = {}) => {
       </wardic.svg>
     )
   }
-  const { container } = render(() => (
+  const { host } = mount(() => (
     <WardicProvider env={DomLive}>
-      {options.before?.()}
-      <div data-k="box" dir={options.dir} style={options.box}>
+      <div data-k="box" style={options.box}>
         <AnimatePresence mode="popLayout" anchorX={options.anchorX} anchorY={options.anchorY}>
           <Show when={first()} fallback={swapIcon("b")}>
             {swapIcon("a")}
@@ -204,24 +171,16 @@ const mountSwap = (options: SwapOptions = {}) => {
     </WardicProvider>
   ))
   return {
-    q: (k: string): Element => container.querySelector(`[data-k="${k}"]`)!,
-    swap: () => setFirst(false),
+    q: (k: string): Element => host.querySelector(`[data-k="${k}"]`)!,
+    swap: () => {
+      setFirst(false)
+      flush()
+    },
   }
 }
 
-/** Swap, and where icon "a" was drawn before and after, once it's popped. */
-const popA = async (swap: ReturnType<typeof mountSwap>) => {
-  await frames(5)
-  const a = swap.q("a")
-  const was = rectOf(a)
-  swap.swap()
-  expect(getComputedStyle(a).position, "out of the flow").toBe("absolute")
-  await raf()
-  return { a, was, at: rectOf(a) }
-}
-
-describe("SVG presence children on Solid 1 (#702)", () => {
-  it("PS1: a `wardic.circle` under a presence runs its exit; it stays until it ends", async () => {
+describe("SVG presence children on Solid 2 (#702)", () => {
+  it("PSV1: a `wardic.circle` under a presence runs its exit; it stays until it ends", async () => {
     const one = mountOne(() => <wardic.circle data-k="dot" cx={50} cy={50} r={20} exit={{ opacity: 0 }} transition={TWEEN} />)
     await frames(3)
     const dot = one.q("dot")
@@ -231,33 +190,44 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     expect(dot.isConnected, "the circle stays for its exit").toBe(true)
     expect(await seenPartway(dot, opacityOf, between), "it faded while it stayed").toBe(true)
     expect(dot.isConnected, "gone once its exit ended").toBe(false)
-    expect(one.completes(), "onExitComplete once, after").toBe(1)
   })
 
-  it("PS2: its exit runs on an attribute key", async () => {
+  it("PSV2: its exit runs on an attribute key", async () => {
     const one = mountOne(() => <wardic.circle data-k="dot" cx={50} cy={50} r={20} exit={{ r: 0 }} transition={TWEEN} />)
     await frames(3)
     const dot = one.q("dot")
     expect(rOf(dot)).toBe(20)
     one.close()
     expect(await seenPartway(dot, rOf, (r) => Bool.and(r > 2, r < 18)), "its radius shrank while it stayed").toBe(true)
-    expect(one.completes()).toBe(1)
   })
 
-  it("PS3: wait: the entering circle waits until the leaving one's exit has ended", async () => {
-    const list = mountCircles(["a"], "wait")
+  it("PSV3: wait: the entering circle waits until the leaving one's exit has ended", async () => {
+    const [dot, setDot] = createSignal<string | undefined>("a")
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <svg width="200" height="100">
+          <AnimatePresence mode="wait">
+            <Show when={dot()} keyed>
+              {(k) => <wardic.circle data-k={k} cx={50} cy={50} r={20} exit={{ opacity: 0, r: 0 }} transition={TWEEN} />}
+            </Show>
+          </AnimatePresence>
+        </svg>
+      </WardicProvider>
+    ))
+    const q = (k: string): Element | null => host.querySelector(`[data-k="${k}"]`)
     await frames(3)
-    const a = list.q("a")!
-    list.setItems(["b"])
+    const a = q("a")!
+    setDot("b")
+    flush()
     await frames(3)
     expect(a.isConnected, "a exits").toBe(true)
-    expect(list.q("b"), "b waits off the page").toBeNull()
+    expect(q("b"), "b waits off the page").toBeNull()
     expect(await seenPartway(a, bothPartway, (both) => both === 1), "a's radius and opacity were partway on one frame while it stayed").toBe(true)
-    await until(() => list.q("b") !== null, 1000)
-    expect(list.q("b")).toBeInstanceOf(SVGCircleElement)
+    await until(() => q("b") !== null, 1000)
+    expect(q("b")).toBeInstanceOf(SVGCircleElement)
   })
 
-  it("PS4: a plain `<g>` stays until the exit of the Wardic element inside it ends", async () => {
+  it("PSV4: a plain `<g>` stays until the exit of the Wardic element inside it ends", async () => {
     const one = mountOne(() => (
       <g data-k="group">
         <wardic.circle data-k="dot" cx={50} cy={50} r={20} exit={{ opacity: 0 }} transition={TWEEN} />
@@ -271,10 +241,42 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     expect(group.isConnected, "the group stays").toBe(true)
     expect(await seenPartway(dot, opacityOf, between), "the circle faded while the group stayed").toBe(true)
     expect(group.isConnected, "gone once the exit inside it ended").toBe(false)
-    expect(one.completes()).toBe(1)
   })
 
-  it("PS5: an SVG Wardic element inside an HTML leaver runs its exit; the leaver stays for it", async () => {
+  it("PSV5: popLayout: an `<svg>` root is popped: pinned where it was, its `layout` sibling sliding into its place", async () => {
+    const one = mountOne(() => icon(SLOW), { mode: "popLayout", html: true, after })
+    await frames(5)
+    const svg = one.q("icon")
+    const next = one.q("after")
+    const was = rectOf(svg)
+    const nextWas = next.getBoundingClientRect().top
+    one.close()
+    expect(svg.isConnected, "it stays for its exit").toBe(true)
+    expect(getComputedStyle(svg).position, "out of the flow").toBe("absolute")
+    expect(getComputedStyle(svg).pointerEvents, "it takes no input while popped (#486)").toBe("none")
+    await raf()
+    expect(rectOf(svg), "in place").toEqual(was)
+    const sawMid = await slides(next, nextWas, was.top, () => Math.abs(next.getBoundingClientRect().top - was.top) < 0.5)
+    expect(sawMid, "its sibling slid into its place").toBe(true)
+    expect(svg.isConnected, "while it was still exiting").toBe(true)
+    expect(await seenPartway(svg, opacityOf, between), "it faded where it was pinned").toBe(true)
+  })
+
+  it("PSV6: sync: once an `<svg>` root is removed, a `layout` sibling slides into its space", async () => {
+    const one = mountOne(() => icon(), { html: true, after })
+    await frames(5)
+    const svg = one.q("icon")
+    const next = one.q("after")
+    const svgTop = svg.getBoundingClientRect().top
+    const nextWas = next.getBoundingClientRect().top
+    one.close()
+    await frames(3)
+    expect(next.getBoundingClientRect().top, "it stays while the icon exits").toBeCloseTo(nextWas, 0)
+    await until(() => !svg.isConnected, 3000)
+    const sawMid = await slides(next, nextWas, svgTop, () => Math.abs(next.getBoundingClientRect().top - svgTop) < 0.5)
+    expect(sawMid, "it slid into the space").toBe(true)
+  })
+  it("PSV7: an SVG Wardic element inside an HTML leaver runs its exit; the leaver stays for it", async () => {
     const one = mountOne(
       () => (
         <div data-k="card">
@@ -295,26 +297,7 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     expect(card.isConnected).toBe(false)
   })
 
-  it("PS6: popLayout: an `<svg>` root is popped: pinned where it was, its `layout` sibling sliding into its place", async () => {
-    const one = mountOne(() => icon(SLOW), { mode: "popLayout", html: true, after })
-    await frames(5)
-    const svg = one.q("icon")
-    const next = one.q("after")
-    const was = rectOf(svg)
-    const nextWas = next.getBoundingClientRect().top
-    one.close()
-    expect(svg.isConnected, "it stays for its exit").toBe(true)
-    expect(getComputedStyle(svg).position, "out of the flow").toBe("absolute")
-    expect(getComputedStyle(svg).pointerEvents, "it takes no input while popped (#486)").toBe("none")
-    await raf()
-    expect(rectOf(svg), "in place").toEqual(was)
-    const sawMid = await slides(next, nextWas, was.top, () => Math.abs(next.getBoundingClientRect().top - was.top) < 0.5)
-    expect(sawMid, "its sibling slid into its place").toBe(true)
-    expect(svg.isConnected, "while it was still exiting").toBe(true)
-    expect(await seenPartway(svg, opacityOf, between), "it faded where it was pinned").toBe(true)
-  })
-
-  it("PS7: popLayout: an inner SVG leaver isn't popped either", async () => {
+  it("PSV8: popLayout: an inner SVG leaver isn't popped either", async () => {
     const one = mountOne(() => <wardic.circle data-k="dot" cx={50} cy={50} r={20} exit={{ r: 0 }} transition={TWEEN} />, { mode: "popLayout" })
     await frames(3)
     const dot = one.q("dot")
@@ -326,28 +309,12 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     expect(await seenPartway(dot, rOf, (r) => Bool.and(r > 2, r < 18)), "its radius shrank in place").toBe(true)
   })
 
-  it("PS8: sync: once an `<svg>` root is removed, a `layout` sibling slides into its space", async () => {
-    const one = mountOne(() => icon(), { html: true, after })
-    await frames(5)
-    const svg = one.q("icon")
-    const next = one.q("after")
-    const svgTop = svg.getBoundingClientRect().top
-    const nextWas = next.getBoundingClientRect().top
-    one.close()
-    await frames(3)
-    expect(next.getBoundingClientRect().top, "it stays while the icon exits").toBeCloseTo(nextWas, 0)
-    await until(() => !svg.isConnected, 3000)
-    const sawMid = await slides(next, nextWas, svgTop, () => Math.abs(next.getBoundingClientRect().top - svgTop) < 0.5)
-    expect(sawMid, "it slid into the space").toBe(true)
-  })
-
-  it("PS9: anchored right and bottom, an icon is popped in place in a positioned container with padding and a border", async () => {
+  it("PSV9: anchored right and bottom, an icon is popped in place in a positioned container with padding and a border", async () => {
     const swap = mountSwap({
       anchorX: "right",
       anchorY: "bottom",
       box: { position: "relative", width: "300px", height: "200px", padding: "7px 13px 11px 5px", border: "3px solid black" },
-      // Fractional margins: an HTML leaver's whole-pixel offsets would move it half a pixel.
-      iconStyle: () => ({ margin: "4.5px 9px 6px 2.25px" }),
+      iconStyle: { margin: "4.5px 9px 6px 2.25px" },
     })
     await frames(5)
     const a = swap.q("a") as SVGSVGElement
@@ -361,120 +328,29 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     expect(Array.from(swap.q("box").children, (child) => child.getAttribute("data-k")), "nothing else left in the container").toEqual(["a", "b"])
   })
 
-  it("PS10: the container narrowing as it pops: by the right it keeps the container's right, by the left its left", async () => {
-    for (const anchorX of ["right", "left"] as const) {
-      const swap = mountSwap({ anchorX, box: { position: "relative", width: "fit-content" }, width: (k) => Bool.match(k === "a", { onTrue: () => 80, onFalse: () => 40 }) })
-      await frames(5)
-      const a = swap.q("a")
-      const box = swap.q("box")
-      const before = { a: rectOf(a), box: rectOf(box) }
-      swap.swap()
-      await raf()
-      await raf()
-      const after = { a: rectOf(a), box: rectOf(box) }
-      expect(after.box.right, "the container narrowed").toBe(before.box.right - 40)
-      if (anchorX === "right") expect(after.box.right - after.a.right, "right: from the container's right").toBe(before.box.right - before.a.right)
-      if (anchorX === "left") expect(after.a.left - after.box.left, "left: from the container's left").toBe(before.a.left - before.box.left)
-      cleanup()
-    }
-  })
-
-  it("PS11: right to left, an icon is pinned by its inline start, its right, in place", async () => {
-    const swap = mountSwap({ dir: "rtl", box: { position: "relative", width: "300px", "padding-right": "11px" } })
+  it("PSV10: the container narrowing as it pops: pinned by the right, it keeps the container's right", async () => {
+    const swap = mountSwap({ anchorX: "right", box: { position: "relative", width: "fit-content" }, width: (k) => Bool.match(k === "a", { onTrue: () => 80, onFalse: () => 40 }) })
     await frames(5)
-    const a = swap.q("a") as SVGSVGElement
-    const was = rectOf(a)
-    swap.swap()
-    expect(a.style.getPropertyValue("right"), "by its right").not.toBe("")
-    expect(a.style.getPropertyValue("left"), "not by its left").toBe("")
-    await raf()
-    expect(rectOf(a), "in place").toEqual(was)
-  })
-
-  it("PS12: in a scaled container, an icon is popped in place", async () => {
-    const swap = mountSwap({ box: { position: "relative", width: "300px", padding: "10px 0 0 20px", transform: "scale(0.5)", "transform-origin": "0 0" } })
-    const { was, at } = await popA(swap)
-    expect(was.width, "drawn at half its size").toBe(20)
-    expect(at, "in place").toEqual(was)
-  })
-
-  it("PS13: in a scrolled container, an icon is popped in place", async () => {
-    const swap = mountSwap({
-      box: { position: "relative", width: "300px", height: "100px", overflow: "auto" },
-      // Content above the icon, inside the container, so its scroll moves the icon.
-      iconStyle: () => ({ "margin-top": "150px", "margin-bottom": "100px" }),
-    })
-    await frames(5)
-    swap.q("box").scrollTop = 120
-    const { was, at } = await popA(swap)
-    expect(at, "in place").toEqual(was)
-  })
-
-  it("PS14: with a transform of its own, an icon is popped in place, not moved by it twice", async () => {
-    const swap = mountSwap({ x: 30, box: { position: "relative", width: "300px", padding: "5px" } })
-    await frames(5)
-    expect(swap.q("a").getBoundingClientRect().left - swap.q("box").getBoundingClientRect().left, "drawn at its x").toBeCloseTo(35, 0)
-    const { was, at } = await popA(swap)
-    expect(at, "in place").toEqual(was)
-  })
-
-  it("PS15: kept where it was seen through the page's scroll to the top at its change (#480)", async () => {
-    const swap = mountSwap({ before: () => <div style={{ height: "1500px" }} />, box: { width: "300px", height: "1200px" } })
-    await frames(5)
-    window.scrollTo(0, 1400)
-    await frames(2)
     const a = swap.q("a")
-    const seen = rectOf(a)
+    const box = swap.q("box")
+    const before = { a: rectOf(a), box: rectOf(box) }
+    swap.swap()
+    await raf()
+    await raf()
+    const after = { a: rectOf(a), box: rectOf(box) }
+    expect(after.box.right, "the container narrowed").toBe(before.box.right - 40)
+    expect(after.box.right - after.a.right, "from the container's right").toBe(before.box.right - before.a.right)
+  })
+
+  it("PSV11: in a scaled container, with a transform of its own, an icon is popped in place", async () => {
+    const swap = mountSwap({ x: 30, box: { position: "relative", width: "300px", padding: "10px 0 0 20px", transform: "scale(0.5)", "transform-origin": "0 0" } })
+    await frames(5)
+    const a = swap.q("a")
+    const was = rectOf(a)
+    expect(was.width, "drawn at half its size").toBe(20)
     swap.swap()
     expect(getComputedStyle(a).position, "out of the flow").toBe("absolute")
-    setTimeout(() => window.scrollTo(0, 0), 0)
-    await frames(3)
-    expect(window.scrollY, "the page scrolled to its top").toBe(0)
-    expect(a.isConnected).toBe(true)
-    expect(rectOf(a), "where it was seen").toEqual(seen)
-    window.scrollTo(0, 0)
-  })
-
-  it("PS16: an `<svg>` root with no width isn't popped", async () => {
-    const swap = mountSwap({ width: (k) => Bool.match(k === "a", { onTrue: () => 0, onFalse: () => 40 }) })
-    await frames(5)
-    const a = swap.q("a")
-    swap.swap()
-    expect(a.isConnected, "it stays for its exit").toBe(true)
-    expect(getComputedStyle(a).position, "not pinned").toBe("static")
-  })
-
-  it("PS17: popLayout: an inner `<svg>` isn't popped", async () => {
-    const one = mountOne(
-      () => (
-        <wardic.svg data-k="inner" x={10} y={10} width={40} height={40} exit={{ opacity: 0 }} transition={TWEEN}>
-          <rect width="40" height="40" />
-        </wardic.svg>
-      ),
-      { mode: "popLayout" },
-    )
-    await frames(3)
-    const inner = one.q("inner")
-    expect((inner as SVGSVGElement).ownerSVGElement, "inside an `<svg>`").not.toBeNull()
-    one.close()
     await raf()
-    expect(inner.isConnected, "it stays for its exit").toBe(true)
-    expect(getComputedStyle(inner).position, "not pinned").toBe("static")
-    expect(getComputedStyle(inner).pointerEvents, "it keeps its input").toBe("auto")
-    expect(await seenPartway(inner, opacityOf, between), "it faded where it was").toBe(true)
-  })
-
-  it("PS18: a page rule on the container's children doesn't move where it's pinned", async () => {
-    const rule = document.createElement("style")
-    rule.textContent = '[data-k="box"] > * { margin: 9px; max-width: 30px; max-height: 30px; }'
-    document.head.append(rule)
-    try {
-      const swap = mountSwap({ anchorX: "right", anchorY: "bottom", box: { position: "relative", width: "300px", height: "200px" } })
-      const { was, at } = await popA(swap)
-      expect(was.width, "the rule sizes the icon").toBe(30)
-      expect(at, "in place").toEqual(was)
-    } finally {
-      rule.remove()
-    }
+    expect(rectOf(a), "in place").toEqual(was)
   })
 })

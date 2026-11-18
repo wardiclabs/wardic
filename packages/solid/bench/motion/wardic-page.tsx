@@ -1,7 +1,7 @@
 // `bench:motion`'s Wardic on Solid 1 (`DomLive`, `wardic.div`, every Feature, as Motion's `motion.div`),
 // or plain Solid divs with `?kind=plain`: bench:solid's page.
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid"
+import { wardic, WardicProvider } from "@wardic/solid/v1"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { render } from "solid-js/web"
 import { addStyle, atIn, install } from "./timing.ts"

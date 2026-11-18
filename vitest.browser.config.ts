@@ -5,11 +5,11 @@ import { defineConfig } from "vitest/config"
 // Composes the three real-browser projects so CI runs them in one pass:
 //   - @wardic/dom    (packages/dom/vitest.browser.config.ts) — the DOM ports
 //     against real observers / geometry / event timing.
-//   - @wardic/solid  (packages/solid/vitest.browser.config.ts) — rendered
-//     components + projection/FLIP against real layout (vite-plugin-solid).
+//   - browser        (packages/solid/vitest.browser.config.ts) — `@wardic/solid`, Solid 2's binding:
+//     rendered components + projection/FLIP against real layout.
 //   - hydrate        (packages/solid/vitest.hydrate.config.ts) — fixtures rendered on
 //     the server in Node, then hydrated in Chromium (ADR-0021).
-//   - v2-browser and v2-hydrate — the Solid 2 binding's, `@wardic/solid/unstable/v2` (#209).
+//   - v1-browser and v1-hydrate — the Solid 1 binding's, `@wardic/solid/v1` (#566).
 //   - foldkit-browser — `@wardic/foldkit`'s (#791): embedded Foldkit programs and Scene tests.
 //
 // The fast node tier (`bun run test`, vitest.config.ts) stays pure logic:
@@ -18,12 +18,13 @@ export default defineConfig({
   test: {
     projects: [
       "packages/dom/vitest.browser.config.ts",
+      // The Solid 2 binding, `@wardic/solid` (#209, #566): in Chromium, and its server render to
+      // hydration, Appear animations among them.
       "packages/solid/vitest.browser.config.ts",
       "packages/solid/vitest.hydrate.config.ts",
-      // The Solid 2 binding in Chromium, `@wardic/solid/unstable/v2` (#209).
-      "packages/solid/vitest.browser-v2.config.ts",
-      // The Solid 2 binding's server render to hydration, Appear animations among them (#209 PR 4a).
-      "packages/solid/vitest.hydrate-v2.config.ts",
+      // The Solid 1 binding, `@wardic/solid/v1` (#566), the same two.
+      "packages/solid/vitest.browser-v1.config.ts",
+      "packages/solid/vitest.hydrate-v1.config.ts",
       // The layout lab's page, mounted on either binding (#681).
       "examples/layout-lab/vitest.browser.config.ts",
       "examples/layout-lab/vitest.browser-v2.config.ts",

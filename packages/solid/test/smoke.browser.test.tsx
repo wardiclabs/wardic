@@ -1,52 +1,27 @@
-import { render } from "@solidjs/testing-library"
-import { expect, it } from "vitest"
-import { VERSION, WardicProvider } from "@wardic/solid"
+// The Solid 2 toolchain in a browser (#209): Solid 2's DOM compile, `@solidjs/web`'s render, reads
+// that lag their setters until `flush()`, and a ref factory.
+import * as Solid from "solid-js"
+import { createSignal, flush } from "solid-js"
+import { render } from "@solidjs/web"
+import { describe, expect, it } from "vitest"
 
-it("@wardic/solid resolves and exposes a version", () => {
-  // Its value is the package.json's: core's smoke test checks every VERSION (#559).
-  expect(VERSION).toMatch(/^\d+\.\d+\.\d+/)
-})
-
-it("@wardic/solid exposes a WardicProvider", () => {
-  expect(typeof WardicProvider).toBe("function")
-})
-
-it("renders a trivial Solid component via JSX", () => {
-  const { getByText } = render(() => <div>hi</div>)
-  expect(getByText("hi")).toBeTruthy()
-})
-
-/**
- * Smoke test for the real-browser harness: a real layout engine, so
- * `getBoundingClientRect` reflects actual CSS — the thing happy-dom cannot do.
- * If this passes, the Playwright/Chromium-via-nix setup works end-to-end.
- */
-it("real browser: getBoundingClientRect reflects real CSS layout", () => {
-  const { container } = render(() => (
-    <div
-      data-x
-      style={{ position: "absolute", left: "30px", top: "20px", width: "100px", height: "50px" }}
-    />
-  ))
-  const el = container.querySelector("[data-x]") as HTMLElement
-  const r = el.getBoundingClientRect()
-  expect(r.width).toBe(100)
-  expect(r.height).toBe(50)
-  expect(r.left).toBe(30)
-  expect(r.top).toBe(20)
-})
-
-it("real browser: a CSS transform composes into getBoundingClientRect", () => {
-  // A scaled element's measured box reflects the transform — real composition,
-  // which is exactly what the projection engine relies on.
-  const { container } = render(() => (
-    <div
-      data-x
-      style={{ position: "absolute", left: "0px", top: "0px", width: "100px", height: "100px", transform: "scale(2)", "transform-origin": "top left" }}
-    />
-  ))
-  const el = container.querySelector("[data-x]") as HTMLElement
-  const r = el.getBoundingClientRect()
-  expect(r.width).toBe(200) // 100 * scale(2)
-  expect(r.height).toBe(200)
+describe("Solid 2 in a browser", () => {
+  it("renders, updates after flush, and calls a ref factory's ref", () => {
+    expect((Solid as Record<string, unknown>).batch).toBeUndefined()
+    const host = document.createElement("div")
+    document.body.append(host)
+    const [label, setLabel] = createSignal("one")
+    const seen: Array<string> = []
+    const tag = (name: string) => (el: HTMLElement) => void seen.push(`${name}:${el.tagName}`)
+    const dispose = render(() => <p ref={tag("p")}>{label()}</p>, host)
+    expect(host.textContent).toBe("one")
+    setLabel("two")
+    // eslint-disable-next-line solid/reactivity -- read outside tracking on purpose: it lags its setter
+    expect(label(), "a read lags its setter").toBe("one")
+    flush()
+    expect(host.textContent).toBe("two")
+    expect(seen).toEqual(["p:P"])
+    dispose()
+    host.remove()
+  })
 })

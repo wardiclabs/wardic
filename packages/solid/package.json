@@ -1,7 +1,7 @@
 {
   "name": "@wardic/solid",
   "version": "1.1.3",
-  "description": "Motion for React's API on Solid 1 and Solid 2: Wardic's elements, gestures, layout and presence animations.",
+  "description": "Motion for React's API on Solid 2, and on Solid 1 at @wardic/solid/v1: Wardic's elements, gestures, layout and presence animations.",
   "keywords": [
     "animation",
     "motion",
@@ -50,6 +50,16 @@
       "node": "./dist/server/index.js",
       "default": "./dist/browser/index.js"
     },
+    "./v1": {
+      "@wardic/source": "./src/v1/index.tsx",
+      "types": "./dist/solid/v1/index.d.ts",
+      "solid": "./dist/solid/v1/index.jsx",
+      "browser": "./dist/browser/v1/index.js",
+      "worker": "./dist/server/v1/index.js",
+      "deno": "./dist/server/v1/index.js",
+      "node": "./dist/server/v1/index.js",
+      "default": "./dist/browser/v1/index.js"
+    },
     "./unstable/v2": {
       "@wardic/source": "./src/unstable/v2/index.tsx",
       "types": "./dist/solid/unstable/v2/index.d.ts",
@@ -64,7 +74,7 @@
   "scripts": {
     "build": "../../node_modules/typescript-7/bin/tsc --build",
     "typecheck": "../../node_modules/typescript-7/bin/tsc --build",
-    "typecheck:tests": "../../node_modules/typescript-7/bin/tsc -p tsconfig.test.json && ../../node_modules/typescript-7/bin/tsc -p tsconfig.v2.json"
+    "typecheck:tests": "../../node_modules/typescript-7/bin/tsc -p tsconfig.test.json && ../../node_modules/typescript-7/bin/tsc -p tsconfig.v1.json"
   },
   "dependencies": {
     "@solid-primitives/refs": "^1.1.3",

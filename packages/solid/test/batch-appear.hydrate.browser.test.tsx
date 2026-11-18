@@ -1,4 +1,4 @@
-// A Batch's members' Appear animations, server render to hydration, on Solid 1 (#706, ADR-0044
+// A Batch's members' Appear animations, server render to hydration, on Solid 2 (#706, ADR-0044
 // *Amendment (#706)*): every frame read after its callbacks, against the member's own Batch at its CSS
 // animation's time, or a Wardic element on the same spec beside it.
 //
@@ -22,7 +22,7 @@
 import * as Batch from "@wardic/core/Batch"
 import * as Bool from "effect/Boolean"
 import * as Rec from "effect/Record"
-import type { JSX } from "solid-js"
+import type { JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { countReads } from "./appear-reads.ts"
@@ -40,7 +40,7 @@ afterEach(async () => {
 })
 
 beforeAll(async () => {
-  await commands.serverRenderPage(FILE, "B1", "warm")
+  await commands.serverRender2(FILE, "B1", "warm")
 }, 60_000)
 
 const F = 1 / 60

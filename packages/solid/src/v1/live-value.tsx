@@ -1,0 +1,293 @@
+/**
+ * Live values for Solid (#130, ADR-0043): `createTransform`, `createFollowValue` and `createSpring`,
+ * core's `LiveValue` helpers wrapped, each taking a Live value as Solid has one (an accessor, or an
+ * `effect/reactivity` Atom) and giving an accessor back, for an element's `style` or anything else.
+ *
+ * - `createTransform(source, fn)` maps through a function (Motion's `useTransform(value, fn)`);
+ *   `createTransform(source, input, output, { clamp })` maps ranges (Motion's
+ *   `useTransform(value, input, output)`), each pair of outputs blended through the Environment's
+ *   `InterpolatorRegistry`, so colours and unit strings map as `animate` blends them.
+ * - `createFollowValue(source, transition)` follows its source on any transition, on the Frame loop
+ *   (Motion's `useFollowValue`, #441), idle while it rests; `createSpring(source, options)` is its
+ *   spring case (Motion's `useSpring`).
+ * - `createScroll(options)` is a container's scroll (Motion's `useScroll`, #234): `scrollX`,
+ *   `scrollY` and their progress, through Motion's offsets for a `target`.
+ * - `createVelocity(source)` is a value's velocity a second, per frame (Motion's `useVelocity`).
+ * - `createTime()` is the milliseconds since it was created (Motion's `useTime`).
+ * - `createWillChange()` is a `willChange` that turns on as its element animates (Motion's `useWillChange`, #443).
+ *
+ * Call them where you'd create a signal (a component's body): each owns what it subscribes to
+ * until its owner is disposed. On a server, each gives its source's value as it is now (ADR-0021).
+ */
+import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import * as LiveValue from "@wardic/core/LiveValue"
+import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
+import * as Predicate from "effect/Predicate"
+import * as Atom from "effect/reactivity/Atom"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
+import * as UndefinedOr from "effect/UndefinedOr"
+import * as Scope from "effect/Scope"
+import { type Accessor, createComputed, createMemo, on, onCleanup, untrack } from "solid-js"
+import { eachFrameOf } from "../animation-frame.ts"
+import { fromAtom } from "./bridge.tsx"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
+import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import type { WardicRuntime, WardicServices } from "../runtime.ts"
+import { isServer } from "./server.ts"
+import * as ServerInterpolators from "@wardic/dom/unstable/ServerInterpolators"
+
+/** A Live value as an accessor: an accessor as it is, an Atom read through the provider's registry. */
+const accessorOf = <A,>(source: LiveStyle.LiveSource<A>): Accessor<A> =>
+  Bool.match(Atom.isAtom(source), {
+    onTrue: () => atomAccessorOf(source as Atom.Atom<A>),
+    onFalse: () => source as Accessor<A>,
+  })
+
+/** An Atom as an accessor: on a server, read once; on the client, followed. A plain `if`, so a client build drops the server's read (#518). */
+const atomAccessorOf = <A,>(atom: Atom.Atom<A>): Accessor<A> => {
+  if (isServer) return () => LiveStyle.readLive(atom, LiveStyle.serverRegistryOf, untrack) as A
+  return fromAtom(atom)
+}
+
+/**
+ * A value mapped from another: through a function, `createTransform(x, (x) => x * 2)`, or through
+ * ranges, `createTransform(x, input, output)`: a source at `input[i]` gives `output[i]`, and one between
+ * two stops blends their outputs, numbers, units and colours alike. `input` is as long as `output`,
+ * ascending or descending; outside it the ends hold, unless `clamp: false`. `ease` eases each stretch,
+ * one for all or one each, and a `mixer`, `(from, to) => (t) => value`, blends outputs of any type. The function form needs no `WardicProvider` when its source is a signal.
+ * Through ranges from a `createScroll` value, the browser draws it with the scroll where it can.
+ * Motion's `useTransform`.
+ *
+ * @example
+ * const card = createWard({ drag: "x" })
+ * const opacity = createTransform(card.value("x"), [-150, 0, 150], [0, 1, 0])
+ * <div {...card({ style: { opacity } })} />
+ * @see https://wardic.dev/reference/solid/live-values/create-transform
+ */
+// #440 (descending ranges, `mixer`), #360 (`ease`).
+export function createTransform<A, B>(source: LiveStyle.LiveSource<A>, fn: (a: A) => B): Accessor<B>
+export function createTransform<O extends number | string>(
+  source: LiveStyle.LiveSource<number>,
+  input: ReadonlyArray<number>,
+  output: ReadonlyArray<O>,
+  options?: LiveValue.TransformOptions<O>,
+): Accessor<O>
+export function createTransform<O>(source: LiveStyle.LiveSource<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: LiveValue.MixedTransformOptions<O>): Accessor<O>
+export function createTransform(
+  source: LiveStyle.LiveSource<unknown>,
+  fnOrInput: ((a: unknown) => unknown) | ReadonlyArray<number>,
+  output?: ReadonlyArray<unknown>,
+  options?: LiveValue.TransformOptions<unknown>,
+): Accessor<unknown> {
+  if (Predicate.isFunction(fnOrInput)) {
+    const read = accessorOf(source)
+    return createMemo(() => fnOrInput(read()))
+  }
+  // On an Atom, its own or the one it carries: derived on it by core, so it's set where its source is,
+  // and one from a scroll is described for a Timeline value (#240).
+  if (!isServer) {
+    const atom = LiveStyle.atomOf(source)
+    if (Predicate.isNotUndefined(atom)) return liveOf(useWardicRuntime(), LiveStyle.rangesOf(atom, fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options))
+  }
+  const read = accessorOf(source)
+  const map = interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options)
+  return createMemo(() => map(read() as number))
+}
+
+/**
+ * The ranges' mapping, resolved once: through the provider's `InterpolatorRegistry` on a client,
+ * the DOM's on a server, which builds no runtime (ADR-0021).
+ */
+const interpolatorOf = <O,>(
+  input: ReadonlyArray<number>,
+  output: ReadonlyArray<O>,
+  options: LiveValue.TransformOptions<O> | undefined,
+): ((v: number) => O) => {
+  // Typed at `createTransform`'s overloads: numbers and strings through the registry, any type through a
+  // `mixer` (#440). Here one mapping serves both.
+  const mapping = LiveValue.interpolate(input, output as ReadonlyArray<number | string>, options as LiveValue.TransformOptions | undefined) as unknown as Effect.Effect<
+    (v: number) => O,
+    never,
+    InterpolatorRegistry.InterpolatorRegistry
+  >
+  if (isServer) return Effect.runSync(ServerInterpolators.withServerInterpolators(mapping))
+  return useWardicRuntime().runSync(mapping)
+}
+
+/**
+ * A value that follows `source` on a transition, in seconds: from each change of `source`, it animates
+ * there, then rests. No `type` is a spring, 100 / 10 / 1 unless it's set by time; `type: "tween"` is
+ * 0.3 s `easeInOut`; `type: "inertia"` glides. A change mid-way: a spring steers to it, keeping its
+ * speed; a tween starts again from where it is; an inertia glides again from there. `delay` waits at
+ * every change, so a source that never rests moves it once it does. A string with a unit, `"10px"`,
+ * is followed as its number. `jump(value)` puts it somewhere at once. Motion's `useFollowValue`.
+ *
+ * @example
+ * const [x, setX] = createSignal(0)
+ * const eased = createFollowValue(x, { type: "tween", duration: 0.4, ease: "easeOut" })
+ * <w.div style={{ x: eased }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-follow-value
+ */
+// #441: on the Frame loop, idle while it rests, ended with its owner. An inertia mid-flight glides again,
+// its target unread (#435). A `velocity` given is the one every run starts or steers with.
+export function createFollowValue(source: LiveStyle.LiveSource<number>, options?: LiveStyle.FollowValueOptions): LiveStyle.FollowAccessor<number>
+export function createFollowValue(source: LiveStyle.LiveSource<string>, options?: LiveStyle.FollowValueOptions): LiveStyle.FollowAccessor<string>
+export function createFollowValue(source: LiveStyle.LiveSource<number | string>, options: LiveStyle.FollowValueOptions = {}): LiveStyle.FollowAccessor<number | string> {
+  const runtime = useWardicRuntime()
+  const read = accessorOf(source)
+  if (isServer) return LiveStyle.serverFollowOf(read)
+  // Its nearest WardicConfig's `skipAnimations` (#468): each change lands at once while it's on.
+  const skipped = useWardicSkipAnimations()
+  const transition = LiveStyle.followOptionsOf(options)
+  const initial = untrack(read)
+  // A string's accessor or a number's, as its source started.
+  return LiveStyle.followAccessorOf(
+    runtime,
+    Bool.match(Predicate.isString(initial), {
+      onFalse: () => derivedOf(source as LiveStyle.LiveSource<number>, read as Accessor<number>, (atom) => LiveValue.follow(atom, transition, skipped)),
+      // A unit string: its number followed, shown with the unit it started with (Motion's).
+      onTrue: () =>
+        derivedOf(
+          () => LiveStyle.numberOf(read()),
+          read as Accessor<string>,
+          (atom) => Effect.map(LiveValue.follow(atom, transition, skipped), LiveStyle.withUnit(LiveStyle.unitOf(initial as string))),
+        ) as Accessor<number | string>,
+    }),
+  )
+}
+
+/**
+ * A value that follows `source` on a spring: from each change, it springs there, a change mid-way
+ * keeping its speed. `stiffness`, `damping` and `mass`, 100 / 10 / 1 by default, or a `visualDuration`
+ * and `bounce`. A string with a unit, `"10px"`, is followed as its number. `jump(value)` puts it
+ * somewhere at once, and `skipInitialAnimation` makes the source's first change a jump.
+ * Motion's `useSpring`.
+ *
+ * @example
+ * const [x, setX] = createSignal(0)
+ * const followX = createSpring(x, { stiffness: 300, damping: 30 })
+ * <w.div style={{ x: followX }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-spring
+ */
+// `createFollowValue`'s spring case (#441), at rest within 0.001.
+export function createSpring(source: LiveStyle.LiveSource<number>, options?: LiveValue.SpringOptions): LiveStyle.SpringAccessor<number>
+export function createSpring(source: LiveStyle.LiveSource<string>, options?: LiveValue.SpringOptions): LiveStyle.SpringAccessor<string>
+export function createSpring(source: LiveStyle.LiveSource<number | string>, options: LiveValue.SpringOptions = {}): LiveStyle.SpringAccessor<number | string> {
+  return createFollowValue(source as LiveStyle.LiveSource<number>, { ...options, type: "spring" })
+}
+
+/**
+ * How fast `source` is changing, in its units a second: 0 to begin with, then each frame while it
+ * moves, and 0 once it stops. A velocity is a value too: `createVelocity(createVelocity(x))` is its
+ * acceleration. Motion's `useVelocity`.
+ *
+ * @example
+ * const { scrollY } = createScroll()
+ * const skewY = createTransform(createVelocity(scrollY), [-1000, 1000], [-8, 8])
+ * @see https://wardic.dev/reference/solid/live-values/create-velocity
+ */
+export const createVelocity = (source: LiveStyle.LiveSource<number>): Accessor<number> => derivedOf(source, () => 0, LiveValue.velocity)
+
+/**
+ * The milliseconds since it was made, wall time, set every frame while its owner lives: for something
+ * that turns forever. It keeps Wardic's frames running while it lives. Motion's `useTime`.
+ *
+ * @example
+ * const rotate = createTransform(createTime(), (ms) => (ms / 1000) * 90)
+ * <w.div style={{ rotate }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-time
+ */
+export const createTime = (): Accessor<number> => {
+  const runtime = useWardicRuntime()
+  if (isServer) return SERVER_ZERO
+  return liveOf(runtime, LiveValue.time())
+}
+
+/**
+ * A value derived from `source` by one of core's helpers, as an accessor: an accessor source
+ * mirrored into an Atom first. On a server, `serverValue`: nothing runs there (ADR-0021).
+ */
+const derivedOf = <A, R>(
+  source: LiveStyle.LiveSource<number>,
+  serverValue: Accessor<A>,
+  make: (atom: Atom.Atom<number>) => Effect.Effect<Atom.Atom<A>, never, R>,
+): Accessor<A> => {
+  const runtime = useWardicRuntime()
+  if (isServer) return serverValue
+  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+  // Its own Atom, or the one it carries (another helper's): a jump of it reaches a velocity of it.
+  const atom = UndefinedOr.match(LiveStyle.atomOf(source) as Atom.Atom<number> | undefined, {
+    onDefined: identity,
+    onUndefined: () => mirrorOf(source as Accessor<number>, registry),
+  })
+  return liveOf(runtime, make(atom))
+}
+
+/** A helper's Atom on the provider's runtime, in a Scope its owner's disposal closes, as an accessor carrying it. */
+const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, never, R>): Accessor<A> => {
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
+  const out = runtime.runSync((live as Effect.Effect<Atom.Atom<A>, never, WardicServices | Scope.Scope>).pipe(Scope.provide(scope)))
+  return LiveStyle.carry(fromAtom(out), out)
+}
+
+/** A server render's value of a Live helper: 0, and no Atom. Internal. */
+export const SERVER_ZERO: Accessor<number> = () => 0
+
+/**
+ * A `will-change` for an element's `style`: `"auto"` until the element first animates a transform key,
+ * `opacity`, `clipPath`, `filter` or `backgroundColor`, or is dragged; then `"transform"`, for good, so
+ * the browser keeps it on a layer of its own from its first move on. A key already at its target and a
+ * layout animation don't count. `"auto"` on a server. Motion's `useWillChange`.
+ *
+ * @example
+ * const willChange = createWillChange()
+ * <w.div whileHover={{ scale: 1.1 }} style={{ "will-change": willChange }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-will-change
+ */
+// #443.
+export const createWillChange = (): Accessor<LiveStyle.WillChange> => {
+  if (isServer) return SERVER_AUTO
+  const runtime = useWardicRuntime()
+  return LiveStyle.willChangeOf(runtime.runSync(AtomRegistry.AtomRegistry), onCleanup, (atom) => LiveStyle.carry(fromAtom(atom), atom))
+}
+
+const SERVER_AUTO: Accessor<LiveStyle.WillChange> = () => "auto"
+
+/**
+ * Calls `callback` every frame while its owner lives, with the frame's `time` and `delta` in
+ * milliseconds: for what a frame draws itself, such as a canvas or a 3D scene. `time` is 0 at the
+ * first frame, then wall time since, a hidden tab's minutes included; `delta` is the frame's own, held
+ * to 1–40 ms, so the first frame back from a hidden tab steps 40 ms. A throw is logged, and the next
+ * frame calls it again. Nothing runs on a server. Motion's `useAnimationFrame`.
+ *
+ * @example
+ * createAnimationFrame((time) => {
+ *   cube.style.transform = `rotateY(${time / 10}deg)`
+ * })
+ * @see https://wardic.dev/reference/solid/live-values/create-animation-frame
+ */
+// #443. It keeps the Clock ticking every frame. A throw is logged at the first of a run of throws, as
+// `onUpdate`'s.
+export const createAnimationFrame = (callback: (time: number, delta: number) => void): void => {
+  if (isServer) return
+  const runtime = useWardicRuntime()
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
+  runtime.runSync(eachFrameOf(runtime, callback).pipe(Scope.provide(scope)))
+}
+
+
+/** An accessor as an Atom, set as it changes, and held in `registry` until its owner's disposal. */
+const mirrorOf = <A,>(accessor: Accessor<A>, registry: AtomRegistry.AtomRegistry): Atom.Writable<A> => {
+  const atom = Atom.make(untrack(accessor))
+  onCleanup(registry.mount(atom))
+  createComputed(on(accessor, (value) => registry.set(atom, value), { defer: true }))
+  return atom
+}
+
+/** What a helper's Scope reports when one of its finalizers fails as its owner goes. */
+export const CLOSE_FAILED = "wardic.liveValue: a finalizer failed"

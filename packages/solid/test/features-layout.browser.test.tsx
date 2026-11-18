@@ -1,46 +1,37 @@
-// The `layout` Feature (#511, ADR-0067), on the Solid 1 binding: the projection system is a Feature,
-// built once for its provider when an element whose section has it first asks, or when a component
-// that brings it does.
-// - FL1, without `layout`, a `w.div`'s `layout` does nothing: the element jumps, and development says so
-//   once per provider, naming the import.
-// - FL2, `layout` given at once to the provider: a `w.div` animates its layout change, declared through a
-//   `useAnimateLayout` taken before anything built `layout`.
-// - FL3, `layout` loaded lazily: no word while it's on its way, and an element mounted once it's here
+// The `layout` Feature (#511, ADR-0067), on the Solid 2 binding, as `../features-layout.browser.test.tsx`
+// is on Solid 1's.
+// - FLV1, without `layout`, a `w.div`'s `layout` does nothing: the element jumps, and development says
+//   so once per provider, naming the import.
+// - FLV2, `layout` given at once to the provider: a `w.div` animates its layout change, declared
+//   through a `useAnimateLayout` taken before anything built `layout`.
+// - FLV3, `layout` loaded lazily: no word while it's on its way, and an element mounted once it's here
 //   animates its layout change.
-// - FL7 (#582), an element mounted while `layout` is on its way makes its node as it arrives, and
+// - FLV7 (#582), an element mounted while `layout` is on its way makes its node as it arrives, and
 //   animates its next layout change, as Motion's does.
-// - FL8 (#582), a lazy load that lands without `layout`: development says so then, once.
-// - FL9 (#582), `drag` and `layout` from one lazy load: an element mounted while they're on their way
+// - FLV8 (#582), a lazy load that lands without `layout`: development says so then, once.
+// - FLV9 (#582), `drag` and `layout` from one lazy load: an element mounted while they're on their way
 //   drags as one that had both at mount, through its layout node.
-// - FL4, what brings no Feature works without `layout`, and builds none: an `AnimatePresence`'s Slim
+// - FLV4, what brings no Feature works without `layout`, and builds none: an `AnimatePresence`'s Slim
 //   child exits, and `useAnimateLayout` runs its change and settles. `LayoutGroup` brings it.
-// - FL6 (#535), a provider builds its own Features at the browser's idle time once it has mounted, with
+// - FLV6 (#535), a provider builds its own Features at the browser's idle time once it has settled, with
 //   no element under it: none at its mount, `layout` once idle.
-// - FL5, `colors` given at once to the provider: a `w.div` reads `oklch()` as a colour. #515's sections
-//   built such Features only when something read them, which no element did. Last, as colour spaces are
-//   the page's.
-import { cleanup, render } from "@solidjs/testing-library"
+// - FLV5, `colors` given at once to the provider: a `w.div` reads `oklch()` as a colour. #515's
+//   sections built such Features only when something read them, which no element did. Last, as colour
+//   spaces are the page's.
+import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, colors, drag, type FeatureLoad, type FeaturesProp, hover, layout, LayoutGroup, LazyWardic, useAnimateLayout, w, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { constVoid } from "effect/Function"
-import { createSignal, For, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { createSignal, flush, For, Show } from "solid-js"
+import { describe, expect, it, vi } from "vitest"
 import { useBuiltProjection } from "../src/provider.tsx"
 import { leftOf, raf, until } from "./browser-helpers.ts"
 import { pushedPointer } from "./pushed-pointer.ts"
-import { resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
+import { mount } from "./mount.tsx"
+import { sampleFrames, settle, wait } from "./reorder-scene.tsx"
 
-afterEach(async () => {
-  await resetScene()
-  cleanup()
-})
-
-const CSS = `
-  .fl-stage{position:relative;width:600px;height:120px}
-  .fl-box{position:absolute;top:0;left:0;width:100px;height:100px}
-  .fl-box.moved{left:200px}
-`
+const BOX = { position: "absolute", top: "0px", left: "0px", width: "100px", height: "100px" } as const
 const LAYOUT_WORD = "needs the `layout` Feature"
 
 /** Every line logged while `run` runs. */
@@ -63,30 +54,33 @@ const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> 
 const between = async (el: () => HTMLElement, base: number, go: () => void): Promise<ReadonlyArray<number>> => {
   const sampling = sampleFrames(() => leftOf(el()))
   go()
+  flush()
   await wait(700)
   return sampling.stop().map((f) => f.v).filter((left) => left > base + 20 && left < base + 180)
 }
 
+/** A stage padded `left` px on the left: its boxes move with it. */
+const stage = (left: () => number): JSX.CSSProperties => ({ position: "relative", width: "600px", height: "120px", "padding-left": `${left()}px` })
+
 /** Two oklch() colours, `on` the second. */
 const tint = (on: boolean): string => Bool.match(on, { onTrue: () => "oklch(0.7 0.3 100)", onFalse: () => "oklch(0.5 0.1 200)" })
 
-describe("The layout Feature (#511), Solid 1", () => {
-  it("FL1: without `layout`, a w.div's layout prop does nothing, and development says so once per provider", async () => {
-    const [moved, setMoved] = createSignal(false)
+describe("The layout Feature (#511), Solid 2", () => {
+  it("FLV1: without `layout`, a w.div's layout prop does nothing, and development says so once per provider", async () => {
+    const [left, setLeft] = createSignal(0)
     const els: Array<HTMLElement> = []
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
-          <style>{CSS}</style>
-          <div class="fl-stage">
-            <For each={[0, 1]}>{() => <w.div ref={(n: HTMLElement) => els.push(n)} class="fl-box" classList={{ moved: moved() }} layout layoutDependency={moved()} />}</For>
+          <div style={stage(left)}>
+            <For each={[0, 1]}>{() => <w.div ref={(n: HTMLElement) => els.push(n)} style={{ ...BOX, position: "relative" }} layout layoutDependency={left()} />}</For>
           </div>
         </WardicProvider>
       ))
       await raf()
       await raf()
       const base = leftOf(els[0]!)
-      expect(await between(() => els[0]!, base, () => setMoved(true)), "no frame between: it jumps").toEqual([])
+      expect(await between(() => els[0]!, base, () => setLeft(200)), "no frame between: it jumps").toEqual([])
     })
     const words = lines.filter((l) => l.includes(LAYOUT_WORD))
     expect(words, "one word for two elements").toHaveLength(1)
@@ -94,8 +88,8 @@ describe("The layout Feature (#511), Solid 1", () => {
     expect(words[0], "no Complete element, which `strict` makes an error (#581)").not.toContain("wardic.*")
   })
 
-  it("FL2: `layout` given at once to the provider: a w.div animates its layout change, declared before it's built", async () => {
-    const [moved, setMoved] = createSignal(false)
+  it("FLV2: `layout` given at once to the provider: a w.div animates its layout change, declared before it's built", async () => {
+    const [left, setLeft] = createSignal(0)
     let el!: HTMLElement
     // Taken before any element builds `layout`: it reads the projection system at each call.
     let animateLayout!: ReturnType<typeof useAnimateLayout>
@@ -103,40 +97,47 @@ describe("The layout Feature (#511), Solid 1", () => {
       animateLayout = useAnimateLayout()
       return undefined
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive} features={[layout]}>
-        <style>{CSS}</style>
         <Probe />
-        <div class="fl-stage">
-          <w.div ref={(n: HTMLElement) => (el = n)} class="fl-box" classList={{ moved: moved() }} layout />
+        <div style={stage(left)}>
+          <w.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, position: "relative" }} layout />
         </div>
       </WardicProvider>
     ))
     await raf()
     await raf()
     const base = leftOf(el)
-    expect((await between(() => el, base, () => animateLayout(() => setMoved(true)))).length, "frames between").toBeGreaterThan(3)
+    const moves = await between(
+      () => el,
+      base,
+      () =>
+        void animateLayout(() => {
+          setLeft(200)
+          flush()
+        }),
+    )
+    expect(moves.length, "frames between").toBeGreaterThan(3)
     await until(() => Math.abs(leftOf(el) - (base + 200)) < 1)
   })
 
-  it("FL3: `layout` loaded lazily: no word while it's on its way, and an element mounted once it's here animates", async () => {
+  it("FLV3: `layout` loaded lazily: no word while it's on its way, and an element mounted once it's here animates", async () => {
     let arrive!: () => void
     const load: FeatureLoad = () =>
       new Promise((resolve) => {
         arrive = () => resolve([layout])
       })
     const [shown, setShown] = createSignal(false)
-    const [moved, setMoved] = createSignal(false)
+    const [left, setLeft] = createSignal(0)
     let el!: HTMLElement
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
-          <style>{CSS}</style>
-          <div class="fl-stage">
+          <div style={stage(left)}>
             <LazyWardic features={load}>
-              <w.div class="fl-box" layout />
+              <w.div style={BOX} layout />
               <Show when={shown()}>
-                <w.div ref={(n: HTMLElement) => (el = n)} class="fl-box" classList={{ moved: moved() }} layout layoutDependency={moved()} />
+                <w.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, position: "relative" }} layout layoutDependency={left()} />
               </Show>
             </LazyWardic>
           </div>
@@ -148,26 +149,26 @@ describe("The layout Feature (#511), Solid 1", () => {
     arrive()
     await wait(50)
     setShown(true)
+    flush()
     await raf()
     await raf()
     const base = leftOf(el)
-    expect((await between(() => el, base, () => setMoved(true))).length, "frames between").toBeGreaterThan(3)
+    expect((await between(() => el, base, () => setLeft(200))).length, "frames between").toBeGreaterThan(3)
   })
 
-  it("FL7: `layout` loaded lazily: an element mounted while it's on its way animates its layout change once it's here (#582)", async () => {
+  it("FLV7: `layout` loaded lazily: an element mounted while it's on its way animates its layout change once it's here (#582)", async () => {
     let arrive!: () => void
     const load: FeatureLoad = () =>
       new Promise((resolve) => {
         arrive = () => resolve([layout])
       })
-    const [moved, setMoved] = createSignal(false)
+    const [left, setLeft] = createSignal(0)
     let el!: HTMLElement
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
-        <style>{CSS}</style>
-        <div class="fl-stage">
+        <div style={stage(left)}>
           <LazyWardic features={load}>
-            <w.div ref={(n: HTMLElement) => (el = n)} class="fl-box" classList={{ moved: moved() }} layout layoutDependency={moved()} />
+            <w.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, position: "relative" }} layout layoutDependency={left()} />
           </LazyWardic>
         </div>
       </WardicProvider>
@@ -176,23 +177,22 @@ describe("The layout Feature (#511), Solid 1", () => {
     arrive()
     await wait(50)
     const base = leftOf(el)
-    expect((await between(() => el, base, () => setMoved(true))).length, "frames between").toBeGreaterThan(3)
+    expect((await between(() => el, base, () => setLeft(200))).length, "frames between").toBeGreaterThan(3)
     await until(() => Math.abs(leftOf(el) - (base + 200)) < 1)
   })
 
-  it("FL8: a lazy load that lands without `layout`: development says so then, once (#582)", async () => {
+  it("FLV8: a lazy load that lands without `layout`: development says so then, once (#582)", async () => {
     let arrive!: () => void
     const load: FeatureLoad = () =>
       new Promise((resolve) => {
         arrive = () => resolve([hover])
       })
     const before = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
-          <style>{CSS}</style>
-          <div class="fl-stage">
+          <div style={stage(() => 0)}>
             <LazyWardic features={load}>
-              <For each={[0, 1]}>{() => <w.div class="fl-box" layout />}</For>
+              <For each={[0, 1]}>{() => <w.div style={BOX} layout />}</For>
             </LazyWardic>
           </div>
         </WardicProvider>
@@ -207,18 +207,17 @@ describe("The layout Feature (#511), Solid 1", () => {
     expect(after.filter((l) => l.includes(LAYOUT_WORD)), "one word for two elements, once it has landed").toHaveLength(1)
   })
 
-  it("FL9: `drag` and `layout` from one lazy load: an element mounted while they're on their way drags as one that had them at mount (#582)", async () => {
+  it("FLV9: `drag` and `layout` from one lazy load: an element mounted while they're on their way drags as one that had them at mount (#582)", async () => {
     /** One gesture on a `w.div drag layout` under `features`: where it's drawn as it's held, and once it has landed. */
     const gesture = async (features: FeaturesProp, arrive: () => void): Promise<{ readonly held: number; readonly after: number }> => {
       // Pushed input: one draggable on the page at a time, as drags are claimed page-wide (ADR-0019).
       const pointer = pushedPointer()
       let el!: HTMLElement
-      render(() => (
+      const scene = mount(() => (
         <WardicProvider env={pointer.env}>
-          <style>{CSS}</style>
-          <div class="fl-stage">
+          <div style={stage(() => 0)}>
             <LazyWardic features={features}>
-              <w.div ref={(n: HTMLElement) => (el = n)} class="fl-box" drag="x" dragMomentum={false} layout />
+              <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} layout />
             </LazyWardic>
           </div>
         </WardicProvider>
@@ -235,7 +234,7 @@ describe("The layout Feature (#511), Solid 1", () => {
       pointer.push("up", 100)
       await wait(1200)
       const after = leftOf(el) - x0
-      cleanup()
+      scene.unmount()
       return { held, after }
     }
     let arrive!: () => void
@@ -249,7 +248,7 @@ describe("The layout Feature (#511), Solid 1", () => {
     expect(Math.round(late.after), "and lands as the one that had both at mount").toBe(Math.round(atMount.after))
   })
 
-  it("FL4: an AnimatePresence's Slim child exits and useAnimateLayout settles without `layout`, building none; LayoutGroup brings it", async () => {
+  it("FLV4: an AnimatePresence's Slim child exits and useAnimateLayout settles without `layout`, building none; LayoutGroup brings it", async () => {
     const [shown, setShown] = createSignal(true)
     let built!: () => unknown
     let animateLayout!: ReturnType<typeof useAnimateLayout>
@@ -258,7 +257,7 @@ describe("The layout Feature (#511), Solid 1", () => {
       animateLayout = useAnimateLayout()
       return undefined
     }
-    const { container } = render(() => (
+    const first = mount(() => (
       <WardicProvider env={DomLive}>
         <Probe />
         <AnimatePresence>
@@ -270,15 +269,14 @@ describe("The layout Feature (#511), Solid 1", () => {
     ))
     await settle()
     setShown(false)
-    await until(() => container.querySelector("[data-leaver]") === null, 2000)
-    expect(container.querySelector("[data-leaver]"), "the exit ran and the child went").toBeNull()
-    let settled = false
-    expect(animateLayout(() => 7, { onSettled: () => (settled = true) }), "the change ran").toBe(7)
-    expect(settled, "and settled").toBe(true)
+    flush()
+    await until(() => first.host.querySelector("[data-leaver]") === null, 2000)
+    expect(first.host.querySelector("[data-leaver]"), "the exit ran and the child went").toBeNull()
+    await expect(animateLayout(() => 7), "the change ran and settled").resolves.toBe(7)
     expect(built(), "no projection system built").toBeUndefined()
 
-    cleanup()
-    render(() => (
+    first.unmount()
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Probe />
         <LayoutGroup>
@@ -289,13 +287,13 @@ describe("The layout Feature (#511), Solid 1", () => {
     expect(built(), "LayoutGroup built it").toBeDefined()
   })
 
-  it("FL6: a provider builds its own Features at idle once it has mounted, with no element under it", async () => {
+  it("FLV6: a provider builds its own Features at idle once it has settled, with no element under it", async () => {
     let built!: () => unknown
     const Probe = (): JSX.Element => {
       built = useBuiltProjection()
       return null
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive} features={[layout]}>
         <Probe />
       </WardicProvider>
@@ -304,10 +302,10 @@ describe("The layout Feature (#511), Solid 1", () => {
     await until(() => built() !== undefined, 2000, "`layout` built at idle")
   })
 
-  it("FL5: `colors` given at once to the provider: a w.div reads oklch() as a colour", async () => {
+  it("FLV5: `colors` given at once to the provider: a w.div reads oklch() as a colour", async () => {
     const [on, setOn] = createSignal(false)
     let el!: HTMLElement
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive} features={[colors]}>
         <w.div
           ref={(n: HTMLElement) => (el = n)}
@@ -321,6 +319,7 @@ describe("The layout Feature (#511), Solid 1", () => {
     await settle()
     const sampling = sampleFrames(() => el.style.backgroundColor)
     setOn(true)
+    flush()
     await wait(500)
     const painted = sampling.stop().map((f) => f.v)
     expect(painted.filter((v) => v.startsWith("rgb")).length, "frames in sRGB").toBeGreaterThan(3)

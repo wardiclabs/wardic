@@ -1,15 +1,16 @@
-// Fixtures for `Reorder.BatchGroup`'s server render to hydration on Solid 1 (#712's PR 3, Q37, Q39): each export
+// Fixtures for `Reorder.BatchGroup`'s server render to hydration on Solid 2 (#712's PR 3, Q37, Q39): each export
 // is rendered on the server by the `serverRender` command and hydrated from this same module.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Reorder, WardicProvider } from "@wardic/solid"
-import { For, type JSX } from "solid-js"
+import type { JSX } from "@solidjs/web"
+import { For } from "solid-js"
 
 const VALUES = ["a", "b", "c", "d", "e"]
 const LOOK: JSX.CSSProperties = { background: "teal", "box-sizing": "border-box" }
 
-const list = (props: { readonly axis: "x" | "y" | "xy"; readonly width?: number; readonly direction?: "rtl"; readonly padding?: number; readonly fades?: boolean; readonly plain?: boolean }) => (
+const list = (props: { readonly axis: "x" | "y" | "xy"; readonly width?: number; readonly direction?: "rtl"; readonly padding?: number; readonly fades?: boolean }) => (
   <Reorder.BatchGroup
     values={VALUES}
     onReorder={() => {}}
@@ -26,7 +27,7 @@ const list = (props: { readonly axis: "x" | "y" | "xy"; readonly width?: number;
   >
     <For each={VALUES}>
       {(value) => (
-        <Reorder.BatchItem value={value} data-k={value} {...Bool.match(props.plain === true, { onTrue: () => ({}), onFalse: () => ({ style: LOOK }) })}>
+        <Reorder.BatchItem value={value} data-k={value} style={LOOK}>
           {value}
         </Reorder.BatchItem>
       )}
@@ -48,12 +49,6 @@ export const R4 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis:
 
 /** A column, padded 12 px. */
 export const R5 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "y", padding: 12 })}</WardicProvider>
-
-/** A grid with no `columns` in a 300 px group, its items with no style of their own: the group's alone (Q47). */
-export const R6 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "xy", width: 300, plain: true })}</WardicProvider>
-
-/** A padded column, its items the group's alone. */
-export const R7 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "y", padding: 12, plain: true })}</WardicProvider>
 
 /** Each item's own size (#714): by its value. */
 const WIDTHS: Readonly<Record<string, number>> = { a: 80, b: 120, c: 60, d: 100, e: 40 }

@@ -1,4 +1,4 @@
-// Timeline values in Solid (#240, ADR-0043 *Amendment (#240)*): a `style` key whose Live value derives
+// Timeline values in Solid 2 (#240, ADR-0043 *Amendment (#240)*): a `style` key whose Live value derives
 // from a container's scroll by ranges alone runs on the box's native scroll timeline while the key shows
 // it, the gate still writing it inline under the animation. Chromium.
 //
@@ -13,15 +13,18 @@
 // - TL6: the key gone from the `style` stops it; back, it runs again.
 // - TL7: an Imperative animation of the key stops it while it draws the key.
 // - TL8: the key's source swapped for another scroll value's runs the new one.
-import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createScroll, createTransform, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid"
-import { createSignal } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
-import { raf } from "./browser-helpers.ts"
-import { resetScene, settle, wait } from "./reorder-harness.tsx"
+import { createSignal, flush } from "solid-js"
+import { describe, expect, it } from "vitest"
+import { afterPaint, raf } from "./browser-helpers.ts"
+import { mount } from "./mount.tsx"
 
-afterEach(resetScene)
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 4; i++) await raf()
+  await afterPaint()
+}
 
 /** A 200 × 100 scroll box over a 1000px column: 900px of scroll. */
 const Box = (props: { readonly box: (el: HTMLDivElement) => void }) => (
@@ -53,7 +56,7 @@ const sourceOf = async (el: Element): Promise<Element | null> => {
 
 const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
 
-describe("Timeline values in Solid (#240)", () => {
+describe("Timeline values in Solid 2 (#240)", () => {
   it("TL1: a range transform of a progress, on opacity and on scaleX, each runs on the box's ScrollTimeline, drawing Wardic's value", async () => {
     let box!: HTMLDivElement
     let fade!: HTMLDivElement
@@ -66,12 +69,12 @@ describe("Timeline values in Solid (#240)", () => {
       return (
         <>
           <Box box={(el) => (box = el)} />
-          <wardic.div ref={fade} style={{ width: "10px", height: "10px", opacity }} />
-          <wardic.div ref={bar} style={barStyle} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={{ width: "10px", height: "10px", opacity }} />
+          <wardic.div ref={(n: HTMLElement) => (bar = n as HTMLDivElement)} style={barStyle} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -98,11 +101,11 @@ describe("Timeline values in Solid (#240)", () => {
         <>
           <Box box={(el) => (first = el)} />
           <Box box={(el) => (second = el)} />
-          <wardic.div ref={fade} style={{ width: "10px", height: "10px", opacity }} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={{ width: "10px", height: "10px", opacity }} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -113,14 +116,17 @@ describe("Timeline values in Solid (#240)", () => {
     await settle()
     expect(await runningOn(fade), "no ref yet").toHaveLength(0)
     setShown(first)
+    flush()
     await settle()
     expect(await sourceOf(fade)).toBe(first)
     expect(opacityOf(fade)).toBeCloseTo(0.6, 3)
     setShown(second)
+    flush()
     await settle()
     expect(await sourceOf(fade), "the new one's").toBe(second)
     expect(opacityOf(fade)).toBeCloseTo(0.6, 3)
     setShown(undefined)
+    flush()
     await settle()
     expect(await runningOn(fade), "the ref gone").toHaveLength(0)
     expect(opacityOf(fade), "held").toBeCloseTo(0.6, 3)
@@ -136,11 +142,11 @@ describe("Timeline values in Solid (#240)", () => {
       return (
         <>
           <Box box={(el) => (box = el)} />
-          <wardic.div ref={fade} animate={animate()} transition={{ duration: 0.2, ease: "linear" }} style={{ width: "10px", height: "10px", opacity }} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} animate={animate()} transition={{ duration: 0.2, ease: "linear" }} style={{ width: "10px", height: "10px", opacity }} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -150,6 +156,7 @@ describe("Timeline values in Solid (#240)", () => {
     await settle()
     expect(await runningOn(fade)).toHaveLength(1)
     setAnimate({ opacity: 0.1 })
+    flush()
     expect(fade.getAnimations(), "not before the flush").toHaveLength(1)
     await raf()
     expect(fade.getAnimations(), "cancelled at the flush").toHaveLength(0)
@@ -164,6 +171,7 @@ describe("Timeline values in Solid (#240)", () => {
     expect(fade.getAnimations()).toHaveLength(0)
     expect(opacityOf(fade)).toBeCloseTo(0.1, 6)
     setAnimate({})
+    flush()
     await wait(300)
     await settle()
     expect(await sourceOf(fade), "its Live value's again").toBe(box)
@@ -179,11 +187,11 @@ describe("Timeline values in Solid (#240)", () => {
       return (
         <>
           <Box box={(el) => (box = el)} />
-          <wardic.div ref={fade} style={{ width: "10px", height: "10px", opacity }} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={{ width: "10px", height: "10px", opacity }} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -208,11 +216,11 @@ describe("Timeline values in Solid (#240)", () => {
         return (
           <>
             <Box box={(el) => (box = el)} />
-            <wardic.div ref={fade} style={{ width: "10px", height: "10px", opacity }} />
+            <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={{ width: "10px", height: "10px", opacity }} />
           </>
         )
       }
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <Scene />
         </WardicProvider>
@@ -238,11 +246,11 @@ describe("Timeline values in Solid (#240)", () => {
       return (
         <>
           <Box box={(el) => (box = el)} />
-          <wardic.div ref={fade} style={styles[which()]} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={styles[which()]} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -252,10 +260,12 @@ describe("Timeline values in Solid (#240)", () => {
     await settle()
     expect(await sourceOf(fade)).toBe(box)
     setWhich("plain")
+    flush()
     await settle()
     expect(await runningOn(fade), "gone").toHaveLength(0)
     expect(opacityOf(fade)).toBe(1)
     setWhich("faded")
+    flush()
     await settle()
     expect(await sourceOf(fade), "back").toBe(box)
     expect(opacityOf(fade)).toBeCloseTo(0.6, 3)
@@ -273,11 +283,11 @@ describe("Timeline values in Solid (#240)", () => {
       return (
         <div ref={scope}>
           <Box box={(el) => (box = el)} />
-          <wardic.div ref={fade} style={{ width: "10px", height: "10px", opacity }} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={{ width: "10px", height: "10px", opacity }} />
         </div>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -306,11 +316,11 @@ describe("Timeline values in Solid (#240)", () => {
       return (
         <>
           <Box box={(el) => (box = el)} />
-          <wardic.div ref={fade} style={styles[which()]} />
+          <wardic.div ref={(n: HTMLElement) => (fade = n as HTMLDivElement)} style={styles[which()]} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
@@ -320,6 +330,7 @@ describe("Timeline values in Solid (#240)", () => {
     await settle()
     expect(opacityOf(fade)).toBeCloseTo(0.6, 3)
     setWhich("low")
+    flush()
     await settle()
     expect(await sourceOf(fade)).toBe(box)
     expect(opacityOf(fade), "the new one's").toBeCloseTo(0.2, 3)

@@ -1,12 +1,11 @@
-// Gesture watches end with their element (#318, ADR-0055): a ward's hover, press and focus watches run
-// in a Scope with no fiber, closed at the unmount.
+// Gesture watches end with their element on Solid 2 (#318, ADR-0055): a ward's hover, press and focus
+// watches run in its mount's Scope, closed at the unmount.
 //
 // - WC1: every listener the watches add to the element is removed at the unmount.
 // - WC2 (#379): a draggable ward unmounted mid-press removes every listener its drag track added, on
 //   the element and, for the held pointer, on the window.
 // - WC3 (#379): a Reorder item's keys, blurs and presses, and its drag, are watches: every listener
 //   added to an item is removed at the unmount.
-import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { Reorder, wardic, WardicProvider } from "@wardic/solid"
 import * as Arr from "effect/Array"
@@ -14,14 +13,15 @@ import { For } from "solid-js"
 import { expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
 import { countListeners } from "./listener-counts.ts"
+import { mount } from "./mount.tsx"
 
 it("WC1: every listener a ward's gesture watches add to its element is removed at the unmount", async () => {
   const counts = countListeners()
   try {
     let el!: HTMLElement
-    const { unmount } = render(() => (
+    const { unmount } = mount(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (el = n)} whileHover={{ opacity: 0.9 }} whileTap={{ opacity: 0.8 }} whileFocus={{ opacity: 0.7 }} tabIndex={0} />
+        <wardic.div ref={(n: HTMLElement) => (el = n)} whileHover={{ opacity: 0.9 }} whileTap={{ opacity: 0.8 }} whileFocus={{ opacity: 0.7 }} tabindex={0} />
       </WardicProvider>
     ))
     for (let i = 0; i < 3; i++) await raf()
@@ -39,7 +39,7 @@ it("WC2: a draggable ward unmounted mid-press removes every listener its drag tr
   const counts = countListeners()
   try {
     let el!: HTMLElement
-    const { unmount } = render(() => (
+    const { unmount } = mount(() => (
       <WardicProvider env={DomLive}>
         <wardic.div ref={(n: HTMLElement) => (el = n)} drag="x" />
       </WardicProvider>
@@ -65,7 +65,7 @@ it("WC3: every listener a Reorder item's input and drag add to it is removed at 
   try {
     const items = ["a", "b", "c"]
     const els: Array<HTMLElement> = []
-    const { unmount } = render(() => (
+    const { unmount } = mount(() => (
       <WardicProvider env={DomLive}>
         <Reorder.Group values={items} onReorder={() => undefined}>
           <For each={items}>{(item) => <Reorder.Item value={item} ref={(n: HTMLElement) => els.push(n)} />}</For>

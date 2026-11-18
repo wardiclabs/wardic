@@ -1,38 +1,35 @@
-// A Wardic instance at runtime (#516, ADR-0067 *Amendment (#516)*), on the Solid 1 binding:
-// `createWardic(features)`'s elements bring its Features wherever they render.
-// - IN1: an instance of `hover`: its `w.div` hovers under a provider given no Features.
-// - IN2: joined with its section's: under a `LazyWardic` giving `press`, an instance of `hover`'s element
-//   taps too, a prop its types don't take, given untyped.
-// - IN3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)`, `w.createWard` and
-//   `use:w`.
-// - IN7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
-// - IN4: a load in its list starts at its first element's mount, not as it's made, once for two elements
+// A Wardic instance at runtime on Solid 2 (#516, ADR-0067 *Amendment (#516)*): `createWardic(features)`'s
+// elements and wards bring its Features wherever they render.
+// - INV1: an instance of `hover`: its `w.div` hovers under a provider given no Features.
+// - INV2: joined with its section's: under a `LazyWardic` giving `press`, an instance of `hover`'s element
+//   taps too, a prop its types don't take, given untyped. It presses until the press took (#785): a down
+//   from a pointer already held ends that hold as a lost release and presses again (ADR-0019, decision 7),
+//   re-running the target to the same value, once a frame.
+// - INV3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)` and `w.ward()`.
+// - INV7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
+// - INV4: a load in its list starts at its first element's mount, not as it's made, once for two elements
 //   under two providers; nothing is said while it's on its way, and its Feature takes effect as it
 //   arrives, in each provider: a drag before then does nothing, one after drags. An element gone before
 //   it arrives, or a provider, changes nothing: the next element drags, and nothing loads again.
-// - IN5: a failed load is reported once in a provider, for two elements, naming `createWardic`; the next
+// - INV5: a failed load is reported once in a provider, for two elements, naming `createWardic`; the next
 //   provider to ask loads again.
-// - IN6: its layout hooks bring `layout` and count as a use: given at once, the hook alone builds it in its
+// - INV6: its layout hooks bring `layout` and count as a use: given at once, the hook alone builds it in its
 //   provider; as a load, the hook starts it.
-import { cleanup, render } from "@solidjs/testing-library"
+import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { createWardic, domMax, drag, hover, layout, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid"
 import * as Context from "effect/Context"
 import * as Option from "effect/Option"
-import { createSignal, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { createSignal, Errored, flush, Show } from "solid-js"
+import { describe, expect, it, vi } from "vitest"
+import { opacityOf, until } from "./browser-helpers.ts"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import { useFeatureRegistry } from "../src/provider.tsx"
-import { opacityOf, until } from "./browser-helpers.ts"
+import { mount } from "./mount.tsx"
 import { pushedPointer } from "./pushed-pointer.ts"
-import { resetScene, settle, wait } from "./reorder-harness.tsx"
-
-afterEach(async () => {
-  await resetScene()
-  cleanup()
-})
+import { settle, wait } from "./reorder-scene.tsx"
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px" }
 const TWEEN = { type: "tween", duration: 0.2 } as const
@@ -61,7 +58,11 @@ const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> 
   return lines
 }
 
-/** Presses `el` with the primary pointer, then reads `done`: again and again, as the recognizer attaches asynchronously. */
+/**
+ * Presses `el` with the primary pointer, then reads `done`: again and again, as the recognizer attaches
+ * asynchronously. `done` is the press having taken, not its target reached: each down after it presses
+ * again (#785).
+ */
 const pressing = (el: HTMLElement, done: () => boolean) => (): boolean => {
   const r = el.getBoundingClientRect()
   el.dispatchEvent(new PointerEvent("pointerdown", { clientX: r.left + 5, clientY: r.top + 5, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true }))
@@ -71,11 +72,11 @@ const pressing = (el: HTMLElement, done: () => boolean) => (): boolean => {
 /** Enters `el` until `done`, failing after `ms`. */
 const hoverUntil = (el: HTMLElement, done: () => boolean, ms: number): Promise<void> => until(entering(el, done), ms)
 
-describe("A Wardic instance (#516), Solid 1", () => {
-  it("IN1: an instance of hover: its w.div hovers under a provider given no Features", async () => {
+describe("A Wardic instance (#516), Solid 2", () => {
+  it("INV1: an instance of hover: its w.div hovers under a provider given no Features", async () => {
     const { w } = createWardic([hover])
     let el!: HTMLElement
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} whileHover={{ opacity: 1 }} transition={TWEEN} />
       </WardicProvider>
@@ -86,37 +87,37 @@ describe("A Wardic instance (#516), Solid 1", () => {
     expect(opacityOf(el)).toBe(1)
   })
 
-  it("IN3: every form brings them: w.create(tag), w.create(Component), w.createWard and use:w", async () => {
+  it("INV3: every form brings them: w.create(tag), w.create(Component) and w.ward()", async () => {
     const { w } = createWardic([hover])
     const HOVERS = { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, transition: TWEEN } as const
     const Span = w.create("span")
-    const Section = w.create((props: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties }) => <section {...props} />)
+    const Section = w.create((props: { readonly ref?: JSX.Ref<HTMLElement> }) => <section {...props} />)
     const els: Array<HTMLElement> = []
     const Spread = (): JSX.Element => {
-      const ward = w.createWard(HOVERS)
-      return <div {...ward({ ref: (n: HTMLElement) => els.push(n), style: BOX })} />
+      const card = w.ward(HOVERS)
+      return <div data-spread {...card.with({ style: BOX })} />
     }
-    render(() => (
+    const { host } = mount(() => (
       <WardicProvider env={DomLive}>
         <Span ref={(n: HTMLElement) => els.push(n)} style={BOX} {...HOVERS} />
         <Section ref={(n: HTMLElement) => els.push(n)} style={BOX} {...HOVERS} />
         <Spread />
-        <div ref={(n: HTMLElement) => els.push(n)} style={{ ...BOX, opacity: 0.2 }} use:w={HOVERS} />
       </WardicProvider>
     ))
     await settle()
-    expect(els).toHaveLength(4)
+    els.push(host.querySelector<HTMLElement>("[data-spread]")!)
+    expect(els).toHaveLength(3)
     for (const el of els) await hoverUntil(el, () => opacityOf(el) > 0.5, 2000)
     await until(() => els.every((el) => opacityOf(el) === 1), 2000)
-    expect(els.map(opacityOf)).toEqual([1, 1, 1, 1])
+    expect(els.map(opacityOf)).toEqual([1, 1, 1])
   })
 
-  it("IN2: joined with its section's: under a LazyWardic giving press, an instance of hover's element taps too", async () => {
+  it("INV2: joined with its section's: under a LazyWardic giving press, an instance of hover's element taps too", async () => {
     const { w } = createWardic([hover])
     // A prop its types don't take: the section's Feature works all the same.
     const taps = { whileTap: { opacity: 1 } } as {}
     let el!: HTMLElement
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <LazyWardic features={[press]}>
           <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} transition={TWEEN} {...taps} />
@@ -124,32 +125,33 @@ describe("A Wardic instance (#516), Solid 1", () => {
       </WardicProvider>
     ))
     await settle()
-    await until(pressing(el, () => opacityOf(el) > 0.5), 2000)
+    await until(pressing(el, () => opacityOf(el) > 0.2), 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
   })
 
-  it("IN7: strict allows an instance's elements, an instance of domMax's too; a wardic.* still throws", async () => {
+  it("INV7: strict allows an instance's elements, an instance of domMax's too; a wardic.* still throws", async () => {
     const { w } = createWardic(domMax)
     let el!: HTMLElement
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive} strict>
         <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN} />
       </WardicProvider>
     ))
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
-    cleanup()
-    expect(() =>
-      render(() => (
-        <WardicProvider env={DomLive} strict>
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive} strict>
+        <Errored fallback={(error) => <p data-error>{String(error())}</p>}>
           <wardic.div />
-        </WardicProvider>
-      )),
-    ).toThrow(/strict WardicProvider or LazyWardic/)
+        </Errored>
+      </WardicProvider>
+    ))
+    flush()
+    expect(host.querySelector("[data-error]")?.textContent).toMatch(/strict WardicProvider or LazyWardic/)
   })
 
-  it("IN4: a load starts at the first element's mount, once for two providers; its Feature takes effect as it arrives", async () => {
+  it("INV4: a load starts at the first element's mount, once for two providers; its Feature takes effect as it arrives", async () => {
     const pointer = pushedPointer()
     const other = pushedPointer()
     let calls = 0
@@ -165,7 +167,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     let el!: HTMLElement
     let second!: HTMLElement
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <>
           <WardicProvider env={pointer.env}>
             <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
@@ -200,7 +202,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     expect(calls, "still one load").toBe(1)
   })
 
-  it("IN4b: an element gone before its load arrives, or its provider, changes nothing: the next element drags, nothing loads again", async () => {
+  it("INV4b: an element gone before its load arrives, or its provider, changes nothing: the next element drags, nothing loads again", async () => {
     let calls = 0
     let arrive!: () => void
     const load = (): Promise<typeof drag> => {
@@ -216,7 +218,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
       goneRegistry = useFeatureRegistry()
       return undefined
     }
-    const gone = render(() => (
+    const gone = mount(() => (
       <WardicProvider env={DomLive}>
         <Probe />
         <Show when={shown()}>
@@ -226,6 +228,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     ))
     await settle()
     setShown(false)
+    flush()
     await settle()
     gone.unmount()
     const lines = await logged(async () => {
@@ -237,7 +240,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     expect(Option.isNone(Context.getOption(goneBuilt, Keys.DragGesture)), "nor builds it into that provider").toBe(true)
     const pointer = pushedPointer()
     let el!: HTMLElement
-    render(() => (
+    mount(() => (
       <WardicProvider env={pointer.env}>
         <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
       </WardicProvider>
@@ -252,7 +255,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     expect(calls, "one load").toBe(1)
   })
 
-  it("IN5: a failed load is reported once in a provider, for two elements", async () => {
+  it("INV5: a failed load is reported once in a provider, for two elements", async () => {
     let calls = 0
     const { w } = createWardic([
       (): Promise<typeof drag> => {
@@ -261,7 +264,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
       },
     ])
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <w.div style={BOX} drag="x" />
           <w.div style={BOX} drag="y" />
@@ -273,7 +276,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     expect(lines.filter((l) => l.includes("wardic.createWardic: a lazy load of Features failed")), "once, for two elements").toHaveLength(1)
     expect(lines.some((l) => l.includes("no such chunk")), "its cause").toBe(true)
     await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <w.div style={BOX} drag="x" />
         </WardicProvider>
@@ -284,7 +287,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     expect(calls, "the next provider loads again").toBe(2)
   })
 
-  it("IN6: its layout hooks bring layout and count as a use", async () => {
+  it("INV6: its layout hooks bring layout and count as a use", async () => {
     const given = createWardic([layout])
     let registry!: Feature.FeatureRegistry
     const Hooked = (): JSX.Element => {
@@ -292,14 +295,13 @@ describe("A Wardic instance (#516), Solid 1", () => {
       registry = useFeatureRegistry()
       return undefined
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Hooked />
       </WardicProvider>
     ))
     const built = registry.built() as Context.Context<ProjectionSystem.ProjectionSystem>
     expect(Option.isSome(Context.getOption(built, ProjectionSystem.ProjectionSystem)), "layout built by the hook alone").toBe(true)
-    cleanup()
 
     let calls = 0
     const later = createWardic([
@@ -313,7 +315,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
       return undefined
     }
     expect(calls, "nothing loads as the instance is made").toBe(0)
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Resets />
       </WardicProvider>

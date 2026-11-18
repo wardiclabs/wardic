@@ -88,7 +88,7 @@ import {
   type WardicAnimate,
   type WardicPlaybackControls,
   WardicProvider,
-} from "@wardic/solid"
+} from "@wardic/solid/v1"
 import { createSignal, For, Show } from "solid-js"
 import { render } from "solid-js/web"
 import * as Bool from "effect/Boolean"

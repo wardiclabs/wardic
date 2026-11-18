@@ -1,6 +1,6 @@
-// The browser commands registered in packages/solid/vitest.browser.config.ts (and
-// `serverRender`, in packages/solid/vitest.hydrate.config.ts; `serverRender2` and `serverStream2`, in
-// vitest.hydrate-v2.config.ts), typed
+// The browser commands registered in packages/solid/vitest.browser-commands.ts (and
+// `serverRender`, in packages/solid/vitest.hydrate-v1.config.ts; `serverRender2` and `serverStream2`, in
+// vitest.hydrate.config.ts, #566), typed
 // once for every test file that imports this module (a second `declare module` block
 // with a different signature wouldn't compile).
 import type {} from "vitest/browser"

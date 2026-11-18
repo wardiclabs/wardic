@@ -1,7 +1,8 @@
 /**
- * `createWardic(features)` (#516, ADR-0067 *Amendment (#516)*): a **Wardic instance**, a `w` whose
- * elements bring `features` wherever they render, typed to their props alone, and the layout hooks.
- * In a module of its own that names no Feature: an app's instance module ships the Features it gives.
+ * `createWardic(features)` on Solid 2 (#516, ADR-0067 *Amendment (#516)*): a **Wardic instance**, a `w`
+ * whose elements and wards bring `features` wherever they render, typed to their props and events
+ * alone, and the layout hooks. In a module of its own that names no Feature: an app's instance module
+ * ships the Features it gives.
  *
  * @module
  */
@@ -13,11 +14,11 @@ import type { WardicInstance } from "./wardic-instance.ts"
 
 /**
  * Makes a Wardic instance: a `w` whose elements bring `features` wherever they render and take their
- * props alone, so a prop of a Feature the list lacks is a type error that names it. Give each Feature
- * at once, or a load (`() => import(…)`), which starts the first time one of its elements or wards is
- * made, or a hook is called, on the client. With `layout`, it returns the layout hooks too, which bring
- * it. Call it once, in a module of its own. Motion has no counterpart; its nearest is `m` under
- * `LazyMotion`, whose Features its types don't follow.
+ * props alone, so a prop of a Feature the list lacks is a type error that names it, as listening for
+ * its event on a ward is. Give each Feature at once, or a load (`() => import(…)`), which starts the
+ * first time one of its elements or wards is made, or a hook is called, on the client. With `layout`,
+ * it returns the layout hooks too, which bring it. Call it once, in a module of its own. Motion has no
+ * counterpart; its nearest is `m` under `LazyMotion`, whose Features its types don't follow.
  *
  * @example
  * // src/lib/wardic.ts
@@ -25,7 +26,7 @@ import type { WardicInstance } from "./wardic-instance.ts"
  * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
 // #516: decisions 1 (beside the sections), 2 (its elements bring their Features), 4 (every form), 5 (the
-// layout hooks), 7 (loads), 8 (`strict` allows them).
+// layout hooks), 7 (loads), 8 (`strict` allows them), 10 (the events, Q19).
 export function createWardic<const F extends Feature.InstanceFeaturesProp>(features: F): WardicInstance<F> {
   const instance = instanceFeaturesOf(features)
   /** `hook`, its instance's Features brought first. */

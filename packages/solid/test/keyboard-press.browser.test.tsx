@@ -1,202 +1,135 @@
-// Keyboard presses on Solid 1 (#427, ADR-0056), with the browser's own keys: Enter and Space on a
-// focused Wardic element press it, as a pointer does. Solid 2's are KB7–KB11; KB12 is Solid 1's again.
+// Keyboard presses on Solid 2 (#427, ADR-0056), with the browser's own keys. Solid 1's are KB1–KB6.
 //
-// - KB1: Enter held turns `whileTap` on and its release turns it off; `onTapStart` hears the keydown
-//   and `onTap` the keyup, the info's `input` the keyboard's and its point the element's centre.
-// - KB2: Space presses too: on a pressable `div`, taken, so the page doesn't scroll; on a native
-//   button, left alone, so its own click still fires beside the tap.
-// - KB3: a blur cancels a keyboard press: `onTapCancel` with the blur's event (its `focusout` since
-//   #460), and the key's release taps nothing.
-// - KB4: a pressable element that doesn't take focus is made focusable (Motion's press): a `div` with
-//   only `onTap` gets `tabindex="0"`; a button, a given `tabindex` and an element with no press are
-//   left as they are.
-// - KB5: a key presses its element and, since #439, its pressable ancestors (Motion's): Enter on a
-//   pressable button inside a pressable card presses both, on a plain button neither; in a pressable
-//   text field, Space types and Enter presses.
-// - KB6: on a Reorder item, Enter and Space are the reorder's: the lift is no press, and the item's
+// - KB7: Enter held turns `whileTap` on; `next("pressStart")` resolves at its keydown and
+//   `next("tap")` at its keyup, each with `input: "keyboard"`, the element's centre and the element.
+// - KB8: a press event asked for makes a ward's element focusable, as `whileTap` does; a ward with
+//   neither leaves it as it is.
+// - KB9: a blur cancels a keyboard press: `next("tapCancel")` resolves with the keyboard's input.
+// - KB10: a Reorder item's Enter and Space are the reorder's: the lift is no press, and the item's
 //   `whileTap` stays off.
-// - KB12: a press watched only once its element, or something inside it, already has focus hears its
-//   keys at once (#460: the keys are held only while focus is within the element, from the start when
-//   it already is), and lets them go when focus leaves.
-import { render } from "@solidjs/testing-library"
+// - KB11: `when("tap")` hears a keyboard tap as a pointer's: an effect over it, on a ward with no
+//   `whileTap`, makes its element focusable and runs at each tap, Enter's and Space's, with their
+//   input.
+import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
-import { createPress, Reorder, wardic, type WardicPressInfo, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX, Show } from "solid-js"
-import * as Bool from "effect/Boolean"
+import { Reorder, type Ward, ward, WardicProvider, type WardPressInfo } from "@wardic/solid"
+import { createEffect, createRoot, createSignal, For } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
-import { scaleOf } from "./base-values-harness.ts"
-import { until } from "./browser-helpers.ts"
-import { resetScene, settle, wait } from "./reorder-harness.tsx"
+import { raf, until } from "./browser-helpers.ts"
+import { mount } from "./mount.tsx"
+import { resetScene } from "./reorder-scene.tsx"
 
 afterEach(resetScene)
 
 const BOX = { width: "80px", height: "80px", background: "teal" } as const
 
-/** `box`, at (100, 100) on the page, settled; its element. */
-const mount = async (box: (ref: (n: HTMLElement) => void) => JSX.Element): Promise<HTMLElement> => {
-  const [el, setEl] = createSignal<HTMLElement>()
-  render(() => (
-    <WardicProvider env={DomLive}>
-      <div style={{ position: "absolute", top: "100px", left: "100px", height: "3000px" }}>{box((n) => setEl(n))}</div>
-    </WardicProvider>
-  ))
-  await settle()
-  return el()!
+const frames = async (n: number): Promise<void> => {
+  for (let i = 0; i < n; i++) await raf()
 }
 
 const r = (n: number): number => Math.round(n)
 
-/** A call: its name, the event's type, and the info's input and point. */
-const seen = (name: string, event: Event, info: WardicPressInfo): string => `${name} ${event.type} ${info.input} ${r(info.point.x)},${r(info.point.y)}`
+/** A press's event, as `input x,y` and whether its element is `el`. */
+const seen = (info: WardPressInfo, el: Element): string => `${info.input} ${r(info.point.x)},${r(info.point.y)} ${info.element === el}`
 
-/** `el`'s centre in the viewport. */
+/** `el`'s centre in the viewport, as {@link seen} writes a point. */
 const centre = (el: Element): string => {
   const box = el.getBoundingClientRect()
   return `${r(box.left + box.width / 2)},${r(box.top + box.height / 2)}`
 }
 
-describe("keyboard presses on Solid 1 (#427)", () => {
-  it("KB1: Enter held turns whileTap on; onTapStart at the keydown and onTap at the keyup, from the element's centre", async () => {
-    const calls: Array<string> = []
-    const el = await mount((ref) => (
-      <wardic.div
-        ref={ref}
-        style={BOX}
-        whileTap={{ scale: 0.8 }}
-        transition={{ type: "tween", duration: 0.1 }}
-        onTapStart={(e, info) => calls.push(seen("tapStart", e, info))}
-        onTap={(e, info) => calls.push(seen("tap", e, info))}
-        onTapCancel={(e, info) => calls.push(seen("cancel", e, info))}
-      />
-    ))
+/** The scale `el`'s inline transform draws: 1 with none. */
+const scaleOf = (el: HTMLElement): number => {
+  const transform = el.style.transform
+  if (transform === "" || transform === "none") return 1
+  return new DOMMatrix(transform).a
+}
+
+/** A ward made under a provider, its element and the ward. */
+const mountWard = async (make: () => Ward, body: (card: Ward) => JSX.Element = (card) => <div {...card} style={BOX} />): Promise<{ readonly el: HTMLElement; readonly card: Ward }> => {
+  let card!: Ward
+  const { host } = mount(() => (
+    <WardicProvider env={DomLive}>
+      {(() => {
+        card = make()
+        return body(card)
+      })()}
+    </WardicProvider>
+  ))
+  await frames(4)
+  return { el: host.querySelector("div")!, card }
+}
+
+describe("keyboard presses on Solid 2 (#427)", () => {
+  it("KB7: Enter held turns whileTap on; next(\"pressStart\") at its keydown, next(\"tap\") at its keyup, from the element's centre", async () => {
+    const { el, card } = await mountWard(() => ward({ whileTap: { scale: 0.8 }, transition: { type: "tween", duration: 0.1 } }))
+    const start = card.next("pressStart")
+    const tap = card.next("tap")
     el.focus()
     await userEvent.keyboard("{Enter>}")
+    expect(seen(await start, el)).toBe(`keyboard ${centre(el)} true`)
     await until(() => scaleOf(el) < 0.81, 3000)
     expect(scaleOf(el), "whileTap on while Enter is held").toBeLessThan(0.81)
     await userEvent.keyboard("{/Enter}")
+    expect(seen(await tap, el)).toBe(`keyboard ${centre(el)} true`)
     await until(() => scaleOf(el) > 0.99, 3000)
     expect(scaleOf(el), "off at its release").toBeGreaterThan(0.99)
-    expect(calls).toEqual([`tapStart keydown keyboard ${centre(el)}`, `tap keyup keyboard ${centre(el)}`])
   })
 
-  it("KB2: Space presses; a pressable div takes it, so the page doesn't scroll; a button keeps its own click", async () => {
-    const calls: Array<string> = []
-    const clicks: Array<string> = []
-    const [div, setDiv] = createSignal<HTMLElement>()
-    const [button, setButton] = createSignal<HTMLElement>()
-    render(() => (
-      <WardicProvider env={DomLive}>
-        <div style={{ position: "absolute", top: "100px", left: "100px", height: "3000px" }}>
-          <wardic.div ref={setDiv} style={BOX} onTap={(e, info) => calls.push(seen("div", e, info))} />
-          <wardic.button ref={setButton} onTap={(e, info) => calls.push(seen("button", e, info))} onClick={() => clicks.push("click")}>
-            b
-          </wardic.button>
-        </div>
-      </WardicProvider>
-    ))
-    await settle()
-    window.scrollTo(0, 0)
-    div()!.focus()
-    await userEvent.keyboard("[Space]")
-    await wait(150)
-    expect(window.scrollY, "the page didn't scroll").toBe(0)
-    button()!.focus()
-    await userEvent.keyboard("[Space]")
-    await until(() => clicks.length > 0, 1000)
-    expect(clicks, "the button's own click").toEqual(["click"])
-    expect(calls).toEqual([`div keyup keyboard ${centre(div()!)}`, `button keyup keyboard ${centre(button()!)}`])
+  it("KB8: a press event asked for makes the element focusable; a ward with no press leaves it", async () => {
+    const asked = await mountWard(() => ward({ animate: { opacity: 1 } }))
+    expect(asked.el.getAttribute("tabindex"), "none before a press is asked for").toBeNull()
+    void asked.card.next("tap")
+    await frames(2)
+    expect(asked.el.getAttribute("tabindex")).toBe("0")
+    const tapped = asked.card.next("tap")
+    asked.el.focus()
+    await userEvent.keyboard("{Enter}")
+    expect((await tapped).input).toBe("keyboard")
+    const plain = await mountWard(() => ward({ whileHover: { scale: 1.1 } }))
+    expect(plain.el.getAttribute("tabindex")).toBeNull()
   })
 
-  it("KB3: a blur cancels a keyboard press, and the key's release taps nothing", async () => {
-    const calls: Array<string> = []
-    const [other, setOther] = createSignal<HTMLElement>()
-    const el = await mount((ref) => (
-      <>
-        <wardic.div ref={ref} style={BOX} onTapStart={(e, info) => calls.push(seen("tapStart", e, info))} onTap={(e, info) => calls.push(seen("tap", e, info))} onTapCancel={(e, info) => calls.push(seen("cancel", e, info))} />
-        <button ref={setOther}>other</button>
-      </>
-    ))
+  it("KB9: a blur cancels a keyboard press", async () => {
+    let other!: HTMLButtonElement
+    const { el, card } = await mountWard(
+      () => ward({ whileTap: { scale: 0.9 } }),
+      (c) => (
+        <>
+          <div {...c} style={BOX} />
+          <button ref={(n: HTMLButtonElement) => (other = n)}>other</button>
+        </>
+      ),
+    )
+    const cancel = card.next("tapCancel")
     el.focus()
     await userEvent.keyboard("{Enter>}")
-    other()!.focus()
+    other.focus()
+    expect(seen(await cancel, el)).toBe(`keyboard ${centre(el)} true`)
     await userEvent.keyboard("{/Enter}")
-    await wait(50)
-    expect(calls).toEqual([`tapStart keydown keyboard ${centre(el)}`, `cancel focusout keyboard ${centre(el)}`])
   })
 
-  it("KB4: a pressable element that doesn't take focus is made focusable; the rest are left as they are", async () => {
-    const els: Record<string, HTMLElement> = {}
-    render(() => (
-      <WardicProvider env={DomLive}>
-        <wardic.div ref={(n: HTMLElement) => (els.tap = n)} onTap={() => {}} />
-        <wardic.div ref={(n: HTMLElement) => (els.whileTap = n)} whileTap={{ scale: 0.9 }} />
-        <wardic.button ref={(n: HTMLElement) => (els.button = n)} whileTap={{ scale: 0.9 }} />
-        <wardic.div ref={(n: HTMLElement) => (els.given = n)} tabindex="-1" whileTap={{ scale: 0.9 }} />
-        <wardic.div ref={(n: HTMLElement) => (els.none = n)} whileHover={{ scale: 1.1 }} />
-      </WardicProvider>
-    ))
-    await settle()
-    expect(Object.entries(els).map(([name, el]) => `${name} ${el.getAttribute("tabindex")}`)).toEqual([
-      "tap 0",
-      "whileTap 0",
-      "button null",
-      "given -1",
-      "none null",
-    ])
-  })
-
-  it("KB5: a key presses its element and its pressable ancestors, not from a plain button; in a text field, Space types and Enter presses", async () => {
-    const calls: Array<string> = []
-    const [inner, setInner] = createSignal<HTMLElement>()
-    const [plain, setPlain] = createSignal<HTMLElement>()
-    const [field, setField] = createSignal<HTMLInputElement>()
-    render(() => (
-      <WardicProvider env={DomLive}>
-        <wardic.div style={BOX} onTap={() => calls.push("card")}>
-          <wardic.button ref={setInner} onTap={() => calls.push("button")}>
-            b
-          </wardic.button>
-          <button ref={setPlain}>plain</button>
-        </wardic.div>
-        <wardic.input ref={setField} onTapStart={() => calls.push("field start")} onTap={() => calls.push("field")} />
-      </WardicProvider>
-    ))
-    await settle()
-    inner()!.focus()
-    await userEvent.keyboard("{Enter}")
-    await wait(50)
-    expect(calls, "the button's press, and the card's (#439)").toEqual(["button", "card"])
-    plain()!.focus()
-    await userEvent.keyboard("{Enter}")
-    await wait(50)
-    expect(calls, "a plain button presses no card").toEqual(["button", "card"])
-    field()!.focus()
-    await userEvent.keyboard("[Space]")
-    await wait(50)
-    expect(field()!.value, "Space typed").toBe(" ")
-    expect(calls, "and pressed nothing").toEqual(["button", "card"])
-    await userEvent.keyboard("{Enter}")
-    await wait(50)
-    expect(calls).toEqual(["button", "card", "field start", "field"])
-  })
-
-  it("KB6: a Reorder item's Enter and Space are the reorder's: the lift is no press", async () => {
-    const calls: Array<string> = []
+  it("KB10: a Reorder item's Enter and Space are the reorder's: the lift is no press", async () => {
     const [order, setOrder] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+    let now: ReadonlyArray<string> = ["a", "b", "c"]
+    const onReorder = (values: ReadonlyArray<string>): void => {
+      now = values
+      setOrder(values)
+    }
     const items: Record<string, HTMLElement> = {}
-    render(() => (
+    const presses: Array<string> = []
+    mount(() => (
       <WardicProvider env={DomLive}>
         <div style={{ position: "absolute", top: "100px", left: "100px", width: "120px" }}>
-          <Reorder.Group values={order()} onReorder={setOrder} style={{ "list-style": "none", margin: "0", padding: "0" }}>
+          <Reorder.Group values={order()} onReorder={onReorder} style={{ "list-style": "none", margin: "0", padding: "0" }}>
             <For each={order()}>
               {(value) => (
                 <Reorder.Item
                   value={value}
                   ref={(n: HTMLElement) => (items[value] = n)}
                   whileTap={{ scale: 0.8 }}
-                  onTapStart={() => calls.push(`tapStart ${value}`)}
-                  onTap={() => calls.push(`tap ${value}`)}
+                  wardRef={(item) => void item.next("pressStart").then(() => presses.push(value), () => {})}
                   style={{ height: "40px", background: "teal" }}
                 >
                   {value}
@@ -207,62 +140,35 @@ describe("keyboard presses on Solid 1 (#427)", () => {
         </div>
       </WardicProvider>
     ))
-    await settle()
+    await frames(4)
     items.a!.focus()
     await userEvent.keyboard("[Space]")
     await userEvent.keyboard("{ArrowDown}")
     await userEvent.keyboard("[Space]")
-    await until(() => order()[0] === "b", 2000)
-    expect(order(), "the keyboard reorder moved it").toEqual(["b", "a", "c"])
+    await until(() => now[0] === "b", 2000)
+    expect(now, "the keyboard reorder moved it").toEqual(["b", "a", "c"])
+    await frames(4)
     expect(scaleOf(items.a!), "no whileTap").toBeCloseTo(1, 3)
-    expect(calls, "no press").toEqual([])
+    expect(presses, "no press").toEqual([])
   })
 
-  it("KB12: a press watched once focus is already within its element hears the keys at once, and not once focus leaves", async () => {
-    const [watching, setWatching] = createSignal(false)
-    const [card, setCard] = createSignal<HTMLElement>()
-    const [inner, setInner] = createSignal<HTMLElement>()
-    const [other, setOther] = createSignal<HTMLElement>()
-    const pressed: { card: () => boolean; inner: () => boolean } = { card: () => false, inner: () => false }
-    function Watch(props: { readonly card: HTMLElement; readonly inner: HTMLElement }) {
-      // eslint-disable-next-line solid/reactivity
-      pressed.card = createPress(props.card)
-      // eslint-disable-next-line solid/reactivity
-      pressed.inner = createPress(props.inner)
-      return null
-    }
-    render(() => (
-      <WardicProvider env={DomLive}>
-        <div ref={setCard} tabindex="0" style={BOX}>
-          <button ref={setInner}>inner</button>
-        </div>
-        <button ref={setOther}>other</button>
-        <Show when={watching()}>
-          <Watch card={card()!} inner={inner()!} />
-        </Show>
-      </WardicProvider>
-    ))
-    await settle()
-    // Focus inside the card, then the watches start.
-    inner()!.focus()
-    setWatching(true)
-    await wait(50)
-    await userEvent.keyboard("{Enter>}")
-    await until(() => pressed.card(), 1000)
-    expect([pressed.card(), pressed.inner()], "the card and the button pressed").toEqual([true, true])
-    await userEvent.keyboard("{/Enter}")
-    await until(() => Bool.not(pressed.card()), 1000)
-    expect([pressed.card(), pressed.inner()], "released").toEqual([false, false])
-    // Focus moves to the card itself, then out of it: its keys go with it.
-    card()!.focus()
-    await userEvent.keyboard("{Enter>}")
-    await until(() => pressed.card(), 1000)
-    await userEvent.keyboard("{/Enter}")
-    await until(() => Bool.not(pressed.card()), 1000)
-    other()!.focus()
-    await userEvent.keyboard("{Enter>}")
-    await wait(100)
-    expect(pressed.card(), "no press once focus left").toBe(false)
-    await userEvent.keyboard("{/Enter}")
+  it("KB11: when(\"tap\") hears a keyboard tap: the effect makes the element focusable and runs at each tap", async () => {
+    const heard: Array<string> = []
+    const { el, card } = await mountWard(() => ward({ animate: { opacity: 1 } }))
+    const dispose = createRoot((done) => {
+      createEffect(card.when("tap"), (tap) => {
+        heard.push(seen(tap, el))
+      })
+      return done
+    })
+    await frames(2)
+    expect(el.getAttribute("tabindex"), "asked for, so made focusable").toBe("0")
+    el.focus()
+    await userEvent.keyboard("{Enter}")
+    await until(() => heard.length === 1, 1000)
+    await userEvent.keyboard("[Space]")
+    await until(() => heard.length === 2, 1000)
+    dispose()
+    expect(heard).toEqual([`keyboard ${centre(el)} true`, `keyboard ${centre(el)} true`])
   })
 })

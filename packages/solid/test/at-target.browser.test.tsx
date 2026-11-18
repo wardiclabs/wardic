@@ -1,257 +1,112 @@
-// A key already at its target starts no leg (#448, Motion's `visual-element-target.ts`), on Solid 1: it
-// stays where it is, written once more, and a Retarget whose every key is there lands at once. A mount
-// that starts at its `animate` tells nothing (Motion's `animation-state.ts`). Solid 2's are TH7–TH8;
-// the server's, AR21; the Handoff's, AH13.
+// A key already at its target starts no leg (#448), on Solid 2: a mount that starts at its `animate`
+// lands nothing, and a Retarget whose every key is already there lands at once. Solid 1's are
+// TH1–TH6.
 //
-// - TH1: a mount already at its `animate`, on a 1 s tween, starts and completes at once: one the
-//   element already shows (no `initial`), and one whose `style` is its `animate`'s.
-// - TH2: `initial={false}` tells nothing at mount, the element drawn at its `animate`; a later change
-//   is told.
-// - TH3: an `initial` that is the same values map, or the same names, as `animate` tells nothing; an
-//   equal copy of the map is told, at once.
-// - TH4: a variant change that leaves a key where it is starts it no leg: its 3 s transition doesn't
-//   hold the landing.
-// - TH5: a key a leg is drawing is never already there: a target it's still at, set as its leg
-//   starts, runs a leg of its own, as Motion's does while a value animates.
-// - TH6: a `when: "beforeChildren"` parent with nothing to move releases its children at once.
-// - TH9: a key with nothing to start from (`z-index`, `auto` on the element) isn't already there: its
-//   leg runs its duration and writes it, as Motion's does for a value it has none of.
-// - TH10: a key whose transition gives it a velocity isn't already there: kicked, it moves and comes
-//   back (Motion's `valueTransition.velocity`), a value's own entry's included.
-// - TH11 (#475): a mount that starts at its `animate` (`initial={false}`, an `initial` that is the same
-//   values map, an `<AnimatePresence initial={false}>`'s first render) starts nothing though its transition
-//   gives a velocity, a spring's or an inertia's, as Motion's runs nothing at that first render; a
-//   later change runs on it.
-import { render } from "@solidjs/testing-library"
+// - TH7: `initial: false`: `settled()` stays `undefined` and isn't pending, and `next("settled")`
+//   waits through the mount, until the first real animation lands.
+// - TH8: a variant change to the same values, on a 1 s tween, lands at once: `next("settled")`
+//   resolves within two frames, `settled()` never pending.
+// - TH9 (#475): `initial: false` with a transition that gives a velocity, a spring's or an inertia's,
+//   moves nothing and lands nothing at mount, as Motion's; the next change runs on it.
+import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, wardic, type WardicAnimationDefinition, WardicProvider } from "@wardic/solid"
-import { createSignal, type JSX } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "./browser-helpers.ts"
-import { resetScene, wait } from "./reorder-harness.tsx"
-
-afterEach(resetScene)
+import { type Ward, ward, type WardConfig, WardicProvider } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
+import { createSignal, isPending } from "solid-js"
+import { describe, expect, it } from "vitest"
+import { raf } from "./browser-helpers.ts"
+import { mount } from "./mount.tsx"
 
 // Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "40px", height: "40px", background: "teal", "margin-top": "120px", "margin-left": "120px" } as const
-const SLOW = { type: "tween", duration: 1 } as const
+const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
 
 const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
 }
 
-/** A log of the callbacks, each with its definition. */
-const recorder = () => {
-  const calls: Array<string> = []
-  return {
-    calls,
-    start: (definition: WardicAnimationDefinition) => calls.push(`start ${JSON.stringify(definition)}`),
-    complete: (definition: WardicAnimationDefinition) => calls.push(`complete ${JSON.stringify(definition)}`),
+/** Mount a `div` spread with a ward made from `config` in a component under the provider; the ward. */
+const mountCard = (config: WardConfig): Ward => {
+  let card!: Ward
+  const Card = (): JSX.Element => {
+    card = ward(config)
+    return <div {...card} />
   }
+  mount(() => (
+    <WardicProvider env={DomLive}>
+      <Card />
+    </WardicProvider>
+  ))
+  return card
 }
 
-const show = (ui: () => JSX.Element): void => {
-  render(() => <WardicProvider env={DomLive}>{ui()}</WardicProvider>)
-}
-
-const opacity = (el: Element): number => Number(getComputedStyle(el).opacity)
-const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
-
-describe("a key already at its target on Solid 1 (#448)", () => {
-  it("TH1: a mount already at its animate starts and completes at once", async () => {
-    const shown = recorder()
-    const styled = recorder()
-    show(() => (
-      <>
-        <wardic.div style={BOX} animate={{ opacity: 1 }} transition={SLOW} onAnimationStart={shown.start} onAnimationComplete={shown.complete} />
-        <wardic.div style={{ ...BOX, opacity: 0.5 }} animate={{ opacity: 0.5 }} transition={SLOW} onAnimationStart={styled.start} onAnimationComplete={styled.complete} />
-      </>
-    ))
-    await frames(3)
-    expect(shown.calls, "one the element already shows").toEqual(['start {"opacity":1}', 'complete {"opacity":1}'])
-    expect(styled.calls, "one its style already sets").toEqual(['start {"opacity":0.5}', 'complete {"opacity":0.5}'])
-  })
-
-  it("TH2: initial={false} tells nothing at mount, drawn at its animate; a later change is told", async () => {
-    const log = recorder()
+describe("a key already at its target on Solid 2 (#448)", () => {
+  it("TH7: initial: false lands nothing at mount; next waits for the first real animation", async () => {
     const [to, setTo] = createSignal(0.5)
-    let el!: HTMLElement
-    show(() => (
-      <wardic.div
-        ref={(n: HTMLElement) => (el = n)}
-        style={BOX}
-        initial={false}
-        animate={{ opacity: to(), x: 20 }}
-        transition={{ type: "tween", duration: 0.1 }}
-        onAnimationStart={log.start}
-        onAnimationComplete={log.complete}
-      />
-    ))
-    await wait(300)
-    expect(log.calls, "nothing at mount").toEqual([])
-    expect(opacity(el)).toBe(0.5)
-    expect(xOf(el)).toBeCloseTo(20, 3)
+    const card = mountCard({ initial: false, animate: () => ({ opacity: to() }), transition: { type: "tween", duration: 0.1 }, style: BOX })
+    let landed = false
+    const next = card.next("settled").then((landing) => {
+      landed = true
+      return landing
+    })
+    await frames(20)
+    expect(card.settled(), "nothing landed").toBeUndefined()
+    expect(isPending(() => card.settled()), "nor pending").toBe(false)
+    expect(landed, "next waits through the mount").toBe(false)
     setTo(1)
-    await until(() => log.calls.length === 2, 2000)
-    expect(log.calls).toEqual(['start {"opacity":1,"x":20}', 'complete {"opacity":1,"x":20}'])
+    expect((await next).target).toEqual({ opacity: 1 })
   })
 
-  it("TH3: an initial that is animate's map or names tells nothing; an equal copy is told at once", async () => {
-    const same = recorder()
-    const names = recorder()
-    const copy = recorder()
-    const target = { opacity: 0.5 }
-    const variants = { a: { opacity: 0.5 }, b: { x: 10 } }
-    show(() => (
-      <>
-        <wardic.div style={BOX} initial={target} animate={target} transition={SLOW} onAnimationStart={same.start} onAnimationComplete={same.complete} />
-        <wardic.div style={BOX} variants={variants} initial={["a", "b"]} animate={["a", "b"]} transition={SLOW} onAnimationStart={names.start} onAnimationComplete={names.complete} />
-        <wardic.div style={BOX} initial={{ opacity: 0.5 }} animate={{ opacity: 0.5 }} transition={SLOW} onAnimationStart={copy.start} onAnimationComplete={copy.complete} />
-      </>
-    ))
-    await frames(3)
-    expect(copy.calls, "an equal copy, at once").toEqual(['start {"opacity":0.5}', 'complete {"opacity":0.5}'])
-    await wait(200)
-    expect(same.calls, "the same map").toEqual([])
-    expect(names.calls, "the same names").toEqual([])
-  })
-
-  it("TH4: a variant change that leaves a key where it is starts it no leg", async () => {
-    const log = recorder()
+  it("TH8: a variant change to the same values lands at once", async () => {
     const [name, setName] = createSignal("a")
-    let el!: HTMLElement
-    show(() => (
-      <wardic.div
-        ref={(n: HTMLElement) => (el = n)}
-        style={BOX}
-        variants={{ a: { opacity: 0.5, x: 0 }, b: { opacity: 0.5, x: 60 } }}
-        initial={false}
-        animate={name()}
-        transition={{ type: "tween", duration: 0.1, opacity: { type: "tween", duration: 3 } }}
-        onAnimationStart={log.start}
-        onAnimationComplete={log.complete}
-      />
-    ))
-    await frames(3)
+    const card = mountCard({
+      variants: { a: { opacity: 0.5 }, b: { opacity: 0.5 } },
+      initial: "a",
+      animate: () => name(),
+      transition: { type: "tween", duration: 1 },
+      style: BOX,
+    })
+    await frames(4)
+    let landed: string | undefined
+    void card.next("settled").then((landing) => (landed = String(landing.definition)))
     setName("b")
-    await until(() => log.calls.length === 2, 1000)
-    expect(log.calls, "landed with x, not after opacity's 3 s").toEqual(['start "b"', 'complete "b"'])
-    expect(xOf(el)).toBeCloseTo(60, 3)
-    expect(opacity(el)).toBe(0.5)
+    await frames(2)
+    expect(landed, "within two frames, not after the second").toBe("b")
+    expect(isPending(() => card.settled())).toBe(false)
+    expect(Bool.match(card.settled() === undefined, { onTrue: () => "none", onFalse: () => String(card.settled()?.definition) })).toBe("b")
   })
 
-  it("TH5: a key a leg is drawing, set back to where it still is, runs a leg of its own", async () => {
-    const log = recorder()
-    const [x, setX] = createSignal(0)
-    show(() => (
-      <wardic.div style={BOX} initial={false} animate={{ x: x() }} transition={{ type: "tween", duration: 0.4 }} onAnimationStart={log.start} onAnimationComplete={log.complete} />
-    ))
-    await frames(3)
-    // Both in one task: the leg toward 100 has drawn nothing, so x is still at 0.
-    setX(100)
-    setX(0)
-    const at = performance.now()
-    await until(() => log.calls.includes('complete {"x":0}'), 2000)
-    expect(log.calls).toEqual(['start {"x":100}', 'start {"x":0}', 'complete {"x":0}'])
-    expect(performance.now() - at, "its leg ran its duration").toBeGreaterThan(300)
-  })
-
-  it("TH6: a beforeChildren parent with nothing to move releases its children at once", async () => {
-    let child!: HTMLElement
-    show(() => (
-      <wardic.div
-        style={BOX}
-        variants={{ hidden: { opacity: 1 }, shown: { opacity: 1 } }}
-        initial="hidden"
-        animate="shown"
-        transition={{ type: "tween", duration: 2, when: "beforeChildren" }}
-      >
-        <wardic.div
-          ref={(n: HTMLElement) => (child = n)}
-          style={{ width: "10px", height: "10px" }}
-          variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
-          transition={{ type: "tween", duration: 0.1 }}
-        />
-      </wardic.div>
-    ))
-    await until(() => opacity(child) === 1, 1000)
-    expect(opacity(child), "not held for the parent's 2 s").toBe(1)
-  })
-
-  it("TH9: a key with nothing to start from runs its leg its duration, and is written", async () => {
-    const log = recorder()
-    let el!: HTMLElement
-    show(() => (
-      <wardic.div ref={(n: HTMLElement) => (el = n)} style={BOX} animate={{ "z-index": 2 }} transition={{ type: "tween", duration: 0.5 }} onAnimationStart={log.start} onAnimationComplete={log.complete} />
-    ))
-    await frames(3)
-    expect(log.calls, "started, not landed").toEqual(['start {"z-index":2}'])
-    await until(() => log.calls.length === 2, 2000)
-    expect(log.calls).toEqual(['start {"z-index":2}', 'complete {"z-index":2}'])
-    expect(getComputedStyle(el).zIndex).toBe("2")
-  })
-
-  it("TH10: a key its transition gives a velocity is kicked: it moves and comes back", async () => {
-    const log = recorder()
-    const [name, setName] = createSignal("rest")
-    let el!: HTMLElement
-    show(() => (
-      <wardic.div
-        ref={(n: HTMLElement) => (el = n)}
-        style={BOX}
-        variants={{ rest: { x: 0 }, kicked: { x: 0, transition: { x: { type: "spring", stiffness: 300, damping: 20, velocity: 800 } } } }}
-        initial={false}
-        animate={name()}
-        onAnimationStart={log.start}
-        onAnimationComplete={log.complete}
-      />
-    ))
-    await frames(3)
-    setName("kicked")
-    let farthest = 0
-    for (let i = 0; i < 20; i++) {
-      await raf()
-      farthest = Math.max(farthest, Math.abs(xOf(el)))
-    }
-    expect(farthest, "it moved").toBeGreaterThan(5)
-    await until(() => log.calls.length === 2, 3000)
-    expect(log.calls).toEqual(['start "kicked"', 'complete "kicked"'])
-    expect(xOf(el)).toBeCloseTo(0, 1)
-  })
-
-  it("TH11: a quiet mount starts nothing though its transition gives a velocity; a later change runs on it (#475)", async () => {
-    const log = recorder()
+  it("TH9: initial: false with a transition's velocity moves and lands nothing at mount; the next change runs on it (#475)", async () => {
     const [to, setTo] = createSignal(0)
-    const KICK = { type: "spring", stiffness: 300, damping: 20, velocity: 800 } as const
-    const FLING = { type: "inertia", velocity: 800, max: 50 } as const
-    // One map as both, Motion's `initial === animate`: two maps alike are two, and a mount between them runs.
-    const SAME = { x: 0 }
-    const els: Record<string, HTMLElement> = {}
-    const at = (k: string) => (n: HTMLElement) => (els[k] = n)
-    show(() => (
-      <>
-        <wardic.div ref={at("spring")} style={BOX} initial={false} animate={{ x: to() }} transition={KICK} onAnimationStart={log.start} onAnimationComplete={log.complete} />
-        <wardic.div ref={at("inertia")} style={BOX} initial={false} animate={{ x: to() }} transition={FLING} onAnimationStart={log.start} onAnimationComplete={log.complete} />
-        <wardic.div ref={at("same")} style={BOX} initial={SAME} animate={SAME} transition={KICK} onAnimationStart={log.start} onAnimationComplete={log.complete} />
-        <AnimatePresence initial={false}>
-          <wardic.div ref={at("presence")} style={BOX} animate={{ x: 0 }} transition={KICK} onAnimationStart={log.start} onAnimationComplete={log.complete} />
-        </AnimatePresence>
-      </>
+    let spring!: Ward
+    let inertia!: Ward
+    const Cards = (): JSX.Element => {
+      spring = ward({ initial: false, animate: () => ({ x: to() }), transition: { type: "spring", stiffness: 300, damping: 20, velocity: 800 }, style: BOX })
+      inertia = ward({ initial: false, animate: () => ({ x: to() }), transition: { type: "inertia", velocity: 800, max: 50 }, style: BOX })
+      return (
+        <>
+          <div id="th9-spring" {...spring} />
+          <div id="th9-inertia" {...inertia} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Cards />
+      </WardicProvider>
     ))
+    const els = [document.getElementById("th9-spring")!, document.getElementById("th9-inertia")!]
+    const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
     let farthest = 0
     for (let i = 0; i < 20; i++) {
       await raf()
-      farthest = Math.max(farthest, ...Object.values(els).map((el) => Math.abs(xOf(el))))
+      farthest = Math.max(farthest, ...els.map((el) => Math.abs(xOf(el))))
     }
     expect(farthest, "nothing moved at mount").toBeLessThan(0.01)
-    expect(log.calls, "nothing told").toEqual([])
+    expect(spring.settled(), "nothing landed").toBeUndefined()
+    expect(inertia.settled()).toBeUndefined()
+    expect(isPending(() => inertia.settled()), "nor pending").toBe(false)
+    const landing = inertia.next("settled")
     setTo(200)
-    let most = 0
-    for (let i = 0; i < 20; i++) {
-      await raf()
-      most = Math.max(most, xOf(els.inertia!))
-    }
-    expect(most, "the next change glides on the inertia's velocity").toBeGreaterThan(5)
-    expect(xOf(els.spring!), "and springs on the spring's").not.toBeCloseTo(0, 0)
+    expect((await landing).target, "the next change runs").toEqual({ x: 200 })
   })
 })

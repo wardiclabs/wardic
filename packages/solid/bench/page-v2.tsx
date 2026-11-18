@@ -14,7 +14,7 @@
  *   which asks for its press, so it's read against `ward`.
  */
 import { DomLive } from "@wardic/dom"
-import { type AnimateLayout, Reorder, useAnimateLayout, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { type AnimateLayout, Reorder, useAnimateLayout, ward, wardic, WardicProvider } from "@wardic/solid"
 import { render } from "@solidjs/web"
 import { createSignal, flush, For, isPending, Show } from "solid-js"
 

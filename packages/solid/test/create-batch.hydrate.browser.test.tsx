@@ -1,17 +1,18 @@
-// `createBatch` from a server render to hydration on Solid 1 (#665's PR 6, ADR-0070 decision 14,
-// Q63–Q68): the server's markup is on the page a few frames before hydration, as a page's JS comes later.
+// `createBatch` from a server render to hydration on Solid 2 (#665's PR 6, ADR-0070 decision 14,
+// Q63–Q68): Solid 1's (`../create-batch.hydrate.browser.test.tsx`), the server's markup on the page a few
+// frames before hydration, as a page's JS comes later.
 //
 // - HB1: by index, entering from `initial`: every frame before hydration shows the server's start; once
 //   hydrated, its members move frame for frame as a client render's do, from that start to their targets.
 // - HB2: `initial: false`: every frame, before hydration and after it, shows the targets: nothing moves.
 // - HB3: keyed, by item and index, frame for frame with a client render; under `<AnimatePresence
 //   initial={false}>`, at the targets throughout.
-// Each hydrates with nothing thrown or logged.
+import { render } from "@solidjs/web"
+import * as Bool from "effect/Boolean"
 import { describe, expect, it } from "vitest"
 import { over } from "./browser-helpers.ts"
 import { B1, B2, B3 } from "./batch-hydrate-fixtures.tsx"
-import { hydrateFixture, renderClientOnly } from "./hydrate-harness.ts"
-import "./browser-commands.ts"
+import { hydrateFixture2 } from "./hydrate.ts"
 
 const FILE = "./test/batch-hydrate-fixtures.tsx"
 
@@ -30,19 +31,28 @@ const readAll = (host: ParentNode, ks: ReadonlyArray<string>): ReadonlyArray<Rea
 /** Hydrate fixture `name` after `waitFrames` frames of its server markup, recording them; then a client render beside it, both read for `frames` frames. */
 const run = async (name: string, code: () => ReturnType<typeof B1>, ks: ReadonlyArray<string>, frames: number) => {
   let before: ReadonlyArray<ReadonlyArray<ReadonlyArray<number>>> = []
-  const hydrated = await hydrateFixture(name, code, {
-    file: FILE,
-    waiting: async (host) => {
-      before = await over(5, () => readAll(host, ks))
-    },
-  })
-  const client = renderClientOnly(code)
-  const after = await over(frames, () => [readAll(hydrated.host, ks), readAll(client.host, ks)] as const)
-  const errors = hydrated.stopErrors()
-  const threw = hydrated.threw
-  hydrated.dispose()
-  client.dispose()
-  return { before, after, errors, threw }
+  const errors: Array<string> = []
+  const logged = console.error
+  console.error = (...args: ReadonlyArray<unknown>) => void errors.push(args.map(String).join(" "))
+  try {
+    const hydrated = await hydrateFixture2(name, code, {
+      file: FILE,
+      waiting: async (host) => {
+        before = await over(5, () => readAll(host, ks))
+      },
+    })
+    const host = document.createElement("div")
+    document.body.append(host)
+    const dispose = render(code, host)
+    const after = await over(frames, () => [readAll(hydrated.host, ks), readAll(host, ks)] as const)
+    const claimed = ks.every((k) => hydrated.claimed(k))
+    hydrated.dispose()
+    dispose()
+    host.remove()
+    return { before, after, errors, threw: Bool.match(claimed, { onTrue: () => "", onFalse: () => "not claimed" }) }
+  } finally {
+    console.error = logged
+  }
 }
 
 /** Each frame's hydrated members as the client render's, within 1e-6. */
@@ -50,7 +60,7 @@ const expectSame = (after: ReadonlyArray<readonly [ReadonlyArray<ReadonlyArray<n
   after.forEach(([hydrated, client], f) =>
     hydrated.forEach((member, n) => member.forEach((value, j) => expect(value, `frame ${f}, member ${n}, value ${j}`).toBeCloseTo(client[n][j], 6))))
 
-describe("createBatch from a server render to hydration on Solid 1 (#665)", () => {
+describe("createBatch from a server render to hydration on Solid 2 (#665)", () => {
   it("HB1: by index: the server's start until hydration, then a client render's move, frame for frame", async () => {
     const { before, after, errors, threw } = await run("B1", B1, ["m0", "m1", "m2"], 30)
     expect([threw, errors]).toEqual(["", []])

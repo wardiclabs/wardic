@@ -15,18 +15,18 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createEffect, onCleanup } from "solid-js"
-import { fromAtom } from "./bridge.tsx"
+import { isServer } from "@solidjs/web"
+import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Scroll from "@wardic/dom/unstable/features/Scroll"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
-import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
-import { CLOSE_FAILED, SERVER_ZERO } from "./live-value.tsx"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
-import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { followScroll, letGoScroll, scrollAtomsOf } from "./scroll-values.ts"
-import { isServer } from "./server.ts"
 import * as Timelines from "@wardic/core/unstable/Timelines"
+import { followAtom } from "./bridge.tsx"
+import { CLOSE_FAILED, SERVER_ZERO } from "./live-value.tsx"
+import { useBrought, useWardicRuntime } from "./provider.tsx"
+import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
 
 /** What it brings (ADR-0067 decision 12): the `scroll` Feature, whatever its section has (#518). */
 const SCROLL: ReadonlyArray<Feature.Feature> = [Scroll.scroll]
@@ -63,14 +63,15 @@ export interface ScrollValues {
   readonly scrollYProgress: Accessor<number>
 }
 
+/** `createScroll`'s elements before the render has settled: none yet. */
+const NOT_YET = { container: Option.none(), target: Option.none() } as const
 const SERVER_SCROLL: ScrollValues = { scrollX: SERVER_ZERO, scrollY: SERVER_ZERO, scrollXProgress: SERVER_ZERO, scrollYProgress: SERVER_ZERO }
 
-
 /** An element source read now: `None` for an accessor whose ref hasn't arrived. */
-const elementOf = (source: ElementSource): Option.Option<Element> =>
+const elementOf = (source: ElementSource | undefined): Option.Option<Element | undefined> =>
   Bool.match(Predicate.isFunction(source), {
     onTrue: () => Option.fromUndefinedOr((source as Accessor<Element | undefined>)()),
-    onFalse: () => Option.some(source as Element),
+    onFalse: () => Option.some(source as Element | undefined),
   })
 
 /**
@@ -93,12 +94,11 @@ const elementOf = (source: ElementSource): Option.Option<Element> =>
  * @see https://wardic.dev/reference/solid/live-values/create-scroll
  */
 // #234. An accessor `container` or `target` is read in an effect, and a change of either follows the
-// new one. Each value carries one Atom for its life (#240), described as deriving as the scroll's value
-// it's set from (`LiveValue.derivesAs`), so a Timeline value finds it: an element's `style` follows the
-// Atom.
+// new one. Each value carries one Atom for its life, described as deriving as the scroll's value it's
+// set from (`LiveValue.derivesAs`, #240).
 export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
-  const runtime = useWardicRuntime()
   if (isServer) return SERVER_SCROLL
+  const runtime = useWardicRuntime()
   const services = useBrought(SCROLL)
   // Built now, before a `style` follows its values, so the element finds its Timeline values (#240).
   const timelines = GestureFeatures.serviceOf(services(), Timelines.Timelines)
@@ -107,27 +107,42 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   const outs = scrollAtomsOf(registry, onCleanup)
   // Whether they follow a scroll now: a ref gone lets it go.
   let following = false
-  createEffect(() => {
-    const container = UndefinedOr.match(options.container, { onUndefined: () => Option.some(undefined), onDefined: elementOf })
-    const target = UndefinedOr.match(options.target, { onUndefined: () => Option.some(undefined), onDefined: elementOf })
-    // A ref not there yet, or gone: the values hold until it is.
-    if (Bool.or(Option.isNone(container), Option.isNone(target))) {
-      if (following) letGoScroll(outs, timelines)
-      following = false
-      return
-    }
-    const scope = OwnerScope.open(runtime)
-    onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
-    const values = runtime.runSync(
-      LiveValue.scroll({
-        ...UndefinedOr.match(Option.getOrUndefined(container), { onUndefined: () => ({}), onDefined: (element) => ({ container: element }) }),
-        ...UndefinedOr.match(Option.getOrUndefined(target), { onUndefined: () => ({}), onDefined: (element) => ({ target: element }) }),
-        ...UndefinedOr.match(options.offset, { onUndefined: () => ({}), onDefined: (offset) => ({ offset }) }),
-        ...UndefinedOr.match(options.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
-      }).pipe(Effect.provideService(ScrollSource.ScrollSource, GestureFeatures.serviceOf(services(), ScrollSource.ScrollSource)), Scope.provide(scope)),
-    )
-    following = true
-    onCleanup(followScroll(registry, outs, values, timelines))
+  // Its elements are read once the render has settled: a ref given as `() => box` is set during the
+  // render, after this effect's first compute, and isn't a signal, so nothing would read it again.
+  const [settled, setSettled] = createSignal(false)
+  onSettledClientOnly(() => {
+    setSettled(true)
   })
-  return Rec.map(outs, (atom) => LiveStyle.carry(fromAtom(atom), atom)) as unknown as ScrollValues
+  createEffect(
+    () =>
+      Bool.match(settled(), {
+        onTrue: () => ({ container: elementOf(options.container), target: elementOf(options.target) }),
+        onFalse: () => NOT_YET,
+      }),
+    ({ container, target }) => {
+      // A ref not there yet, or gone: the values hold until it is.
+      if (Bool.or(Option.isNone(container), Option.isNone(target))) {
+        if (following) letGoScroll(outs, timelines)
+        following = false
+        return undefined
+      }
+      const scope = OwnerScope.open(runtime)
+      const values = runtime.runSync(
+        LiveValue.scroll({
+          ...UndefinedOr.match(Option.getOrUndefined(container), { onUndefined: () => ({}), onDefined: (element) => ({ container: element }) }),
+          ...UndefinedOr.match(Option.getOrUndefined(target), { onUndefined: () => ({}), onDefined: (element) => ({ target: element }) }),
+          ...UndefinedOr.match(options.offset, { onUndefined: () => ({}), onDefined: (offset) => ({ offset }) }),
+          ...UndefinedOr.match(options.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
+        }).pipe(Effect.provideService(ScrollSource.ScrollSource, GestureFeatures.serviceOf(services(), ScrollSource.ScrollSource)), Scope.provide(scope)),
+      )
+      following = true
+      const stop = followScroll(registry, outs, values, timelines)
+      return () => {
+        stop()
+        OwnerScope.close(runtime, scope, CLOSE_FAILED)
+      }
+    },
+    CLIENT_ONLY,
+  )
+  return Rec.map(outs, (atom) => followAtom(registry, atom)) as unknown as ScrollValues
 }

@@ -6,26 +6,16 @@
  */
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as Context from "effect/Context"
-import type * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as Layout from "@wardic/dom/unstable/features/Layout"
 import { fromWardicContext } from "./provider.tsx"
 
 /**
- * Reads the provider's projection system (ADR-0009, the box-based Projection), bringing the
- * `layout` Feature (#511, decision 12): built now if nothing has built it yet. For a component that
- * brings it (`LayoutGroup`, `Reorder`, `createProjectionNode`). Throws a clear, named error outside a
- * `WardicProvider`, or during a server render. Must be called within a Solid owner.
+ * The provider's projection system (ADR-0009), bringing the `layout` Feature (#511, decision 12): built
+ * now if nothing has built it yet. For a component that brings it (`LayoutGroup`, `Reorder`). A clear
+ * error during a server render, which builds none.
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
   return fromWardicContext("useWardicProjection", Layout.projectionBrought)
-}
-
-/**
- * The `layout` Feature's element code beside {@link useWardicProjection}'s system (#746): what
- * `createProjectionNode` registers its node through, after `useWardicProjection`. Internal.
- */
-export function useProjectionNodes(): Keys.ProjectionNodes["Service"] {
-  return fromWardicContext("useWardicProjection", Layout.projectionNodesBrought)
 }
 
 /**

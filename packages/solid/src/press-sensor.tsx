@@ -4,30 +4,28 @@
  *
  * @module
  */
-import type { Accessor } from "solid-js"
-import { watchToSignal } from "./bridge.tsx"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Press from "@wardic/dom/unstable/features/Press"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useBrought } from "./provider.tsx"
+import { type Sensor, watchSensorOf } from "./sensors.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
 const PRESS: ReadonlyArray<Feature.Feature> = [Press.press]
 
 /**
- * `true` while `target` is pressed, by a pointer held down on it or by Enter or Space while it has
- * focus, `false` once it's released or the press is cancelled. `target` is the element itself, so call
- * it where it exists. An element that takes no focus of itself is given `tabindex="0"`, so a keyboard
- * can press it.
+ * `true` while the element it's given to as a `ref` is pressed, by a pointer held down on it or by
+ * Enter or Space while it has focus, `false` once it's released or the press is cancelled. An element
+ * that takes no focus of itself is given `tabindex="0"`, so a keyboard can press it.
  *
  * @example
- * const pressed = createPress(props.button)
- * <span>{pressed() ? "Holding" : "Press and hold"}</span>
+ * const pressed = createPress()
+ * <button ref={pressed}>{pressed() ? "Holding" : "Press and hold"}</button>
  * @see https://wardic.dev/reference/solid/gestures/create-press
  */
-// The core press watch (#318); a Keyboard press (#427). `false` until its first transition.
-export const createPress = (target: unknown): Accessor<boolean> => {
+// The core press watch; a Keyboard press (#427).
+export const createPress = (): Sensor<boolean> => {
   const services = useBrought(PRESS)
-  return watchToSignal<boolean>(({ on, onDefect }) => GestureFeatures.serviceOf(services(), Keys.PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+  return watchSensorOf<boolean>((target, { on, onDefect }) => GestureFeatures.serviceOf(services(), Keys.PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 }

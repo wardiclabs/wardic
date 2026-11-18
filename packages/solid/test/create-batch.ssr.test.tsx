@@ -1,23 +1,17 @@
-// `createBatch` on Solid 1's server and in its types (#665).
+// `createBatch` on Solid 2's server (#665's PR 6, ADR-0070 decision 14, Q63–Q67): Solid 1's
+// (`../create-batch.ssr.test.tsx`), the start each spread member renders.
 //
-// - CBS1: its targets take the transforms and `opacity` as numbers, and nothing else; its transition
-//   takes a `stagger()` delay.
-// - CBS2: on the server a spread member renders its start (#665's PR 6, Q63): its `initial`'s values, as
-//   the DOM writer's own `transform` and `opacity` strings, over its own `style`, less the properties the
-//   Batch draws; a key at its identity writes nothing.
-// - CBS3: `initial` as a function of the index; `initial: false`, the targets; no `initial`, nothing.
-// - CBS4: keyed (Q65): each member's start by its item and its index in the list; a key the list
-//   doesn't have renders none; under `<AnimatePresence initial={false}>`, the targets.
-// - CBS5: the element's own `style` goes through its handle: given beside the spread, the server's start
-//   takes its place, as Solid's spread lets the later `style` win; given to the handle, both are kept.
-// - CBS6: the client's errors are thrown on the server, with its messages (Q67): a string `style`, a
-//   start that isn't a number, a target that isn't one, a start outside a keyed Batch's `keys`, two
-//   items with one key, a key the DOM's writer doesn't draw.
+// - CBVS1: by index, a member's start over its own `style`, less the properties the Batch draws, the DOM
+//   writer's own strings; `initial` as a function of the index; `initial: false`, its targets; none, nothing.
+// - CBVS2: keyed, by its item and index; a key the list doesn't have renders none; under
+//   `<AnimatePresence initial={false}>`, the targets.
+// - CBVS3: the client's errors, with its messages: a string `style`, a start or a target that isn't a
+//   number, a start outside a keyed Batch's `keys`, two items with one key, a key the writer doesn't draw.
 import * as DomBatch from "@wardic/dom/DomBatch"
-import { AnimatePresence, createBatch, stagger, type WardicBatchConfig, type WardicBatchValues } from "@wardic/solid"
+import { AnimatePresence, createBatch } from "@wardic/solid"
 import { For } from "solid-js"
-import { describe, expect, expectTypeOf, it } from "vitest"
-import { serve, tagsOf } from "./ssr-helpers.ts"
+import { describe, expect, it } from "vitest"
+import { serve, tagsOf } from "./ssr.ts"
 
 /** The style the DOM writer draws `values` with, written into a stand-in element: what the server must write. */
 const writerStyleOf = (keys: ReadonlyArray<string>, values: ReadonlyArray<number>): Record<string, string> => {
@@ -30,62 +24,33 @@ const writerStyleOf = (keys: ReadonlyArray<string>, values: ReadonlyArray<number
 /** The tag whose `data-k` is `k`. */
 const tagOf = (html: string, k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
 
-describe("createBatch's types and server render (#665)", () => {
-  it("CBS1: its targets take the transforms and opacity as numbers, and nothing else", () => {
-    expectTypeOf<{ readonly x: 1; readonly rotateY: 2; readonly scale: 1.5; readonly opacity: 0.5 }>().toExtend<WardicBatchValues>()
-    // @ts-expect-error a Batch draws the transforms and opacity alone
-    const width: WardicBatchValues = { width: 10 }
-    // @ts-expect-error a Batch's values are numbers
-    const percent: WardicBatchValues = { x: "50%" }
-    void width
-    void percent
-    const config: WardicBatchConfig = { count: 3, animate: (i) => ({ x: i * 10 }), transition: { type: "spring", bounce: 0.2, delay: stagger(0.01) } }
-    void config
-  })
-
-  it("CBS2: on the server a spread member renders its start, the DOM writer's own strings, over its own style", () => {
+describe("createBatch's server render on Solid 2 (#665)", () => {
+  it("CBVS1: by index, a member's start over its own style; initial false, its targets; none, nothing", () => {
     const html = serve(() => {
-      const grid = createBatch({ count: 2, initial: { x: 10, rotate: 45, opacity: 0 }, animate: (i) => ({ x: i * 10, rotate: 0, opacity: 1 }) })
+      const grid = createBatch({ count: 2, initial: { x: 10, opacity: 0 }, animate: (i) => ({ x: i * 10, opacity: 1 }) })
+      const quiet = createBatch({ count: 2, initial: false, animate: (i) => ({ y: i * 20 }) })
+      const none = createBatch({ count: 1, animate: () => ({ x: 50 }) })
+      const fn = createBatch({ count: 2, initial: (i) => ({ rotate: i * 45 }), animate: () => ({ rotate: 0 }) })
       return (
         <>
-          <div data-k="a" {...grid.at(0, { style: { background: "teal", transform: "scale(2)", opacity: 0.5 } })} />
-          <div data-k="b" {...grid.at(1)} />
-        </>
-      )
-    })
-    const written = writerStyleOf(["x", "rotate", "opacity"], [10, 45, 0])
-    expect(tagOf(html, "a")?.style).toEqual({ background: "teal", ...written })
-    expect(tagOf(html, "b")?.style).toEqual(written)
-    expect(written).toEqual({ transform: "translateX(10px) rotate(45deg)", opacity: "0" })
-  })
-
-  it("CBS3: initial as a function of the index; initial false, the targets; none, nothing", () => {
-    const html = serve(() => {
-      const fn = createBatch({ count: 2, initial: (i) => ({ y: i * 5 }), animate: () => ({ y: 100 }) })
-      const quiet = createBatch({ count: 2, initial: false, animate: (i) => ({ x: i * 20, scale: 1 }) })
-      const none = createBatch({ count: 1, animate: () => ({ x: 50, opacity: 0.5 }) })
-      return (
-        <>
-          <div data-k="fn0" {...fn.at(0)} />
-          <div data-k="fn1" {...fn.at(1)} />
-          <div data-k="q0" {...quiet.at(0)} />
+          <div data-k="a" {...grid.at(0, { style: { background: "teal", opacity: 0.5 } })} />
           <div data-k="q1" {...quiet.at(1)} />
           <div data-k="none" {...none.at(0)} />
+          <div data-k="fn1" {...fn.at(1)} />
         </>
       )
     })
-    expect(tagOf(html, "fn0")?.style).toEqual({})
-    expect(tagOf(html, "fn1")?.style).toEqual({ transform: "translateY(5px)" })
-    expect(tagOf(html, "q0")?.style).toEqual({})
-    expect(tagOf(html, "q1")?.style).toEqual({ transform: "translateX(20px)" })
+    expect(tagOf(html, "a")?.style).toEqual({ background: "teal", ...writerStyleOf(["x", "opacity"], [10, 0]) })
+    expect(tagOf(html, "fn1")?.style).toEqual(writerStyleOf(["rotate"], [45]))
+    expect(tagOf(html, "q1")?.style).toEqual({ transform: "translateY(20px)" })
     expect(tagOf(html, "none")?.style).toEqual({})
   })
 
-  it("CBS4: keyed: each member's start by its item and index; an unlisted key renders none; initial={false} on a presence, the targets", () => {
+  it("CBVS2: keyed, by its item and index; an unlisted key renders none; initial={false} on a presence, the targets", () => {
     const items = [{ id: "a", n: 1 }, { id: "b", n: 2 }]
     const html = serve(() => {
-      const list = createBatch({ each: () => items, key: "id", initial: (item, i) => ({ x: item.n * 100 + i, opacity: 0 }), animate: (_, i) => ({ x: i * 40, opacity: 1 }) })
-      const quiet = createBatch({ each: () => items, key: "id", initial: { opacity: 0 }, animate: (_, i) => ({ y: i * 30, opacity: 1 }) })
+      const list = createBatch({ each: () => items, key: "id", initial: (item) => ({ scale: item.n }), animate: () => ({ scale: 1 }) })
+      const quiet = createBatch({ each: () => items, key: "id", initial: { opacity: 0 }, animate: (_, i) => ({ x: i * 30, opacity: 1 }) })
       return (
         <>
           <For each={items}>{(item) => <div data-k={`l-${item.id}`} {...list.member(item.id)} />}</For>
@@ -96,52 +61,43 @@ describe("createBatch's types and server render (#665)", () => {
         </>
       )
     })
-    expect(tagOf(html, "l-a")?.style).toEqual({ transform: "translateX(100px)", opacity: "0" })
-    expect(tagOf(html, "l-b")?.style).toEqual({ transform: "translateX(201px)", opacity: "0" })
+    expect(tagOf(html, "l-a")?.style).toEqual({})
+    expect(tagOf(html, "l-b")?.style).toEqual({ transform: "scale(2)" })
     expect(tagOf(html, "l-z")?.style).toEqual({})
     expect(tagOf(html, "q-a")?.style).toEqual({})
-    expect(tagOf(html, "q-b")?.style).toEqual({ transform: "translateY(30px)" })
+    expect(tagOf(html, "q-b")?.style).toEqual({ transform: "translateX(30px)" })
   })
 
-  it("CBS5: the element's own style goes through its handle: beside the spread, the start takes its place", () => {
-    const html = serve(() => {
-      const grid = createBatch({ count: 2, initial: { x: 10 }, animate: () => ({ x: 0 }) })
-      return (
-        <>
-          <div data-k="beside" style={{ width: "20px" }} {...grid.at(0)} />
-          <div data-k="given" {...grid.at(1, { style: { width: "20px" } })} />
-        </>
-      )
-    })
-    expect(tagOf(html, "beside")?.style).toEqual({ transform: "translateX(10px)" })
-    expect(tagOf(html, "given")?.style).toEqual({ width: "20px", transform: "translateX(10px)" })
-  })
-
-  it("CBS6: the client's errors are thrown on the server, with its messages", () => {
-    const render = (make: () => unknown) => () => serve(make as () => never)
-    expect(render(() => {
-      const grid = createBatch({ count: 1, animate: () => ({ x: 0 }) })
-      return <div {...grid.at(0, { style: "color: red" as never })} />
-    })).toThrow(/give a member's own `style` as an object/)
-    expect(render(() => {
-      const grid = createBatch({ count: 1, initial: { x: "10px" as never }, animate: () => ({ x: 0 }) })
-      return <div {...grid.at(0)} />
-    })).toThrow(/member 0's "x" starts at "10px": a Batch's values are numbers/)
-    expect(render(() => {
-      const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: "1em" as never }) })
-      return <div {...grid.at(0)} />
-    })).toThrow(/member 0's "x" is "1em": a Batch's targets are numbers, one each/)
-    expect(render(() => {
-      const list = createBatch({ each: () => ["a"], key: (id) => id, keys: ["x"], initial: { opacity: 0 }, animate: () => ({ x: 0 }) })
-      return <div {...list.member("a")} />
-    })).toThrow(/member "a" starts at "opacity", which isn't one of its keys \(x\)/)
-    expect(render(() => {
-      const list = createBatch({ each: () => ["a", "a"], key: (id) => id, animate: () => ({ x: 0 }) })
-      return <div {...list.member("a")} />
-    })).toThrow(/items 0 and 1 both have the key "a"/)
-    expect(render(() => {
-      const grid = createBatch({ count: 1, initial: { width: 10 } as never, animate: () => ({ x: 0 }) })
-      return <div {...grid.at(0)} />
-    })).toThrow(/Expected a key its writer draws, got "width"/)
+  it("CBVS3: a string style, and a start that isn't a number, are the client's errors", () => {
+    expect(() =>
+      serve(() => {
+        const grid = createBatch({ count: 1, animate: () => ({ x: 0 }) })
+        return <div {...grid.at(0, { style: "color: red" as never })} />
+      })).toThrow(/give a member's own `style` as an object/)
+    expect(() =>
+      serve(() => {
+        const grid = createBatch({ count: 1, initial: { x: "10px" as never }, animate: () => ({ x: 0 }) })
+        return <div {...grid.at(0)} />
+      })).toThrow(/member 0's "x" starts at "10px": a Batch's values are numbers/)
+    expect(() =>
+      serve(() => {
+        const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: "1em" as never }) })
+        return <div {...grid.at(0)} />
+      })).toThrow(/member 0's "x" is "1em": a Batch's targets are numbers, one each/)
+    expect(() =>
+      serve(() => {
+        const list = createBatch({ each: () => ["a"], key: (id) => id, keys: ["x"], initial: { opacity: 0 }, animate: () => ({ x: 0 }) })
+        return <div {...list.member("a")} />
+      })).toThrow(/member "a" starts at "opacity", which isn't one of its keys \(x\)/)
+    expect(() =>
+      serve(() => {
+        const list = createBatch({ each: () => ["a", "a"], key: (id) => id, animate: () => ({ x: 0 }) })
+        return <div {...list.member("a")} />
+      })).toThrow(/items 0 and 1 both have the key "a"/)
+    expect(() =>
+      serve(() => {
+        const grid = createBatch({ count: 1, initial: { width: 10 } as never, animate: () => ({ x: 0 }) })
+        return <div {...grid.at(0)} />
+      })).toThrow(/Expected a key its writer draws, got "width"/)
   })
 })
