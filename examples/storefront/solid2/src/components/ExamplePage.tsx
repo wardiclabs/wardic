@@ -1,7 +1,6 @@
 /**
  * An example's page (#296 Q3): the live demo, a line on what reduced motion does to it, why it's
- * worth reaching for, then its code, a server component highlighted on the server, beside Motion's
- * version where the Next.js app has it (#366).
+ * worth reaching for, then its code, a server component highlighted on the server.
  */
 import { dynamic } from "@solidjs/web"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"

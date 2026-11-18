@@ -53,7 +53,7 @@ cd examples/storefront/solid1   # or solid2, or foldkit
 bun run dev                     # http://localhost:3101 (solid2: 3102, foldkit: 3104)
 ```
 
-Their production builds serve on 4101, 4102 and 4104 (`bun run preview` in the Solid apps, `bun run start` in `foldkit`, after `bun run build`). An example's page links to the same example in the other apps, on the host it was asked for at their port, unless `STOREFRONT_SOLID1_URL`, `STOREFRONT_SOLID2_URL` or `STOREFRONT_FOLDKIT_URL` names an app's base URL (`shared/src/apps.ts`).
+Their production builds serve on 4101, 4102 and 4104 (`bun run preview` in the Solid apps, `bun run start` in `foldkit`, after `bun run build`).
 
 The Foldkit app has its first four areas (entrances, layout, gestures and presence); the rest, and its deployment beside the others, come with the storefront's second PR (#795).
 

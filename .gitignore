@@ -31,9 +31,6 @@ dist/
 # The storefront showcase's smoke screenshots (#296).
 .smoke/
 
-# The storefront's Next.js app (#366): its build, and the types file `next typegen` writes.
-.next/
-next-env.d.ts
 
 # Each package's copy of the root's licence files, made by `bun run build` (#554).
 packages/*/LICENSE

@@ -1,5 +1,5 @@
 {
-  "// note": "The docs' Motion samples (#558): each sample's Motion for React version, typechecked against Motion and React at the Next.js storefront's versions, for the code tabs' comparison.",
+  "// note": "The docs' Motion samples (#558): each sample's Motion for React version, typechecked against the site's own Motion and React, for the code tabs' comparison.",
   "compilerOptions": {
     "jsx": "react-jsx",
     "target": "ESNext",

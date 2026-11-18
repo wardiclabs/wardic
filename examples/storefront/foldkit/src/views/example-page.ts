@@ -23,7 +23,7 @@ const codePanel = (model: Model, h: HtmlBuilder<Message>, example: Example): Htm
   const code = model.code
   return h.section([h.Class("code"), h.AriaLabelledBy("code-title")], [
     h.h2([h.Id("code-title")], ["The code"]),
-    ...UndefinedOr.match(example.foldkit, { onUndefined: () => [], onDefined: ({ note }) => [h.p([h.Class("motion-note")], prose(h, note))] }),
+    ...UndefinedOr.match(example.foldkit, { onUndefined: () => [], onDefined: ({ note }) => [h.p([h.Class("code-note")], prose(h, note))] }),
     ...(code === null ? [h.pre([h.Class("muted")], ["Highlighting…"])] : code.own.map((file) => codeFile(h, file))),
   ])
 }

@@ -1,5 +1,5 @@
 /**
- * The showcase's smoke test (#296 Q6, #366 Q9): `bun ../shared/src/smoke.ts <app>` from an app's
+ * The showcase's smoke test (#296 Q6): `bun ../shared/src/smoke.ts <app>` from an app's
  * directory, after its build. It serves the production build (`vite preview` for the Solid apps,
  * the Node host for Foldkit's), opens the gallery and each example's route in Chromium, and checks,
  * for each:
