@@ -12,8 +12,8 @@ const langOf = (path: string): "tsx" | "ts" => {
 /** Shiki's options for the file at `path`. */
 export const highlightOptions = (path: string) => ({ lang: langOf(path), themes: { light: "catppuccin-latte", dark: "nord" }, defaultColor: false }) as const
 
-/** Whether `path` is an example's demo: what its folder starts with. */
-const rankOf = (path: string): number => Number(!path.endsWith("/Demo.tsx"))
+/** Whether `path` is an example's demo: what its folder starts with (`Demo.tsx` in the Solid and Motion apps, `Demo.ts` in the Foldkit app). */
+const rankOf = (path: string): number => Number(!(path.endsWith("/Demo.tsx") || path.endsWith("/Demo.ts")))
 
 /** An example's files in the order a panel shows them: its `Demo.tsx` first, then the rest by name. */
 export const inShowingOrder = (paths: ReadonlyArray<string>): ReadonlyArray<string> => [...paths].sort((a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b))

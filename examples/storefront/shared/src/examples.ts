@@ -79,6 +79,7 @@ export interface Example {
 export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "product-grid",
+    foldkit: { note: "On Foldkit the card's hover is a Message: `w.OnHoverStart` and `w.OnHoverEnd` tell `update` which card is under the pointer, and the photo's `w.Animate` reads it from the Model." },
     area: "entrances",
     title: "The product grid",
     summary: "The shop's grid fades and rises in, one card after another.",
@@ -95,6 +96,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "stock",
+    foldkit: { note: "On Foldkit the switch is a Command that asks the store (`Shop.getStock`), the bars kept until it answers, and each bar's `w.OnAnimationStart` and `w.OnAnimationComplete` send Messages that set its label." },
     area: "entrances",
     title: "Stock that fills in as it arrives",
     summary: "Each piece's stock meter fills in once the store's count arrives, and says when it has settled. Switch to after the delivery and they fill up from where they are.",
@@ -113,6 +115,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "product-detail",
+    foldkit: { note: "On Foldkit a presence keeps its own children: the fixed frame is one, with `w.Presence({ propagate: true })` of its own, so the detail view inside runs its exit while the frame waits; Escape is a Subscription on the window's keydowns." },
     area: "layout",
     title: "A product opens into its detail view",
     summary: "Tap a piece and its card grows into the full view, photo, name and price carried across.",
@@ -128,6 +131,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "browse",
+    foldkit: { note: "On Foldkit the filter and the view live in the Model; the list is a keyed `w.ul` under `w.Presence({ mode: \"popLayout\", initial: false })`." },
     area: "layout",
     title: "Filter the shop, switch the view",
     summary: "Pick a category and the products that stay slide together; switch to a list and every card reshapes into a row.",
@@ -143,6 +147,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "product-tabs",
+    foldkit: { note: "On Foldkit the panel is a keyed child of the `w.Presence({ mode: \"wait\" })` panel element: a new tab is a new child, so the last leaves before it enters." },
     area: "layout",
     title: "Tabs on a product page",
     summary: "Switch between a piece's description, details and delivery, and the underline slides to the tab you chose.",
@@ -157,6 +162,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "add-to-cart",
+    foldkit: { note: "On Foldkit the add is a Command over the store, its answer a Message that tells the app the cart changed (an OutMessage), and the three-second reset a Command's sleep, interrupted by the next add." },
     area: "layout",
     title: "Add to cart, and see it's done",
     summary: "The button says what it's doing, adding then added, and makes room for a way to the cart.",
@@ -174,6 +180,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "delivery-faq",
+    foldkit: { note: "On Foldkit Open all and Close all land at once through `w.Config({ skipAnimations })` on the list for the patch that opens them, turned off by a Command two frames later; Solid's `createInstantTransition` has no Foldkit form." },
     area: "layout",
     title: "Questions that open in place",
     summary: "Open an answer, and its card grows to fit while the questions below slide down to make room. Open all, or close all, and they change at once.",
@@ -189,6 +196,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "cart-drawer",
+    foldkit: { note: "On Foldkit the optimistic lines are the Model's own: each change on its way to the store is laid over the server's cart until the store answers, by token." },
     area: "layout",
     title: "A cart drawer that keeps up",
     summary: "Change a quantity or remove a piece, and the lines below close up at once, before the store has answered.",
@@ -208,6 +216,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "order-history",
+    foldkit: { note: "On Foldkit the re-sort returns `Wardic.animateLayout()` as a Command with the Model change, where Solid wraps the change in `useAnimateLayout`." },
     area: "layout",
     title: "Order history in a scrolling panel",
     summary: "Sort your orders and each one glides to its new place; open one and only the orders below it make room.",
@@ -226,6 +235,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "notifications",
+    foldkit: { note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot." },
     area: "gestures",
     title: "Notifications you swipe away",
     summary: "Throw a notification aside and it flies off; for four seconds you can undo it, then it's gone and the rest close the gap.",
@@ -244,6 +254,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "wishlist",
+    foldkit: { note: "On Foldkit `w.ReorderGroup` sends the whole order at each crossover and `onReorderEnd` the drop, saved as a Command; the order my hand made lives in the Model until the store has saved it." },
     area: "gestures",
     title: "A wishlist you rearrange by hand",
     summary: "Drag a piece up or down and the others make way; let go and the new order is saved. On Solid 2 the list is shared, and other people's moves glide in live.",
@@ -263,6 +274,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "arrange-room",
+    foldkit: { note: "On Foldkit the plan is named by its selector, `correctParentTransform(\"#room-plan\")`, since a view has no refs; `w.Config` on the plan gives every piece the mapping." },
     area: "gestures",
     title: "Arrange a room, at any zoom",
     summary: "Zoom the floor plan in or out, then drag the sofa, the table and the lamp about: each stays under your pointer, and inside the room.",
@@ -280,6 +292,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "toasts",
+    foldkit: { note: "On Foldkit each toast's stay is a Command's sleep ending in a Message, and the add a Command over the store that tells the app the cart changed." },
     area: "presence",
     title: "\"Added to cart\", in toasts that make room",
     summary: "Each piece you add says so in a toast; when one goes, the others close the gap.",
@@ -295,6 +308,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "gallery",
+    foldkit: { note: "On Foldkit the direction and the swipe are Messages, the keyboard an `h.OnKeyDown` on the stage; reduced motion reaches the view through the page's inputs, from the system's setting or the header's switch." },
     area: "presence",
     title: "A photo gallery that slides the way you go",
     summary: "Swipe or step through the collection's photos: each comes in from the side you're heading to, and the last one leaves by the other.",
@@ -314,6 +328,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "quick-view",
+    foldkit: { note: "On Foldkit a presence keeps its own children: the fixed frame is one, with `w.Presence({ propagate: true })` of its own, so the dialog inside runs its exit while the frame waits, and its pairings' presence propagates again." },
     area: "presence",
     title: "A quick view whose list leaves before it",
     summary: "Open a piece in a quick view and dismiss the suggestions you don't want. Close it, and what's left of the list goes first.",
@@ -329,6 +344,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "saved",
+    foldkit: { note: "On Foldkit the row's leaving and the twin's arrival are one update: the page tells the app `Arriving` (an OutMessage) and the header renders the twin under its own presence, `w.LayoutCrossfade(false)` on both; a refusal tells `Recalled`." },
     area: "presence",
     title: "Saved for later, moved to the cart",
     summary: "Move a saved piece to your cart and its photo flies into the cart; remove one and it fades. The rest close up behind it.",

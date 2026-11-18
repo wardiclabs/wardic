@@ -1,13 +1,14 @@
 # Wardic Northlight, the storefront showcase
 
-A made-up ceramics and glass shop whose every feature is a Wardic example: the demo, a short "why", and the code, on one page per pattern (#296). It's built twice, once per binding, so each shows its own Solid's way of doing things. And once more in Motion, on Next.js (#366): each example's page shows Motion's code beside Wardic's, in a tab, and links to it running.
+A made-up ceramics and glass shop whose every feature is a Wardic example: the demo, a short "why", and the code, on one page per pattern (#296). It's built three times, once per binding, so each shows its own framework's way of doing things: the two Solid bindings, and Foldkit's (#795). And once more in Motion, on Next.js (#366): each example's page shows Motion's code beside Wardic's, in a tab, and links to it running.
 
 | App | Stack | Shows |
 |---|---|---|
 | [`solid1`](solid1) | SolidStart 2.1 on Solid 1.9, `@wardic/solid`, Kobalte 0.13 | Solid 1 patterns: `createAsync` over Solid Router's `query`, `action`, `<Suspense>` |
 | [`solid2`](solid2) | Solid 2 on `@solidjs/vite-plugin` (`start: true`, `ssr: true`, `serverFunctions: { components: true }`), `@wardic/solid/unstable/v2`, Kobalte 2.0 (an alpha) | Solid 2 patterns: async memos under `<Loading>`, server components, and the binding's async values |
+| [`foldkit`](foldkit) | Foldkit 0.171 on Vite with `@foldkit/vite-plugin`'s server-rendered build and `@foldkit/node`, `@wardic/foldkit`, the store over Effect RPC | Foldkit patterns: the Model as the one state, Messages for every callback, Commands over the store, a page's first paint from the Flags the server rendered with |
 | [`next`](next) | Next.js 16 (App Router) on React 19, `motion/react`, Radix | Each example as Motion would write it: server components that start the store's reads, client components that read them with `use()`, server actions, and server-sent events for the shared wishlist |
-| [`shared`](shared) | | What all three use: the catalog and photos, the stylesheet, the examples' words, the store, the apps' addresses, the smoke test |
+| [`shared`](shared) | | What all four use: the catalog and photos, the stylesheet, the examples' words, the store, the apps' addresses, the smoke test |
 
 ## The examples
 
@@ -49,11 +50,13 @@ The apps need Node 24 (SolidStart 2 requires it), which the repo's dev shell has
 
 ```sh
 nix develop
-cd examples/storefront/solid1   # or solid2, or next
-bun run dev                     # http://localhost:3101 (solid2: 3102, next: 3103)
+cd examples/storefront/solid1   # or solid2, next, or foldkit
+bun run dev                     # http://localhost:3101 (solid2: 3102, next: 3103, foldkit: 3104)
 ```
 
-Their production builds serve on 4101, 4102 and 4103 (`bun run preview` in the Solid apps, `bun run start` in `next`, after `bun run build`). An example's page links to the same example in the other apps, on the host it was asked for at their port, unless `STOREFRONT_SOLID1_URL`, `STOREFRONT_SOLID2_URL` or `STOREFRONT_NEXT_URL` names an app's base URL (`shared/src/apps.ts`).
+Their production builds serve on 4101, 4102, 4103 and 4104 (`bun run preview` in the Solid apps, `bun run start` in `next` and in `foldkit`, after `bun run build`). An example's page links to the same example in the other apps, on the host it was asked for at their port, unless `STOREFRONT_SOLID1_URL`, `STOREFRONT_SOLID2_URL`, `STOREFRONT_NEXT_URL` or `STOREFRONT_FOLDKIT_URL` names an app's base URL (`shared/src/apps.ts`).
+
+The Foldkit app has its first four areas (entrances, layout, gestures and presence); the rest, and its deployment beside the others, come with the storefront's second PR (#795).
 
 The header's switches:
 - **Reduce motion** sets the provider's `reducedMotion` to `"always"`, so you can see what every demo does under it. In the Next.js app it sets `MotionConfig`'s. Motion reads that as each element mounts, and never again, so there it's kept in a cookie, which the server renders with, and the page's content mounts again when it changes; the header's own buttons follow it from the next page load.

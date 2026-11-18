@@ -5,6 +5,7 @@
  * server functions send what they reject with to the client as a thrown error.
  */
 import * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Match from "effect/Match"
@@ -12,6 +13,8 @@ import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import { type Store, StoreLive, type StoreError, Visitor, type VisitorInfo } from "./store.ts"
+
+export { type Store, type StoreError, Visitor }
 
 export * from "./model.ts"
 export {
@@ -56,8 +59,15 @@ const runtimeOnce = (): ManagedRuntime.ManagedRuntime<Store, never> => {
 
 const runtime = runtimeOnce()
 
-/** What a visitor reads when a call fails. */
-const messageOf: (error: StoreError) => string = Match.type<StoreError>().pipe(
+/**
+ * The store's services, for a server that runs the store's calls as Effects of its own (the Foldkit
+ * app's rpc handlers and its page render, #795): one `Context` from the one runtime, so a visitor's
+ * cart is the same whichever way a call reaches it.
+ */
+export const storeContext: Effect.Effect<Context.Context<Store>> = runtime.contextEffect
+
+/** What a visitor reads when a call fails: one source of the words for every wire (#795, Q24). */
+export const messageOf: (error: StoreError) => string = Match.type<StoreError>().pipe(
   Match.tag("SimulatedFailure", () => "The store didn't answer: you asked the next request to fail."),
   Match.tag("UnknownProduct", (error) => `There's no product "${error.id}".`),
   Match.tag("InvalidArguments", (error) => `That request wasn't valid: ${error.reason}`),
