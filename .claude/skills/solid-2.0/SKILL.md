@@ -3,7 +3,7 @@ name: solid-2.0
 description: Solid 2.0 primer for coding agents. Use when writing, reviewing or migrating Solid 2.0 code (solid-js 2.x, @solidjs/web). The API differs from Solid 1.x and from React; read this before generating, then check unfamiliar names against node_modules/solid-js/CHEATSHEET.md.
 ---
 
-<!-- Copied from solid-js@2.0.0-rc.21 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from solid-js@2.0.1 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 # Solid 2.0 for agents
 
@@ -119,6 +119,6 @@ Also:
   `costs`, `end`).
 - Lint: `eslint-plugin-solid`, config `v2`
   (`import solid from "eslint-plugin-solid/configs/v2"`) or `v2-strict`.
-- Docs: https://v2.solidjs.com (Solid 2.0 docs; `/llms.txt` and
+- Docs: https://docs.solidjs.com (Solid 2.0 docs; `/llms.txt` and
   `/llms-full.txt` for agents). Migration guide: `documentation/solid-2.0/MIGRATION.md`
   in the repository.

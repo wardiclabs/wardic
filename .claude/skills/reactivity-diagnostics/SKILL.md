@@ -3,7 +3,7 @@ name: reactivity-diagnostics
 description: Map a Solid 2.0 dev diagnostic code (STRICT_READ_UNTRACKED, REACTIVE_WRITE_IN_OWNED_SCOPE, LOADING_ON_OUTSIDE_HOLD, HOT_SCOPE_*, ...) to its repair. Use when a Solid console warning, test failure or @solidjs/diagnostics artifact reports a [CODE].
 ---
 
-<!-- Copied from solid-js@2.0.0-rc.21 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from solid-js@2.0.1 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 # Repairing Solid reactivity from diagnostic codes
 
@@ -75,6 +75,14 @@ or a signal called in the component body). The read got the current value
 once and will never update. Move the read into a tracking scope: JSX, a
 memo, or an effect's compute function. If you intentionally want a one-time
 snapshot, wrap the read in `untrack()` to say so explicitly.
+
+When the context is "an event handler expression", the read is in the
+expression an element's handler is bound from (`onClick={selected() ? a : b}`,
+`onClick={makeHandler(id())}`, or a component prop forwarded to an element
+that the parent passed a reactive expression). Handlers are bound once and
+are not reactive: move the read inside the handler function
+(`onClick={() => (selected() ? a() : b())}`), and pass plain functions down
+as handler props.
 
 ### PENDING_ASYNC_UNTRACKED_READ
 
@@ -155,6 +163,17 @@ the source is loading: there is nothing on screen to be optimistic over
 Repair: keep the pending items in a separate list (an outbox) until the
 source loads, or disable the action (the input) until the source has loaded.
 
+### OPTIMISTIC_WRITE_WHILE_LOADING
+
+An optimistic setter ran while its source, which answered before, is loading
+a new question because an input changed: the setter composed on the previous
+answer, and the new answer replaces the guess (D-34, ruled 2026-11-12). A
+`Loading on` re-arm shows a fallback, but the source still holds the old
+answer. Not flagged before the first answer or during a `refresh()`. Repair:
+render the control inside the source's `Loading`, or disable it while the
+source is pending, or keep the pending change in a separate list until the
+new answer lands. Once per source; a warning, the guess is still made.
+
 ### STORE_WRITE_OUTSIDE_SETTER
 
 A store proxy was written, deleted from, or had a property defined on it
@@ -165,6 +184,18 @@ write inside the setter, `setStore(s => { s.n = 5 })` (nested paths and
 array methods work on the draft: `s.items.push(x)`, `delete s.user`). Once
 per store object and key; `data.operation` is `set`, `defineProperty` or
 `deleteProperty`.
+
+### STORE_WRITE_THROUGH_LOADING
+
+A store setter wrote inside a value that is another store still loading its
+first answer (`setOuter(s => { s.child.x = 9 })`, where `outer`'s derive
+returned `{ child: inner }`). The nested write needs that store's contents
+and they do not exist yet (its seed is never shown), so the write is dropped,
+as a write to a loading store is replaced by its first answer; the outer store
+keeps following the inner one. Repair: write after the inner store loads, or
+replace the whole value, `setOuter(s => { s.child = { ...next } })`.
+`data.property` names the key holding the loading store. Production drops the
+write the same way, without the warning.
 
 ### ACTION_CALLED_IN_OWNED_SCOPE
 
@@ -214,7 +245,9 @@ run. Same fix: register it under an owner.
 ### CLEANUP_IN_FORBIDDEN_SCOPE
 
 `onCleanup` inside `createTrackedEffect` or `onSettled` is not supported —
-return a cleanup function from the callback instead.
+return a cleanup function from the callback instead. Inside a ref callback it
+throws too: register the cleanup in the factory that returns the ref (the
+component body).
 
 ### SETTLED_CLEANUP_UNOWNED
 
@@ -251,6 +284,8 @@ A memo, effect, or root was created without an owner inside an effect
 callback or its cleanup. The effect phase has no ambient owner, so those
 computations cannot be disposed or held by a parent. Create them in the
 compute phase, or attach them to an existing owner with `runWithOwner`.
+A ref callback runs like a render effect's callback and owns nothing, so
+creating one there throws too: create it in the factory that returns the ref.
 Creating a signal alone does not trigger this error.
 
 ### PRIMITIVE_IN_FORBIDDEN_SCOPE
@@ -1075,6 +1110,22 @@ setDraft(e.currentTarget.value)}`, commit the draft separately), use
 `defaultValue`/`defaultChecked` for an uncontrolled element, or reject an edit
 by writing the accepted value back in the handler (`e.currentTarget.value =
 next`) instead of re-asserting an equal value through the signal.
+
+### INVALID_HTML_NESTING
+
+Hydration claimed a server-rendered element that is not where the template put
+it: the nesting is invalid HTML, so the browser's parser rebuilt the tree. A
+`<div>` closes an open `<p>`, an `<a>` closes an open `<a>`, a `<tr>` directly
+in a `<table>` gets a `<tbody>` the parser adds. The compiler rejects this
+inside one template, so it nearly always spans a component boundary
+(`<P>{props.children}</P>` given a `<div>`, a `<For>` of row components inside
+`<table>`). The page differs from a client render and the insert cannot update
+the moved node. Warned once per parent, in dev only; the message names the
+parent, the child and where the parser put it. Fix: change the outer element (a
+`<div>` for a `<p>` that holds blocks, a `<span>` for an `<a>` that holds a
+link), move the inner element out, or write the wrapper the parser expects —
+`<table><tbody><For …>{r => <Row />}</For></tbody></table>`. A `<form>` inside
+a `<form>` is dropped by the parser instead; the hydration key miss names it.
 
 ## Verifying a fix
 
