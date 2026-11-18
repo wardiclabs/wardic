@@ -6,7 +6,6 @@
 .reference
 .direnv
 **/dist
-**/.next
 **/.smoke
 **/.output
 **/.vinxi

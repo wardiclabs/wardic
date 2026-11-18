@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Wardic Northlight</title>
     <link rel="icon" href="data:," />
-    <!-- The demo's landing page (#366): which of the three apps to open. Caddy serves it as a
+    <!-- The demo's landing page (#366): which of the apps to open. Caddy serves it as a
          template, so the links name the subdomains of the host it was asked for. -->
     <style>
       :root {
@@ -132,11 +132,6 @@
         background: var(--accent);
         color: var(--accent-ink);
       }
-      .badge.motion {
-        background: transparent;
-        color: var(--ink);
-        box-shadow: inset 0 0 0 1px var(--line);
-      }
       .go {
         margin-top: 6px;
         font-weight: 600;
@@ -153,7 +148,7 @@
       <header>
         <p class="eyebrow">Wardic Northlight</p>
         <h1>A made-up shop, built to show what Wardic does.</h1>
-        <p>Each feature of the shop is an animation example: the demo, why it's worth reaching for, and its code. Every example's page has Motion's version beside it.</p>
+        <p>Each feature of the shop is an animation example: the demo, why it's worth reaching for, and its code.</p>
       </header>
       <ul class="apps">
         <li>
@@ -161,14 +156,6 @@
             <span class="badges"><span class="badge">Solid 2</span></span>
             <h2>Wardic on Solid 2</h2>
             <p>Async memos under <code>&lt;Loading&gt;</code>, server components, and the binding's async values, on Solid 2.</p>
-            <span class="go">Open the shop →</span>
-          </a>
-        </li>
-        <li>
-          <a class="app" href="https://motion.{{.Host}}/">
-            <span class="badges"><span class="badge motion">Motion · Next.js</span></span>
-            <h2>The same shop in Motion</h2>
-            <p>Every example as Motion would write it, with <code>motion/react</code> on Next.js, to set beside Wardic's.</p>
             <span class="go">Open the shop →</span>
           </a>
         </li>

@@ -53,7 +53,6 @@ Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, with
 The storefront showcase is a made-up ceramics shop whose every feature is an example: the demo, why it's worth reaching for, and the code.
 
 - On Solid 2: https://solid2.wardic.dev
-- The same examples in Motion for React, to compare: https://motion.wardic.dev
 
 Its source is in [`examples/storefront`](examples/storefront), with a Solid 1 version beside it.
 

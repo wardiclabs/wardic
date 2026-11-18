@@ -25,6 +25,6 @@ export function App() {
 Solid 1's binding, `@wardic/solid/v1`, is deprecated and frozen for features, and goes at Wardic's next major: a Solid 1 app on 1.x moves to 2.0 by changing its imports from `@wardic/solid` to `@wardic/solid/v1`. `@wardic/solid/unstable/v2`, Solid 2's entry before 2.0, re-exports the root, deprecated, until then. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major.
 
 - Docs: https://wardic.dev
-- Live examples: https://solid2.wardic.dev, with Motion's beside them at https://motion.wardic.dev
+- Live examples: https://solid2.wardic.dev
 - Source: https://github.com/wardiclabs/wardic/tree/main/packages/solid
 - Licence: MIT

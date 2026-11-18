@@ -637,69 +637,12 @@ button {
  * The code's tabs (#366 Q2): the app's own Solid and Motion's, as radios, so they switch with no
  * JavaScript, and the arrow keys move between them.
  */
-.code-tabs {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.code-tabs input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.code-tabs label {
-  padding: 6px 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: var(--text-s);
-  cursor: pointer;
-}
-
-.code-tabs input:checked + label {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-}
-
-.code-tabs input:focus-visible + label {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.code-pane {
-  display: grid;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.code:has(.code-tab-motion:checked) .code-pane-solid,
-.code:has(.code-tab-solid:checked) .code-pane-motion {
-  display: none;
-}
-
-/* Motion's code, and where it runs. */
-.code-run {
-  justify-self: start;
-  font-size: var(--text-s);
-}
-
-/* On Motion's page, the same example in the Solid apps. */
-.other-apps {
-  font-size: var(--text-s);
-}
-
-.motion-note {
+.code-note {
   max-width: 68ch;
   color: var(--muted);
 }
 
-.motion-note code {
+.code-note code {
   padding: 1px 6px;
   border-radius: 6px;
   background: var(--tile);
@@ -2890,7 +2833,7 @@ button.product-card:hover .photo {
   display: inline-block;
 }
 
-/* --- With a component library (#387): Kobalte's parts, and Radix's in Motion's app ---------- */
+/* --- With a component library (#387): Kobalte's parts ---------- */
 
 /* The size guide: the library's dialog, centred over the shade by its margins rather than a
    transform, so the rise and the scale Wardic draws are its only transform. */
@@ -2946,7 +2889,7 @@ button.product-card:hover .photo {
 }
 
 /* Sort by: the select's button and its list. Its items are marked by the library: Kobalte's
-   `data-selected`, Radix's `data-state="checked"`, and `data-highlighted` in both. */
+   `data-selected` and `data-highlighted`. */
 .sort-head {
   display: flex;
   flex-wrap: wrap;
@@ -3001,16 +2944,14 @@ button.product-card:hover .photo {
   background: var(--tile);
 }
 
-.select-item[data-selected],
-.select-item[data-state="checked"] {
+.select-item[data-selected] {
   color: var(--accent);
   font-weight: 600;
 }
 
 /* A piece's details: one panel, the chosen one. Kobalte 2.0's presence (the Solid 2 app) keeps the
    last panel on the page a task after the next one comes, no longer `data-selected`: hidden, so the
-   next takes its place at once rather than coming in under it. Radix marks its own
-   `data-state="active"`. */
-.details-tabs [role="tabpanel"]:not([data-selected]):not([data-state="active"]) {
+   next takes its place at once rather than coming in under it. */
+.details-tabs [role="tabpanel"]:not([data-selected]) {
   display: none;
 }
