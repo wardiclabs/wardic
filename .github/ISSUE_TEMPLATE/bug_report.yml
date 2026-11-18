@@ -26,8 +26,8 @@ body:
     attributes:
       label: Binding
       options:
-        - Solid 1 (@wardic/solid)
-        - Solid 2 (@wardic/solid/unstable/v2)
+        - Solid 2 (@wardic/solid)
+        - Solid 1 (@wardic/solid/v1)
         - Another (say which below)
     validations:
       required: true
@@ -36,7 +36,7 @@ body:
     attributes:
       label: Versions
       description: "@wardic/solid, solid-js, and your framework if you use one (SolidStart, …)."
-      placeholder: "@wardic/solid 1.0.0-rc.1, solid-js 1.9.18, @solidjs/start 2.1.0"
+      placeholder: "@wardic/solid 2.0.0, solid-js 2.0.1, @solidjs/web 2.0.1"
     validations:
       required: true
   - type: input

@@ -1,4 +1,4 @@
-// Wardic's Solid 2 side (`@wardic/solid/unstable/v2`, `DomLive`), or plain Solid 2 divs with
+// Wardic's Solid 2 side (`@wardic/solid`, `DomLive`), or plain Solid 2 divs with
 // `?kind=plain`: bench:solid's page-v2. Each update is written then `flush()`ed, so Solid 2 applies it
 // in the timed task, as `flushSync` does for React's.
 import { DomLive } from "@wardic/dom"

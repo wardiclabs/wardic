@@ -1,6 +1,6 @@
 # @wardic/solid
 
-Motion for React's API on [Solid](https://www.solidjs.com): elements that animate, gestures, layout and shared-element animations, presence, scroll and live values, with server rendering that plays before the JavaScript has loaded. For Solid 1, and for Solid 2 under `@wardic/solid/unstable/v2`.
+Motion for React's API on [Solid](https://www.solidjs.com): elements that animate, gestures, layout and shared-element animations, presence, scroll and live values, with server rendering that plays before the JavaScript has loaded. For Solid 2, last tested with `solid-js` and `@solidjs/web` 2.0.1, and for Solid 1 under `@wardic/solid/v1`, deprecated.
 
 ```sh
 npm install @wardic/solid @wardic/dom effect
@@ -22,9 +22,9 @@ export function App() {
 }
 ```
 
-Solid 2's binding (`@wardic/solid/unstable/v2`) is outside semver until Solid 2 itself is stable. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major.
+Solid 1's binding, `@wardic/solid/v1`, is deprecated and frozen for features, and goes at Wardic's next major: a Solid 1 app on 1.x moves to 2.0 by changing its imports from `@wardic/solid` to `@wardic/solid/v1`. `@wardic/solid/unstable/v2`, Solid 2's entry before 2.0, re-exports the root, deprecated, until then. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major.
 
 - Docs: https://wardic.dev
-- Live examples: https://solid1.wardic.dev and https://solid2.wardic.dev, with Motion's beside them at https://motion.wardic.dev
+- Live examples: https://solid2.wardic.dev, with Motion's beside them at https://motion.wardic.dev
 - Source: https://github.com/wardiclabs/wardic/tree/main/packages/solid
 - Licence: MIT
