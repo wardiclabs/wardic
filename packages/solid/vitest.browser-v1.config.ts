@@ -35,7 +35,7 @@ export default defineConfig({
   test: {
     name: "v1-browser",
     include: ["test/v1/**/*.browser.test.{ts,tsx}"],
-    // The hydration tests need the hydratable compile: they're vitest.hydrate.config.ts's.
+    // The hydration tests need the hydratable compile: they're vitest.hydrate-v1.config.ts's.
     // The Solid 2 binding's are vitest.browser.config.ts's (#566).
     exclude: [...configDefaults.exclude, "test/v1/**/*.hydrate.browser.test.tsx"],
     // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).

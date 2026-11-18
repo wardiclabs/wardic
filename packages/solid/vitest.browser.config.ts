@@ -5,7 +5,7 @@ import { sourceNames } from "./vite.source-names.ts"
 import { BROWSER_COMMANDS, PREBUNDLED } from "./vitest.browser-commands.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
-// Real-browser tests for the Solid 2 binding, `@wardic/solid/unstable/v2` (#209): Solid 2's DOM
+// Real-browser tests for the Solid 2 binding, `@wardic/solid` (#209, #566): Solid 2's DOM
 // compile in Chromium. Solid 2 and `@solidjs/web` aren't pre-bundled: served through Vite, their
 // `solid-js` resolves to Solid 2 (vite.solid2.ts). Files are `test/**/*.browser.test.tsx`, but Solid 1's in `test/v1/` (#566).
 export default defineConfig({

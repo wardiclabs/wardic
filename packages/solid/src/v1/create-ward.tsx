@@ -180,6 +180,9 @@ export interface WardValue {
   <A extends number | string = number>(key: string): Accessor<A | undefined>
 }
 
+/** The entry a missing Feature's message tells the app to import it from: this binding's (#566). */
+const ENTRY = "@wardic/solid/v1"
+
 /** A `<Reorder>` item's additions when there are none: a plain element's. */
 const NO_INTERNALS: SpineInternals = {}
 
@@ -621,7 +624,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // Its section's `layout` makes its node (#511): without it, its layout props do nothing, and
       // development says so once, unless `layout` is on its way.
       if (DEV && Feature.wantsLayoutNode(c0) && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
-        useFeatureRegistry().warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid/v1"))
+        useFeatureRegistry().warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, ENTRY))
       }
       // `layout` on its way (#582): its node is made as it arrives, under this owner, as Motion's is,
       // and measures from then on; nothing before it is replayed. A load that brings none gets
@@ -667,7 +670,7 @@ export function runSpine(opts: RunSpineOptions): void {
                   later.handle = runWithOwner(owner, () => untrack(() => layoutNodeOn(arrived, undefined)))
                 },
                 onUndefined: () => {
-                  if (DEV && Bool.not(section.pending())) registry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid/v1"))
+                  if (DEV && Bool.not(section.pending())) registry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, ENTRY))
                 },
               })
             },
@@ -703,7 +706,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // says so once, unless `drag` is on its way.
       const dragGesture = GestureFeatures.serviceIn(untrack(features.services), Keys.DragGesture)
       if (DEV && Predicate.isNotUndefined(dragCfg) && Predicate.isUndefined(dragGesture) && Bool.not(untrack(features.pending))) {
-        useFeatureRegistry().warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, "@wardic/solid/v1"))
+        useFeatureRegistry().warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, ENTRY))
       }
       if (Predicate.isNotUndefined(dragCfg)) {
         // What the track is made with, copied into this block: a closure here holds only these, so an
@@ -776,7 +779,7 @@ export function runSpine(opts: RunSpineOptions): void {
                 held.track = runWithOwner(owner, () => untrack(() => trackWith(arrived)))
               },
               onUndefined: () => {
-                if (DEV && Bool.not(section.pending())) registry.warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, "@wardic/solid/v1"))
+                if (DEV && Bool.not(section.pending())) registry.warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, ENTRY))
               },
             })
           })
@@ -977,7 +980,7 @@ const warnMissingGestures = (registry: Feature.FeatureRegistry, features: Featur
     const services = features.services()
     if (features.pending()) return
     Arr.forEach(GESTURE_FEATURES, ([name, wants, key]) => {
-      if (wants(c) && Bool.not(GestureFeatures.hasService(services, key))) registry.warnOnce(name, Feature.missingMessage(name, GestureFeatures.GESTURE_WORDS[name], "@wardic/solid/v1"))
+      if (wants(c) && Bool.not(GestureFeatures.hasService(services, key))) registry.warnOnce(name, Feature.missingMessage(name, GestureFeatures.GESTURE_WORDS[name], ENTRY))
     })
   })
 }
@@ -991,7 +994,7 @@ const warnUnreadColors = (registry: Feature.FeatureRegistry, features: Feature.F
   createEffect(() => {
     const unread = Feature.unreadColorIn(values())
     if (Predicate.isUndefined(unread) || features.pending()) return
-    registry.warnOnce("colors", Feature.missingMessage("colors", `The colour \`${unread}\``, "@wardic/solid/v1"))
+    registry.warnOnce("colors", Feature.missingMessage("colors", `The colour \`${unread}\``, ENTRY))
   })
 }
 

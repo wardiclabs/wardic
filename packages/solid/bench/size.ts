@@ -27,15 +27,12 @@ import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:
 import { join } from "node:path"
 import { brotliCompressSync, gzipSync } from "node:zlib"
 import { build } from "vite"
-import solid from "vite-plugin-solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { solid1 } from "../vite.solid1.ts"
-import { solid2 } from "../vite.solid2.ts"
-import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, bindingPluginsOf, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 /** An app fails when its gzip passes this ratio of the base's. */
 const GATE = 1.01
@@ -340,7 +337,7 @@ const appSizeOf = async (root: string, deps: string, app: App, entry: string, si
     logLevel: "error",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })],
+    plugins: [sideResolver(root, deps), bindingPluginsOf(app.v2)],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist", app.name),

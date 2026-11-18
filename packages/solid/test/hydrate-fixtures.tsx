@@ -1,5 +1,5 @@
 // Fixtures for the Solid 2 binding's hydration tests (#209 PR 4a): each export is rendered on the
-// server (Node) by the v2-hydrate project's commands and hydrated in Chromium from this one module.
+// server (Node) by the hydrate project's commands and hydrated in Chromium from this one module.
 // Appear animations' A1–A8 are the Solid 1 binding's (`../appear-fixtures.tsx`) on Solid 2. Each
 // element to watch carries `data-k`. Not a test file itself.
 import * as Easing from "@wardic/core/Easing"

@@ -1,3 +1,4 @@
+import * as Bool from "effect/Boolean"
 import { playwright } from "@vitest/browser-playwright"
 import solidPlugin from "vite-plugin-solid"
 import { solid1 } from "./vite.solid1.ts"
@@ -91,7 +92,7 @@ const serverStreamPage: BrowserCommand<[file: string, exportName: string, render
 
 /** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames. */
 const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
-  await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
+  await ctx.page.emulateMedia({ reducedMotion: Bool.match(reduce, { onTrue: () => "reduce", onFalse: () => "no-preference" }) })
 }
 
 export default defineConfig({

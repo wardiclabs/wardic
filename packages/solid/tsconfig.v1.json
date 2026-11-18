@@ -1,21 +1,12 @@
 {
-  "// note": "The Solid 1 binding's typecheck with its tests and the bench (#566): src/v1, test/v1, the bench's scripts and its Solid 1 pages, against Solid 1. No emit; run via `bun run typecheck:tests`. bench:motion's Motion page is left out: React and framer-motion install only in bench/motion/react/ (#615).",
-  "extends": "../../tsconfig.base.json",
+  "// note": "The Solid 1 binding's typecheck with its tests and the bench (#566): src/v1, test/v1, the bench's scripts and its Solid 1 pages, against Solid 1, with tsconfig.v1.build.json's settings and Solid 1 `paths`. No emit; run via `bun run typecheck:tests`. bench:motion's Motion page is left out: React and framer-motion install only in bench/motion/react/ (#615).",
+  "extends": "./tsconfig.v1.build.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "preserve",
-    "jsxImportSource": "solid-js",
     "noEmit": true,
     "composite": false,
     "rootDir": ".",
-    // Solid 1 for every importer, which this package holds as `solid-js-1`: its own `solid-js` is Solid 2 (#566).
-    "paths": {
-      "solid-js": ["./node_modules/solid-js-1/types/index.d.ts"],
-      "solid-js/web": ["./node_modules/solid-js-1/web/types/index.d.ts"],
-      "solid-js/store": ["./node_modules/solid-js-1/store/types/index.d.ts"],
-      "solid-js/jsx-runtime": ["./node_modules/solid-js-1/types/jsx.d.ts"],
-      "@solidjs/router": ["./node_modules/@solidjs/router-1/dist/index.d.ts"]
-    }
+    // Its own, not the build's: a typecheck never shares the build's incremental state.
+    "tsBuildInfoFile": "${configDir}/dist/tsconfig.v1.tsbuildinfo"
   },
   "include": ["src/v1", "test/v1", "bench", "vite.solid1.ts", "babel-modules.d.ts"],
   "exclude": ["bench/page-v2.tsx", "bench/motion/wardic-v2-page.tsx", "bench/motion/motion-page.ts", "bench/motion/react"]

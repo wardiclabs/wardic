@@ -4,8 +4,8 @@
  *
  * The bindings' start-cost bench (#87, ADR-0040, decision 6): `--head`'s core, dom and solid
  * (default: the working tree) against `--base`'s (default: `main`), at N `wardic.div`s in
- * production Chromium, on `page.tsx` (the Solid 1 binding) and `page-v2.tsx` (the Solid 2 binding,
- * `@wardic/solid/unstable/v2`, #259). It times a task's synchronous JS: a mount, a mid-flight
+ * production Chromium, on `page.tsx` (the Solid 1 binding, `@wardic/solid/v1`) and `page-v2.tsx` (the
+ * Solid 2 binding, `@wardic/solid`, #259, #566). It times a task's synchronous JS: a mount, a mid-flight
  * Retarget, an at-rest Retarget and an unmount. `bench:core` times the frames in between.
  *
  * - **Both bindings are gated,** each head against its base, by the same rules (#259, ADR-0045).
@@ -116,15 +116,12 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type CDPSession, chromium, type Page } from "playwright"
 import { build } from "vite"
-import solid from "vite-plugin-solid"
 import * as Arr from "effect/Array"
-import { solid1 } from "../vite.solid1.ts"
-import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { BatchRound, LayoutRound, LiveRound, ReorderRound, Round, Scene, TextRound } from "./page.tsx"
-import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, bindingPluginsOf, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const GATE = 1.05
 const NOISE = 0.05
@@ -193,21 +190,26 @@ const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
 
 
-/** The Solid 2 binding's folder, which a commit before #209 doesn't have: its entry is `index.ts` or, since its rename, `index.tsx`. */
-const V2_ENTRY = "packages/solid/src/unstable/v2"
+/**
+ * The Solid 2 binding's ward module, which a commit before #209 doesn't have: in `src/unstable/v2` until its
+ * 2.0, at `src/` since (#566), where `unstable/v2` is only an alias.
+ */
+const V2_WARDS = ["packages/solid/src/ward.tsx", "packages/solid/src/unstable/v2/ward.tsx"]
 /** Whether `commit` (the working tree when undefined) has the Solid 2 binding. */
 const hasV2 = (commit: string | undefined): boolean =>
-  UndefinedOr.match(commit, {
-    onUndefined: () => existsSync(join(REPO, V2_ENTRY)),
-    onDefined: (c) => {
-      try {
-        execSync(`git cat-file -e ${c}:${V2_ENTRY}`, { cwd: REPO, stdio: "ignore" })
-        return true
-      } catch {
-        return false
-      }
-    },
-  })
+  V2_WARDS.some((path) =>
+    UndefinedOr.match(commit, {
+      onUndefined: () => existsSync(join(REPO, path)),
+      onDefined: (c) => {
+        try {
+          execSync(`git cat-file -e ${c}:${path}`, { cwd: REPO, stdio: "ignore" })
+          return true
+        } catch {
+          return false
+        }
+      },
+    }),
+  )
 
 /** Whether `commit` (the working tree when undefined) has what `since` brought: it is `since`, or after it. */
 const hasSince = (since: string | undefined, commit: string | undefined): boolean => {
@@ -245,7 +247,7 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
     logLevel: "warn",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })],
+    plugins: [sideResolver(root, deps), bindingPluginsOf(v2)],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist"),

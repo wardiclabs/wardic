@@ -50,7 +50,7 @@ declare module "vitest/browser" {
      */
     serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
     /**
-     * The Solid 2 binding's server render (#209 PR 4a, the v2-hydrate project): `exportName` from
+     * The Solid 2 binding's server render (#209 PR 4a, the hydrate project): `exportName` from
      * `file` with `@solidjs/web`'s server build under `renderId`; its head tags (`onHead`) as `head`.
      */
     serverRender2: (file: string, exportName: string, renderId: string) => Promise<ServerRender & { readonly head: string }>

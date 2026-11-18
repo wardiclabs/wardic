@@ -6,8 +6,9 @@
  *   was written, and doesn't count a stale one as a change (`--frozen-lockfile` passes); but
  *   `bun pm pack` writes a `workspace:*` dependency as the version the lockfile has, so
  *   `@wardic/dom@1.0.0-rc.1` would name `@wardic/core@0.1.0-alpha.0`.
- * - **`VERSION`:** the constant a package's `src/index.ts` exports (`@wardic/dom`, `@wardic/solid`,
- *   `@wardic/test`). Changesets doesn't touch source, so 1.0.0-rc.1 shipped `"0.1.0-alpha.0"`.
+ * - **`VERSION`:** the constant a package's `src/index.ts` exports (`@wardic/dom`, `@wardic/test`), and
+ *   `@wardic/solid`'s `src/v1/index.tsx` (#566). Changesets doesn't touch source, so 1.0.0-rc.1 shipped
+ *   `"0.1.0-alpha.0"`.
  *
  *   bun scripts/sync-versions.ts
  */

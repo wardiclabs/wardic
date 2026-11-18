@@ -1,4 +1,4 @@
-// Shared helpers for the server tier (`*.ssr.test.tsx`, packages/solid/vitest.ssr.config.ts):
+// Shared helpers for the server tier (`*.ssr.test.tsx`, packages/solid/vitest.ssr-v1.config.ts):
 // render under a WardicProvider with Solid's server build, and read the markup back.
 // Not a test file itself (the project collects `*.ssr.test.tsx` only).
 import { DomLive } from "@wardic/dom"

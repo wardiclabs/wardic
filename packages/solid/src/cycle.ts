@@ -1,10 +1,12 @@
 /**
- * `createCycle` on Solid 2 (#443, Motion's `useCycle`), as Solid 1's.
+ * `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through. Solid 1's
+ * binding has its own, `v1/cycle.ts`, with this `Cycle` (#566).
  *
  * @module
  */
 import { type Accessor, createSignal } from "solid-js"
 import { nextIndexOf } from "./cycle-index.ts"
+
 /** `createCycle`'s step: to the next value, the first after the last, or to index `i`. Motion's `Cycle`. */
 export type Cycle = (i?: number) => void
 
@@ -21,6 +23,7 @@ export type Cycle = (i?: number) => void
 // #443. The index is kept outside the signal too, as Motion keeps it in a ref; `cycle(i)` is taken as
 // given, unchecked, and anything but a number steps, as Motion's (`typeof next !== "number"`).
 export const createCycle = <T,>(...items: ReadonlyArray<T>): readonly [Accessor<T>, Cycle] => {
+  // The index as a plain variable too, as Motion's ref: two steps in one handler step twice.
   let current = 0
   const [index, setIndex] = createSignal(0)
   const cycle: Cycle = (next) => {

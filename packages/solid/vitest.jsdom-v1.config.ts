@@ -5,8 +5,6 @@ import { defineConfig } from "vitest/config"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 import { INSTANCE_IMPORT, instanceModule } from "../../site/test/wardic-instance.ts"
 
-/** Where Solid 1 resolves from: this package (the site's own `solid-js` is Solid 2). */
-
 // The docs' testing guide, run as a reader would (#558): site/samples/testing/solid1.tsx, a
 // Testing Library test of `DomLive` in jsdom under Vitest's fake timers. Run with the node tier
 // (`bun run test`), so the guide's recipe can't drift from what works.

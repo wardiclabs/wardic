@@ -1,5 +1,6 @@
 // The browser test projects' commands and pre-bundled modules, both bindings' (#209, #566): what a test asks
 // of the page it runs in (real input, reduced motion, garbage collection, a line to the log).
+import * as Bool from "effect/Boolean"
 import type { CDPSession } from "playwright"
 import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
 
@@ -9,17 +10,9 @@ const iframeOffset = async (ctx: BrowserCommandContext): Promise<{ x: number; y:
   return { x: box?.x ?? 0, y: box?.y ?? 0 }
 }
 
-/**
- * Real pointer input for the drag tests (#26, #31): moves Playwright's mouse to the
- * client point `(x, y)` inside the test iframe, then presses or releases `button` for
- * `down` / `up`. Synthetic `PointerEvent`s are dispatched straight to their target, so
- * they can't show when the browser delivers input relative to a Refresh frame, or a
- * pointer leaving its element; these go through the browser's own input pipeline.
- * `move: false` presses or releases where the mouse already is, with no move first.
- */
 /** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames (ADR-0029's tests). */
 const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
-  await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
+  await ctx.page.emulateMedia({ reducedMotion: Bool.match(reduce, { onTrue: () => "reduce", onFalse: () => "no-preference" }) })
 }
 
 /**
@@ -38,6 +31,14 @@ const report: BrowserCommand<[line: string]> = (_ctx, line) => {
   process.stdout.write(`[report] ${line}\n`)
 }
 
+/**
+ * Real pointer input for the drag tests (#26, #31): moves Playwright's mouse to the
+ * client point `(x, y)` inside the test iframe, then presses or releases `button` for
+ * `down` / `up`. Synthetic `PointerEvent`s are dispatched straight to their target, so
+ * they can't show when the browser delivers input relative to a Refresh frame, or a
+ * pointer leaving its element; these go through the browser's own input pipeline.
+ * `move: false` presses or releases where the mouse already is, with no move first.
+ */
 const realMouse: BrowserCommand<[
   type: "move" | "down" | "up",
   x: number,

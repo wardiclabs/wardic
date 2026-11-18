@@ -145,6 +145,9 @@ import type * as DragTrack from "@wardic/dom/unstable/DragTrack"
  */
 export type WardStyle = { readonly [K in keyof DomWardConfig.WardicValues]?: DomWardConfig.WardicValues[K] | LiveStyle.LiveSource<number | string | undefined> | undefined }
 
+/** The entry a missing Feature's message tells the app to import it from: this binding's (#566). */
+const ENTRY = "@wardic/solid"
+
 /** A ward's config values: the element's motion, and its `style`. */
 export interface WardConfigValues extends Omit<DomWardConfig.WardConfig, SolidOneCallback> {
   /**
@@ -732,7 +735,7 @@ const warnUnreadColors = (registry: Feature.FeatureRegistry, features: Feature.F
     },
     (unread) => {
       if (Predicate.isUndefined(unread)) return
-      registry.warnOnce("colors", Feature.missingMessage("colors", `The colour \`${unread}\``, "@wardic/solid"))
+      registry.warnOnce("colors", Feature.missingMessage("colors", `The colour \`${unread}\``, ENTRY))
     },
     CLIENT_ONLY,
   )
@@ -1065,7 +1068,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // and development says so once, unless `layout` is on its way.
   const wantsNode = Feature.wantsLayoutNode(initialConfig)
   if (DEV && wantsNode && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
-    useFeatureRegistry().warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid"))
+    useFeatureRegistry().warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, ENTRY))
   }
   const layoutNodes = Bool.match(wantsNode, { onTrue: () => layoutProjection, onFalse: constUndefined })
   const dragTransition = DragTransition.dragTransitionOf(initialConfig.dragElastic, initialConfig.dragTransition)
@@ -1215,7 +1218,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Bool.not(wanted)) return undefined
     const service = GestureFeatures.serviceIn(services, key)
     if (DEV && Predicate.isUndefined(service) && Bool.not(untrack(features.pending))) {
-      featureRegistry.warnOnce(name, Feature.missingMessage(name, GestureFeatures.GESTURE_WORDS[name], "@wardic/solid"))
+      featureRegistry.warnOnce(name, Feature.missingMessage(name, GestureFeatures.GESTURE_WORDS[name], ENTRY))
     }
     return service
   }
@@ -1636,7 +1639,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       ({ services, pending }) => {
         UndefinedOr.map(mounted, (m) => layoutArrivedIn(m.arriveLayout, services))
         if (DEV && Predicate.isUndefined(Keys.projectionIn(services)) && Bool.not(pending)) {
-          featureRegistry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid"))
+          featureRegistry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, ENTRY))
         }
       },
       CLIENT_ONLY_DEFERRED,
@@ -1659,7 +1662,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
               UndefinedOr.map(m.startDrag, (start) => start(gesture))
             }),
           onUndefined: () => {
-            if (DEV && Bool.not(pending)) featureRegistry.warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, "@wardic/solid"))
+            if (DEV && Bool.not(pending)) featureRegistry.warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, ENTRY))
           },
         })
       },

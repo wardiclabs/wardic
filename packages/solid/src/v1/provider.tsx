@@ -131,7 +131,7 @@ export function WardicProvider(props: {
   readonly scaleCorrectors?: Readonly<Record<string, WardConfig.WardicScaleCorrector>> | undefined
   /**
    * The Features every `w.*` element under it has: at once (`[domAnimation]`), or loaded with a
-   * function (`() => import("../features").then((m) => m.drag)`). Read once.
+   * function (`() => import("./features").then((m) => m.drag)`). Read once.
    */
   readonly features?: Feature.FeaturesProp | undefined
   /** In development, a `wardic.*` element under it throws, so every element ships only its Features. */
@@ -226,7 +226,7 @@ const sectionOf = (
  * a Feature only when it needs it. Motion's `LazyMotion`.
  *
  * @example
- * <LazyWardic features={() => import("../drag-feature").then((m) => m.drag)}>
+ * <LazyWardic features={() => import("./drag-feature").then((m) => m.drag)}>
  *   <w.div drag />
  * </LazyWardic>
  * @see https://wardic.dev/reference/solid/provider/lazy-wardic

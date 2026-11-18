@@ -3,7 +3,7 @@
 // export specifier (not on its statement), so each deprecated name carries its own, and an editor marks the
 // import.
 //
-// - EN1: `/unstable/v2` re-exports every name the root exports, types as types, and nothing else.
+// - EN1: `/unstable/v2` re-exports every name the root exports, in whatever form, types as types, and nothing else.
 // - EN2: every name `/unstable/v2` and `/v1` export is `@deprecated`; none the root exports is.
 import * as Bool from "effect/Boolean"
 import { readFileSync } from "node:fs"
@@ -13,22 +13,35 @@ import { describe, expect, it } from "vitest"
 
 const SRC = join(import.meta.dirname, "../src")
 
-/** An entry's exported names, each with whether it's type-only and whether its specifier is `@deprecated`. */
+/** Whether `node` carries the `export` modifier. */
+const exported = (node: ts.Node): boolean => ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false)
+
+/** Whether `node`'s JSDoc tags it `@deprecated`. */
+const deprecatedIn = (node: ts.Node): boolean => ts.getJSDocTags(node).some((tag) => tag.tagName.text === "deprecated")
+
+/**
+ * An entry's exported names, each with whether it's type-only and whether it's `@deprecated`: every form a
+ * name can be exported in. `export *` and a default export can't be listed name by name, so they fail here.
+ */
 const exportsOf = (file: string): ReadonlyArray<{ readonly name: string; readonly type: boolean; readonly deprecated: boolean }> => {
   const source = ts.createSourceFile(file, readFileSync(join(SRC, file), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   return source.statements.flatMap((statement) => {
-    if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
-      return statement.exportClause.elements.map((element) => ({
-        name: element.name.text,
-        type: statement.isTypeOnly || element.isTypeOnly,
-        deprecated: ts.getJSDocTags(element).some((tag) => tag.tagName.text === "deprecated"),
-      }))
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) throw new Error(`${file}: \`${statement.getText()}\` can't be listed name by name`)
+      return statement.exportClause.elements.map((element) => ({ name: element.name.text, type: statement.isTypeOnly || element.isTypeOnly, deprecated: deprecatedIn(element) }))
     }
-    if (ts.isVariableStatement(statement) && statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true) {
-      const deprecated = ts.getJSDocTags(statement.declarationList.declarations[0]!).some((tag) => tag.tagName.text === "deprecated")
-      return statement.declarationList.declarations.map((d) => ({ name: (d.name as ts.Identifier).text, type: false, deprecated }))
+    if (ts.isExportAssignment(statement)) throw new Error(`${file}: a default export can't be listed name by name`)
+    if (!exported(statement)) return []
+    if (ts.isVariableStatement(statement)) {
+      return statement.declarationList.declarations.map((d) => ({ name: (d.name as ts.Identifier).text, type: false, deprecated: deprecatedIn(d) }))
     }
-    return []
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)) {
+      return [{ name: statement.name?.text ?? "default", type: false, deprecated: deprecatedIn(statement) }]
+    }
+    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+      return [{ name: statement.name.text, type: true, deprecated: deprecatedIn(statement) }]
+    }
+    throw new Error(`${file}: an export it doesn't read, \`${statement.getText().slice(0, 60)}\``)
   })
 }
 

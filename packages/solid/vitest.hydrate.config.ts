@@ -7,7 +7,7 @@ import { BROWSER_COMMANDS, PREBUNDLED } from "./vitest.browser-commands.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Server render → hydration tests for the Solid 2 binding (#209 PR 4a, ADR-0021, ADR-0045), as
-// `vitest.hydrate.config.ts` has them for Solid 1. A fixture is rendered twice from one module: on
+// `vitest.hydrate-v1.config.ts` has them for Solid 1. A fixture is rendered twice from one module: on
 // the server, in Node, by the commands below (this project's Vite loads it with Solid 2's server
 // compile, `@solidjs/web`'s server build), and in Chromium, where the test hydrates that markup
 // with the hydratable client compile. `solid2({ hydratable: true })` compiles both: `generate:
