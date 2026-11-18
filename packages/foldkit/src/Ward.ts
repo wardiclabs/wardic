@@ -32,6 +32,7 @@ export type TypeId = typeof TypeId
 export type Key =
   | "initial"
   | "animate"
+  | "appear"
   | "transition"
   | "style"
   | "variants"
@@ -317,6 +318,7 @@ export interface Config<Message = never>
     | "variants"
     | "custom"
     | "inherit"
+    | "appear"
     | "exit"
     | "layout"
     | "layoutId"

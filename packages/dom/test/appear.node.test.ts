@@ -40,6 +40,8 @@
 //   start to halfway past its delay, then steps.
 // - AP21 (#706): a sheet gives a Batch's rules one slot, the reduced rule's under the media query; a
 //   member's style is its own values, the slot and its delay; a rule written once.
+// - AP22 (#794): a slot named by the binding (a Foldkit element's path) is its property under
+//   `--wardic-a`, defined under that name; the sheet's count is unmoved by it.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
@@ -441,6 +443,19 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     // A nonce, the page's Content Security Policy's for inline styles (#618, P1): carried, escaped.
     expect(Appear.chunkStyle(chunk, "r4nd0m")).toBe(`<style ${Appear.CHUNK_ATTRIBUTE} nonce="r4nd0m">${chunk}</style>`)
     expect(Appear.chunkStyle(chunk, 'a"b')).toBe(`<style ${Appear.CHUNK_ATTRIBUTE} nonce="a&quot;b">${chunk}</style>`)
+  })
+
+  it("AP22 (#794): a slot named by the binding: its property under --wardic-a, defined under that name; the count unmoved", () => {
+    const sheet = Appear.sheet()
+    const spec = { key: "AP22", tag: "div", machine: () => rise() }
+    const named = sheet.slot("1-0")
+    expect(named.animation, "a Foldkit element's path").toBe("var(--wardic-a1-0)")
+    named.define({ spec, delay: 0 })
+    const root = sheet.slot("")
+    expect(root.animation, "the provider element's own: the empty path").toBe("var(--wardic-a)")
+    const counted = sheet.slot()
+    expect(counted.animation, "the count unmoved by a named slot").toBe("var(--wardic-a0)")
+    expect(sheet.css()).toContain("--wardic-a1-0:")
   })
 
   it("AP12: an empty sheet writes nothing", () => {

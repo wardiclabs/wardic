@@ -319,9 +319,8 @@ const disposals = new WeakMap<WardicContextValue, Promise<never>>()
  * gets every rule and timing once the shell has rendered.
  */
 const serverAppearOf = (appear: boolean | "explain" | undefined, reducedMotion: ReducedMotion.Config | undefined, nonce: string | undefined): AppearAnimations.ServerAppear | undefined => {
-  if (appear === false) return undefined
-  const state = AppearAnimations.serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: () => "user" as const, onDefined: identity }), AppearAnimations.explainerOf(appear), nonce)
-  useHead(appearStyle(() => state.css(), nonce))
+  const state = AppearAnimations.serverAppearUnder(appear, reducedMotion, nonce)
+  UndefinedOr.map(state, (made) => useHead(appearStyle(() => made.css(), nonce)))
   return state
 }
 

@@ -2018,7 +2018,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // The element's style for its user style: the config's, or a `.with()` style over it (#264).
   const styleFor = (user: WardStyle | string | undefined): JSX.CSSProperties => {
     const parts = LiveStyle.split(user, ownValues)
-    if (AppearAnimations.setsAnimation(parts.css)) appear.veto("its own style sets an animation")
+    if (AppearAnimations.setsAnimation(parts.css)) appear.veto(AppearAnimations.OWN_ANIMATION)
     return pipe(
       ElementSetup.serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack, c.transformTemplate),
       Style.over(parts.css),

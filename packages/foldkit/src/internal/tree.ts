@@ -122,17 +122,25 @@ export const configValueOf = (element: Element, root: WardicConfigValue.WardicCo
   if (Predicate.isUndefined(own())) return parent
   const known = values.get(element)
   if (Predicate.isNotUndefined(known)) return known
-  const value: WardicConfigValue.WardicConfigValue = {
-    transition: () => WardicConfigValue.configTransitionOf(UndefinedOr.map(own(), (c) => c.transition), parent),
-    reducedMotion: () => WardicConfigValue.configReducedMotionOf(UndefinedOr.map(own(), (c) => c.reducedMotion), parent),
-    skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(UndefinedOr.map(own(), (c) => c.skipAnimations), parent),
-    isValidProp: () => WardicConfigValue.configIsValidPropOf(undefined, parent),
-    // Where a drag's and a pan's points are (#793, Q9): the nearest `transformPagePoint` up the chain.
-    transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(UndefinedOr.map(own(), (c) => c.transformPagePoint), parent),
-  }
+  const value = configValueUnder(own, parent)
   values.set(element, value)
   return value
 }
+
+/**
+ * The `WardicConfigValue` of an element whose `w.Config` is `own()`, under `parent`'s (ADR-0062): each
+ * setting read when an animation starts, so a change moves nothing by itself. What {@link configValueOf}
+ * keeps for a mounted element, and the walk at a Provider element's build carries down a server render
+ * (#794, PR 2).
+ */
+export const configValueUnder = (own: () => Ward.ConfigOptions | undefined, parent: WardicConfigValue.WardicConfigValue | undefined): WardicConfigValue.WardicConfigValue => ({
+  transition: () => WardicConfigValue.configTransitionOf(UndefinedOr.map(own(), (c) => c.transition), parent),
+  reducedMotion: () => WardicConfigValue.configReducedMotionOf(UndefinedOr.map(own(), (c) => c.reducedMotion), parent),
+  skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(UndefinedOr.map(own(), (c) => c.skipAnimations), parent),
+  isValidProp: () => WardicConfigValue.configIsValidPropOf(undefined, parent),
+  // Where a drag's and a pan's points are (#793, Q9): the nearest `transformPagePoint` up the chain.
+  transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(UndefinedOr.map(own(), (c) => c.transformPagePoint), parent),
+})
 
 /** The Handle's app-wide config (`Wardic.make({ config })`), as the root of every element's chain; none without one. */
 export const rootConfigValueOf = (options: Ward.ConfigOptions | undefined): WardicConfigValue.WardicConfigValue | undefined => {

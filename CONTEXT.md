@@ -547,7 +547,11 @@ _Avoid_: app (Foldkit's program), context (Solid's), instance (bare).
 
 **Provider attribute**:
 `w.Provider(options)`, on the `w.*` element at the top of a Foldkit view (ADR-0071, decision 9, *Amendment (#791)*): names the root the subtree options hang on (slice 2's layout trigger, slice 4's Appear chunk). Optional: with none, the first `w.*` element to mount builds Wardic's Layer on the **Handle**'s `env`, and every `w.*` element shares it. A second one while the first's element is mounted is reported and ignored. The counterpart of Solid's `<WardicProvider>`, as an attribute, since Foldkit has no wrapper node.
-_Avoid_: provider element, root ward, WardicProvider (Solid's component).
+_Avoid_: root ward, WardicProvider (Solid's component).
+
+**Provider element**:
+The `w.*` element carrying the **Provider attribute** (ADR-0071 decision 21, *Amendment (#794)*): the root of the walk at its build, which writes a **Variant child**'s inherited **Starting style** into the view and, on a server, each element's **Appear animation**; the host of the Appear rules, a `<style>` it renders first among its children; and the **Handle**'s root while it's mounted. One a view, on the topmost `w.*` element: the client reports and ignores a second, and on a server a nested one's rules are dropped for the one above it.
+_Avoid_: provider (bare: Solid's component), root element, app root.
 
 **Bundle**:
 `w.attributes({ initial, animate, transition, style, mount })` on Foldkit (ADR-0071, decision 18): a **Ward**'s attributes for an element `w` doesn't make, a custom element or a component library's. It takes the element's own Mount and fuses it with Wardic's, since one element has one `OnMount`, and it carries no **Identity stamp**, so such an element is keyed.
