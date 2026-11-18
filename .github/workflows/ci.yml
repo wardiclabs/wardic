@@ -69,8 +69,13 @@ jobs:
       # Canonical DOM tier — @wardic/dom + @wardic/solid in real Chromium. Locally
       # the browser comes from the nix devshell; on CI we install Playwright's
       # pinned browser (package.json pins playwright 1.59.1) the normal way.
+      # The browser alone: ubuntu-24.04's image ships Google Chrome, and with it the
+      # libraries Chromium needs, so `--with-deps`' apt step is left out. Its packages
+      # come from Ubuntu's mirrors, and a slow one held the step 8.5 minutes; a stalled
+      # download fails in 3 now, to be run again.
       - name: Install Playwright browser
-        run: bunx playwright install --with-deps chromium
+        timeout-minutes: 3
+        run: bunx playwright install chromium
 
       - name: Test (browser tier)
         run: bun run test:browser
