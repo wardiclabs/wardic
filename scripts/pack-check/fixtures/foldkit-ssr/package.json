@@ -1,0 +1,17 @@
+{
+  "name": "pack-check-foldkit-ssr",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && vite build --ssr src/entry-server.ts --outDir dist/server && node dist/server/entry-server.js",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.1.4",
+    "effect": "4.1.4",
+    "foldkit": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.2"
+  }
+}

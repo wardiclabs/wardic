@@ -125,6 +125,13 @@ export interface State {
   render: ServerRender | undefined
   /** Development's words on the server, each said once a Handle. */
   readonly said: Set<string>
+  /**
+   * Whether the next view build is the hydration render's (#794, Q9 and Q10): set by `wardic.hydrate`
+   * when the page carries the Appear chunk a server rendered, read by the walk at the Provider element's
+   * build, which names each element's slot in its style as the server did and clears it by a microtask
+   * after the build; a Mount clears it too, the fallback for a hydration render with no Provider element.
+   */
+  hydrating: boolean
 }
 
 /** What a Handle renders a server's Appear animations with (ADR-0044; #794): `Wardic.make`'s `appear` and `nonce`. */
@@ -212,6 +219,7 @@ export const makeState = (options: MakeOptions<Feature.InstanceFeaturesProp>): S
   server: { appear: options.appear, nonce: options.nonce },
   render: undefined,
   said: new Set(),
+  hydrating: false,
 })
 
 /**

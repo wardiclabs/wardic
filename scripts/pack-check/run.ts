@@ -11,11 +11,15 @@
  *    - `solid1-start`: SolidStart with Solid 1, rendered on the server and hydrated;
  *    - `solid2-start`: Solid 2 in `@solidjs/vite-plugin`'s start mode, the same, on `/unstable/v2`;
  *    - `compiled`: Vite with no Solid plugin, so `@wardic/solid` is its compiled browser build;
- *    - `foldkit-vite`: Foldkit on Vite, client-rendered, on `@wardic/foldkit` (#791).
+ *    - `foldkit-vite`: Foldkit on Vite, client-rendered, on `@wardic/foldkit` (#791);
+ *    - `foldkit-ssr`: Foldkit rendered on a server (Node, at build time, into the client build's page)
+ *      and hydrated through the Handle's `hydrate`, its Appear animation playing from first paint (#794).
  * 4. Each served by `vite preview` and opened in Chromium: no error in the console (a hydration
  *    mismatch is one), `#enter` animates to its target (from the `opacity: 0` the server rendered,
- *    where it renders), and `#drag`, under a `LazyWardic` loading `drag`, drags once it arrives.
- * 5. Node imports each binding's server build from a fixture, as a server would without a bundler.
+ *    where it renders), its Appear animation running at load and handed to its ward where the server
+ *    sampled one, and `#drag`, under a `LazyWardic` loading `drag`, drags once it arrives.
+ * 5. Node imports each binding's server build from a fixture, as a server would without a bundler:
+ *    Solid's `dist/server`, Foldkit's `node` condition.
  *
  * Exits 1 when a step fails. It installs from the registry, so it needs the network. Its work folder,
  * in the system's temp folder, goes at the end unless `--keep`.
@@ -36,19 +40,23 @@ interface Fixture {
   readonly installs: ReadonlyArray<(typeof PACKAGES)[number]>
   /** Whether the server renders the page. */
   readonly ssr: boolean
-  /** What Node imports from it, to load a binding's server build. */
-  readonly nodeImport?: string | undefined
-  /** Whether it has `#drag`, a lazily loaded drag element: the Foldkit fixture doesn't until slice 3 (#791). */
+  /** What Node imports from it, to load a binding's server build: the specifier, and what the resolved path carries. */
+  readonly nodeImport?: { readonly spec: string; readonly dist: string } | undefined
+  /** Whether it has `#drag`, a lazily loaded drag element: the Foldkit fixtures don't until slice 3 (#791). */
   readonly drag?: boolean | undefined
+  /** Whether the server samples `#enter`'s Appear animation (ADR-0044): running at load, handed to its ward. */
+  readonly appear?: boolean | undefined
 }
 
 const ALL: ReadonlyArray<Fixture> = [
   { name: "solid1-vite", installs: ["core", "dom", "solid"], ssr: false },
-  { name: "solid1-start", installs: ["core", "dom", "solid", "test"], ssr: true, nodeImport: "@wardic/solid" },
-  { name: "solid2-start", installs: ["core", "dom", "solid"], ssr: true, nodeImport: "@wardic/solid/unstable/v2" },
+  { name: "solid1-start", installs: ["core", "dom", "solid", "test"], ssr: true, nodeImport: { spec: "@wardic/solid", dist: "/dist/server/" } },
+  { name: "solid2-start", installs: ["core", "dom", "solid"], ssr: true, nodeImport: { spec: "@wardic/solid/unstable/v2", dist: "/dist/server/" } },
   { name: "compiled", installs: ["core", "dom", "solid"], ssr: false },
   // `@wardic/foldkit` on Vite, client-rendered (#791, Q12): private until 1.2, packed and installed all the same.
   { name: "foldkit-vite", installs: ["core", "dom", "foldkit"], ssr: false, drag: false },
+  // `@wardic/foldkit` server-rendered and hydrated (#794, Q12): Node's import reads the package's `node` condition.
+  { name: "foldkit-ssr", installs: ["core", "dom", "foldkit"], ssr: true, nodeImport: { spec: "@wardic/foldkit/internal/server", dist: "/dist/internal/server.node.js" }, drag: false, appear: true },
 ]
 
 const asked = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
@@ -124,10 +132,10 @@ for (const fixture of fixtures) {
   if (!ready) continue
 
   if (fixture.nodeImport !== undefined) {
-    const spec = fixture.nodeImport
+    const { spec, dist } = fixture.nodeImport
     await step(`${fixture.name}: node imports ${spec}'s server build`, () => {
       const out = sh("node", ["--input-type=module", "-e", `const m = await import(${JSON.stringify(spec)}); console.log(import.meta.resolve(${JSON.stringify(spec)}), Object.keys(m).length)`], dir)
-      if (!out.includes("/dist/server/")) throw new Error(`resolved elsewhere: ${out}`)
+      if (!out.includes(dist)) throw new Error(`resolved elsewhere: ${out}`)
     })
   }
 
@@ -150,9 +158,34 @@ for (const fixture of fixtures) {
       if (message.type() === "error") errors.push(message.text().slice(0, 300))
     })
     page.on("pageerror", (error) => errors.push(error.message.slice(0, 300)))
-    await page.goto(base, { waitUntil: "load" })
+    if (fixture.appear === true) {
+      // The server's Appear animation (ADR-0044): read at the page's first paint, before any script. A
+      // production page hydrates as soon as its script runs, so the script's request is answered a
+      // second late, as a slow network would, and the element is read while the markup alone is there.
+      await page.route(/\.js(\?.*)?$/, (route) => {
+        setTimeout(() => void route.continue(), 1000)
+      })
+      await page.goto(base, { waitUntil: "commit" })
+      await step(`${fixture.name}: #enter plays its Appear animation from first paint`, async () => {
+        await page.waitForSelector("#enter")
+        const running = await page.evaluate(() => {
+          const enter = document.getElementById("enter")!
+          return { animations: enter.getAnimations().length, inline: enter.style.animation }
+        })
+        if (running.animations === 0 || !running.inline.startsWith("var(--wardic-a")) throw new Error(`no Appear animation running at first paint: ${JSON.stringify(running)}`)
+      })
+      await page.waitForLoadState("load")
+    } else {
+      await page.goto(base, { waitUntil: "load" })
+    }
     await step(`${fixture.name}: #enter animates to its target`, async () => {
       await page.waitForFunction(() => Number(getComputedStyle(document.getElementById("enter")!).opacity) > 0.99, undefined, { timeout: 5000 })
+    })
+    if (fixture.appear === true) await step(`${fixture.name}: #enter is handed to its ward`, async () => {
+      await page.waitForFunction(() => {
+        const enter = document.getElementById("enter")!
+        return enter.style.animation === "" && enter.getAnimations().length === 0
+      }, undefined, { timeout: 5000 })
     })
     if (fixture.drag !== false) await step(`${fixture.name}: #drag drags once its lazy \`drag\` arrives`, async () => {
       const until = Date.now() + 5000

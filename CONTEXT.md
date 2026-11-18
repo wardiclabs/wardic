@@ -542,7 +542,7 @@ One render's config reaching a **Wardic element**, in a binding whose host has n
 _Avoid_: update (Foldkit's `update`), prop write, re-render.
 
 **Handle**:
-What `Wardic.make({ env, features })` returns on Foldkit (ADR-0071, decision 9), made once per program at module scope: the **Wardic instance** that also holds Wardic's one runtime inside Foldkit's. It gives a view its `w` (`wardic.html(h)`), and a Scene test the **Raw Mounts** it resolves. Its runtime is built by the first `w.*` element to mount, into a Scope the Handle owns, and closed once the last has left (#791).
+What `Wardic.make({ env, features })` returns on Foldkit (ADR-0071, decision 9), made once per program at module scope: the **Wardic instance** that also holds Wardic's one runtime inside Foldkit's. It gives a view its `w` (`wardic.html(h)`), a Scene test the **Raw Mounts** it resolves, and a server-rendered page its hydration (`wardic.hydrate`, in `Runtime.hydrate`'s place: the **Appear animations**' rules into the head, each running one kept for the **Handoff**, #794). Its runtime is built by the first `w.*` element to mount, into a Scope the Handle owns, and closed once the last has left (#791).
 _Avoid_: app (Foldkit's program), context (Solid's), instance (bare).
 
 **Provider attribute**:
