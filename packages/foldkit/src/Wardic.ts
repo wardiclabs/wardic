@@ -62,6 +62,14 @@ export interface MakeOptions<F> {
   readonly layoutTrigger?: "patch" | "declared" | undefined
   /** Attributes the observer watches beside `class` and `hidden` (decision 30): those the app's CSS lays out by. */
   readonly layoutAttributes?: ReadonlyArray<string> | undefined
+  /**
+   * **Appear animations** on a server (ADR-0044; #794, Q3): on by default, under `w.Provider()`, whose
+   * element renders their rules; `false` renders none; `"explain"` says, at Warning, why each element
+   * that doesn't play waits for the JavaScript (#585). Solid's `<WardicProvider appear>`.
+   */
+  readonly appear?: boolean | "explain" | undefined
+  /** The nonce the page's Content Security Policy gives inline styles (#618; #794, Q13): the rules' `<style>` carries it. Solid's `<WardicProvider nonce>`. */
+  readonly nonce?: string | undefined
 }
 
 /** A `w.*` element's function: `h.div`'s shape, taking Wardic's attributes too. */
@@ -123,6 +131,8 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   Custom: (value: Ward.Config["custom"]) => Ward.Attribute
   /** `false` keeps the element out of its ancestor's variants (Motion's `inherit`). */
   Inherit: (value: Ward.Config["inherit"]) => Ward.Attribute
+  /** `false` keeps the element's mount animation off a server render's **Appear animations** (ADR-0044; #794, Q3): it starts when the script runs. */
+  Appear: (value: Ward.Config["appear"]) => Ward.Attribute
   /** The subtree's settings (Motion's `MotionConfig`), this element's included, over the nearest ancestor's and the Handle's. */
   Config: (options: Ward.ConfigOptions) => Ward.Attribute
   /** Sent as an animation of the element starts, with what it animates to (Motion's `onAnimationStart`). */
@@ -319,7 +329,7 @@ export interface Handle<F = never> {
  * `w.Provider()` for it while the first's element is mounted is reported and ignored.
  */
 export const make = <const F extends Feature.InstanceFeaturesProp = never>(options: MakeOptions<F>): Handle<F> => {
-  const state: State = makeState(options.env, options.features, options.config, { trigger: options.layoutTrigger, attributes: options.layoutAttributes })
+  const state: State = makeState(options.env, options.features, options.config, { trigger: options.layoutTrigger, attributes: options.layoutAttributes }, { appear: options.appear, nonce: options.nonce })
   // Made once per `h` (decision 18): as `===`-stable as `h` is, for `createLazy`.
   const builders = new WeakMap<object, object>()
   const html = <Message>(h: FoldkitHtml.HtmlBuilder<Message>): Html<Message, F> => {

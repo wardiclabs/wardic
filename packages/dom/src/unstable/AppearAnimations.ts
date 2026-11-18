@@ -303,6 +303,8 @@ export interface ServerAppear {
     /** Its tag and its targets at mount, which name it when the provider explains (#585). */
     tag: string | undefined,
     to: Option.Option<Values.Values>,
+    /** Its slot's name under `--wardic-a`, when the binding names it ({@link Appear.Sheet.slot}; #794); the sheet's count without. */
+    slot?: string | undefined,
   ) => {
     readonly entry: Entry
     readonly animation: Option.Option<string>
@@ -438,11 +440,11 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (mes
   const chunkCss = (): string => write(nextBatch())
   return {
     reducedMotion,
-    enter: (given, group, setting, skipped, tag, to) => {
+    enter: (given, group, setting, skipped, tag, to, name) => {
       // Skipped (#468): its one play in both slots, under no media query.
       const own = Bool.match(skipped, { onTrue: (): ReducedMotion.Config => "never", onFalse: () => settingOr(setting, reducedMotion) })
       const animation = playsUnder(given, own)
-      const slot = Option.liftPredicate(animation, plays).pipe(Option.map(() => sheet.slot()))
+      const slot = Option.liftPredicate(animation, plays).pipe(Option.map(() => sheet.slot(name)))
       const entry: Entry = { plays: animation, slot, group, vetoes: [], user: own === "user", skipped, tag, to }
       // Why it plays neither: its normal play's reason, its reduced one's when that differs (#585).
       if (Predicate.isNotUndefined(explain)) {
@@ -667,6 +669,8 @@ export interface ServerElement {
   readonly reducedMotion?: ReducedMotion.Config | undefined
   /** Whether its nearest `WardicConfig` skips its animations (#468). Its transition's own `skipAnimations` counts too. */
   readonly skipAnimations?: boolean | undefined
+  /** Its slot's name under `--wardic-a`, when the binding names it by the element's place (#794); the sheet's count without. */
+  readonly slot?: string | undefined
 }
 
 /**
@@ -718,7 +722,7 @@ export const enterServer = (
     },
     onFalse: () => ({ normal: play(false), reduced: play(true) }),
   })
-  const { entry, animation: inline, late, chunkRoot } = appear.enter(plays, el.group, el.reducedMotion, skipped, el.tag, el.to)
+  const { entry, animation: inline, late, chunkRoot } = appear.enter(plays, el.group, el.reducedMotion, skipped, el.tag, el.to, el.slot)
   return {
     late,
     chunkRoot,

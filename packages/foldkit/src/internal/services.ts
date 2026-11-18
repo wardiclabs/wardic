@@ -118,6 +118,21 @@ export interface State {
   live: Provider | undefined
   /** Whether a build is in flight: an `env` that waits as it builds has the elements after the first await the `Deferred`. */
   building: boolean
+  /** A server render's Appear animations (#794, Q3, Q13): `Wardic.make({ appear, nonce })`, read by the walk at the provider element's build. */
+  readonly server: ServerOptions
+  /**
+   * On a server, in development (#794, Q4): the render under way, opened by its first `w.*` element and
+   * closed by a microtask after the view's build, when a render with no provider element gets one word.
+   */
+  render: { provider: boolean } | undefined
+  /** Whether that word has been said: once a Handle. */
+  warnedNoProvider: boolean
+}
+
+/** What a Handle renders a server's Appear animations with (ADR-0044; #794): `Wardic.make`'s `appear` and `nonce`. */
+export interface ServerOptions {
+  readonly appear: boolean | "explain" | undefined
+  readonly nonce: string | undefined
 }
 
 // Module state (#460, Q7): each Handle's state, held weakly by the Handle, for the Commands' Effects.
@@ -142,7 +157,7 @@ export const registryOf =
     UndefinedOr.match(state.live, { onUndefined: LiveStyle.serverRegistryOf, onDefined: (provider) => provider.atoms })
 
 /** A Handle's state: no provider yet. */
-export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined, layout: LayoutOptions): State => ({
+export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined, layout: LayoutOptions, server: ServerOptions): State => ({
   env,
   instance: UndefinedOr.map(features, InstanceFeatures.instanceFeaturesOf),
   rootConfig: rootConfigValueOf(config),
@@ -151,6 +166,9 @@ export const makeState = (env: WardicServices.WardicEnv, features: Feature.Insta
   deferred: Deferred.makeUnsafe<Provider>(),
   live: undefined,
   building: false,
+  server,
+  render: undefined,
+  warnedNoProvider: false,
 })
 
 /**

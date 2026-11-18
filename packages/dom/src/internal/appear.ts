@@ -891,8 +891,12 @@ export interface BatchSlot {
 
 /** One render's Appear rules: a slot per element, and the `<style>` text for the head and each late chunk. */
 export interface Sheet {
-  /** A slot for the next element. */
-  readonly slot: () => Slot
+  /**
+   * A slot for the next element: named by the sheet's count, or by `name` under `--wardic-a` when the
+   * binding names it (a Foldkit render names each by its element's path, the same on the server and the
+   * hydration render, #794).
+   */
+  readonly slot: (name?: string | undefined) => Slot
   /**
    * A slot for a Batch's members on `play`'s rule, and under `prefers-reduced-motion: reduce` `reduced`'s
    * when given (a provider's `"user"`): both rules, and the slot's `:root` lines naming each with no delay,
@@ -966,8 +970,8 @@ export const sheet = (): Sheet => {
           }),
       }
     },
-    slot: () => {
-      const property = `--${PREFIX}a${slots++}`
+    slot: (name) => {
+      const property = `--${PREFIX}a${UndefinedOr.match(name, { onUndefined: () => String(slots++), onDefined: identity })}`
       return {
         animation: `var(${property})`,
         define: (play, reduced, supports = []) =>

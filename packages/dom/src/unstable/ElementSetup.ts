@@ -352,7 +352,7 @@ const NO_APPEAR_ENTRY = (provided: VariantTree.WardicVariantContextValue | undef
  * values, its targets at mount (`animate`, or an inherited variant name against its `variants`),
  * its transition, its place in its parent's group, and its nearest `WardicConfig`'s reduced motion
  * (#434). `state` is the provider's, `undefined` with `appear={false}`: each binding reads it from its
- * own context.
+ * own context. `slot` names its slot when the binding names them by the element's place (#794).
  */
 export const appearEntryOf = (
   state: AppearAnimations.ServerAppear | undefined,
@@ -363,6 +363,7 @@ export const appearEntryOf = (
   quiet: boolean,
   reducedMotion: ReducedMotion.Config | undefined,
   skipAnimations = false,
+  slot?: string | undefined,
 ): ServerAppearOf =>
   UndefinedOr.match(state, {
     onUndefined: () => NO_APPEAR_ENTRY(node.provided),
@@ -385,6 +386,7 @@ export const appearEntryOf = (
         ownTransition: VariantTarget.transitionOfTarget(own, c.transition),
         reducedMotion,
         skipAnimations,
+        slot,
       })
       return {
         style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),

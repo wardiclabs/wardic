@@ -91,10 +91,12 @@ const devDiagnostics = (): Spine.SpineDiagnostics | undefined => {
  * `w.Provider()` element's build gives both (#794, Q7), and its Mount writes them for an element with
  * no provider element above.
  */
-export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue, held = false): Style.Style => {
-  const start = Spine.startOf(config, inherited, held, reactivity.untrack)
-  return Style.starting(tag, ElementSetup.drawnAtRest({ ...(liveValuesOf(config.style, registry) as Values.Values), ...start.initialValues }, false, config.transformTemplate)).style
-}
+export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue, held = false): Style.Style =>
+  startingStyleFrom(tag, config, registry, Spine.startOf(config, inherited, held, reactivity.untrack))
+
+/** The element's Starting style (above) drawn from `start`, its own: what the walk draws beside its Appear entry, which reads `start` too (#794, PR 2). */
+export const startingStyleFrom = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, start: Spine.Start): Style.Style =>
+  Style.starting(tag, ElementSetup.drawnAtRest({ ...(liveValuesOf(config.style, registry) as Values.Values), ...start.initialValues }, false, config.transformTemplate)).style
 
 /** The user's `style` with each Live value read now (#130): what a Starting style is projected from. */
 const liveValuesOf = (style: Config["style"], registry: () => AtomRegistry.AtomRegistry): Readonly<Record<string, unknown>> =>
