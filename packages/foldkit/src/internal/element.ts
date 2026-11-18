@@ -13,6 +13,7 @@ import type * as DragConstraints from "@wardic/dom/unstable/DragConstraints"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
+import * as AnimationControls from "@wardic/core/unstable/AnimationControls"
 import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
@@ -93,7 +94,7 @@ const devDiagnostics = (): Spine.SpineDiagnostics | undefined => {
  * no Provider element above.
  */
 export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue, held = false): Style.Style =>
-  startingStyleFrom(tag, config, registry, Spine.startOf(config, inherited, held, reactivity.untrack))
+  startingStyleFrom(tag, config, registry, Spine.startOf(AnimationControls.uncontrolledOf(config), inherited, held, reactivity.untrack))
 
 /** The element's Starting style (above) drawn from `start`, its own: what the walk draws beside its Appear entry, which reads `start` too (#794, PR 2). */
 export const startingStyleFrom = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, start: Spine.Start): Style.Style =>
@@ -285,7 +286,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
   const registryNow = (): AtomRegistry.AtomRegistry => registry
   const id = `wardic-foldkit-${ids++}`
   let config = configOf(deliveredTo(element))
-  let view = spineViewOf(config, configValue, dispatch, registry, provider, element)
+  // Its Animation controls (#433; #798, Q4): the ones it mounted with, kept; each change they make is its
+  // `animate` entry as the spine reads it, the node's configured form, its Variant children following.
+  const controls = AnimationControls.controlsOf(config.animate)
+  const viewOf = (): View => spineViewOf(node.configured(config), configValue, dispatch, registry, provider, element)
+  let view = viewOf()
   const configNow = (): View => view
   // The nearest `w.Presence` above it (decision 29), told its key now, before that presence decides what it shows (#286).
   const presence = nearestPresence(provider, state, element)
@@ -519,7 +524,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // re-resolves it with the entries on now.
     let last: Spine.Resolution | undefined
     const retarget = (): void => {
-      const next = Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, undefined)
+      const next = Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, node.change())
       if (Predicate.isNotUndefined(last) && Spine.sameResolution(last, next)) return
       last = next
       spine.retarget(next)
@@ -530,7 +535,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // and the element stays where it is.
     const uninstall = installSetter(element, (delivered) => {
       config = configOf(delivered)
-      view = spineViewOf(config, configValue, dispatch, registry, provider, element)
+      if (DEV) warnChangedControls(provider, id, controls, config)
+      view = viewOf()
       // A Reorder group's values that changed (decision 28): its controller told, before the pass that lays the items out in them.
       groupDelivered(element)
       exitConfig.current = Spine.exitConfigOf(view, inherited)
@@ -571,7 +577,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     if (Predicate.isNotUndefined(node.names)) {
       const unwatchName = UndefinedOr.match(inherited, {
         onUndefined: () => constVoid,
-        onDefined: (parentContext) => reactivity.watch(() => VariantTree.triggerKeyOf(parentContext.variant(), VariantTree.handDownFrom(parentContext), undefined), retarget),
+        // Its ancestor's Controls change is a trigger too (#433), even to the same name.
+        onDefined: (parentContext) => {
+          const inheritedChange = VariantTree.controlsChangeOf(undefined, parentContext)
+          return reactivity.watch(() => VariantTree.triggerKeyOf(parentContext.variant(), VariantTree.handDownFrom(parentContext), inheritedChange()), retarget)
+        },
       })
       const unwatchGate = reactivity.watch(node.canStart, (open) => {
         if (Bool.and(open, Predicate.isNotUndefined(last))) spine.retarget(UndefinedOr.getOrThrow(last))
@@ -581,12 +591,33 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
         unwatchGate()
       }
     }
+    // Its Animation controls reach it from its mount to its release (#798, Q4): each change sets its
+    // entry, re-resolves it on the change's override and tells the watches, its Variant children's
+    // triggers among them; their stop ends its legs where they are.
+    const unsubscribe = UndefinedOr.match(controls, {
+      onUndefined: () => constVoid,
+      onDefined: (c) =>
+        AnimationControls.subscribe(
+          c,
+          AnimationControls.controlledElement(
+            (change) => {
+              node.setChange(change)
+              view = viewOf()
+              retarget()
+              recheck()
+            },
+            { custom: () => config.custom, snapshot },
+            spine.stop,
+          ),
+        ),
+    })
     // Its drag and its gestures wanted at mount, then its first Retarget: from `initial` to `animate`.
     drag.check()
     gestures.check()
     startsDrag.check()
     retarget()
     return () => {
+      unsubscribe()
       released()
       unwatch()
       unfollowText()
@@ -606,6 +637,22 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     }
   }
   return UndefinedOr.match(presence, { onUndefined: begin, onDefined: (p) => p.enroll(element, begin) })
+}
+
+/** Development's word on a render giving an element other controls, or values in their place (#798, Q17): it keeps the ones it mounted with. */
+const CONTROLS_CHANGED =
+  "wardic.controls: a w.* element's Animation controls are read at its mount, and a later render gave it other controls, or values in their place: it keeps the ones it mounted with. Key the element, so the new ones mount with it."
+
+/** Development's word on the reverse (the review's note): controls given to an element that mounted with none don't reach it. */
+const CONTROLS_LATE = "wardic.controls: a w.* element mounted without Animation controls, and a later render gave it some: they don't reach it. Key the element, so they mount with it."
+
+/** Say the word, once an element, when a delivery's `animate` isn't what it mounted with: other controls, values in their place, or controls where there were none. */
+const warnChangedControls = (provider: Provider, id: string, controls: AnimationControls.WardicAnimationControls | undefined, config: Config): void => {
+  const word = UndefinedOr.match(controls, {
+    onUndefined: () => Bool.match(AnimationControls.isAnimationControls(config.animate), { onTrue: () => CONTROLS_LATE, onFalse: constUndefined }),
+    onDefined: (mounted) => Bool.match(config.animate === mounted, { onTrue: constUndefined, onFalse: () => CONTROLS_CHANGED }),
+  })
+  UndefinedOr.map(word, (message) => provider.registry.warnOnce(`controls:${id}`, message))
 }
 
 /** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */

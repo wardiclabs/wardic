@@ -813,13 +813,14 @@ const NO_CHANGE: Accessor<AnimationControls.ControlsChange | undefined> = constU
  * they make its entry, over the rest of its keys as given, the view marked controlled; anything else, none.
  */
 const controlsOf = (given: WardConfigValues, animate: WardConfigValues["animate"]): Controls | undefined => {
-  if (Bool.not(AnimationControls.isAnimationControls(animate))) return undefined
+  const controls = AnimationControls.controlsOf(animate)
+  if (Predicate.isUndefined(controls)) return undefined
   const [change, setChange] = createSignal<AnimationControls.ControlsChange | undefined>(undefined)
   const view = Object.create(given, {
     animate: { enumerable: true, get: () => UndefinedOr.map(change(), (made) => made.definition) },
     controlled: { enumerable: true, value: true },
   }) as WardConfigValues
-  return { controls: animate as AnimationControls.WardicAnimationControls, view, change, set: (made) => setChange(() => made) }
+  return { controls, view, change, set: (made) => setChange(() => made) }
 }
 
 /**

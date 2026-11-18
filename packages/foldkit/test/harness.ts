@@ -85,6 +85,23 @@ export const saidTimes = (lines: ReadonlyArray<string>, text: string): number =>
 /** `el`'s inline opacity, as the gate writes it. */
 export const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
 
+/** `el`'s computed opacity: what's painted, a CSS animation's included. */
+export const computedOpacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
+
+/** `el`'s computed transform as a matrix: "none" isn't one DOMMatrix reads, the identity is. */
+export const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
+
+/** `el`'s painted translation on x, from its computed transform. */
+export const translateXOf = (el: Element): number => matrixOf(el).m41
+
+/** `n` Refresh frames, awaited. */
+export const frames = async (n: number): Promise<void> => {
+  for (let i = 0; i < n; i++) await raf()
+}
+
+/** `ms` of wall time, awaited. */
+export const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
 /** The `#id` element of `app`, once it renders. */
 export const boxOf = async (app: Pick<Embedded<never>, "container">, id = "box"): Promise<HTMLElement> => {
   await until(() => app.container.querySelector(`#${id}`) !== null, 2000, `#${id} renders`)

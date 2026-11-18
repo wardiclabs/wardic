@@ -369,10 +369,10 @@ export interface Controls {
  */
 export const controlledOf = (given: Accessor<WardConfig.WardConfig>): { readonly cfg: Accessor<WardConfig.WardConfig>; readonly controls: Controls | undefined } => {
   const configured = configuredOf(given, useWardicConfig())
-  const animate = untrack(configured).animate
-  if (Bool.not(AnimationControls.isAnimationControls(animate))) return { cfg: configured, controls: undefined }
+  const controls = AnimationControls.controlsOf(untrack(configured).animate)
+  if (Predicate.isUndefined(controls)) return { cfg: configured, controls: undefined }
   const [change, set] = createSignal<AnimationControls.ControlsChange | undefined>(undefined)
-  return { cfg: () => AnimationControls.controlledConfigOf(configured(), change()), controls: { controls: animate as AnimationControls.WardicAnimationControls, change, set: (made) => set(() => made) } }
+  return { cfg: () => AnimationControls.controlledConfigOf(configured(), change()), controls: { controls, change, set: (made) => set(() => made) } }
 }
 
 /**
