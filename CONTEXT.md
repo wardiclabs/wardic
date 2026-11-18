@@ -185,11 +185,11 @@ A gesture's entry in the **Override stack**: the values its `while*` (`whileHove
 _Avoid_: gesture state, layer (alone).
 
 **Imperative animation**:
-An animation started by a call rather than declared (#433, Motion's `useAnimate`): `animate(elements, target, options)` from an **Animation scope**, on Wardic elements and plain ones alike, returning its **Playback controls**. On a Wardic element it takes the keys it animates from whatever ran them, and they stay where it leaves them until the element's own target for that key changes: a value's latest animation wins, as in Motion. A key it never touched follows the **Override stack** as ever.
+An animation started by a call rather than declared (#433, Motion's `useAnimate`): `animate(elements, target, options)` from an **Animation scope**, on Wardic elements and plain ones alike, returning its **Playback controls**; on Foldkit an Effect, awaited for its end and interrupted to stop it (ADR-0071 decision 26). On a Wardic element it takes the keys it animates from whatever ran them, and they stay where it leaves them until the element's own target for that key changes: a value's latest animation wins, as in Motion. A key it never touched follows the **Override stack** as ever.
 _Avoid_: imperative layer (it isn't an entry in the **Override stack**), manual animation.
 
 **Animation scope**:
-The element an **Imperative animation**'s selectors are looked up in, and the owner of the animations started from it (#433, Motion's `useAnimate` scope): its component's cleanup stops them.
+The element an **Imperative animation**'s selectors are looked up in, and the owner of the animations started from it (#433, Motion's `useAnimate` scope): its owner's end stops them where they are, a component's cleanup on Solid, the element's release on Foldkit (#798).
 _Avoid_: animation context, root.
 
 **Playback controls**:

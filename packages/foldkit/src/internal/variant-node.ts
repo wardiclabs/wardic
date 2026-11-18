@@ -20,6 +20,7 @@ import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type { Config } from "./element.ts"
 
 /** An element's place in variant orchestration, on the client. */
 export interface VariantNode {
@@ -43,6 +44,12 @@ export interface VariantNode {
   readonly bindGestures: (states: () => VariantTree.GestureStates) => void
   /** Its registration with the ancestor it joined, given up: at its element's release. */
   readonly dispose: () => void
+  /** Whether its element mounted with **Animation controls** as its `animate` (#433; #798, Q4): read once, at its first delivery. */
+  readonly controlled: boolean
+  /** The Controls change in effect, its `animate` entry as the spine and its Variant children read it; none before the first start or set. */
+  readonly change: () => AnimationControls.ControlsChange | undefined
+  /** A start or set of its controls: the change made its entry, which the next resolution reads. */
+  readonly setChange: (change: AnimationControls.ControlsChange) => void
 }
 
 /** The orchestration an element with variants of its own runs for its Variant children. */
@@ -66,19 +73,18 @@ interface ChildRecord {
   readonly names: Set<string>
 }
 
-/** No Controls change (#433): Animation controls aren't on Foldkit yet. */
-const NO_CHANGE: AnimationControls.ControlsChange | undefined = undefined
-
 /**
  * The registry, stagger and `when` an element with variants of its own runs for its Variant children
  * (ADR-0007), and the names it hands them. `notify` re-checks the port's watches: called when a gate
- * a child waits on changes.
+ * a child waits on changes. `change` is the Controls change in effect (#433): a trigger even to the
+ * same name, and its override the children's orchestration while it's the latest.
  */
 const ownOrchestration = (
   cfg: () => VariantTree.VariantConfig,
   parent: VariantTree.WardicVariantContextValue | undefined,
   inherited: VariantTree.WardicVariantContextValue | undefined,
   notify: () => void,
+  change: () => AnimationControls.ControlsChange | undefined,
 ): OwnOrchestration => {
   const config = cfg()
   // Children in mount order (a Set keeps insertion order); the slots are rewritten at each trigger.
@@ -97,7 +103,7 @@ const ownOrchestration = (
   // What it hands down for its gestures (#291): which of its own are on, bound by its element's Mount (#793), and what it inherits, passed on.
   const ownStates = MutableRef.make<() => VariantTree.GestureStates>(noGestures)
   const gestures = (): VariantTree.GestureHandDown => VariantTree.handDownOf(cfg(), MutableRef.get(ownStates)(), VariantTree.handDownFrom(inherited))
-  const triggerKey = (): string => VariantTree.triggerKeyOf(variant(), gestures(), NO_CHANGE)
+  const triggerKey = (): string => VariantTree.triggerKeyOf(variant(), gestures(), change())
 
   // Snapshot-at-trigger (ADR-0007): each child's index and total are recomputed only when a trigger
   // (this element's variant, or its gestures' names) changes, so a mount, unmount or reorder
@@ -110,7 +116,7 @@ const ownOrchestration = (
     const next = triggerKey()
     if (next === lastKey) return
     lastKey = next
-    at = VariantTree.changeAtTrigger(NO_CHANGE, next, at)
+    at = VariantTree.changeAtTrigger(change(), next, at)
     stale = true
     // Each name waits again (#297's PR 2): its keys, and its children's, settle anew.
     ownNames.clear()
@@ -236,7 +242,7 @@ const ownOrchestration = (
   const transition = (): WardConfig.WardicTransition | undefined => VariantTree.ownOrInherited(cfg().transition, inherited)
 
   return {
-    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled, change },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => {
@@ -255,17 +261,23 @@ const ownOrchestration = (
 }
 
 /**
- * An element's place in variant orchestration on the client, from its config (read on each ask) and
- * the context the nearest Wardic ancestor provides. `notify` re-checks the port's watches.
+ * An element's place in variant orchestration on the client, from its delivered config (read on each
+ * ask) and the context the nearest Wardic ancestor provides. `notify` re-checks the port's watches.
+ * With **Animation controls** as its first delivery's `animate` (#433; #798, Q4), the config everything
+ * here reads has the Controls change in effect as its entry, none before the first.
  */
-export const variantNodeOf = (cfg: () => VariantTree.VariantConfig, parent: VariantTree.WardicVariantContextValue | undefined, notify: () => void): VariantNode => {
+export const variantNodeOf = (delivered: () => Config, parent: VariantTree.WardicVariantContextValue | undefined, notify: () => void): VariantNode => {
+  const controlled = AnimationControls.isAnimationControls(delivered().animate)
+  const change = MutableRef.make<AnimationControls.ControlsChange | undefined>(undefined)
+  const changeNow = (): AnimationControls.ControlsChange | undefined => MutableRef.get(change)
+  const cfg: () => VariantTree.VariantConfig = Bool.match(controlled, { onTrue: () => () => AnimationControls.controlledConfigOf(delivered(), changeNow()), onFalse: () => delivered })
   const config = cfg()
   const inherited = VariantTree.inheritedContext(config, parent)
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
   const own = Bool.match(VariantTree.hasOwnVariants(config), {
     onFalse: constUndefined,
-    onTrue: () => ownOrchestration(cfg, parent, inherited, notify),
+    onTrue: () => ownOrchestration(cfg, parent, inherited, notify, changeNow),
   })
   // The spine reports on every frame (the per-frame path): both reports resolved once, two plain calls a frame.
   const reportJoined: (done: boolean) => void = UndefinedOr.match(joined, { onUndefined: () => constVoid, onDefined: ({ registration }) => registration.setSettled })
@@ -288,6 +300,11 @@ export const variantNodeOf = (cfg: () => VariantTree.VariantConfig, parent: Vari
     names: namesOf(joined, own),
     bindGestures: UndefinedOr.match(own, { onUndefined: () => constVoid, onDefined: (o) => o.bindGestures }),
     dispose: UndefinedOr.match(joined, { onUndefined: () => constVoid, onDefined: ({ registration }) => registration.dispose }),
+    controlled,
+    change: changeNow,
+    setChange: (made) => {
+      MutableRef.set(change, made)
+    },
   }
 }
 

@@ -157,7 +157,8 @@ export const walkProvider = (root: ViewNode, state: State): string => {
       visitChildren(node, above, path)
       return
     }
-    const config = configOf(carried)
+    // One given Animation controls has no entry yet (#433; #798, Q5): its Starting style, nothing to play.
+    const config = AnimationControls.uncontrolledOf(configOf(carried))
     const variant = VariantTree.serverVariantNode(config, above.provided)
     const start = Spine.startOf(config, variant.inherited, above.held, reactivity.untrack)
     if (Bool.or(Predicate.isNotUndefined(variant.inherited), above.held)) writeStyle(node, startingStyleFrom(node.sel, config, registry, start))

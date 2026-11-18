@@ -11,6 +11,8 @@ export * as Ward from "./Ward.ts"
 export * as Features from "./Features.ts"
 // Drag controls (#431; #793, Q8): made apart from the elements they drive.
 export * as DragControls from "./DragControls.ts"
+// Animation controls (#433; #798): made apart from the elements they drive, started from a Command.
+export * as AnimationControls from "./AnimationControls.ts"
 // Core's Live values (ADR-0043) and the stagger helper, so an app imports nothing from `@wardic/core` (#791, Q13).
 export * as LiveValue from "@wardic/core/LiveValue"
 export { stagger } from "./Wardic.ts"
