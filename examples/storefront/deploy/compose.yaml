@@ -1,8 +1,8 @@
-# The storefront demo (#366): the three apps from one image, behind Caddy, which serves each on its
+# The storefront demo (#366): the two apps from one image, behind Caddy, which serves each on its
 # own subdomain of STOREFRONT_DOMAIN with HTTPS, and a landing page on the domain itself. Set
 # STOREFRONT_DOMAIN in `.env` beside this file (not in git). Only Caddy publishes ports.
 #
-#   docker compose --profile build build image   # build the apps' image (one build, not three)
+#   docker compose --profile build build image   # build the apps' image (one build, not two)
 #   docker compose up -d --remove-orphans          # start, or restart what changed
 name: storefront
 
@@ -12,8 +12,7 @@ x-app: &app
   restart: unless-stopped
   environment:
     # Each app's links to the others (shared/src/apps.ts).
-    STOREFRONT_SOLID1_URL: https://solid1.${STOREFRONT_DOMAIN:?set STOREFRONT_DOMAIN in .env}
-    STOREFRONT_SOLID2_URL: https://solid2.${STOREFRONT_DOMAIN}
+    STOREFRONT_SOLID2_URL: https://solid2.${STOREFRONT_DOMAIN:?set STOREFRONT_DOMAIN in .env}
     STOREFRONT_NEXT_URL: https://motion.${STOREFRONT_DOMAIN}
     # `vite preview` answers only the hosts it knows: the domain's subdomains.
     __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: .${STOREFRONT_DOMAIN}
@@ -27,11 +26,6 @@ services:
       dockerfile: examples/storefront/deploy/Dockerfile
     image: storefront-app:latest
     profiles: [build]
-
-  solid1:
-    <<: *app
-    working_dir: /app/examples/storefront/solid1
-    command: [node_modules/.bin/vite, preview, --host, 0.0.0.0, --port, "4101", --strictPort]
 
   solid2:
     <<: *app
@@ -54,7 +48,7 @@ services:
       - ./landing:/srv/landing:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on: [solid1, solid2, next]
+    depends_on: [solid2, next]
 
 volumes:
   caddy_data:

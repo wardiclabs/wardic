@@ -55,9 +55,9 @@ function Tradeoffs({ gains, costs }: { readonly gains: ReadonlyArray<string>; re
 export async function ExamplePage({ example, children }: { readonly example: Example; readonly children: ReactNode }) {
   const area = AREAS.find((one) => one.id === example.area)
   if (area === undefined) throw new Error(`No area "${example.area}"`)
-  // The Solid apps, on the host this page was asked for.
+  // Wardic's deployed app, on the host this page was asked for: Solid 2's, not Solid 1's (#566).
   const host = (await headers()).get("host")
-  const wardic = [APPS.solid1, APPS.solid2].map((app) => ({ app, href: appUrl(app, routeOf(example), host, process.env) }))
+  const wardic = [APPS.solid2].map((app) => ({ app, href: appUrl(app, routeOf(example), host, process.env) }))
   return (
     <main className="page example">
       <nav className="crumbs" aria-label="Breadcrumb">

@@ -4,8 +4,8 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 
 | App | Stack | Shows |
 |---|---|---|
-| [`solid1`](solid1) | SolidStart 2.1 on Solid 1.9, `@wardic/solid`, Kobalte 0.13 | Solid 1 patterns: `createAsync` over Solid Router's `query`, `action`, `<Suspense>` |
-| [`solid2`](solid2) | Solid 2 on `@solidjs/vite-plugin` (`start: true`, `ssr: true`, `serverFunctions: { components: true }`), `@wardic/solid/unstable/v2`, Kobalte 2.0 (an alpha) | Solid 2 patterns: async memos under `<Loading>`, server components, and the binding's async values |
+| [`solid2`](solid2) | Solid 2 on `@solidjs/vite-plugin` (`start: true`, `ssr: true`, `serverFunctions: { components: true }`), `@wardic/solid`, Kobalte 2.0 (an alpha) | Solid 2 patterns: async memos under `<Loading>`, server components, and the binding's async values |
+| [`solid1`](solid1) | SolidStart 2.1 on Solid 1.9, `@wardic/solid/v1` (deprecated), Kobalte 0.13; not deployed (#566) | Solid 1 patterns: `createAsync` over Solid Router's `query`, `action`, `<Suspense>` |
 | [`foldkit`](foldkit) | Foldkit 0.171 on Vite with `@foldkit/vite-plugin`'s server-rendered build and `@foldkit/node`, `@wardic/foldkit`, the store over Effect RPC | Foldkit patterns: the Model as the one state, Messages for every callback, Commands over the store, a page's first paint from the Flags the server rendered with |
 | [`next`](next) | Next.js 16 (App Router) on React 19, `motion/react`, Radix | Each example as Motion would write it: server components that start the store's reads, client components that read them with `use()`, server actions, and server-sent events for the shared wishlist |
 | [`shared`](shared) | | What all four use: the catalog and photos, the stylesheet, the examples' words, the store, the apps' addresses, the smoke test |
@@ -67,7 +67,7 @@ Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow
 
 ## Deploy it
 
-[`deploy/`](deploy) runs the three apps on one VPS behind Caddy, each on its own subdomain with HTTPS, and a landing page on the domain: a Docker image, a compose file, a one-time server setup, and a deploy script. Its README has the steps.
+[`deploy/`](deploy) runs the Solid 2 and Next.js apps on one VPS behind Caddy, each on its own subdomain with HTTPS, and a landing page on the domain: a Docker image, a compose file, a one-time server setup, and a deploy script. Its README has the steps.
 
 ## The store
 

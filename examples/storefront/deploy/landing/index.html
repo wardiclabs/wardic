@@ -16,8 +16,6 @@
         --line: #d8dee9;
         --accent: #5e81ac;
         --accent-ink: #ffffff;
-        --warn: #a5652a;
-        --warn-soft: #f5e6d3;
         color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
@@ -29,8 +27,6 @@
           --line: #434c5e;
           --accent: #88c0d0;
           --accent-ink: #242933;
-          --warn: #ebcb8b;
-          --warn-soft: #3b3a33;
           color-scheme: dark;
         }
       }
@@ -136,10 +132,6 @@
         background: var(--accent);
         color: var(--accent-ink);
       }
-      .badge.unstable {
-        background: var(--warn-soft);
-        color: var(--warn);
-      }
       .badge.motion {
         background: transparent;
         color: var(--ink);
@@ -161,22 +153,14 @@
       <header>
         <p class="eyebrow">Wardic Northlight</p>
         <h1>A made-up shop, built to show what Wardic does.</h1>
-        <p>Each feature of the shop is an animation example: the demo, why it's worth reaching for, and its code. Pick a binding: every example's page has Motion's version beside it.</p>
+        <p>Each feature of the shop is an animation example: the demo, why it's worth reaching for, and its code. Every example's page has Motion's version beside it.</p>
       </header>
       <ul class="apps">
         <li>
           <a class="app" href="https://solid2.{{.Host}}/">
-            <span class="badges"><span class="badge">Solid 2</span><span class="badge unstable">Unstable</span></span>
+            <span class="badges"><span class="badge">Solid 2</span></span>
             <h2>Wardic on Solid 2</h2>
-            <p>Async memos under <code>&lt;Loading&gt;</code>, server components, and the binding's async values, on Solid 2's release candidate.</p>
-            <span class="go">Open the shop →</span>
-          </a>
-        </li>
-        <li>
-          <a class="app" href="https://solid1.{{.Host}}/">
-            <span class="badges"><span class="badge">Solid 1</span></span>
-            <h2>Wardic on Solid 1</h2>
-            <p>SolidStart 2.1 with <code>@wardic/solid</code>: <code>createAsync</code> over the router's queries, actions and <code>&lt;Suspense&gt;</code>.</p>
+            <p>Async memos under <code>&lt;Loading&gt;</code>, server components, and the binding's async values, on Solid 2.</p>
             <span class="go">Open the shop →</span>
           </a>
         </li>
