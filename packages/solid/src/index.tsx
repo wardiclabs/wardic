@@ -1,27 +1,9 @@
 /**
- * @wardic/solid — the Solid framework binding: `WardicProvider` and `WardicConfig`; `createWard`, a **Ward** to
- * spread onto an element, with variant orchestration through `ward.Provider`; `wardic.*`,
- * `wardic.create()` and the `use:wardic` directive; `<AnimatePresence>`, `<LayoutGroup>` and
- * `<Reorder>`; and the low-level `createX` primitives (ADR-0008, ADR-0042). Built directly on
- * `effect`'s in-core reactivity (`effect/reactivity`) — there is no `@effect-atom/atom-solid`
- * dependency.
- */
-/**
- * The version of `@wardic/solid` this is.
+ * `@wardic/solid`: Wardic for Solid 2 (#209), its root since 2.0 (#566), when Solid 2 was stable and
+ * its binding left `unstable/`. Solid 1's binding is `@wardic/solid/v1`, deprecated;
+ * `@wardic/solid/unstable/v2` re-exports this entry, deprecated, for apps that adopted it before 2.0.
  *
- * @see https://wardic.dev/reference/solid/utilities/version
- */
-export const VERSION = "1.1.3"
-
-/**
- * `WardicProvider` (one Effect runtime + `AtomRegistry` per ADR-0006), the
- * `useWardicRuntime` accessor, and the scoped-fiber runner (`runScoped` /
- * `useWardicFiber`) that interrupts forked fibers on consumer unmount.
- *
- * NOTE: `provider.tsx` ships Solid JSX, so consumers must add `@wardic/solid`
- * (and any other workspace package shipping Solid JSX) to `ssr.noExternal` in
- * their Vite config so the Solid plugin transforms it — already pre-wired in
- * examples/solid-start-basic.
+ * @module
  */
 export {
   createInstantLayoutTransition,
@@ -35,14 +17,13 @@ export {
   WardicProvider,
   LazyWardic,
 } from "./provider.tsx"
-
 /**
- * **Features** (#511, ADR-0067): what a Slim element (`w.*`) has only when it's chosen, on a
- * `WardicProvider` or a `LazyWardic` (`features={[colors]}`), each its own import so an app ships only
- * those it uses; a Complete element (`wardic.*`) has every one. `colors`: every CSS colour space beyond
- * a hex, `rgb()`, `hsl()` and the colour names. `layout`: layout animations, the props `layout`,
- * `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it themselves).
- * `scroll`: a container's scroll, which `createScroll` brings itself (#518).
+ * **Features** (#511, ADR-0067): what a Slim element (`w.*`, `w.ward()`) has only when it's chosen, on
+ * a `WardicProvider` or a `LazyWardic` (`features={[colors]}`), each its own import so an app ships
+ * only those it uses; a Complete element (`wardic.*`, `ward()`) has every one. `colors`: every CSS
+ * colour space beyond a hex, `rgb()`, `hsl()` and the colour names. `layout`: layout animations, the
+ * props `layout`, `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it
+ * themselves). `scroll`: a container's scroll, which `createScroll` brings itself (#518).
  */
 export type { Feature, FeatureLoad, Features, FeaturesProp } from "@wardic/dom/unstable/Feature"
 export { colors } from "@wardic/dom/unstable/features/Colors"
@@ -67,8 +48,8 @@ export { domMax } from "@wardic/dom/unstable/features/DomMax"
 export type { InstantTransition } from "@wardic/dom/unstable/Instant"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
 export { correctParentTransform, transformViewBoxPoint } from "@wardic/dom/unstable/PagePoint"
-export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
-export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
+export type { WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
+export type { AnimateLayout } from "./provider.tsx"
 
 /**
  * `<WardicConfig>` (#434, Motion's `MotionConfig`): settings for the Wardic elements below it, its
@@ -77,32 +58,140 @@ export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
 export { WardicConfig, type WardicConfigProps } from "./wardic-config.tsx"
 
 /**
- * The provider's **Flush gate** (ADR-0006): where each element's animated values are written,
- * drawn onto the elements together once a frame, at the end of its animation tick (ADR-0034).
- * It's `@wardic/dom`'s, built by the provider with Solid's `batch` (ADR-0031), and
- * `useWardicGate` returns it; the types are re-exported here.
+ * `ward(config)`: a **Ward**, one element's motion, as a ref that carries its props. Make it once and
+ * spread it (`const card = ward(config)`, then `<div {...card} />`, its Starting style in server HTML),
+ * or give it to `ref` inline (`ref={ward(config)}`, client-only). A spread runs again on each change
+ * of the element's props, so an inline `{...ward(config)}` would make a new one each time, and throws.
+ * A kept ward has `.Provider` for its Variant children, `.read(key)` and `.atom(key)` for its values.
  */
-export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGate"
+export {
+  type AnyWard,
+  type Ward,
+  type WardChecked,
+  type WardConfig,
+  type WardOptions,
+  type WardProps,
+  type WardRead,
+  type WardStyle,
+  type WardWithProps,
+} from "./ward.tsx"
+export { ward } from "./complete.tsx"
+export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
+export type { WardicAnimationDefinition } from "@wardic/dom/unstable/WardConfig"
+export type { AnimatedKey, WardKey, WardValueOf } from "./ward-keys.ts"
+
+/** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */
+export { useVariantContext, WardicVariantContext } from "./variant-node.ts"
+export type { WardicVariantContextValue } from "@wardic/core/unstable/VariantTree"
+export type {
+  WardicOrchestration,
+  WardicReducedMotion,
+  WardicSkipAnimations,
+  WardicInertia,
+  WardicStagger,
+  WardicPath,
+  WardicPropagate,
+  WardicTransformShorthands,
+  WardicTransition,
+  WardicTransitionEntries,
+  WardicValueKey,
+  WardicValueTransition,
+  WardicKeyframes,
+  WardicTargetValues,
+  WardicValues,
+  WardicVariant,
+  WardicVariantLabels,
+  WardicVariantResolver,
+  WardicVariants,
+  WardicVariantTransition,
+} from "@wardic/dom/unstable/WardConfig"
 
 /**
- * Reactive bridges (ADR-0006): `streamToSignal` (core `Stream` -> Solid signal,
- * scoped fiber) and `fromAtom` (Effect `Atom` -> Solid signal via the runtime's
- * `AtomRegistry`).
+ * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the
+ * element's own props and the motion props; a `wardic.create(Component)` component forwards its `ref`.
  */
+export {
+  type GivenWard,
+  type Wardic,
+  type WardicBeside,
+  type WardicComponent,
+  type WardicMotion,
+  type WardicProps,
+  type WardicWrappable,
+  type WardicWrapped,
+  type WardNodeKey,
+  type WardRefCallback,
+  wardic,
+} from "./wardic.tsx"
+/**
+ * `w` (#511, ADR-0067; Motion's `m`): the **Slim element**'s forms, `w.<tag>`, `w.create` and
+ * `w.ward()`, each as its Complete form but with only the Features chosen above it.
+ */
+export { type W, w } from "./w.tsx"
+// #516: what `createWardic(features)` returns, its `w` and its ward typed to its Features.
+export type { WardConfigOf, WardicInstance } from "./wardic-instance.ts"
+export { createWardic } from "./create-wardic.tsx"
+export type { WardicMotionPropsV2 as WardicMotionProps } from "./motion-props.ts"
+// #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
+// wraps; whether a prop is a motion prop, Solid 2's own list.
+export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } from "./wardic-component.ts"
+export { isValidWardicPropV2 as isValidWardicProp } from "./motion-props.ts"
+
+/**
+ * `<AnimatePresence>` (ADR-0007): each child's exit before it's removed, from its ward's `exit`;
+ * `initial={false}` starts the child present at its first render at its `animate` (#134).
+ */
+export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
+export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.tsx"
+export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
+export type { PresenceContextValue, PresenceMode, PresenceRecord } from "@wardic/dom/unstable/PresenceController"
+
+/**
+ * Layout (ADR-0009, ADR-0010): a ward's `layout`, `layoutId`, `layoutScroll`, `layoutRoot` and
+ * `layoutAnchor` register its projection node; `<LayoutGroup layoutDependency>` re-measures them all.
+ */
+export { LayoutGroup } from "./layout.tsx"
+export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
+
+/**
+ * Sensors (#209 PR 3's Q1): each a ref that's also its reading. `createHover`, `createPress`,
+ * `createFocus`, `createInView` and `createDrag` attach to the element they're given as a ref;
+ * `createReducedMotion` follows the user's preference, `createReducedMotionConfig` the nearest config's
+ * setting over it, and `createPageInView` whether the page is shown (#443).
+ */
+export {
+  type CreateDragOptions,
+  createInView,
+  createPageInView,
+  createReducedMotion,
+  createReducedMotionConfig,
+  type Sensor,
+} from "./sensors.tsx"
+export { createDrag } from "./drag-sensor.tsx"
+export { createFocus } from "./focus-sensor.tsx"
+export { createHover } from "./hover-sensor.tsx"
+export { createPress } from "./press-sensor.tsx"
+// `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
+export { createCycle, type Cycle } from "./cycle.ts"
+
+/** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
 export { fromAtom, streamToSignal } from "./bridge.tsx"
-export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, WardicPressInfo, WardicPressInput } from "@wardic/dom/unstable/GestureInfo"
+export type { WardicDragTransition, WardicLayoutBox, WardicScaleCorrector, WardicTransformPoint, WardicTransformTemplate, WardicViewport } from "@wardic/dom/unstable/WardConfig"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "@wardic/dom/unstable/DragConstraints"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "@wardic/dom/unstable/DragControls"
-// Imperative animation (#433, Motion's `useAnimate`): an Animation scope, its `animate` and its Playback controls;
-// a sequence of Segments (Motion's), on the same controls.
-export { createAnimate } from "./create-animate.tsx"
+// Imperative animation (#433, Motion's `useAnimate`): an Animation scope with `settled()`, its `animate` and its Playback controls.
+// `WardicAnimationScope` on both bindings, each its own (#618, P1), as `isValidWardicProp` is.
+export { createAnimate, type WardicAnimationScopeV2 as WardicAnimationScope, type WardicScopeLanding } from "./create-animate.tsx"
 export {
   createBatch,
   type WardicBatch,
   type WardicBatchConfig,
+  type WardicBatchEvents,
   type WardicBatchMember,
   type WardicBatchMemberProps,
+  type WardicBatchPointInfo,
+  type WardicBatchPressInfo,
   type WardicKeyedBatch,
   type WardicKeyedBatchConfig,
 } from "./create-batch.tsx"
@@ -122,7 +211,6 @@ export type {
 export type {
   WardicAnimate,
   WardicAnimateOptions,
-  WardicAnimationScope,
   WardicAnimationSequence,
   WardicAnimationSubject,
   WardicBatchSegment,
@@ -137,35 +225,13 @@ export type {
   WardicSequenceOptions,
   WardicSequenceTime,
 } from "@wardic/dom/unstable/Imperative"
-// Animation controls (#433, Motion's `useAnimationControls`): `animate={controls}`, then `start`, `set` and `stop`.
 export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "@wardic/core/unstable/AnimationControls"
 
-/**
- * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /
- * `createInView` / `createDrag` (recognizer-backed signals) and `createReducedMotion`
- * (`Probe.prefersReducedMotion` atom bridge); `createReducedMotionConfig`, the nearest config's
- * setting over it, and `createPageInView`, whether the page is shown (#443).
- */
-export {
-  type CreateDragOptions,
-  createInView,
-  createPageInView,
-  createReducedMotion,
-  createReducedMotionConfig,
-} from "./sensors.tsx"
-export { createDrag } from "./drag-sensor.tsx"
-export { createFocus } from "./focus-sensor.tsx"
-export { createHover } from "./hover-sensor.tsx"
-export { createPress } from "./press-sensor.tsx"
-// `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
-export { createCycle, type Cycle } from "./cycle.ts"
 
 /**
- * Live values (#130, ADR-0043): a value the user moves, given in an element's `style` (an accessor
- * or an Atom), followed while no layer of the Override stack sets its key. `createTransform` maps
- * one (through a function, or ranges), `createFollowValue` follows one on any transition (#441) and
- * `createSpring` with a spring; `createScroll`, `createVelocity` and `createTime` make one from a
- * scroll, a value's velocity and time (#234). `createAnimationFrame` tells a callback each frame, and `createWillChange` makes a
+ * Live values (#130, ADR-0043; #209 PR 3's Q2): core's `LiveValue` helpers as accessors. One derived
+ * on an Atom (a ward's `read(key)`, another helper's) carries it, so a `style` given it is written in
+ * the frame its source moves. `createAnimationFrame` tells a callback each frame, and `createWillChange` makes a
  * `willChange` that turns on as its element animates (#443).
  */
 export {
@@ -181,172 +247,36 @@ export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues
 export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "@wardic/dom/unstable/LiveStyle"
 
 /**
- * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->
- * Override stack -> spring/tween Retarget -> the gate, which commits each frame onto the
- * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable
- * `Ward` to spread onto a JSX element (`<div {...ward()}>`).
- */
-export { createWard } from "./complete.tsx"
-export { type Ward, type WardStyle, type WardValue, type WardProps, type WardUserProps } from "./create-ward.tsx"
-export type {
-  WardConfig,
-  WardicDragTransition,
-  WardicViewport,
-  WardicReducedMotion,
-  WardicSkipAnimations,
-  WardicInertia,
-  WardicOrchestration,
-  WardicStagger,
-  WardicPath,
-  WardicPropagate,
-  WardicTransformShorthands,
-  WardicTransformTemplate,
-  WardicScaleCorrector,
-  WardicLayoutBox,
-  WardicTransformPoint,
-  WardicAnimationDefinition,
-  WardicTransition,
-  WardicTransitionEntries,
-  WardicValueKey,
-  WardicValueTransition,
-  WardicKeyframes,
-  WardicTargetValues,
-  WardicValues,
-  WardicVariant,
-  WardicVariantLabels,
-  WardicVariantResolver,
-  WardicVariants,
-  WardicVariantTransition,
-} from "@wardic/dom/unstable/WardConfig"
-
-/**
- * `<Reorder>` (ADR-0020, ADR-0008 Tier 1): `Reorder.Group` / `Reorder.Item`, built on the
- * headless API: `createReorderGroup` (a `ReorderGroup`) and `createReorderItem` (a
- * `ReorderItemWard`) spread onto any elements, and the `use:reorderItem` directive
- * (client-only). The app owns `values`, sets them from `onReorder`, and keys its items
- * with `<For>`.
+ * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,
+ * refs carrying their props as a ward is, and Motion's `Reorder.Group` / `Reorder.Item` on them.
  */
 export {
-  createReorderGroup,
-  createReorderItem,
+  type AnyReorderGroup,
+  type AnyReorderItem,
+  type GroupRefCallback,
   Reorder,
   type ReorderElementTag,
   type ReorderGroup,
-  type ReorderGroupProps,
-  type ReorderItemProps,
+  type ReorderGroupComponentProps,
   type ReorderGroupConfig,
-  type ReorderGroupSpread,
-  type ReorderGroupUserProps,
+  type ReorderGroupEvents,
+  type ReorderGroupOf,
+  type ReorderGroupProps,
+  reorderGroup,
+  type ReorderItem,
+  type ReorderItemComponentProps,
   type ReorderItemConfig,
-  type ReorderItemSpread,
-  type ReorderItemUserProps,
-  type ReorderItemWard,
   type ReorderItemLayout,
-  type ReorderItemDirectiveValue,
-  type ReorderBatchGroupProps,
-  type ReorderBatchItemProps,
+  type ReorderItemOf,
+  reorderItem,
   type ReorderBatchColumnSize,
   type ReorderBatchGap,
+  type ReorderBatchGroup,
+  type ReorderBatchGroupProps,
+  type ReorderBatchItemProps,
   type ReorderBatchItemSize,
   type ReorderBatchSizing,
-  reorderItem,
 } from "./reorder.tsx"
-
-/**
- * `runDragTrack` (ADR-0004): the binding-orchestrated drag track, run by every Wardic element's
- * spine (`runSpine`), `createWard`'s and `wardic.create(Component)`'s alike. The pointer
- * DIRECT-SETS `x`/`y` while the spring drives every other key + `whileDrag`; the release runs on
- * the **Drag transition**: a **Fling**, a snap back to the origin (`dragSnapToOrigin`), or a rest
- * where it was let go (`dragMomentum={false}`).
- */
-export {
-  type RunDragTrackOptions,
-  runDragTrack,
-} from "./drag.tsx"
-export type {
-  DragSnapshot,
-  DragTrackConfig,
-} from "@wardic/dom/unstable/DragTrack"
-
-/**
- * Variant orchestration context (ADR-0007): the `WardicVariantContext` that
- * carries the parent's current variant NAME + inherited transition down the
- * tree, and the `useVariantContext` reader. `ward.Provider` (a property on the
- * `createWard` callable) publishes into it; inheriting children resolve the name
- * against their own `variants` map.
- */
-export {
-  useVariantContext,
-  WardicVariantContext,
-} from "./variants.ts"
-export type {
-  WardicVariantContextValue,
-} from "@wardic/core/unstable/VariantTree"
-
-/**
- * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` element proxy, `wardic.create(tag)`
- * HOC, and, called, the `use:wardic` directive. `wardic.div` / `wardic.create("div")` build a
- * Complete element that puts a Ward on its element and merges the animated style over the
- * user's static style (`Style.over`) while preserving the user's ref (`mergeRefs`) and passing
- * all other props through. `<div use:wardic={config}>` puts one on any element, client-only:
- * import `wardic` for it to resolve.
- */
-export {
-  type Wardic,
-  type WardicComponent,
-  type WardicMotionProps,
-  type WardicProps,
-  wardic,
-} from "./wardic.tsx"
-/**
- * `w` (#511, ADR-0067; Motion's `m`): the **Slim element**'s forms, `w.<tag>`, `w.create`,
- * `w.createWard` and `use:w`, each as its `wardic` form but with only the Features chosen above it.
- */
-export { type W, w } from "./w.tsx"
-// #516: what `createWardic(features)` returns, its `w` typed to its Features.
-export type { WardConfigOf, WardicInstance } from "./wardic-instance.ts"
-export { createWardic } from "./create-wardic.tsx"
-// #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
-// wraps; whether a prop is a motion prop.
-export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } from "./wardic-component.ts"
-export { isValidWardicProp } from "./motion-props.ts"
-
-/**
- * `<AnimatePresence>` — exit-before-unmount (ADR-0007). Wraps its children (a conditional
- * one, under a `<Show>`, or a `<For>`'s); when one leaves, the presence RETAINS its DOM
- * node and drives the child's `exit` (parent-driven, since Solid disposes the leaving
- * child's reactive owner), removing the node once the exit settles. `PresenceContext`
- * carries the registrar down to descendant spines. `initial={false}` starts the child
- * present at its first render at its `animate` (#134). Many children, each exiting in its
- * place, and `mode="wait"` (#277, ADR-0048).
- */
-export {
-  AnimatePresence,
-  type AnimatePresenceProps,
-  PresenceContext,
-  useIsPresent,
-  usePresence,
-  usePresenceContext,
-  usePresenceData,
-} from "./presence.tsx"
-export type {
-  PresenceContextValue,
-  PresenceMode,
-  PresenceRecord,
-} from "@wardic/dom/unstable/PresenceController"
-
-/**
- * `layout` / `layoutId` surface (ADR-0009 + ADR-0005). `layout` FLIP runs on the
- * box-based projection system: `createProjectionNode` registers the element as a
- * projection node (the provider-owned tree handles nesting + sibling reflow).
- * `<LayoutGroup>` is now a thin grouping boundary whose `layoutDependency`
- * triggers a full Measure pass. `layoutId` shared-element animation (Switch and
- * Crossfade) is matched entirely by the Projection system (ADR-0010 *Amendment
- * (#13)*); `measureLayoutBox` reads an untransformed box.
- */
-export { LayoutGroup, createProjectionNode } from "./layout.tsx"
-export type { CreateProjectionNodeOptions } from "@wardic/dom/unstable/LayoutMember"
-export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
 
 /**
  * Motion's easing functions, by Motion's names (#360, ADR-0052), so a port's imports carry over:

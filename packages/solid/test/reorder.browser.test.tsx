@@ -1,45 +1,42 @@
-// `Reorder.Group` / `Reorder.Item` (ADR-0020), driven with real Playwright mouse input.
+// `<Reorder>` on Solid 2 (#209 PR 3b, ADR-0020), with real Playwright mouse input: the Solid 1
+// binding's Reorder cases, each through `Reorder.Group` / `Reorder.Item` and through
+// `reorderGroup` / `reorderItem` on a plain `ul` / `li` (#209 PR 3b's R1).
 //
-// The cases and their orders are the evidence runs' (.tmp/reorder/reorder-run.ts),
-// where motion/react 13.4.6's `Reorder` and the D4 prototype of the Crossover gave the
-// same orders except in an rtl or reversed single-axis list: there Motion 13.1+ picks
-// the neighbour by index, so it walks the wrong way or never reorders (13.0.0 sorted by
-// position). Wardic's Crossover picks the neighbour on the side of the motion (D4).
-//
-// Motion's Reorder behaviour matched here: `ul` / `li` by default with `as`
-// (Group.tsx, Item.tsx), `overflow-anchor: none` on the group under the user's style
-// (Group.tsx:187-195), the axis detected from the items' boxes when none is given
-// (detect-axis.ts), the dragged item raised while it's off its slot (Item.tsx's
-// `zIndex`), and the release flying to the new slot. All at
-// 16c61222c4166bbef5ff6ab0051192faa79fa8c8.
-//
-// "Under the pointer" is read after the pointer has held still for a few frames, so the
-// known one-frame lag of a move (#32) doesn't enter it.
-import type * as Reorder from "@wardic/core/Reorder"
-import { createSignal, type JSX } from "solid-js"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+// - RV1: a `ul` of `li`s by default, other tags with `as`, and no motion prop reaches the DOM.
+// - RV2: a slow drag of b past c calls `onReorder` once with the swapped values; the DOM follows;
+//   b stays under the pointer.
+// - RV3: a slow drag of a past three neighbours reorders three times, in order.
+// - RV4: a displaced sibling moves on its first painted frame after the reorder and ends on its slot.
+// - RV5: axis x: a row reorders a past b and c; with no axis a wrapped grid is detected as xy.
+// - RV6: the dragged item is raised while dragged, and its z-index goes after the release flies it
+//   to its new slot.
+// - RV7: an item's `touch-action` follows the group's axis, detected or given, and clearing the
+//   given one detects it at once.
+// - RV8: the group's `overflow-anchor` is none, and the user's style wins.
+// - RV9: an item's motion config still works: `whileDrag` scales it while held.
+// - RV10: `list.move(value, toIndex)` reorders through `onReorder`, and a reorder the app makes
+//   itself animates the items.
+// - RV11: an item is a ward: `row.read(key)`; a group given to `ref` alone sets its own
+//   `overflow-anchor`.
+// - RV12: an item's style stays reactive.
+// - RV13: the gesture's axis: in a y list a diagonal drag moves the item only on y.
+// - RV14: items rendered with `.map` log one warning per group when they remount; `<For>` logs none.
+// - RV15 (#257 item 12): `list.move` inside an `action`: the action resolves (a flush there is Solid's
+//   FLUSH_IN_ACTION), the order reaches `onReorder`, and the item flies to its place.
+import { DomLive } from "@wardic/dom"
+import { reorderGroup, reorderItem, WardicProvider } from "@wardic/solid"
+import type * as CoreReorder from "@wardic/core/Reorder"
+import * as Bool from "effect/Boolean"
+import { type Accessor, action, createSignal, flush, For } from "solid-js"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { page } from "vitest/browser"
 import { until } from "./browser-helpers.ts"
-import {
-  add,
-  centreOf,
-  glide,
-  grabOffsetOf,
-  mouse,
-  mountReorder,
-  offPointer,
-  type Pt,
-  resetScene,
-  sampleFrames,
-  type Scene,
-  settle,
-  wait,
-} from "./reorder-harness.tsx"
+import { mount } from "./mount.tsx"
+import { add, centreOf, glide, grabOffsetOf, mountReorder, mouse, offPointer, type Pt, resetScene, sampleFrames, type Scene, settle, wait } from "./reorder-scene.tsx"
 
 afterEach(resetScene)
 
-// The evidence runs' rows are 440 px wide at left 40: an rtl or reversed row's first
-// value is its rightmost box, past the test iframe's default 414 px. Widen it.
+// Rows are 440 px wide at left 40: widen the test iframe past its default 414 px.
 let viewport = { width: 0, height: 0 }
 beforeAll(async () => {
   viewport = { width: window.innerWidth, height: window.innerHeight }
@@ -57,7 +54,7 @@ const drag = async (
   dx: number,
   dy: number,
   steps: number,
-  options: { readonly ms?: number; readonly holdMs?: number; readonly release?: boolean } = {},
+  options: { readonly ms?: number; readonly holdMs?: number } = {},
 ): Promise<{ readonly g: Pt; readonly to: Pt; readonly grabOffset: Pt }> => {
   const el = s.item(value)
   const g = centreOf(el)
@@ -66,7 +63,6 @@ const drag = async (
   await mouse.down(g)
   await glide(g, to, steps, options.ms ?? 20)
   await wait(options.holdMs ?? 300)
-  if (options.release === true) await mouse.up(to)
   return { g, to, grabOffset }
 }
 
@@ -75,8 +71,8 @@ const joined = (orders: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<str
 /** The attributes a motion prop would leave if it leaked through to the DOM. */
 const MOTION_ATTRIBUTES = ["values", "onreorder", "axis", "value", "as", "layout", "layoutid", "drag", "whiledrag", "initial", "animate", "transition"]
 
-describe("Reorder.Group and Reorder.Item", () => {
-  it("RO1: a `ul` of `li`s by default, other tags with `as`, and no motion prop reaches the DOM", async () => {
+describe("Reorder.Group and Reorder.Item on Solid 2", () => {
+  it("RV1: a ul of lis by default, other tags with as, and no motion prop reaches the DOM", async () => {
     const s = await mountReorder({ whileDrag: { scale: 1.05 } })
     expect(s.group().tagName).toBe("UL")
     expect(s.item("a").tagName).toBe("LI")
@@ -89,40 +85,28 @@ describe("Reorder.Group and Reorder.Item", () => {
     expect(t.group().tagName).toBe("SECTION")
     expect(t.item("a").tagName).toBe("ARTICLE")
   })
+})
 
-  it("RO2: a slow drag of b past c calls onReorder once with the swapped values; the DOM follows; b stays under the pointer", async () => {
-    const s = await mountReorder()
+describe.each([
+  { mode: "components", factories: false },
+  { mode: "factories", factories: true },
+])("Reorder on Solid 2, through the $mode", ({ factories }) => {
+  it("RV2: a slow drag of b past c calls onReorder once with the swapped values; the DOM follows; b stays under the pointer", async () => {
+    const s = await mountReorder({ factories })
     const { to, grabOffset } = await drag(s, "b", 0, 46, 23, { holdMs: 400 })
     expect(joined(s.reorders)).toEqual(["acbde"])
     expect([...s.group().querySelectorAll<HTMLElement>("[data-value]")].map((el) => el.dataset.value).join("")).toBe("acbde")
     expect(offPointer(s.item("b"), to, grabOffset)).toBeLessThan(1)
   })
 
-  it("RO3: a slow drag of a past three neighbours reorders three times, in order", async () => {
-    const s = await mountReorder()
+  it("RV3: a slow drag of a past three neighbours reorders three times, in order", async () => {
+    const s = await mountReorder({ factories })
     await drag(s, "a", 0, 201, 67)
     expect(joined(s.reorders)).toEqual(["bacde", "bcade", "bcdae"])
   })
 
-  it("RO4: moves about 50 ms apart still reorder (a 30 ms velocity window would read 0)", async () => {
-    const s = await mountReorder()
-    await drag(s, "b", 0, 46, 12, { ms: 50 })
-    expect(joined(s.reorders)).toEqual(["acbde"])
-  })
-
-  it("RO5: a flick of a across the list, released while moving, ends in the right order", async () => {
-    const s = await mountReorder()
-    const g = centreOf(s.item("a"))
-    await mouse.down(g)
-    await glide(g, add(g, 0, 12), 4, 0)
-    await glide(add(g, 0, 12), add(g, 0, 252), 8, 0)
-    await mouse.up(add(g, 0, 252))
-    await wait(1200)
-    expect(s.order().join("")).toBe("bcdea")
-  })
-
-  it("RO6: a displaced sibling moves on its first painted frame after the reorder and ends on its slot", async () => {
-    const s = await mountReorder()
+  it("RV4: a displaced sibling moves on its first painted frame after the reorder and ends on its slot", async () => {
+    const s = await mountReorder({ factories })
     const c = s.item("c")
     const before = c.getBoundingClientRect().top
     const sampling = sampleFrames(() => c.getBoundingClientRect().top)
@@ -137,111 +121,23 @@ describe("Reorder.Group and Reorder.Item", () => {
     expect(Math.abs(after.at(-1)!.v - slot), "ends on the slot").toBeLessThanOrEqual(0.5)
   })
 
-  it("RO7: axis x: a row reorders a past b and c", async () => {
-    const s = await mountReorder({ layout: "x", axis: () => "x" })
+  it("RV5: axis x: a row reorders a past b and c; with no axis a wrapped grid is detected as xy", async () => {
+    const s = await mountReorder({ factories, layout: "x", axis: () => "x" })
     const { to, grabOffset } = await drag(s, "a", 201, 0, 67)
     expect(joined(s.reorders)).toEqual(["bacde", "bcade"])
     expect(offPointer(s.item("a"), to, grabOffset)).toBeLessThan(1)
-  })
-
-  it("RO8: axis xy: dragging a into the next row of a grid moves it onto that row (moveToLine)", async () => {
-    const s = await mountReorder({ layout: "xy", axis: () => "xy" })
-    await drag(s, "a", 90, 60, 40)
-    expect(s.order().join("")).toBe("bcdeaf")
-  })
-
-  it("RO9: with no axis, a row is detected as x and a wrapped grid as xy", async () => {
-    const row = await mountReorder({ layout: "x" })
-    const a = row.item("a")
-    const top = a.getBoundingClientRect().top
-    await drag(row, "a", 201, 30, 67)
-    expect(joined(row.reorders)).toEqual(["bacde", "bcade"])
-    expect(Math.abs(a.getBoundingClientRect().top - top), "x only: no y movement").toBeLessThan(0.5)
     await resetScene()
-    const grid = await mountReorder({ layout: "xy" })
+    const grid = await mountReorder({ factories, layout: "xy" })
     await drag(grid, "a", 90, 60, 40)
     expect(grid.order().join("")).toBe("bcdeaf")
   })
 
-  it("RO10: a reactive axis changed between gestures applies to the next gesture", async () => {
-    const [axis, setAxis] = createSignal<Reorder.Axis>("y")
-    const s = await mountReorder({ axis })
-    const b = s.item("b")
-    const left = b.getBoundingClientRect().left
-    const first = await drag(s, "b", 40, 20, 10)
-    expect(Math.abs(b.getBoundingClientRect().left - left), "y: no x movement").toBeLessThan(0.5)
-    await mouse.up(first.to)
-    await wait(900)
-    setAxis("xy")
-    await settle()
-    const second = await drag(s, "b", 40, 20, 10)
-    expect(offPointer(b, second.to, second.grabOffset), "xy: follows on both axes").toBeLessThan(1)
-  })
-
-  it("RO11: rtl row (detected x): toward the left neighbour reorders; 30 px the other way doesn't walk to the far end", async () => {
-    const toward = await mountReorder({ layout: "x", rtl: true })
-    await drag(toward, "a", -201, 0, 67)
-    expect(joined(toward.reorders)).toEqual(["bacde", "bcade"])
-    await resetScene()
-    const away = await mountReorder({ layout: "x", rtl: true })
-    await drag(away, "b", 30, 0, 15)
-    expect(joined(away.reorders), "motion/react 13.4.6: acbde, acdbe, acdeb").toEqual([])
-  })
-
-  it("RO12: row-reverse and column-reverse reorder toward the neighbour on the moving side", async () => {
-    const row = await mountReorder({ layout: "x", reverse: true })
-    await drag(row, "a", -201, 0, 67)
-    expect(joined(row.reorders), "motion/react 13.4.6: none").toEqual(["bacde", "bcade"])
-    await resetScene()
-    const column = await mountReorder({ layout: "y", reverse: true })
-    await drag(column, "a", 0, -130, 44)
-    expect(joined(column.reorders), "motion/react 13.4.6: none").toEqual(["bacde", "bcade"])
-  })
-
-  it("RO13: the dragged item paints above its siblings on every frame of a retarget, and its z-index goes after the release", async () => {
-    const s = await mountReorder()
-    const b = s.item("b")
-    const g = centreOf(b)
-    let pointer = g
-    const sampling = sampleFrames(() => {
-      const hit = document.elementFromPoint(pointer.x, pointer.y)
-      return hit !== null && (hit === b || b.contains(hit))
-    })
-    await mouse.down(g)
-    for (const [from, to, steps] of [
-      [0, 45, 15],
-      [45, 9, 12],
-      [9, 45, 12],
-    ] as const) {
-      for (let k = 1; k <= steps; k++) {
-        pointer = add(g, 0, from + ((to - from) * k) / steps)
-        await mouse.move(pointer)
-      }
-    }
-    await wait(400)
-    const frames = sampling.stop()
-    expect(joined(s.reorders)).toEqual(["acbde", "abcde", "acbde"])
-    const under = frames.filter((f) => !f.v).length
-    expect(under, `frames with b under a sibling, of ${frames.length} (was 16-23%)`).toBe(0)
-    await mouse.up(pointer)
-    await wait(900)
-    expect(b.style.getPropertyValue("z-index"), "no inline z-index at rest").toBe("")
-    // Nothing inline is left over a stylesheet's z-index (not even `auto`).
-    const sheet = document.createElement("style")
-    sheet.textContent = "[data-value] { z-index: 3; }"
-    document.head.append(sheet)
-    try {
-      expect(getComputedStyle(b).zIndex).toBe("3")
-    } finally {
-      sheet.remove()
-    }
-  })
-
-  it("RO14: the release flies b to its new slot and ends on it", async () => {
-    const s = await mountReorder()
+  it("RV6: the dragged item is raised while dragged; the release flies it to its slot, and its z-index goes", async () => {
+    const s = await mountReorder({ factories })
     const b = s.item("b")
     const groupTop = s.group().getBoundingClientRect().top
     const { to } = await drag(s, "b", 0, 46, 23)
+    expect(getComputedStyle(b).zIndex, "raised while dragged").not.toBe("auto")
     const sampling = sampleFrames(() => b.getBoundingClientRect().top)
     const upAt = performance.now()
     await mouse.up(to)
@@ -250,40 +146,52 @@ describe("Reorder.Group and Reorder.Item", () => {
     const slot = groupTop + 2 * 60
     expect(Math.abs(frames[0]!.v - slot), "flies (not a jump)").toBeGreaterThan(1)
     expect(Math.abs(frames.at(-1)!.v - slot), "ends on the slot").toBeLessThanOrEqual(0.5)
+    expect(b.style.getPropertyValue("z-index"), "no inline z-index at rest").toBe("")
   })
 
-  it("RO15: an item's touch-action follows the group's axis, and follows a re-layout after a reorder", async () => {
-    const y = await mountReorder()
+  it("RV7: touch-action follows the group's axis, detected or given; clearing the given one detects it at once", async () => {
+    const y = await mountReorder({ factories })
     expect(y.item("a").style.getPropertyValue("touch-action")).toBe("pan-x")
     await resetScene()
-    const x = await mountReorder({ layout: "x" })
-    expect(x.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
-    await resetScene()
-    const xy = await mountReorder({ layout: "xy" })
+    const xy = await mountReorder({ factories, layout: "xy" })
     expect(xy.item("a").style.getPropertyValue("touch-action")).toBe("none")
     await resetScene()
-    const [css, setCss] = createSignal<JSX.CSSProperties>({})
-    const s = await mountReorder({ groupStyle: css })
-    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-x")
-    setCss({ "flex-direction": "row", width: "auto" })
-    s.setOrder(["b", "a", "c", "d", "e"])
-    await until(() => s.item("a").style.getPropertyValue("touch-action") === "pan-y", 1000)
+    // A row given "xy": the controller detects nothing while the app gives the axis, so clearing it
+    // has to detect the row's "x" then.
+    const [axis, setAxis] = createSignal<CoreReorder.Axis | undefined>("xy")
+    const s = await mountReorder({ factories, layout: "x", axis })
+    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("none")
+    // Every touch-action the item is given on the way: an axis detected by an effect after the clear
+    // paints the last one detected ("y", pan-x) first (#257's audit, EFFECT_RELAY_TEAR).
+    // Each style write's record holds the touch-action it replaced.
+    const replaced: Array<string> = []
+    const probe = document.createElement("div")
+    const touchActionOf = (style: string | null): string => {
+      probe.setAttribute("style", style ?? "")
+      return probe.style.getPropertyValue("touch-action")
+    }
+    const watch = new MutationObserver((records) => replaced.push(...records.map((record) => touchActionOf(record.oldValue))))
+    watch.observe(s.item("a"), { attributes: true, attributeFilter: ["style"], attributeOldValue: true })
+    setAxis(undefined)
+    flush()
+    await Promise.resolve()
+    watch.disconnect()
     expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
+    expect(replaced, "one write, from none straight to the detected axis's").toEqual(["none"])
   })
 
-  it("RO16: the group's inline overflow-anchor is none, and the user's style wins", async () => {
-    const s = await mountReorder()
+  it("RV8: the group's overflow-anchor is none, and the user's style wins", async () => {
+    const s = await mountReorder({ factories })
     expect(s.group().style.getPropertyValue("overflow-anchor")).toBe("none")
     await resetScene()
-    const t = await mountReorder({ groupStyle: () => ({ "overflow-anchor": "auto" }) })
+    const t = await mountReorder({ factories, groupStyle: () => ({ "overflow-anchor": "auto" }) })
     expect(t.group().style.getPropertyValue("overflow-anchor")).toBe("auto")
   })
 
-  it("RO17: an item's ordinary props still work: whileDrag scales it while held", async () => {
-    const s = await mountReorder({ whileDrag: { scale: 1.1 } })
+  it("RV9: an item's motion config still works: whileDrag scales it while held", async () => {
+    const s = await mountReorder({ factories, whileDrag: { scale: 1.1 } })
     const b = s.item("b")
     await drag(s, "b", 0, 10, 5)
-    // The scale springs in: wait until the width holds still between frames.
     let previous = 0
     await until(() => {
       const width = b.getBoundingClientRect().width
@@ -294,8 +202,8 @@ describe("Reorder.Group and Reorder.Item", () => {
     expect(b.getBoundingClientRect().width).toBeCloseTo(220, 0)
   })
 
-  it("RO18: the gesture's axis: in a y list a diagonal drag moves the item only on y", async () => {
-    const s = await mountReorder()
+  it("RV13: the gesture's axis: in a y list a diagonal drag moves the item only on y", async () => {
+    const s = await mountReorder({ factories })
     const b = s.item("b")
     const start = b.getBoundingClientRect()
     await drag(s, "b", 40, 20, 10)
@@ -304,64 +212,142 @@ describe("Reorder.Group and Reorder.Item", () => {
     expect(now.top - start.top, "y").toBeCloseTo(20, 0)
   })
 
-  it("RO20: a window width change that wraps a row into a grid updates touch-action, with no reorder", async () => {
-    // 5 items 80 px wide, 10 px apart (440 px) in a group 500 px narrower than the window.
-    const s = await mountReorder({ layout: "x", groupStyle: () => ({ "flex-wrap": "wrap", width: "calc(100vw - 500px)" }) })
-    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
-    try {
-      await page.viewport(900, window.innerHeight)
-      await until(() => s.item("a").style.getPropertyValue("touch-action") === "none", 1500)
-      expect(s.item("a").style.getPropertyValue("touch-action")).toBe("none")
-      expect(s.reorders).toEqual([])
-    } finally {
-      await page.viewport(1000, window.innerHeight)
-      await wait(50)
-    }
-  })
-
-  it("RO21: clearing the axis prop detects the axis at once", async () => {
-    const [axis, setAxis] = createSignal<Reorder.Axis | undefined>("x")
-    const s = await mountReorder({ axis })
-    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-y")
-    setAxis(undefined)
-    await settle()
-    expect(s.item("a").style.getPropertyValue("touch-action")).toBe("pan-x")
-  })
-
-  it("RO19: Reorder.Item's style prop stays reactive", async () => {
+  it("RV12: an item's style stays reactive", async () => {
     const [color, setColor] = createSignal("rgb(1, 2, 3)")
-    const s = await mountReorder({ itemStyle: () => ({ color: color() }) })
+    const s = await mountReorder({ factories, itemStyle: () => ({ color: color() }) })
     expect(s.item("b").style.color).toBe("rgb(1, 2, 3)")
     setColor("rgb(4, 5, 6)")
+    flush()
     await settle()
     expect(s.item("b").style.color).toBe("rgb(4, 5, 6)")
   })
+})
 
-  it("RO22: a drag that moves an item calls onReorderEnd once, at its release (#257 item 3)", async () => {
-    const s = await mountReorder()
-    const g = centreOf(s.item("a"))
-    await mouse.down(g)
-    await glide(g, add(g, 0, 130), 14)
-    await wait(300)
-    expect(s.reorders.length, "onReorder at each crossover").toBeGreaterThan(1)
-    expect(s.ends, "nothing before the release").toEqual([])
-    await mouse.up(add(g, 0, 130))
-    await settle()
-    expect(s.ends).toEqual([{ values: [...s.order()], value: "a", from: 0, to: s.order().indexOf("a") }])
+describe("reorderGroup and reorderItem", () => {
+  it("RV10: list.move reorders through onReorder, and a reorder the app makes itself animates the items", async () => {
+    const s = await mountReorder({ factories: true })
+    const c = s.item("c")
+    const before = c.getBoundingClientRect().top
+    const sampling = sampleFrames(() => c.getBoundingClientRect().top)
+    s.move("c", 0)
+    flush()
+    await wait(900)
+    expect(joined(s.reorders)).toEqual(["cabde"])
+    const frames = sampling.stop().map((f) => f.v)
+    const slot = before - 2 * 60
+    expect(frames.filter((top) => top < before - 1 && top > slot + 1).length, "it flies there").toBeGreaterThan(3)
+    expect(Math.abs(frames.at(-1)! - slot)).toBeLessThanOrEqual(0.5)
+    // The app's own reorder.
+    const e = s.item("e")
+    const eBefore = e.getBoundingClientRect().top
+    const eSampling = sampleFrames(() => e.getBoundingClientRect().top)
+    s.setOrder(["e", "c", "a", "b", "d"])
+    await wait(900)
+    const eFrames = eSampling.stop().map((f) => f.v)
+    const eSlot = eBefore - 4 * 60
+    expect(eFrames.filter((top) => top < eBefore - 1 && top > eSlot + 1).length, "it flies there too").toBeGreaterThan(3)
+    expect(Math.abs(eFrames.at(-1)! - eSlot)).toBeLessThanOrEqual(0.5)
   })
 
-  it("RO23: a drag dropped back where it began calls no onReorderEnd (#257 item 3)", async () => {
-    const s = await mountReorder()
-    const g = centreOf(s.item("a"))
-    await mouse.down(g)
-    await glide(g, add(g, 0, 130), 14)
-    await wait(200)
-    expect(s.order().indexOf("a"), "moved on the way").toBeGreaterThan(0)
-    await glide(add(g, 0, 130), g, 14)
-    await wait(200)
-    await mouse.up(g)
+  it("RV11: an item is a ward (read); a group given to ref alone sets its own overflow-anchor", async () => {
+    const [values, setValues] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+    let group!: HTMLElement
+    let opacityOfB!: Accessor<number | undefined>
+    const List = () => {
+      const list = reorderGroup({ values, onReorder: setValues })
+      return (
+        <ul ref={[list, (el: HTMLElement) => (group = el)]} style={{ position: "absolute", left: "40px", top: "40px", width: "200px", margin: "0", padding: "0" }}>
+          <For each={values()}>
+            {(value) => {
+              const row = reorderItem(list, { value, style: { height: "40px", opacity: 0.5 } })
+              if (value === "b") opacityOfB = row.read("opacity")
+              return (
+                <li {...row} data-value={value}>
+                  {value}
+                </li>
+              )
+            }}
+          </For>
+        </ul>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <List />
+      </WardicProvider>
+    ))
     await settle()
-    expect(s.order().indexOf("a")).toBe(0)
-    expect(s.ends).toEqual([])
+    expect(group.style.getPropertyValue("overflow-anchor")).toBe("none")
+    expect(opacityOfB()).toBe(0.5)
+  })
+
+  it("RV14: items rendered with .map log one warning per group when they remount; <For> logs none", async () => {
+    const lines: Array<string> = []
+    const methods = ["log", "info", "warn", "error", "debug", "group", "groupCollapsed"] as const
+    const spies = methods.map((m) =>
+      vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+        lines.push(args.map(String).join(" "))
+      }),
+    )
+    const scene = (keyed: boolean) => {
+      const [values, setValues] = createSignal<ReadonlyArray<string>>(["a", "b", "c"])
+      const List = () => {
+        const list = reorderGroup({ values, onReorder: setValues })
+        const row = (value: string) => {
+          const item = reorderItem(list, { value, style: { height: "30px" } })
+          return <li {...item}>{value}</li>
+        }
+        return (
+          <ul {...list}>
+            {Bool.match(keyed, { onTrue: () => <For each={values()}>{row}</For>, onFalse: () => values().map(row) })}
+          </ul>
+        )
+      }
+      const { unmount } = mount(() => (
+        <WardicProvider env={DomLive}>
+          <List />
+        </WardicProvider>
+      ))
+      return { setValues, unmount }
+    }
+    try {
+      const mapped = scene(false)
+      await settle()
+      mapped.setValues(["b", "a", "c"])
+      flush()
+      await settle()
+      mapped.setValues(["c", "b", "a"])
+      flush()
+      await settle()
+      expect(lines.filter((l) => l.includes("<For>")), "one warning, naming <For>").toHaveLength(1)
+      mapped.unmount()
+      lines.length = 0
+      const keyed = scene(true)
+      await settle()
+      keyed.setValues(["b", "a", "c"])
+      flush()
+      await settle()
+      expect(lines.filter((l) => l.includes("<For>"))).toHaveLength(0)
+    } finally {
+      for (const spy of spies) spy.mockRestore()
+    }
+  })
+
+  it("RV15: list.move inside an action: the action resolves, the order reaches onReorder, and the item flies there", async () => {
+    const s = await mountReorder({ factories: true })
+    const c = s.item("c")
+    const before = c.getBoundingClientRect().top
+    const sampling = sampleFrames(() => c.getBoundingClientRect().top)
+    const moveToTop = action(function* () {
+      s.move("c", 0)
+      yield Promise.resolve()
+    })
+    await expect(moveToTop(), "no flush inside the action").resolves.toBeUndefined()
+    await wait(900)
+    expect(joined(s.reorders)).toEqual(["cabde"])
+    const frames = sampling.stop().map((f) => f.v)
+    const slot = before - 2 * 60
+    expect(frames.filter((top) => top < before - 1 && top > slot + 1).length, "it flies there").toBeGreaterThan(3)
+    expect(Math.abs(frames.at(-1)! - slot)).toBeLessThanOrEqual(0.5)
   })
 })

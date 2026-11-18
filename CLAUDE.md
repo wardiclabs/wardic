@@ -22,7 +22,7 @@ Core's API is organised the way Effect's is: a module per data type (`@wardic/co
 
 `.claude/skills/` holds the agent skills Wardic's libraries ship, copied from the installed versions by `bun run skills` (`scripts/sync-agent-skills.ts`). Rerun it after bumping Solid 2 or Effect; don't edit the copies.
 
-- **Solid 2:** `solid-2.0` (the primer), `solid-2.0-cheatsheet`, `reactivity-diagnostics`, `server-components` (`@solidjs/web`'s) and `agent-loops` (`@solidjs/diagnostics`', a devDependency of packages/solid, for evidence from its `captureArtifact` in tests). Here, Solid 2 is installed as `solid-js-2` in packages/solid, and the root's `solid-js` is Solid 1: where a skill says `node_modules/solid-js/`, read `packages/solid/node_modules/solid-js-2/`.
+- **Solid 2:** `solid-2.0` (the primer), `solid-2.0-cheatsheet`, `reactivity-diagnostics`, `server-components` (`@solidjs/web`'s) and `agent-loops` (`@solidjs/diagnostics`', a devDependency of packages/solid, for evidence from its `captureArtifact` in tests). Here, Solid 2 is packages/solid's own `solid-js`, and Solid 1 is installed beside it as `solid-js-1` (#566): where a skill says `node_modules/solid-js/`, read `packages/solid/node_modules/solid-js/`.
 - **Effect 4:** `effect-4`, the package's own `AGENTS.md`. Effect ships no other skill.
 
 ### Domain docs

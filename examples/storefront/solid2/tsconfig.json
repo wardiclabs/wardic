@@ -15,8 +15,8 @@
     "strict": true,
     "skipLibCheck": true,
     "types": ["vite/client", "node", "@solidjs/vite-plugin/virtual-modules"],
-    // @wardic/solid's source imports `solid-js`, which from packages/solid is Solid 1: map every
-    // importer's to this app's Solid 2, as packages/solid/tsconfig.v2.json does.
+    // @wardic/solid's source imports `solid-js`, which from packages/solid is that package's own copy:
+    // map every importer's to this app's Solid 2, so the binding and the app share one (#566).
     "paths": { "solid-js": ["./node_modules/solid-js/types/index.d.ts"], "~/*": ["./src/*"] }
   },
   "include": ["src", "file-routes.d.ts"]

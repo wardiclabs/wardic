@@ -21,7 +21,7 @@
  *
  * @module
  */
-import { LayoutGroup, wardic } from "@wardic/solid"
+import { LayoutGroup, wardic } from "@wardic/solid/v1"
 import { createSignal, For, type JSX, onCleanup, onMount } from "solid-js"
 import { Checkbox, CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
 import { attachDragRecorder } from "./drag-recorder.ts"

@@ -1,16 +1,20 @@
 /**
- * `WardicConfig` on the Solid 1 binding (#434, Motion's `MotionConfig`): settings for the Wardic
- * elements below it. It provides a context and no runtime, so it nests anywhere under a
- * `WardicProvider`.
+ * `WardicConfig` on the Solid 2 binding (#434, Motion's `MotionConfig`): settings for the Wardic
+ * elements below it, as on the Solid 1 binding. A context value is its own provider.
  *
  * @module
  */
-import { createContext, createMemo, type JSX, useContext } from "solid-js"
+import type { JSX } from "@solidjs/web"
+import * as Option from "effect/Option"
+import { createContext, createMemo, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
-const WardicConfigContext = createContext<WardicConfigValue.WardicConfigValue | undefined>(undefined)
+// `null` for none, as the binding's other contexts: Solid 2 throws on a read of a context made with
+// `undefined` and no provider above, and most elements have no `WardicConfig` above them.
+const WardicConfigContext = createContext<WardicConfigValue.WardicConfigValue | null>(null)
 
 /** `WardicConfig`'s props. */
 export interface WardicConfigProps {
@@ -68,11 +72,13 @@ export interface WardicConfigProps {
  * ```
  */
 export function WardicConfig(props: WardicConfigProps): JSX.Element {
-  const parent = useContext(WardicConfigContext)
-  // One object per change, so the elements below share it, and its caches (#66, #301) hit.
-  const transition = createMemo(() => WardicConfigValue.configTransitionOf(props.transition, parent))
-  return <WardicConfigContext.Provider value={{ transition, reducedMotion: () => WardicConfigValue.configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => WardicConfigValue.configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext.Provider>
+  const parent = useWardicConfig()
+  // One object per change, so the elements below share it, and its caches (#66, #301) hit. Transparent
+  // to hydration ids, as every computation the binding makes (#209).
+  const transition = createMemo(() => WardicConfigValue.configTransitionOf(props.transition, parent), CLIENT_ONLY)
+  return <WardicConfigContext value={{ transition, reducedMotion: () => WardicConfigValue.configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => WardicConfigValue.configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */
-export const useWardicConfig = (): WardicConfigValue.WardicConfigValue | undefined => useContext(WardicConfigContext)
+export const useWardicConfig = (): WardicConfigValue.WardicConfigValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicConfigContext)))
+

@@ -14,7 +14,7 @@ import {
   wardic,
   WardicProvider,
   type WardicTransition,
-} from "@wardic/solid"
+} from "@wardic/solid/v1"
 import { createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 /** Slow enough to watch. */

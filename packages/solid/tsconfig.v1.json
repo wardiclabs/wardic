@@ -1,0 +1,13 @@
+{
+  "// note": "The Solid 1 binding's typecheck with its tests and the bench (#566): src/v1, test/v1, the bench's scripts and its Solid 1 pages, against Solid 1, with tsconfig.v1.build.json's settings and Solid 1 `paths`. No emit; run via `bun run typecheck:tests`. bench:motion's Motion page is left out: React and framer-motion install only in bench/motion/react/ (#615).",
+  "extends": "./tsconfig.v1.build.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "rootDir": ".",
+    // Its own, not the build's: a typecheck never shares the build's incremental state.
+    "tsBuildInfoFile": "${configDir}/dist/tsconfig.v1.tsbuildinfo"
+  },
+  "include": ["src/v1", "test/v1", "bench", "vite.solid1.ts", "babel-modules.d.ts"],
+  "exclude": ["bench/page-v2.tsx", "bench/motion/wardic-v2-page.tsx", "bench/motion/motion-page.ts", "bench/motion/react"]
+}

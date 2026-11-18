@@ -1,14 +1,14 @@
 {
-  "// note": "Test-only typecheck: includes test/ and bench/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`. bench:motion's Motion page is left out: React and framer-motion install only in bench/motion/react/ (#615).",
+  "// note": "The Solid 2 binding's typecheck with its tests and the bench's Solid 2 pages (#566): src/ and test/ less Solid 1's v1/ folders, against Solid 2, with `@solidjs/web` as the JSX source. No emit, not part of the build graph; run via `bun run typecheck:tests`. The bench's scripts are tsconfig.v1.json's, with the Solid 1 page whose round types they read.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@solidjs/web",
     "noEmit": true,
     "composite": false,
     "rootDir": "."
   },
-  "include": ["src", "test", "bench", "babel-modules.d.ts"],
-  "exclude": ["src/unstable", "test/v2", "bench/page-v2.tsx", "bench/motion/wardic-v2-page.tsx", "bench/motion/motion-page.ts", "bench/motion/react"]
+  "include": ["src", "test", "bench/page-v2.tsx", "bench/motion/wardic-v2-page.tsx", "vite.solid2.ts", "vite.source-names.ts", "babel-modules.d.ts"],
+  "exclude": ["src/v1", "test/v1"]
 }

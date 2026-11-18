@@ -32,7 +32,7 @@
  *
  * @module
  */
-import { createScroll, createSpring, createTransform, createWard, wardic } from "@wardic/solid"
+import { createScroll, createSpring, createTransform, createWard, wardic } from "@wardic/solid/v1"
 import { createSignal, type JSX, onCleanup } from "solid-js"
 import { frameNumber } from "../lab/frame-counter.ts"
 import { LIVE_VALUE_LINES, type LiveCheckName, type LiveFrame } from "../lab/live-board.ts"

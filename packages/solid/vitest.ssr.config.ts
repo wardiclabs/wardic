@@ -1,26 +1,19 @@
-import solidPlugin from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
+import { solid2 } from "./vite.solid2.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
-// Server-render test project for @wardic/solid (ADR-0003, ADR-0020): Solid's SSR
-// compile (`generate: "ssr"`) in the `node` environment, so `renderToString` runs
-// solid-js's server build with no `window` or `document`, as on a server. Files are
-// named `*.ssr.test.tsx`; the root vitest.config.ts runs this project with the node
-// tier (`bun run test`).
-//
-// The @wardic packages are bundled through Vite (their sources are TypeScript + JSX);
-// solid-js and effect stay single copies. The Environment is DomLive: a server render
-// builds no runtime (ADR-0021).
+// Server-render tests for the Solid 2 binding, `@wardic/solid` (#209, #566): Solid 2's SSR
+// compile in the `node` environment. Solid 2 and `@solidjs/web` are bundled through Vite, so their
+// `solid-js` resolves to Solid 2 (vite.solid2.ts). Files are `test/**/*.ssr.test.tsx`, but Solid 1's in `test/v1/` (#566).
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [wardicSource(), solidPlugin({ ssr: true })],
-  resolve: { dedupe: ["solid-js", "effect"] },
-  ssr: { noExternal: [/@wardic\//] },
+  plugins: [wardicSource(), solid2()],
+  resolve: { dedupe: ["effect"] },
+  ssr: { noExternal: [/@wardic\//, "solid-js", "@solidjs/web", "@solidjs/signals"] },
   test: {
     name: "ssr",
     environment: "node",
     include: ["test/**/*.ssr.test.tsx"],
-    // The Solid 2 binding's are vitest.ssr-v2.config.ts's (#209).
-    exclude: ["test/v2/**", "**/node_modules/**"],
+    exclude: ["test/v1/**", "**/node_modules/**"],
   },
 })

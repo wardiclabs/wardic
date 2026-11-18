@@ -389,8 +389,9 @@ export default defineConfig([
   {
     // The Solid 2 binding and its tests take eslint-plugin-solid's `v2-strict` rules (#257's audit):
     // Solid 2's own reactivity rules, which found `LayoutGroup` reading its children once. The Solid 1
-    // binding keeps the rules above.
-    files: ["packages/solid/src/unstable/v2/**/*.{ts,tsx}", "packages/solid/test/v2/**/*.{ts,tsx}"],
+    // binding, in its `v1/` folders since 2.0 (#566), keeps the rules above.
+    files: ["packages/solid/src/**/*.{ts,tsx}", "packages/solid/test/**/*.{ts,tsx}"],
+    ignores: ["packages/solid/src/v1/**", "packages/solid/test/v1/**"],
     ...solidV2Strict,
     languageOptions: { ...solidV2Strict.languageOptions, parser: tseslint.parser },
   },

@@ -1,4 +1,4 @@
-// A bare number on a CSS length (#522, Motion's `animate={{ height: 200 }}`), on Solid 1: the types
+// A bare number on a CSS length (#522, Motion's `animate={{ height: 200 }}`), on Solid 2: the types
 // take it where the renderer draws it in px (`DomRenderer.LENGTH_KEYS`), and the server draws it so.
 //
 // - LN1: every kind of target takes a number on a length: `initial`, `animate`, `exit`, a `while*`, a
@@ -9,9 +9,9 @@
 //   and `line-height`'s as it is.
 import { wardic, type WardicTargetValues, type WardicVariant } from "@wardic/solid"
 import { describe, expect, expectTypeOf, it } from "vitest"
-import { serve, tagsOf } from "./ssr-helpers.ts"
+import { serve, tagsOf } from "./ssr.ts"
 
-describe("a bare number on a CSS length, on Solid 1 (#522)", () => {
+describe("a bare number on a CSS length, on Solid 2 (#522)", () => {
   it("LN1: every kind of target takes a number on a length; not on one drawn as it is", () => {
     expectTypeOf<{ readonly height: 200; readonly "margin-top": 20; readonly "border-radius": 8 }>().toExtend<WardicTargetValues>()
     expectTypeOf<{ readonly height: readonly [0, "100px", 200] }>().toExtend<WardicTargetValues>()

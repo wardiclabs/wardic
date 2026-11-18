@@ -1,6 +1,6 @@
 import { playwright } from "@vitest/browser-playwright"
 import { configDefaults, defineConfig } from "vitest/config"
-import { BROWSER_COMMANDS, PREBUNDLED } from "../solid/vitest.browser.config.ts"
+import { BROWSER_COMMANDS, PREBUNDLED } from "../solid/vitest.browser-commands.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Real-browser tests for `@wardic/foldkit` (#791, ADR-0071): Foldkit programs embedded in Chromium,

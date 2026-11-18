@@ -43,7 +43,7 @@
  *
  * @module
  */
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, wardic } from "@wardic/solid/v1"
 import { createSignal, type JSX, onCleanup, Show } from "solid-js"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
 import { CROSSFADE_CHECK_NAMES } from "../lab/crossfade-board.ts"

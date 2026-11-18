@@ -1,6 +1,6 @@
 import corePackage from "@wardic/core/package.json"
 import { DomLive, VERSION as domVersion } from "@wardic/dom"
-import { VERSION as solidVersion, WardicProvider } from "@wardic/solid"
+import { VERSION as solidVersion, WardicProvider } from "@wardic/solid/v1"
 
 // Importing a marker from each package proves the whole workspace chain
 // (core -> dom -> solid) resolves and builds under SSR. Replace this page with

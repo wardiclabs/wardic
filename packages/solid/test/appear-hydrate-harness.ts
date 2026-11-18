@@ -1,9 +1,9 @@
-// The Appear hydration harness (#48, ADR-0044; shared since #706): server-render a fixture, put it on the
-// page with its head, hydrate it after a while (or never), and record what each `data-k` element draws in
-// every frame, with its CSS animation's start. The frames' record and their check against the machine are
-// `appear-frames.ts`, shared with Solid 2's harness and the Foldkit binding's (#794). Not a test file itself.
-import { type JSX, sharedConfig } from "solid-js"
-import { hydrate } from "solid-js/web"
+// Solid 2's Appear hydration harness (#209, ADR-0044; shared since #706): server-render a fixture, put it
+// on the page with its head, hydrate it after a while (or never), and record what each `data-k` element
+// draws in every frame, with its CSS animation's start. The frames' record and their check against the
+// machine are `../appear-frames.ts`, shared with Solid 1's harness and the Foldkit binding's (#794). Not a
+// test file itself.
+import { hydrate, type JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { expect } from "vitest"
 import { noteStarts, type Recorded, recordFrames } from "./appear-frames.ts"
@@ -18,12 +18,24 @@ export interface Run {
   readonly host: HTMLElement
   /** Each watched element's inline `transform` right after `hydrate()` returned, before the first commit. */
   readonly hydratedStyle: Readonly<Record<string, string>>
+  /** Whether hydration claimed each watched element: the server's node is still the one on the page. */
+  readonly claimed: Readonly<Record<string, boolean>>
+  /** When each late write landed, on the rAF timeline (a streamed run's). */
+  readonly landedAt?: ReadonlyArray<number>
 }
 
 /** What a run leaves on the page, taken down after each test (each test file's `afterEach` calls them). */
 export const cleanups: Array<() => void> = []
 
 let runs = 0
+
+/**
+ * Reset Solid 2's hydration state (`@solidjs/web`'s `_$HY.done`), so the next `hydrate()` claims nodes
+ * afresh over the server's markup. Each run hydrates as a page's first would.
+ */
+export const freshHydration = (): void => {
+  ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
+}
 
 /** Server-render `file`'s `name`, put it on the page with its head, hydrate after `hydrateAfter` ms (never, without), and record `forMs` of frames. */
 export const runServerRendered = async (
@@ -41,7 +53,7 @@ export const runServerRendered = async (
   },
 ): Promise<Run> => {
   const renderId = `${name}-${runs++}`
-  const { html, head, script, error } = await commands.serverRenderPage(file, name, renderId)
+  const { html, head, script, error } = await commands.serverRender2(file, name, renderId)
   if (error !== "") throw new Error(`server render of ${name} failed: ${error}`)
   if (options.played !== false) expect(head, "the head carries the Appear style").toContain("data-wardic-appear")
   if ((globalThis as { _$HY?: unknown })._$HY === undefined) {
@@ -81,17 +93,21 @@ export const runServerRendered = async (
     const timer = setTimeout(act, afterMs)
     cleanups.push(() => clearTimeout(timer))
   }
+  const claimed: Record<string, boolean> = {}
   if (options.hydrateAfter !== undefined) {
     setTimeout(() => {
-      ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
-      sharedConfig.done = false
+      freshHydration()
       // Each watched element's CSS animation's start, noted just before the Handoff takes them over (#524).
       noteStarts(page, watched, startOf)
       dispose = hydrate(code, host, { renderId })
       hydrated = true
-      for (const el of watched) hydratedStyle[(el as HTMLElement).dataset.k!] = (el as HTMLElement).style.transform
+      for (const el of watched) {
+        const k = (el as HTMLElement).dataset.k!
+        hydratedStyle[k] = (el as HTMLElement).style.transform
+        claimed[k] = host.querySelector(`[data-k="${k}"]`) === el
+      }
     }, options.hydrateAfter)
   }
   const frames = await recordFrames({ page, watched: () => watched, forMs: options.forMs, hydrated: () => hydrated, startOf })
-  return { frames, startOf, host, hydratedStyle }
+  return { frames, startOf, host, hydratedStyle, claimed }
 }

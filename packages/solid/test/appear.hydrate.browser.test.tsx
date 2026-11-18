@@ -1,47 +1,41 @@
-// Appear animations, server render to hydration (#48, ADR-0044): every frame an element draws, from
-// first paint through the Handoff to rest, is Wardic's own machine at that frame's time.
+// Appear animations on Solid 2, server render to hydration (#209 PR 4a, ADR-0044, ADR-0045): the
+// Solid 1 binding's AH cases (`../appear.hydrate.browser.test.tsx`) on `@solidjs/web`. Every frame
+// an element draws, from first paint through the Handoff to rest, is Wardic's own machine at that
+// frame's time. The head's tags come from the render's `onHead`; a late chunk's Appear `<style>` from
+// its head patch, which Solid's `$df` appends to the head when the chunk lands.
 //
-// The server's markup and head go on the page as a server render leaves them; hydration comes
-// `hydrateAfter` ms later, as a page's JS would. Each frame records what each `data-k` element
-// draws, read in a requestAnimationFrame callback, and the time since its CSS animation started
-// (`startTime`, the timeline rAF stamps share).
-//
-// - AH1: a spring plays from first paint; the Handoff in the middle of it draws the machine before,
-//   at and after it; the CSS animation is gone and the element rests at its target.
+// - AH1: a spring plays from first paint; the Handoff mid-flight draws the machine before, at and
+//   after it; the CSS animation is gone, the element rests at its target, and hydration claimed the
+//   server's node (the provider's server-only head registration took no id).
 // - AH2: a tween handed off mid-flight, the same.
 // - AH3: hydrated after the CSS ended: the element stays at its target; nothing restarts.
 // - AH4: never hydrated (JS off): it plays to its end and holds it.
 // - AH5: a stagger: each item from its own delay, through the Handoff.
 // - AH6: when: "beforeChildren": the child waits for its parent before and after the Handoff.
 // - AH7: a loop for ever, handed off in its second cycle.
-// - AH8: reduced motion (`"user"`, emulated): the positional key is at its target from the first
-//   frame, and opacity animates.
+// - AH8: reduced motion (`"user"`, emulated): the positional key at its target from the first frame,
+//   opacity animating.
 // - AH9: reduced motion and a stagger: each item's positional key holds its start through its delay,
-//   then snaps, as the engine's snap does (the rule fills forwards).
-// - AH10 (#245): an SVG circle's `cx`, `r` and `opacity` and a path's stroke dash, attributes played
-//   as CSS, handed off mid-flight to the engine's attributes.
-// - AH11 (#245, #363): a layout card's entrance (scale, opacity, its own y): drawn as the client draws
-//   a layout node, its y on its projection's translate, from first paint; handed off mid-flight; and its next layout change
-//   animates from its true box, measured past the CSS at mount.
-// - AH12 (#245): a list's items streamed in a late chunk that lands before the JS: each plays its
-//   CSS from the chunk's landing, staggered among the late ones, and is handed off with no step;
-//   the chunk's `<style>` is gone from the list after hydration, its rules in the head; a later
-//   list update leaves the items in order, nothing between them.
-// - AH13 (#448): a key already at its target, left out of the rule, beside one that moves: handed
-//   off mid-flight, the client's spec the server's (its first Retarget starts the key no leg), the
-//   moving key on its machine and the other at its value throughout.
-// - AH14 (#429): Keyframes, a first `null` stop from `initial`: handed off mid-flight, the client's
-//   spec the server's, on `keyframesValues`' machine throughout, landing on the last stop.
-// - AH15 (#468): under `skipAnimations`, a card and a staggered list are drawn landed from first
-//   paint, before and after hydration, with no frame between; the card's mount is told start and
-//   complete once hydrated.
-// - AH16 (#724): a list hydrating reads its page's animations once, one `getAnimations()` on the
+//   then snaps.
+// - AH10 (#245): SVG attributes played as CSS, handed off mid-flight to the engine's attributes.
+// - AH11 (#245): a layout card drawn as a layout node from first paint, handed off, its next layout
+//   change from its true box.
+// - AH12 (#245): a list's items streamed in a late chunk that lands before the JS: each plays its CSS
+//   from the chunk's landing, staggered among the late ones, handed off with no step; the chunk's
+//   `<style>` is in the head (a head patch), none among the items; a later list update leaves the
+//   items in order.
+// - AH13 (#257 item 13): a region `<Reveal>` holds (its data first, its chunk landing before the
+//   region ahead of it) isn't on the page until its reveal, and its Appear animation plays from then,
+//   not from its chunk's arrival: Solid holds the chunk in its inert `<template>`.
+// - AH14 (#468): under `skipAnimations`, a ward's card and a staggered list are drawn landed from
+//   first paint, before and after hydration, with no frame between.
+// - AH15 (#724): a list hydrating reads its page's animations once, one `getAnimations()` on the
 //   document, and no element reads its own; each item is taken over from that read.
-// - AH17 (#724): elements the server gave no Appear animation (`appear={false}`) read nothing as they
+// - AH16 (#724): elements the server gave no Appear animation (`appear={false}`) read nothing as they
 //   hydrate.
-// - AH18 (#724): each hydration pass reads its page once: the shell's, and a late chunk's that lands
+// - AH17 (#724): each hydration pass reads its page once: the shell's, and a late chunk's that lands
 //   after it, in its own task.
-// - AH19 (#724): hydrated in a shadow root that holds its rules, the card is taken over from one read of
+// - AH18 (#724): hydrated in a shadow root that holds its rules, the card is taken over from one read of
 //   that root, which a document's read doesn't reach.
 import * as Easing from "@wardic/core/Easing"
 import * as Frame from "@wardic/core/Frame"
@@ -49,26 +43,27 @@ import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
-import * as DomInterpolators from "@wardic/dom/DomInterpolators"
-import * as Effect from "effect/Effect"
+import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as References from "effect/References"
 import { DomLive } from "@wardic/dom"
-import { type JSX, sharedConfig } from "solid-js"
-import { hydrate } from "solid-js/web"
+import { hydrate, type JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { countReads, uncounted } from "./appear-reads.ts"
-import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, R1, R2, setAppearEnv } from "./appear-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, R1, R2, setAppearEnv } from "./hydrate-fixtures.tsx"
 import "./browser-commands.ts"
-import { cleanups, type Drawn, drawnOf, followsMachine, machineAt, type Recorded, type Run, runServerRendered, tween } from "./appear-hydrate-harness.ts"
+import { cleanups, type Drawn, drawnOf, followsMachine, freshHydration, machineAt, type Recorded, type Run, runServerRendered, tween } from "./appear-hydrate-harness.ts"
 
-const FILE = "./test/appear-fixtures.tsx"
+const FILE = "./test/hydrate-fixtures.tsx"
 
 /** Server-render this file's fixture `name`, and hydrate and record it (the shared harness's `run`). */
 const run = (name: string, code: () => JSX.Element, options: Parameters<typeof runServerRendered>[3]): Promise<Run> => runServerRendered(FILE, name, code, options)
+
+/** How many streamed runs this file has made: each one's render id is its own. */
+let runs = 0
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup()
@@ -78,11 +73,8 @@ afterEach(async () => {
 // The first server render compiles the fixtures' module graph for the server: over 13 s on a cold CI
 // runner (#524), past a test's 15 s. Done once here, on the hook's own time.
 beforeAll(async () => {
-  await commands.serverRenderPage(FILE, "A1", "warm")
+  await commands.serverRender2(FILE, "A1", "warm")
 }, 60_000)
-
-/** How many streamed runs this file has made: each one's render id is its own. */
-let runs = 0
 
 /** Run each `<script>` under `root` as the parser would: an `innerHTML` one doesn't. */
 const runScripts = (root: ParentNode): void => {
@@ -118,29 +110,39 @@ const landNodes = (nodes: ReadonlyArray<Element>): ReadonlyArray<Element> => {
 /**
  * Stream `name` (#245): its head and shell on the page, its later writes (a late chunk's
  * `<template>` and the script that places it) landing `chunkAfter` ms later as the stream would,
- * and hydration `hydrateAfter` ms after the shell. Each frame finds the `data-k` elements afresh:
- * a chunk's come later.
+ * or each at its own time when `chunkAfter` lists them (#257 item 13), and hydration `hydrateAfter`
+ * ms after the shell. Each frame finds the `data-k` elements afresh: a chunk's come later.
  */
 const runStreamed = async (
   name: string,
   code: () => JSX.Element,
-  options: { readonly chunkAfter: number; readonly hydrateAfter: number; readonly forMs: number },
+  options: { readonly chunkAfter: number | ReadonlyArray<number>; readonly hydrateAfter: number; readonly forMs: number },
 ): Promise<Run> => {
   const renderId = `${name}-streamed-${runs++}`
-  const { writes, script, error } = await commands.serverStreamPage(FILE, name, renderId)
+  const { writes, head, script, error } = await commands.serverStream2(FILE, name, renderId)
   if (error !== "") throw new Error(`stream of ${name} failed: ${error}`)
   if ((globalThis as { _$HY?: unknown })._$HY === undefined) {
     const tag = document.createElement("script")
     tag.textContent = /<script[^>]*>([\s\S]*?)<\/script>/.exec(script)?.[1] ?? ""
     document.head.append(tag)
   }
+  // A page before its JS has no client fragment handler (`_$HY.f`), so a chunk's `$df` places it and
+  // applies its head patch itself. An earlier test's hydration installed one on this shared page;
+  // it's put back for this run's own hydration.
+  const hy = (globalThis as { _$HY?: Record<string, unknown> })._$HY!
+  const clientFragments = hy.f
+  delete hy.f
+  const restoreFragments = (): void => {
+    if (clientFragments !== undefined && hy.f === undefined) hy.f = clientFragments
+  }
+  cleanups.push(restoreFragments)
   const [shell = "", ...later] = writes
   const holder = document.createElement("div")
-  holder.innerHTML = /^<head>([\s\S]*?)<\/head>/.exec(shell)?.[1] ?? ""
+  holder.innerHTML = head
   const styles = [...holder.children]
   document.head.append(...styles)
   const host = document.createElement("div")
-  host.innerHTML = shell.replace(/^<head>[\s\S]*?<\/head>/, "")
+  host.innerHTML = shell
   document.body.append(host)
   runScripts(host)
   const landed: Array<Element> = []
@@ -152,17 +154,31 @@ const runStreamed = async (
     for (const node of [...styles, ...landed]) node.remove()
     for (const style of document.head.querySelectorAll("style[data-wardic-appear]")) style.remove()
   })
-  const chunk = setTimeout(() => {
-    for (const write of later) {
+  const landedAt: Array<number> = []
+  /** Land `writes`, in order, as the stream would. */
+  const land = (writes: ReadonlyArray<string>): void => {
+    for (const write of writes) {
+      // Stamped as it starts to land: what it reveals can start no sooner, and its scripts take about
+      // a millisecond, in which a frame may start what they place (AH13 failed by that, 3 runs in 12).
+      landedAt.push(performance.now())
       const box = document.createElement("div")
       box.innerHTML = write
       landed.push(...landNodes([...box.children]))
     }
-  }, options.chunkAfter)
-  cleanups.push(() => clearTimeout(chunk))
+  }
+  // One time for every late write, or one each.
+  const times = Bool.match(typeof options.chunkAfter === "number", {
+    onTrue: () => later.map(() => options.chunkAfter as number),
+    onFalse: () => options.chunkAfter as ReadonlyArray<number>,
+  })
+  const timers = Bool.match(typeof options.chunkAfter === "number", {
+    onTrue: () => [setTimeout(() => land(later), options.chunkAfter as number)],
+    onFalse: () => later.map((write, i) => setTimeout(() => land([write]), times[i])),
+  })
+  cleanups.push(() => timers.forEach(clearTimeout))
   const hydration = setTimeout(() => {
-    ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
-    sharedConfig.done = false
+    restoreFragments()
+    freshHydration()
     dispose = hydrate(code, host, { renderId })
     hydrated = true
   }, options.hydrateAfter)
@@ -191,7 +207,7 @@ const runStreamed = async (
     }
     requestAnimationFrame(frame)
   })
-  return { frames, startOf, host, hydratedStyle: {} }
+  return { frames, startOf, host, hydratedStyle: {}, claimed: {}, landedAt }
 }
 
 /** When a machine settles, stepped as the sampler steps it: 0, then 1/60 s at a time. */
@@ -206,7 +222,7 @@ const settledAt = (machine: Machine.Machine<Frame.Frame<Values.Values>>): number
   return steps * Machine.CATCH_UP_DT
 }
 
-describe("Appear animations, server render to hydration (#48, ADR-0044)", () => {
+describe("Appear animations on Solid 2, server render to hydration (#48, ADR-0044)", () => {
   // A1's card gives no transition: each key on the DOM's Default transition (ADR-0051), y on Motion's
   // 500 / 25 spring and opacity on its 0.3 s ease, which the server samples as the client runs them.
   const lift = Machine.springValues({ y: 0 }, DomDefaultTransition.transitionFor("y", 0) as Machine.SpringOptions, { from: { y: 40 } })
@@ -223,6 +239,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     expect(r.host.querySelector<HTMLElement>("[data-k=card]")!.style.getPropertyValue("animation")).toBe("")
     expect(last.opacity).toBeCloseTo(1, 2)
     expect(last.y).toBeCloseTo(0, 1)
+    expect(r.claimed.card, "hydration claimed the server's node").toBe(true)
   })
 
   it("AH2: a tween handed off mid-flight", async () => {
@@ -369,49 +386,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     expect(r.frames.at(-1)!.drawn.card!.top - rest.top, "landing 60 px down").toBeGreaterThan(30)
   })
 
-  it("AH13: a key at its target left out of the rule, handed off mid-flight beside one that moves (#448)", async () => {
-    const machine = tween({ x: 0 }, { x: 200 }, { ease: Easing.easeOut, duration: 1.2 })
-    const logs: Array<string> = []
-    setAppearEnv(
-      Layer.mergeAll(DomLive, Logger.layer([Logger.map(Logger.formatStructured, (s) => void logs.push(String(s.message)))]), Layer.succeed(References.MinimumLogLevel, "Debug")),
-    )
-    cleanups.push(() => setAppearEnv(DomLive))
-    const r = await run("A9", A9, { hydrateAfter: 400, forMs: 1600 })
-    expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
-    expect(followsMachine(r, "half", (s) => ({ opacity: 0.5, x: machineAt(machine, s).x as number }))).toBeGreaterThan(30)
-    expect(r.frames.at(-1)!.drawn.half!.x).toBeCloseTo(200, 1)
-  })
-
-  it("AH14: Keyframes handed off mid-flight, on their machine throughout (#429)", async () => {
-    const machine = Effect.runSync(Effect.provide(Machine.keyframesValues({ x: [0, 200, 80] }, { ease: Easing.linear, duration: 1.2 }), DomInterpolators.layer))
-    const logs: Array<string> = []
-    setAppearEnv(
-      Layer.mergeAll(DomLive, Logger.layer([Logger.map(Logger.formatStructured, (s) => void logs.push(String(s.message)))]), Layer.succeed(References.MinimumLogLevel, "Debug")),
-    )
-    cleanups.push(() => setAppearEnv(DomLive))
-    const r = await run("A10", A10, { hydrateAfter: 400, forMs: 1600 })
-    expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
-    expect(followsMachine(r, "stops", (s) => ({ x: machineAt(machine, s).x as number }))).toBeGreaterThan(30)
-    expect(r.frames.at(-1)!.drawn.stops!.x).toBeCloseTo(80, 1)
-  })
-
-  it("AH15: under skipAnimations, everything is drawn landed from first paint, and hydration moves nothing (#468)", async () => {
-    ;(globalThis as { __a11told?: Array<string> }).__a11told = []
-    const r = await run("A11", A11, { hydrateAfter: 200, forMs: 600 })
-    expect(r.frames.length).toBeGreaterThan(20)
-    for (const f of r.frames) {
-      expect(f.drawn.card!.opacity, `card at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
-      expect(Math.abs(f.drawn.card!.y)).toBeLessThanOrEqual(0.01)
-      for (const k of ["i0", "i1"]) {
-        expect(f.drawn[k]!.opacity, `${k} at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
-        expect(Math.abs(f.drawn[k]!.x)).toBeLessThanOrEqual(0.01)
-      }
-    }
-    expect(r.frames.some((f) => f.hydrated), "hydrated in the run").toBe(true)
-    expect((globalThis as { __a11told?: Array<string> }).__a11told, "its mount told").toEqual(["start", "complete"])
-  })
-
-  it("AH12: a list's items streamed in a chunk that lands before the JS: played from the landing, handed off, the chunk's style adopted (#245)", async () => {
+  it("AH12: a list's items streamed in a chunk that lands before the JS: played from the landing, handed off, the chunk's style in the head (#245)", async () => {
     const r = await runStreamed("A8", A8, { chunkAfter: 120, hydrateAfter: 650, forMs: 1500 })
     const items = ["s0", "s1", "s2"]
     for (const k of items) expect(r.startOf[k], `${k} played its CSS`).toBeDefined()
@@ -426,7 +401,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
         return { opacity: v.opacity as number, x: v.x as number }
       }), k).toBeGreaterThan(20)
     })
-    // The chunk's style: out of the list, its rules in the head.
+    // The chunk's style: never among the items, its rules in the head (its head patch).
     const list = r.host.querySelector("[data-k=list]")!
     expect(list.querySelector("style"), "no style among the items").toBeNull()
     expect([...document.head.querySelectorAll("style[data-wardic-appear]")].some((s) => s.textContent!.includes(":root{")), "its rules in the head").toBe(true)
@@ -436,7 +411,42 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     expect([...list.children].map((el) => (el as HTMLElement).dataset.k)).toEqual(["s0", "s1", "s2", "s3"])
   })
 
-  it("AH16: a list hydrating reads its page's animations once, and no element its own (#724)", async () => {
+  it("AH14: under skipAnimations, everything is drawn landed from first paint, and hydration moves nothing (#468)", async () => {
+    const r = await run("A10", A10, { hydrateAfter: 200, forMs: 600 })
+    expect(r.frames.length).toBeGreaterThan(20)
+    for (const f of r.frames) {
+      expect(f.drawn.card!.opacity, `card at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
+      expect(Math.abs(f.drawn.card!.y)).toBeLessThanOrEqual(0.01)
+      for (const key of ["i0", "i1"]) {
+        expect(f.drawn[key]!.opacity, `${key} at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
+        expect(Math.abs(f.drawn[key]!.x)).toBeLessThanOrEqual(0.01)
+      }
+    }
+    expect(r.frames.some((f) => f.hydrated), "hydrated in the run").toBe(true)
+  })
+
+  it("AH13: a region <Reveal> holds plays its Appear animation from its reveal, not its chunk's arrival (#257 item 13)", async () => {
+    // The second region's data comes first; its chunk lands at 50 ms and the first region's at 350.
+    const r = await runStreamed("A9", A9, { chunkAfter: [50, 350], hydrateAfter: 700, forMs: 1300 })
+    const [held = 0, revealed = 0] = r.landedAt ?? []
+    expect(r.landedAt, "two late writes, each its region's").toHaveLength(2)
+    // Held in the chunk's inert template: not on the page until the first region lands.
+    const early = r.frames.filter((f) => f.at > held + 20 && f.at < revealed - 20)
+    expect(early.length, "frames between the two landings").toBeGreaterThan(5)
+    expect(early.every((f) => f.drawn["fast"] === undefined), "the held element isn't on the page").toBe(true)
+    // Its CSS animation starts at the reveal, and plays from 0 to 1, through the Handoff. Its start is
+    // its frame's timeline time, which a slow runner can stamp before the landing's `performance.now()`
+    // in that frame (#524): a frame early is still the reveal, 300 ms after the chunk's arrival.
+    expect(r.startOf["fast"], "it played its CSS").toBeDefined()
+    expect(r.startOf["fast"]!, "from the reveal, not the chunk's arrival").toBeGreaterThan(revealed - 1000 / 60)
+    const shown = r.frames.filter((f) => f.drawn["fast"] !== undefined)
+    expect(shown[0]!.drawn["fast"]!.opacity, "its first frame on the page: near its start").toBeLessThan(0.2)
+    expect(shown.some((f) => f.drawn["fast"]!.opacity > 0.3 && f.drawn["fast"]!.opacity < 0.8), "it moved on the page").toBe(true)
+    expect(shown.at(-1)!.drawn["fast"]!.opacity, "at rest after the Handoff").toBe(1)
+    expect(shown.some((f) => f.hydrated), "hydrated while watched").toBe(true)
+  })
+
+  it("AH15: a list hydrating reads its page's animations once, and no element its own (#724)", async () => {
     const counting = countReads()
     const r = await run("A2", A2, { hydrateAfter: 200, forMs: 1100 }).finally(counting.stop)
     expect(counting.reads, "one read of the page, at the Handoff").toEqual({ element: 0, document: 1, shadowRoot: 0 })
@@ -451,7 +461,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     })
   })
 
-  it("AH17: elements the server gave no Appear animation read nothing as they hydrate (#724)", async () => {
+  it("AH16: elements the server gave no Appear animation read nothing as they hydrate (#724)", async () => {
     const counting = countReads()
     // Recorded well past i1's landing, 0.62 s after hydration (its 0.12 s stagger, then 0.5 s): a window
     // ending 0.58 s after it caught i1 a hair short of 1 on a slow runner.
@@ -462,7 +472,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     for (const k of ["card", "i0", "i1"]) expect(last[k]!.opacity, k).toBeCloseTo(1, 2)
   })
 
-  it("AH18: each hydration pass reads its page once: the shell's, then a late chunk's (#724)", async () => {
+  it("AH17: each hydration pass reads its page once: the shell's, then a late chunk's (#724)", async () => {
     const counting = countReads()
     const r = await runStreamed("R2", R2, { chunkAfter: 450, hydrateAfter: 120, forMs: 1300 }).finally(counting.stop)
     expect(counting.reads, "the shell's read, and the chunk's").toEqual({ element: 0, document: 2, shadowRoot: 0 })
@@ -471,7 +481,7 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     for (const k of ["card", "s0", "s1", "s2"]) expect(last[k]!.css, `${k}'s CSS animation is gone`).toBe(false)
   })
 
-  it("AH19: hydrated in a shadow root, the card is taken over from its root's read (#724)", async () => {
+  it("AH18: hydrated in a shadow root, the card is taken over from its root's read (#724)", async () => {
     const counting = countReads()
     const r = await run("A1", A1, { hydrateAfter: 180, forMs: 1600, shadow: true }).finally(counting.stop)
     expect(counting.reads, "one read, of its shadow root").toEqual({ element: 0, document: 0, shadowRoot: 1 })

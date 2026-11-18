@@ -1,152 +1,371 @@
 /**
- * What every Wardic element's component form shares, for the Solid 1 binding (#511): `createWith`,
- * which makes `wardic.create`'s component and `w.create`'s, a Complete element's or a Slim one's by the
- * `kind` it's given, and the forms' proxy. `wardic.tsx` holds the Complete forms, `w.tsx` the Slim ones;
- * this module names no Feature, so a Slim element's app ships none it doesn't choose (ADR-0067).
+ * What every Wardic element's component form shares on Solid 2 (#511): `createWith`, which makes
+ * `wardic.create`'s component and `w.create`'s, a Complete element's or a Slim one's by the `kind`
+ * it's given, and the forms' proxy. `wardic.tsx` holds the Complete forms, `w.tsx` the Slim ones; this
+ * module names no Feature, so a Slim element's app ships none it doesn't choose (ADR-0067).
  *
- * `create(tag)` returns a Solid component that accepts the element's own props PLUS Wardic's motion
- * props (`initial` / `animate` / `whileHover` / ...), wires them through {@link createWardWith}, and
- * renders the underlying element with the user's props passed through. The flush gate commits each
- * frame onto the element (ADR-0034). `create(Component)` is the same over the component, which
- * forwards its `ref` to its root element (#253).
+ * `<form>.<tag>` and `<form>.create(Component)` (#209, ADR-0008, ADR-0045): Motion's components, over
+ * {@link wardWith}. `<wardic.div animate={…}>` takes the element's own props and the motion props,
+ * puts a ward on its element, and renders it through `<Dynamic>`; `wardic.create(Component)` puts one
+ * on the element the component forwards its `ref` to. Each renders through one `dynamic()` component,
+ * made with it. The `use:wardic` directive is gone (Solid 2 removed directives): `ref={ward(config)}`
+ * is its place.
  *
- * Locked merge policy (Option A) — the merge now lives in `ward()`
- * ({@link createWardWith}); this HOC just forwards the user's `ref` + `style` into it:
- *   - Motion props are split off so none leak to the DOM (even ones not yet
- *     wired by {@link createWardWith}).
- *   - The user's `ref` AND Wardic's ref are both invoked (via `mergeRefs`).
- *   - Wardic's keys win: the Starting style goes over the user's `style` until the first
- *     commit; from then on the user's `style` is the fallback, without the keys the
- *     gate holds, which Wardic writes onto the element (ADR-0034). A reactive user
- *     `style` re-runs the spread's `style`; a frame never does.
+ * Props are values: write a tracked expression (`animate={open() ? a : b}`). The component's props
+ * are the ward's config, read per key (#259): each motion prop is read through its getter where the
+ * ward needs it, so a change re-runs only what reads that prop. An `animate` change re-resolves the
+ * target, and Retargets when it resolves a different one.
  *
- * SSR-correct: {@link createWardWith} computes the Starting style synchronously, so the
- * `<Dynamic>` renders with the merged Starting style on the very first render.
+ * The user's `style` goes to the ward (the Starting style over it until the first commit, then it
+ * without the keys the gate holds, ADR-0034), and the user's `ref` gets the element with the ward.
  *
- * REACTIVITY (component props): each motion prop is a plain VALUE, not an
- * accessor. Solid's reactive prop getters already make a component prop tracked —
- * reading `motion.animate` INSIDE {@link motionToConfig}'s config accessor
- * subscribes to whatever signals back the prop. So write a TRACKED EXPRESSION as
- * the value (`animate={open() ? { opacity: 1 } : { opacity: 0 }}`), NOT a function
- * (`animate={() => expr}` is a type error — props are values, not accessors). A
- * signal flip in that expression re-runs the config accessor and drives a Retarget.
+ * @module
  */
-import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Rec from "effect/Record"
+import { identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, createRenderEffect, DEV, type JSX, sharedConfig, splitProps, untrack } from "solid-js"
+import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent } from "@solidjs/web"
+import { $PROXY, children, type Component, createEffect, createMemo, createRoot, DEV, omit, runWithOwner, untrack } from "solid-js"
 import { unforwardedRefFix, unforwardedRefLine } from "./messages.ts"
-import { assign, Dynamic, getNextElement, insert, spread, SVGElements, use } from "solid-js/web"
-import { isServer } from "./server.ts"
-import { GESTURE_KEYS } from "./gesture-callbacks.ts"
-import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
-import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "./motion-props.ts"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
+import { type AnyWard, GESTURE_KEYS, shareOf, type Ward, WARD, type WardConfig, type WardFor, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
+import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import type * as DomWardConfig from "@wardic/dom/unstable/WardConfig"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import type * as All from "@wardic/dom/unstable/features/All"
-import type { InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
-import * as VariantTree from "@wardic/core/unstable/VariantTree"
-import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
+import type { SolidOneCallback } from "./motion-props.ts"
+import type { DrivenKey, InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
+import { useVariantContext } from "./variant-node.ts"
 import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "./wardic-component.ts"
-import { useWardicConfig } from "./wardic-config.tsx"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
-
-export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
 
 /**
- * Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props `M`, with a `style`
- * that takes the transform keys and Live values too ({@link WardStyle}). A `wardic.<tag>`
- * component's `M` has its keys inferred ({@link WardicComponent}).
+ * Props for a `wardic.<tag>` element: the tag's own props and its motion ({@link WardicMotion}), with
+ * a `style` that takes the transform keys and Live values too ({@link WardStyle}). `C` is the
+ * config of a ward given to its `wardRef`, `{}` with none; `P` the motion props, a
+ * `wardic.<tag>` component's with its keys inferred ({@link WardicComponent}).
  */
-export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotionProps> =
-  // `onAnimationStart` is Motion's (#257), not the DOM's CSS `animationstart` event's, as on Motion.
-  & Omit<JSX.IntrinsicElements[Tag], "style" | "onAnimationStart" | "onDrag" | "onDragStart" | "onDragEnd">
-  & M
+export type WardicProps<Tag extends keyof JSX.IntrinsicElements, C = {}, P = WardicMotionProps> = WardicPropsFor<Tag, C, P, All.EveryFeatureName>
+
+/** {@link WardicProps} of an element whose Features are named `FN` (#516): its `wardRef` callback's ward hears their events. */
+export type WardicPropsFor<Tag extends keyof JSX.IntrinsicElements, C, P, FN extends string> =
+  & Omit<JSX.IntrinsicElements[Tag], "style">
   & { readonly style?: WardStyle | string | undefined }
+  & WardicMotionFor<C, P, FN>
 
 /**
- * A `wardic.<tag>` component: generic over the keys its targets set, so its `transition` takes
- * entries for those keys, `default` and `layout`, and a target's own takes them and `default`
- * ({@link InferredMotion}). A name an entry gives that the element doesn't animate is an error, and
- * completion inside a `transition` offers the keys it drives.
+ * A component's ward, handed over: `wardRef={(card) => …}` gets the ward the
+ * component puts on its element, once, as it's made, as `ref` gets the element. Its `settled()` and
+ * `next(name)` are how a component's user hears its animations and gestures on Solid 2, which has no
+ * callbacks for them. Never a ward: one given to `wardRef` is taken in.
  */
-//
-// `F` (#516): a Wardic instance's Features. Its default, every one, gives the props as they were; a
-// list without some gives their props as `NeedsFeature` ({@link InferredPropsFor}).
+export type WardRefCallback = WardRefCallbackFor<All.EveryFeatureName>
+
+/** {@link WardRefCallback} of an element whose Features are named `FN` (#516, Q19): the ward it hands out hears their events alone. */
+export type WardRefCallbackFor<FN extends string> = ((ward: WardFor<WardConfig, FN>) => void) & { readonly [WARD]?: never }
+
+/** The keys a given ward's variant node reads: a ward that carries its variants keeps them. */
+export type WardNodeKey = "variants" | "inherit" | "initial" | "animate" | "transition" | "custom" | "whileHover" | "whileTap" | "whileFocus" | "whileDrag" | "whileInView"
+
+/**
+ * The keys a ward's config `C` sets (#398): its required ones. A config written at `ward({ … })` has
+ * each key it sets required; a wide `Ward`'s (`WardConfig`'s) are all optional, so it sets none the
+ * types know of, and the check falls to setup.
+ */
+export type WardSetKey<C> = { readonly [K in keyof C]-?: {} extends Pick<C, K> ? never : K }[keyof C]
+
+/** Whether a ward's config `C` carries its variants (#398): it sets `variants` or `inherit`. */
+type CarriesVariants<C> = "variants" extends WardSetKey<C> ? true : "inherit" extends WardSetKey<C> ? true : false
+
+/**
+ * The motion props `P` beside a ward given to `wardRef`, its config `C`: each but the keys `C` sets
+ * ({@link WardSetKey}), and, when `C` carries its variants, the keys its variant node reads. With no
+ * ward given, `C` is `{}`, and every one goes.
+ */
+// #398's Q1 and Q11.
+export type WardicBeside<C, P = WardicMotionProps> = {
+  readonly [K in keyof P]?: K extends WardSetKey<C> ? never : CarriesVariants<C> extends true ? (K extends WardNodeKey ? never : P[K]) : P[K]
+}
+
+/**
+ * A ward given to `wardRef`, its config's type `C` carried with no call signature, so a
+ * callback's `(card) => …` keeps its contextual type.
+ */
+export type GivenWard<C> = AnyWard & { readonly read: WardRead<C> }
+
+/**
+ * A Wardic component's motion: its motion props, with `wardRef` handing its own ward out
+ * ({@link WardRefCallback}), or taking a ward made outside it ({@link GivenWard}), which the component
+ * drives its element with. Beside a given ward go the motion props it doesn't set
+ * ({@link WardicBeside}), each laid over its config; `style` and `ref` by `ward.with()`'s rules.
+ */
+export type WardicMotion<C = {}, P = WardicMotionProps> = WardicMotionFor<C, P, All.EveryFeatureName>
+
+/** {@link WardicMotion} of an element whose Features are named `FN` (#516). */
+export type WardicMotionFor<C, P, FN extends string> = { readonly wardRef?: WardRefCallbackFor<FN> | GivenWard<C> | undefined } & WardicBeside<C, P>
+
+/**
+ * A `wardic.<tag>` component: generic over the config `C` of a ward given to its `wardRef`, `{}` with
+ * none, and over the keys its targets set, so its `transition` takes entries for those
+ * keys and the given ward's, `default` and `layout`, and a target's own takes them and `default`
+ * ({@link InferredMotion}). `WardicComponent<Tag, F>` is a Wardic instance's, with Features `F`.
+ */
+// `F` (#516): its default, every Feature, gives the props as they were; a list without some gives their
+// props as `NeedsFeature` ({@link InferredPropsFor}).
 export type WardicComponent<Tag extends keyof JSX.IntrinsicElements, F = All.EveryFeature> = WardicComponentFor<Tag, Feature.PropFeatureNames<F>>
 
 /** A {@link WardicComponent} whose Features are named `FN` (#516). */
 export type WardicComponentFor<Tag extends keyof JSX.IntrinsicElements, FN extends string> = <
+  C = {},
   K extends TargetKey = never,
   N extends string = never,
-  LI extends WardConfig.WardicVariantLabels = never,
-  LA extends WardConfig.WardicVariantLabels = never,
+  LI extends DomWardConfig.WardicVariantLabels = never,
+  LA extends DomWardConfig.WardicVariantLabels = never,
   D extends boolean | "x" | "y" = never,
->(props: WardicProps<Tag, InferredPropsFor<FN, K, N, LI, LA, D>>) => JSX.Element
+>(props: WardicPropsFor<Tag, C, InferredPropsFor<FN, K, N, LI, LA, D, DrivenKey<C>>, FN>) => JSX.Element
+
+/**
+ * Each Feature's motion props on Solid 2, by its name (#516): Solid 1's without its callbacks, which a
+ * ward's events tell (`next(name)`), so `pan` adds none.
+ */
+export type FeatureProps = { readonly [N in keyof DomWardConfig.WardFeatureConfigs]: Omit<DomWardConfig.WardFeatureConfigs[N], SolidOneCallback> }
+
+/** A Wardic instance's own motion props on Solid 2, its Features named `FN` (#516): the base group and theirs. */
+export type OwnPropsFor<FN extends string> = Omit<DomWardConfig.WardBaseConfig, SolidOneCallback> & Feature.GroupsOf<FeatureProps, FN>
+
+/** {@link OwnPropsFor}, and every other Feature's prop `NeedsFeature<"name">` (#516). With every Feature, the props as they were. */
+export type MotionPropsFor<FN extends string> = Feature.NamesEvery<FeatureProps, FN> extends true ? WardicMotionProps : OwnPropsFor<FN> & Feature.AbsentGroupsOf<FeatureProps, FN>
 
 /**
  * The motion props, keys inferred (#305), of an element whose Features are named `FN` (#516): with every
- * one, as they were; a Wardic instance's without some, the base props and its Features', and every
- * other Feature's prop `NeedsFeature<"name">`, an error naming the Feature.
+ * one, as they were; a Wardic instance's without some, {@link OwnPropsFor}, and every other Feature's
+ * prop `NeedsFeature<"name">`, an error naming the Feature.
  */
-export type InferredPropsFor<FN extends string, K extends TargetKey, N extends string, LI extends WardConfig.WardicVariantLabels, LA extends WardConfig.WardicVariantLabels, D extends boolean | "x" | "y"> =
-  Feature.NamesEvery<WardConfig.WardFeatureConfigs, FN> extends true
-    ? InferredMotion<WardicMotionProps, K, N, LI, LA, D>
-    : InferredMotionOf<OwnPropsFor<FN>, K, N, LI, LA, D> & Feature.AbsentGroupsOf<WardConfig.WardFeatureConfigs, FN>
-
-/** A Wardic instance's own motion props, its Features named `FN` (#516): the base group and each of theirs. */
-export type OwnPropsFor<FN extends string> = WardConfig.WardBaseConfig & Feature.GroupsOf<WardConfig.WardFeatureConfigs, FN>
+export type InferredPropsFor<
+  FN extends string,
+  K extends TargetKey,
+  N extends string,
+  LI extends DomWardConfig.WardicVariantLabels,
+  LA extends DomWardConfig.WardicVariantLabels,
+  D extends boolean | "x" | "y",
+  X extends string,
+> = Feature.NamesEvery<FeatureProps, FN> extends true
+  ? InferredMotion<WardicMotionProps, K, N, LI, LA, D, X>
+  : InferredMotionOf<OwnPropsFor<FN>, K, N, LI, LA, D, X> & Feature.AbsentGroupsOf<FeatureProps, FN>
 
 /**
- * The motion props of an element whose Features are named `FN` (#516): every one's, as they were, with
- * every Feature; else {@link OwnPropsFor}, and every other Feature's prop `NeedsFeature<"name">`.
+ * `wardic.create(Component)`'s component: the component's props and its motion, generic as
+ * {@link WardicComponent}. `WardicWrapped<P, F>` is a Wardic instance's, with Features `F`.
  */
-export type MotionPropsFor<FN extends string> =
-  Feature.NamesEvery<WardConfig.WardFeatureConfigs, FN> extends true ? WardicMotionProps : OwnPropsFor<FN> & Feature.AbsentGroupsOf<WardConfig.WardFeatureConfigs, FN>
+export type WardicWrapped<P, F = All.EveryFeature> = WardicWrappedFor<P, Feature.PropFeatureNames<F>>
+
+/** A {@link WardicWrapped} whose Features are named `FN` (#516). */
+export type WardicWrappedFor<P, FN extends string> = <
+  C = {},
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends DomWardConfig.WardicVariantLabels = never,
+  LA extends DomWardConfig.WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(props: P & { readonly style?: WardStyle | string | undefined } & WardicMotionFor<C, InferredPropsFor<FN, K, N, LI, LA, D, DrivenKey<C>>, FN>) => JSX.Element
+
+/** A component's `wardRef`, read as its props hold it. */
+interface WardRefIn {
+  readonly wardRef?: unknown
+}
+
+/** Hand `ward` to the props' `wardRef`, read once, untracked, as `ref` is. */
+export const handOver = (props: WardRefIn, ward: Ward): void => {
+  const give = untrack(() => props.wardRef)
+  if (Predicate.isFunction(give)) give(ward)
+}
+
+/** The ward given to the props' `wardRef` (#349), or `undefined` for a function or none: read once, untracked, as `ref` is. */
+export const givenOf = (props: WardRefIn): WardShare | undefined => shareOf(untrack(() => props.wardRef))
+
+/** Whether `source` sets `key`: a value, or an accessor of one, read once, untracked, as `ref` is. */
+export const sets = (source: object, key: string): boolean => Predicate.isNotUndefined(untrack(() => (source as Readonly<Record<string, unknown>>)[key]))
+
+/** The keys among `keys` that `source` sets, read once, untracked, under one `untrack` (#398). */
+export const setKeysOf = (source: object, keys: ReadonlyArray<string>): ReadonlyArray<string> =>
+  untrack(() => Arr.filter(keys, (key) => Predicate.isNotUndefined((source as Readonly<Record<string, unknown>>)[key])))
+
+/** Keys, as an error names them. */
+export const listOf = (keys: ReadonlyArray<string>): string => Arr.map(keys, (key) => `\`${key}\``).join(", ")
 
 /**
- * The shape `wardic.create(Component)` requires of a wrapped component: it must
- * forward `props.ref` to its single root DOM element so the spine can wire up
- * (ADR-0008's ref-forwarding contract). All motion is committed through that
- * ref, so the wrapped component owns its own root JSX.
+ * The keys a given ward's variant node reads (#398's Q11): its node is made where the ward is made,
+ * so with its variants in the ward, these stay there too.
  */
-export type WardicWrappable = { ref?: (el: HTMLElement) => void }
+const NODE_KEYS: ReadonlySet<string> = new Set(["variants", "inherit", "initial", "animate", "transition", "custom", "whileHover", "whileTap", "whileFocus", "whileDrag", "whileInView"])
 
 /**
- * A client element's config from its split-off motion props: their keys are fixed unless they're a
- * proxy (over a reactive spread), so the gesture callbacks the element wasn't given are never read
- * (#273).
+ * The element's motion props beside a ward given to `wardRef` (#398): the `keys` it sets, read once,
+ * untracked, as `ref` is. A key the ward's config sets too is an error naming it (Q1); so is one the
+ * ward's variant node reads, when the ward carries its variants (Q11).
  */
-export const configOfMotion = (motion: WardicMotionProps): Accessor<WardConfig.WardConfig> => motionToConfig(motion, Bool.not($PROXY in motion))
+export const besideOf = (name: string, props: object, share: WardShare, keys: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const beside = setKeysOf(props, keys)
+  if (beside.length === 0) return beside
+  const twice = setKeysOf(share.config, beside)
+  if (twice.length > 0) {
+    throw new Error(
+      `${name}: ${listOf(twice)} set both in the ward given to wardRef and on the element (#398). ` +
+        "Set each key in one place: in ward({ … }), or on the element.",
+    )
+  }
+  if (share.carries) {
+    const carried = Arr.filter(beside, (key) => NODE_KEYS.has(key))
+    if (carried.length > 0) {
+      throw new Error(
+        `${name}: the ward given to wardRef carries its variants (\`variants\` or \`inherit\` in its ward({ … })), so ${listOf(carried)} ` +
+          "go there too: its variant node, made where the ward is made, reads them (#398). Or leave the variants to the element: " +
+          "a ward with neither only listens, and its element's props set its motion.",
+      )
+    }
+  }
+  return beside
+}
 
 /**
- * `create(tag | Component)` of a form (`wardic.create`, `w.create`): a Wardic component, a Complete
- * element's or a Slim one's as `kind` says (#511).
+ * The element's props `keys` as fixed values over a given ward's config (#398), each read through its
+ * prop, so tracked where it's read, as the element's own props are; over `under`'s (a Reorder item's).
+ */
+export const fixedOf = (props: object, keys: ReadonlyArray<string>, under: object | undefined): object => {
+  const fixed = {}
+  UndefinedOr.map(under, (values) => Object.defineProperties(fixed, Object.getOwnPropertyDescriptors(values)))
+  Arr.forEach(keys, (key) => Object.defineProperty(fixed, key, { enumerable: true, get: () => (props as Readonly<Record<string, unknown>>)[key] }))
+  return fixed
+}
+
+/** A given ward's config at setup, with the element's props `keys` over it, read once, untracked (#398). */
+const setupWith = (setup: WardConfigValues, props: object, keys: ReadonlyArray<string>): WardConfigValues =>
+  Arr.reduce(keys, { ...setup } as Record<string, unknown>, (config, key) => {
+    config[key] = untrack(() => (props as Readonly<Record<string, unknown>>)[key])
+    return config
+  }) as WardConfigValues
+
+/**
+ * A given ward made under a variant parent other than its element's, which it would inherit from
+ * (#349's Q4): made with no `parent`, it inherits from where it was made, which the element's
+ * children don't. A Listening ward's element joins where it renders (#398), so it has nothing to check.
+ */
+const checkParent = (name: string, share: WardShare): void => {
+  if (share.chosen) return
+  const here = useVariantContext()
+  if (Bool.or(here === share.parent, Predicate.isUndefined(here))) return
+  if (Bool.not(VariantTree.isVariantChild(share.setup))) return
+  throw new Error(
+    `${name}: the ward in wardRef was made outside its element's variant parent, so it wouldn't inherit from it (#349). ` +
+      "Make it with ward(config, { parent }), naming the ward whose element it renders in, or give it `inherit: false` to stand alone.",
+  )
+}
+
+/** A driving ward, and its config at setup: the given ward's, the element's props over it (#398). */
+export interface Driven {
+  readonly ward: Ward
+  readonly setup: WardConfigValues
+}
+
+/**
+ * The ward a component drives its element with, for a ward given to `wardRef` (#349): one of its
+ * own, on the given ward's config, variant node and lifecycle, under the component's presence, with
+ * the component's `internal` (its tag). The given ward follows it while its element is mounted. The
+ * element's motion props among `keys` go over the ward's config (#398): a Listening ward's element
+ * builds its own variant node from them.
+ */
+export const drivenWard = (name: string, props: object, share: WardShare, internal: WardInternals, keys: ReadonlyArray<string>): Driven => {
+  const beside = besideOf(name, props, share, keys)
+  checkParent(name, share)
+  // Plain checks: a match's objects would cost every given ward's element (#349).
+  if (beside.length === 0) return { ward: wardWith(share.config, { ...share.internal, ...internal, name, share }), setup: share.setup }
+  const fixed = fixedOf(props, beside, share.internal.fixed) as WardInternals["fixed"]
+  return { ward: wardWith(share.config, { ...share.internal, ...internal, name, share, fixed }), setup: setupWith(share.setup, props, beside) }
+}
+
+/**
+ * What `wardic.create(Component)` requires of a component: it forwards `ref` to its single root
+ * element (`<div ref={props.ref}>`). The ref is an array: the user's, then the ward's. Checked once
+ * the component has settled, not by `create`'s type: a component library's part declares the ref of
+ * the element it renders (`Ref<HTMLDivElement>`), which a `Ref<HTMLElement>` isn't.
+ */
+// #387.
+export type WardicWrappable = { readonly ref?: JSX.Ref<HTMLElement> }
+
+
+/**
+ * A component, whatever its props: every `Component<P>` is one. What `create`'s overloads return,
+ * each a public `Component<WardicProps<Tag>>`, and what the tags' cache keeps. Since Solid 2 rc.18
+ * types `data-*` attributes, a `Component<Record<string, unknown>>` is no longer one of them.
+ */
+type AnyComponent = Component<never>
+
+/** The user's `ref` and `style`, read off a component's props. */
+interface RefStyle {
+  readonly ref?: unknown
+  readonly style?: WardStyle | string | undefined
+}
+
+/** The props a component passes through to its element: all but the motion props, `ref`, `style` and `wardRef`. */
+const PASSED_OVER = [...MOTION_PROPS, "ref", "style", "wardRef"] as const
+
+/** What an element whose motion props are handed on (#443, `forwardMotionProps`) keeps for itself. */
+const PASSED_OVER_FORWARDING = ["ref", "style", "wardRef"] as const
+
+/**
+ * `props` without what the element keeps for itself (the motion props unless `forward`, `ref`,
+ * `style`, `wardRef`), and without a tag's props the nearest `WardicConfig`'s `isValidProp` keeps off
+ * it (#443), read as the element is made.
+ */
+const restOf = (props: Record<string, unknown>, forward: boolean, isTag: boolean): Record<string, unknown> => {
+  const rest = Bool.match(forward, { onTrue: () => omit(props, ...PASSED_OVER_FORWARDING), onFalse: () => omit(props, ...PASSED_OVER) })
+  const dropped = droppedKeysOf(() => Object.keys(rest), WardicConfigValue.isValidPropOf(useWardicConfig()), isTag)
+  // Omitted again only when it keeps any off (most elements have no `isValidProp` above them).
+  if (Arr.isReadonlyArrayEmpty(dropped)) return rest
+  return omit(rest, ...dropped)
+}
+
+/**
+ * `element`, with `ward`'s Provider around it when `config` changes what its children read (#50):
+ * the element's props, read at setup, or a given ward's config (#349).
+ */
+const withProvider = (ward: Ward, config: WardConfigValues, element: () => JSX.Element): JSX.Element =>
+  Bool.match(untrack(() => VariantTree.changesContext(config)), {
+    onFalse: element,
+    onTrue: () => <ward.Provider>{element()}</ward.Provider>,
+  })
+
+/**
+ * The element's refs: the user's from `props` (one, or an array), then the ward's. Solid 2 applies a
+ * ref once, as the element is made, and reads a component's `ref` in its body: read once, untracked,
+ * so said (through spread props it's a reactive read, which Solid 2's dev build warns of).
+ */
+export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(element: HTMLElement) => void>): ReadonlyArray<unknown> =>
+  Arr.appendAll(Arr.filter(Arr.flatten([Arr.ensure(untrack(() => props.ref))]), Predicate.isNotUndefined), own)
+
+/**
+ * A component, whatever its props: every `Component<P>` is one. What a form's `create` returns
+ * (`wardic.create(tag | Component)`, `w.create`): a component with the element's (or the component's)
+ * props and the motion props, a Complete element's or a Slim one's as `kind` says (#511).
  *
- * Both are an element with a Ward on it, made by {@link createWardWith} (#253, as the Solid 2
- * binding's `create` is, ADR-0045): the Starting style in `style` until the gate's first frame
- * is committed (so on a server and in the hydration render), then the user's style (over the drag
- * defaults) without the keys the gate holds (ADR-0034).
- *   - `create("div")` (element-string): renders `<Dynamic component={tag}>`.
- *   - `create(Component)` (a component function): the wrapped component must forward `props.ref`
- *     to its single root element, where the gate commits each frame; that is the only
- *     requirement. It also gets `style` and `draggable`: one that applies `props.style` renders
- *     its Starting style on a server, and one that doesn't still animates, the drag defaults
- *     set on its element at mount (ADR-0021, decision 6). One that never forwards its ref is a
- *     clear error once mounted (ADR-0008).
- *
- * `options` (#443, Motion's `motion.create` options): `forwardMotionProps` hands the motion props on
- * to what it renders as well, and `type` says what its element is for its server render and Starting
- * style ({@link WardicCreateOptions}).
+ * - `create("div")`: renders the tag through `<Dynamic>`, its Starting style in `style` from the
+ *   first render (a server's included, ADR-0021).
+ * - `create(Component)`: the component must forward `props.ref` to its single root element, where
+ *   the gate commits; it also gets `style`, which it may apply for its Starting style on a server.
+ *   A component that never forwards its ref is a clear error once it has settled. Its props are its
+ *   own (`ComponentProps`), so a part generic over what it renders, as a component library's are
+ *   (Kobalte's `Dialog.Content`), keeps them (#387).
  */
-export function createWith(arg: string | Component<Record<string, unknown> & WardicWrappable>, options: WardicCreateOptions, kind: SpineInternals): Component<Record<string, unknown>> {
+export const createWith = (arg: string | Component<Record<string, unknown>>, options: WardicCreateOptions, kind: WardInternals): AnyComponent => {
   const forward = options.forwardMotionProps === true
   const made = Bool.match(Predicate.isString(arg), {
-    onTrue: () => wardComponent(arg as string, { ...kind, tag: routingTagOf(arg as string, options.type) }, forward),
-    onFalse: () => wardComponent(arg as Component<Record<string, unknown> & WardicWrappable>, { ...WRAPPED, ...kind, tag: routingTagOf(undefined, options.type) }, forward),
+    onTrue: () => tagComponent(arg as string, routingTagOf(arg as string, options.type), forward, kind),
+    onFalse: () => wrapComponent(arg as Component<Record<string, unknown>>, routingTagOf(undefined, options.type), forward, kind),
   })
   // Marked with what it wraps (#443): `isWardicComponent`, `unwrapWardicComponent`.
   return markWardic(made, arg)
@@ -158,174 +377,102 @@ export type Create<F = All.EveryFeature> = CreateFor<Feature.PropFeatureNames<F>
 /** {@link Create} for the Features named `FN` (#516). */
 export interface CreateFor<FN extends string> {
   <Tag extends keyof JSX.IntrinsicElements>(tag: Tag, options?: WardicCreateOptions): WardicComponentFor<Tag, FN>
-  // A component's stays a plain `Component`, its keys not inferred: a generic return type would stop
-  // TS carrying a generic component's own type parameters through (Kobalte's `<T extends ValidComponent>`).
-  <P>(component: Component<P & WardicWrappable>, options?: WardicCreateOptions): Component<P & MotionPropsFor<FN>>
-  (tag: string, options?: WardicCreateOptions): Component<WardicProps<keyof JSX.IntrinsicElements, MotionPropsFor<FN>>>
+  <C extends Exclude<ValidComponent, string>>(component: C, options?: WardicCreateOptions): WardicWrappedFor<ComponentProps<C>, FN>
+  (tag: string, options?: WardicCreateOptions): WardicComponentFor<keyof JSX.IntrinsicElements, FN>
 }
 
 /** A form's `create`, its elements of `kind`. */
 export const createOf =
-  (kind: SpineInternals): Create =>
-  ((arg: string | Component<Record<string, unknown> & WardicWrappable>, options: WardicCreateOptions = {}) => createWith(arg, options, kind)) as Create
+  (kind: WardInternals): Create =>
+  ((arg: string | Component<Record<string, unknown>>, options: WardicCreateOptions = {}) => createWith(arg, options, kind)) as Create
 
 /**
- * A form's proxy (`wardic`, `w`): called, it's the form's directive; `create` and the form's
- * `extras` are its properties, and `<form>.<tag>` is `create(tag)`, cached so `wardic.div ===
- * wardic.div` (stable component identity across reads). Any non-string key is `undefined`.
+ * A form's proxy (`wardic`, `w`): `<form>.create` and the form's `extras`, and `<form>.<tag>`
+ * (cached, so `wardic.div === wardic.div`).
+ *
+ * A tag's component is made on its first use, often inside a render, and kept for the module's
+ * life: a server makes it on its first request only, a page on every load. So it's made outside any
+ * owner. Under the render's, `dynamic()`'s memo would take a hydration id on one side only, and every
+ * later request's keys would miss the page's (`Unable to find DOM nodes for hydration key`, WH1–WH2).
  */
-export const formOf = <F,>(directive: (el: HTMLElement, value: Accessor<WardConfig.WardConfig>) => void, create: Create, extras: Readonly<Record<string, unknown>>): F => {
-  const cache = new Map<string, Component<WardicProps<keyof JSX.IntrinsicElements>>>()
-  return new Proxy(directive, {
+export const formOf = <F extends object>(create: Create, extras: Readonly<Record<string, unknown>>): F => {
+  const cache = new Map<string, AnyComponent>()
+  return new Proxy({} as F, {
     get(_, prop) {
       if (prop === "create") return create
-      if (Predicate.isString(prop)) {
-        if (Object.hasOwn(extras, prop)) return extras[prop]
-        return Option.getOrElse(Option.fromUndefinedOr(cache.get(prop)), () => {
-          const c = create(prop)
-          cache.set(prop, c)
-          return c
-        })
-      }
-      return undefined
+      if (!Predicate.isString(prop)) return undefined
+      if (Object.hasOwn(extras, prop)) return extras[prop]
+      return Option.getOrElse(Option.fromUndefinedOr(cache.get(prop)), () => {
+        const component = runWithOwner(null, () => create(prop))
+        cache.set(prop, component)
+        return component
+      })
     },
-  }) as unknown as F
-}
-
-/** What wraps a component tells {@link createWardWith}: its component may not pass `style` on. */
-const WRAPPED: SpineInternals = { defaultsOnElement: true }
-
-/** What a form's `create` renders: an element's tag, or the component it wraps. */
-type Rendered = string | Component<Record<string, unknown> & WardicWrappable>
-
-/** The namespace an svg tag's element is made in, as Solid's `createDynamic` makes it. */
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
-
-/**
- * What `<Dynamic component={component}>` renders, for a form's tag or component, which never changes
- * (#525). Still a component boundary, as `Dynamic` is, so the hydration keys land where the server's
- * `Dynamic` puts them. Without `Dynamic`'s `splitProps`, which copied every prop to take `component`
- * out, and without `createDynamic`'s two memos over a component that can't change.
- */
-const fixedElement = (component: Rendered): Component<Record<string, unknown>> => {
-  if (Predicate.isFunction(component)) return (props) => untrack(() => component(props))
-  const tag = component
-  const isSvg = SVGElements.has(tag)
-  return (props) => {
-    const el = tagElementOf(tag, isSvg, props)
-    spreadOnto(el, props, isSvg)
-    return el
-  }
-}
-
-/** `tag`'s element: the server's while hydrating, else a new one, as `createDynamic` makes it. */
-const tagElementOf = (tag: string, isSvg: boolean, props: Record<string, unknown>): Element => {
-  if (Predicate.isNotNullish(sharedConfig.context)) return getNextElement()
-  if (isSvg) return document.createElementNS(SVG_NAMESPACE, tag)
-  const is = untrack(() => props.is)
-  if (Predicate.isString(is)) return document.createElement(tag, { is })
-  return document.createElement(tag)
-}
-
-/**
- * Solid's `spread` for props whose keys are fixed (#525): their children's effect only when they have
- * children, and their ref called once, as JSX calls its own `ref`, where `spread` gives each a render
- * effect an element. A proxy's keys can change (a reactive spread), so it takes Solid's `spread`.
- */
-const spreadOnto = (el: Element, props: Record<string, unknown>, isSvg: boolean): void => {
-  if ($PROXY in props) {
-    spread(el, props, isSvg)
-    return
-  }
-  if ("children" in props) insert(el, () => props.children)
-  untrack(() => {
-    const ref = props.ref
-    if (Predicate.isFunction(ref)) use(ref as (node: Element) => void, el)
   })
-  const prev = {}
-  createRenderEffect(() => assign(el, props, isSvg, true, prev, true))
 }
 
 /**
- * `<form>.<tag>` and `<form>.create(Component)`: the element, or the wrapped component, with a
- * Ward from {@link createWardWith} spread on it, its variant context's Provider around it when it
- * changes what its children read (#50). `forward`: its motion props are handed on too (#443).
+ * A plain element named `tag`, as Wardic's elements and `Reorder.Item` render theirs: made once a tag,
+ * outside any owner, and kept for the module's life.
+ *
+ * Its tag never changes, so a static `dynamic()` makes none of its memos over it (#525). On a server,
+ * one memo of the element's own holds what `ssrElement` reads as it renders: a pending child or
+ * attribute (`{product().name}`) waits there, as at `dynamic()`'s, not thrown to the `<Loading>` to
+ * run its subtree again (AR14). A browser's render needs none: it renders under a plain owner, which
+ * takes the hydration id the server's memo took, and isn't a computation its effects run under.
  */
-const wardComponent = (component: Rendered, internal: SpineInternals, forward: boolean): Component<Record<string, unknown>> => {
-  const Rendered = fixedElement(component)
-  // What an element that can never want a gesture runs with (#525): made once a form.
-  const gestureless: SpineInternals = { ...internal, gestureless: true }
+// #618 (M3): `Reorder.Item` made a `dynamic()` with its memos for every item.
+export const staticElementOf = (tag: string): Component<Record<string, unknown>> =>
+  UndefinedOr.match(staticElements.get(tag), {
+    onUndefined: () => {
+      const made = runWithOwner(null, () => staticElement(tag))
+      staticElements.set(tag, made)
+      return made
+    },
+    onDefined: identity,
+  })
+
+// Module state (#460, Q7): a tag's plain element, the same for every provider, made once a page's or a
+// server's life, as `formOf`'s tags are.
+const staticElements = new Map<string, Component<Record<string, unknown>>>()
+
+const staticElement = (tag: string): Component<Record<string, unknown>> => {
+  const render = dynamic(() => tag, { static: true })
   return (props) => {
-    // The nearest `WardicConfig`'s `isValidProp`, as the element is made (#443).
-    const isValidProp = WardicConfigValue.isValidPropOf(useWardicConfig())
-    // A server render takes the lean path (ADR-0021, decision 4).
-    if (isServer) return serverElement(component, internal, props, forward, isValidProp)
-
-    // 3-way split: motion props (consumed, and only handed on when forwarded, #443), then ref+style
-    // (merged), then everything else (rest) passes through to the element or component, but a tag's
-    // props a `WardicConfig`'s `isValidProp` keeps off it.
-    const [motion, refStyle, own] = splitProps(props as WardicProps<keyof JSX.IntrinsicElements>, MOTION_PROPS, ["ref", "style"])
-    const dropped = droppedKeysOf(() => Object.keys(own), isValidProp, Predicate.isString(component))
-    // Split again only when it keeps any off (most elements have no `isValidProp` above them).
-    const rest = Bool.match(Arr.isReadonlyArrayEmpty(dropped), {
-      onTrue: () => own,
-      onFalse: () => splitProps(own, dropped as Array<keyof typeof own>)[1],
-    })
-    const handedOn = Bool.match(forward, { onTrue: () => motion, onFalse: () => NO_PROPS })
-
-    // Reactive config accessor: motionToConfig reads each (reactive) prop getter
-    // inside the accessor, so a changed `animate` / `whileHover` / `transition`
-    // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
-    // render its Starting style's attribute keys as attributes (ADR-0021).
-    const cfg = configOfMotion(motion)
-    // Its keys fixed (no reactive spread) and none of them a gesture's, it can never want one (#525).
-    let spineInternal = internal
-    if (Bool.not($PROXY in motion)) {
-      if (Bool.not(Arr.some(GESTURE_KEYS, (key) => key in motion))) spineInternal = gestureless
+    if (isServer) {
+      const rendered = createMemo(() => render(props))
+      // A component may return a memo, as `dynamic()`'s does; Solid 2's `JSX.Element` names no accessor.
+      return rendered as unknown as JSX.Element
     }
-    const ward = createWardWith(cfg, spineInternal)
-
-    // Delegate the ref + style merge entirely to ward(): it invokes both the
-    // user's ref and ward's internal ref, and gives the element its `style`: the
-    // Starting style over the user's, then the user's without the keys the gate
-    // holds (ADR-0034).
-    //
-    // `style` is threaded as a LIVE GETTER, not a value read once at setup:
-    // `refStyle.style` is a reactive `splitProps` getter, so a reactive user
-    // `style` prop (e.g. `style={{ left: pos() }}` on a non-animated key) is
-    // tracked by ward()'s reactive style getter and re-merged on change. Reading
-    // it into a `const` here would freeze it at its initial value. `ref` is wired
-    // once at mount (refs don't change), so it stays a one-time read.
-    const forwarding = forwardingOf(component, (refStyle as { ref?: (el: HTMLElement) => void }).ref)
-    const ref = forwarding.ref
-    const userProps: WardUserProps = {
-      ...UndefinedOr.match(ref, { onUndefined: () => ({}), onDefined: (defined) => ({ ref: defined }) }),
-      get style() {
-        return (refStyle as { style?: JSX.CSSProperties }).style
-      },
-    }
-
-    // An element that changes what its children read renders its variant context's Provider
-    // around them (#50); any other renders none (`changesContext`, decided once, as on a server).
-    // The Ward's props, made once: a call spread in JSX compiles to a function source, which made
-    // `mergeProps` a proxy that the spread read every key through (#525). Their `style` is a getter.
-    const wardProps = ward(userProps)
-    const element = (): JSX.Element => <Rendered {...handedOn} {...rest} {...wardProps} />
-    return Bool.match(VariantTree.changesContext(untrack(cfg)), {
-      onFalse: () => forwarding.render(element),
-      onTrue: () => <ward.Provider>{forwarding.render(element)}</ward.Provider>,
-    })
+    // Under a plain owner, which takes the hydration id the server's memo took (#525): a root, as
+    // `createOwner` left solid-js's types in rc.21. It's its parent's, so it goes with the element.
+    return createRoot(() => render(props))
   }
 }
 
-/** The user's ref, merged with what checks the Ward's, and how the element renders. */
-interface Forwarding {
-  readonly ref: ((el: HTMLElement) => void) | undefined
-  readonly render: (element: () => JSX.Element) => JSX.Element
+/** `<form>.<tag>`: the element with a ward on it, the ward's Provider around it when it changes what its children read (#50). */
+const tagComponent = (tag: string, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
+  const Element = staticElementOf(tag)
+  const name = `wardic.${tag}`
+  return (props) => {
+    const own = props as WardicMotionProps & RefStyle & WardRefIn
+    const rest = restOf(props, forward, true)
+    // A ward given to `wardRef` (#349): the component drives its element with it, its `style` over
+    // the ward's config's, as `.with()` lays it (#264).
+    const wardRef = untrack(() => own.wardRef)
+    const given = shareOf(wardRef)
+    if (Predicate.isNotUndefined(given)) {
+      const { ward: driving, setup } = drivenWard(name, own, given, { ...kind, tag: routing }, MOTION_PROPS)
+      return withProvider(driving, setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving])} />)
+    }
+    const ward = wardWith(own as WardConfig, { ...kind, tag: routing, gestureless: gesturelessOf(props) })
+    if (Predicate.isFunction(wardRef)) wardRef(ward)
+    // The ward's spread props, as an object: spread as the function it is, it's a source `merge` calls
+    // in a computation, whose keys `spread` can't know, so it inserts children too (#525).
+    const wardProps = ward()
+    return withProvider(ward, wardConfigView(own as WardConfig), () => <Element {...rest} {...wardProps} ref={refsOf(own, [ward])} />)
+  }
 }
-
-/** A tag's: the user's ref, and its element as it is. */
-const ownElement = (element: () => JSX.Element): JSX.Element => element()
 
 /**
  * The error for a wrapped component that renders an element but forwards its ref to none (#746,
@@ -337,101 +484,59 @@ const unforwardedRefMessage = (label: string): string => {
   return unforwardedRefLine(label)
 }
 
-/**
- * The user's ref, and, for a wrapped component, the check that it forwards the Ward's (ADR-0008,
- * narrowed by #414): one that renders an element and forwards its ref to none of what it renders
- * leaves the gate no element to commit to, a clear error. One that renders nothing yet (a component
- * library's part that shows only while open or selected) is waited on: its element is driven when it
- * comes. Checked each time what it renders changes, inside the wrap's Provider (#50).
- */
-const forwardingOf = (component: Rendered, userRef: ((el: HTMLElement) => void) | undefined): Forwarding => {
-  if (Predicate.isString(component)) return { ref: userRef, render: ownElement }
-  let reached: HTMLElement | undefined
-  const ref = mergeRefs(userRef, (el: HTMLElement) => {
-    reached = el
-  })
-  const render = (element: () => JSX.Element): JSX.Element => {
-    const rendered = children(element)
-    createEffect(() => {
-      const elements = Arr.filter(rendered.toArray(), isElement)
-      if (Arr.isArrayEmpty(elements)) return
-      if (Arr.some(elements, (inside) => Predicate.isNotUndefined(reached) && inside.contains(reached))) return
-      throw new Error(unforwardedRefMessage(`wardic.create(${component.name || "anonymous component"})`))
-    })
-    return rendered as unknown as JSX.Element
+/** `wardic.create(Component)`: the ward on the element the component forwards its `ref` to (ADR-0008). */
+const wrapComponent = (Wrapped: Component<Record<string, unknown>>, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
+  // The component it wraps never changes, so a static `dynamic()` makes no memos over it (#525). A
+  // pending read the server's render meets waits at `checked`'s `children()` (AR24).
+  const Element = dynamic(() => Wrapped, { static: true })
+  const name = `wardic.create(${Wrapped.name || "anonymous component"})`
+  return (props) => {
+    const own = props as WardicMotionProps & RefStyle & WardRefIn
+    const rest = restOf(props, forward, false)
+    // ADR-0008's ref-forwarding contract, narrowed by #414: a component that renders an element and
+    // forwards its ref to none of what it renders leaves the ward no element to drive, and fails
+    // loudly. One that renders nothing yet (a component library's part that shows only while open or
+    // selected) is waited on: its element is driven when it comes. Checked each time what it renders
+    // changes, inside the ward's Provider (#50).
+    let reached: HTMLElement | undefined
+    const seen = (element: HTMLElement): void => {
+      reached = element
+    }
+    const checked = (element: () => JSX.Element): JSX.Element => {
+      // Resolved on both sides, so a server's hydration ids are the browser's; checked in the browser.
+      const rendered = children(element)
+      if (isServer) return rendered as unknown as JSX.Element
+      createEffect(
+        () => Arr.filter(rendered.toArray(), isElement),
+        (elements) => {
+          if (Arr.isArrayEmpty(elements)) return
+          if (Arr.some(elements, (inside) => Predicate.isNotUndefined(reached) && inside.contains(reached))) return
+          throw new Error(unforwardedRefMessage(name))
+        },
+        CLIENT_ONLY,
+      )
+      return rendered as unknown as JSX.Element
+    }
+    // A ward given to `wardRef` (#349), as `wardic.<tag>` takes one.
+    const wardRef = untrack(() => own.wardRef)
+    const given = shareOf(wardRef)
+    if (Predicate.isNotUndefined(given)) {
+      const { ward: driving, setup } = drivenWard(name, own, given, { ...kind, defaultsOnElement: true, tag: routing }, MOTION_PROPS)
+      return withProvider(driving, setup, () => checked(() => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />))
+    }
+    const ward = wardWith(own as WardConfig, { ...kind, defaultsOnElement: true, tag: routing, gestureless: gesturelessOf(props) })
+    if (Predicate.isFunction(wardRef)) wardRef(ward)
+    const wardProps = ward()
+    return withProvider(ward, wardConfigView(own as WardConfig), () => checked(() => <Element {...rest} {...wardProps} ref={refsOf(own, [ward, seen])} />))
   }
-  return { ref, render }
+}
+
+/** Whether an element's config can never want a gesture (#525): its keys fixed, none of them a gesture's. */
+const gesturelessOf = (props: Record<string, unknown>): boolean => {
+  if ($PROXY in props) return false
+  return Bool.not(Arr.some(GESTURE_KEYS, (key) => key in props))
 }
 
 /** Whether a rendered node is an element. */
 const isElement = (node: unknown): node is Element => node instanceof Element
-
-/** No props: what an element that doesn't forward its motion props hands on of them. */
-const NO_PROPS: Readonly<Record<string, never>> = {}
-
-/** The motion props, as a set for the server path's one pass. */
-const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)
-
-/**
- * Set each of `values` on `out` as a plain data property. A key copied from the user's props
- * may be a getter (a reactive prop like `cx={cx()}`), which an assignment can't overwrite;
- * Wardic's value wins, as `mergeProps` makes it on the client.
- */
-const override = (out: Record<string, unknown>, values: Record<string, unknown>): void =>
-  Arr.forEach(Rec.keys(values), (key) => {
-    Object.defineProperty(out, key, { value: values[key], enumerable: true, configurable: true, writable: true })
-  })
-
-/**
- * Everything in `props` but `ref`, `style`, the motion props unless `forward`, and the keys `dropped`
- * (#443), in one pass; getters stay getters.
- */
-const passThrough = (props: Record<string, unknown>, forward: boolean, dropped: ReadonlyArray<string>): Record<string, unknown> => {
-  const descriptors = Object.getOwnPropertyDescriptors(props)
-  const out: Record<string, unknown> = {}
-  const off = new Set(dropped)
-  Arr.forEach(Rec.keys(descriptors), (key) => {
-    if (key === "ref" || key === "style" || off.has(key)) return
-    if (MOTION_KEYS.has(key) && !forward) return
-    Object.defineProperty(out, key, UndefinedOr.getOrThrow(descriptors[key]))
-  })
-  return out
-}
-
-/**
- * `wardic.<tag>` and `wardic.create(Component)` during a server render (ADR-0021, decisions 4 and
- * 6): the element, or the component, with its Starting style and static attributes, built in one
- * pass over the props. Solid's server `splitProps` and `mergeProps` cost most of a wrapped
- * element's server time, and none of their reactivity matters there. The client's
- * `createUniqueId` (inside `createWardWith`) and its `Dynamic` boundary are kept, so every
- * hydration key lands where the client's render puts it.
- */
-const serverElement = (
-  component: Rendered,
-  internal: SpineInternals,
-  props: Record<string, unknown>,
-  forward: boolean,
-  isValidProp: ((key: string) => boolean) | undefined,
-): JSX.Element => {
-  // A tag's props `isValidProp` keeps off it, as the client's (#443): of its own, the motion props, `ref` and `style` aside.
-  const ownKeys = (): ReadonlyArray<string> => Arr.filter(Object.keys(props), (key) => !MOTION_KEYS.has(key) && key !== "ref" && key !== "style")
-  const out = passThrough(props, forward, droppedKeysOf(ownKeys, isValidProp, Predicate.isString(component)))
-  const cfg = motionToConfig(props as WardicMotionProps)
-  const ward = createWardWith(cfg, internal)
-  override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component })
-  // The client's nesting: the element's `ward.Provider` when it changes what its children read
-  // (#50), then the element; a late chunk's root then its chunk's style (#245).
-  const element = (): JSX.Element => createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
-  const render = (): JSX.Element =>
-    Bool.match(VariantTree.changesContext(cfg()), {
-      onFalse: element,
-      onTrue: () =>
-        createComponent(ward.Provider, {
-          get children() {
-            return element()
-          },
-        }),
-    })
-  return renderServerElement(serverAppearOfWard(ward), render)
-}
 

@@ -1,9 +1,10 @@
-// A Batch's Appear animation fixtures (#706): rendered on the server in Node by the hydrate project's
-// `serverRenderPage` command, and hydrated in Chromium by batch-appear.hydrate.browser.test.tsx. Each
+// A Batch's Appear animation fixtures on Solid 2 (#706): rendered on the server in Node by the hydrate
+// project's `serverRender2` command, and hydrated in Chromium by batch-appear.hydrate.browser.test.tsx. Each
 // element to watch carries `data-k`.
 import { DomLive } from "@wardic/dom"
 import { createBatch, Reorder, stagger, wardic, WardicProvider } from "@wardic/solid"
-import { For, type JSX } from "solid-js"
+import type { JSX } from "@solidjs/web"
+import { For } from "solid-js"
 
 const page = (children: () => JSX.Element): JSX.Element => <WardicProvider env={DomLive}>{children()}</WardicProvider>
 

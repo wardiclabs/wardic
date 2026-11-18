@@ -1,6 +1,7 @@
-// Reorder groups with `values` from a Solid 1 store (#721): `Reorder.Group` and `Reorder.BatchGroup`, each
-// store form an app sets from `onReorder` (a new array at a path, a root store merged in place, and
-// `reconcile`), with a real mouse and real keys.
+// Reorder groups with `values` from a Solid 2 store (#721): `Reorder.Group` and `Reorder.BatchGroup`, each
+// store form an app sets from `onReorder` (a returned array, which a root store takes in place, a splice, and
+// a draft given a new array), with a real mouse and real keys. Solid 2's diagnostics gate holds every test: no
+// strict read of the store outside its tracking.
 //
 // - RS1: a drag five places down moves the item five places, on both groups, whatever the store form: each
 //   step's new order is measured (or placed) before the next crossover.
@@ -10,20 +11,31 @@
 // - RS4: the app's own reorder of its store animates: an item is between its old place and its new one a few
 //   frames on, then lands.
 // - RS5: an app whose store keeps the very array `onReorder` handed it, then swaps two other items of it in
-//   place while an item is lifted (its node not moved, so not blurred): dropped, as any change of the app's.
-//   The group's own order is a copy of what it hands on, so the app's change of that array is the app's.
-import { render } from "@solidjs/testing-library"
+//   place while an item is lifted: dropped, as any change of the app's. The group's own order is a copy of
+//   what it hands on, so the app's change of that array is the app's.
+//
+// The "assign" form, a draft given a new array of the same items, is one Solid 2 itself advises an app against
+// (IMMUTABLE_UPDATE_IN_STORE: splice in place instead). An app may still write it, so it's tested, last, with
+// that code allowed from its turn on: it's the app's, not the group's.
+import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { Reorder, WardicProvider } from "@wardic/solid"
 import * as Match from "effect/Match"
-import { For, type JSX } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore, flush, For, untrack } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
 import "./browser-commands.ts"
-import { add, centreOf, glide, mouse, resetScene, wait } from "./reorder-harness.tsx"
+import { allowDiagnostic } from "./diagnostics.ts"
+import { mount } from "./mount.tsx"
+import { add, centreOf, glide, mouse, resetScene, wait } from "./reorder-scene.tsx"
 
-afterEach(resetScene)
+/** The list a test mounted, unmounted before the next. */
+let unmountList: () => void = () => {}
+const reset = async (): Promise<void> => {
+  unmountList()
+  await resetScene()
+}
+afterEach(reset)
 
 let viewport = { width: 0, height: 0 }
 beforeAll(async () => {
@@ -42,10 +54,11 @@ const FAST = { type: "spring", stiffness: 500, damping: 40 } as const
 const LOOK: JSX.CSSProperties = { background: "teal", "box-sizing": "border-box" }
 
 type Kind = "group" | "batch"
-/** How the app keeps its order: a store whose path it sets to a new array, a root store it merges in place, or `reconcile`. */
-type Form = "path" | "root" | "reconcile"
+/** How the app keeps its order: a root store given a returned array (taken in place), a splice, or a draft given a new array. */
+type Form = "returned" | "splice" | "assign"
 const KINDS: ReadonlyArray<Kind> = ["group", "batch"]
-const FORMS: ReadonlyArray<Form> = ["path", "root", "reconcile"]
+/** "assign" last: the diagnostic it makes is allowed from its turn on. */
+const FORMS: ReadonlyArray<Form> = ["returned", "splice", "assign"]
 
 interface Order {
   readonly values: () => ReadonlyArray<string>
@@ -54,20 +67,38 @@ interface Order {
 }
 
 const orderOf: (form: Form) => Order = Match.type<Form>().pipe(
-  Match.when("path", () => {
-    const [state, setState] = createStore({ rows: [...VALUES] })
-    return { values: () => state.rows, set: (next: ReadonlyArray<string>) => setState("rows", [...next]) }
-  }),
-  Match.when("root", () => {
+  Match.when("returned", () => {
     const [rows, setRows] = createStore<Array<string>>([...VALUES])
-    return { values: () => rows, set: (next: ReadonlyArray<string>) => setRows([...next]) }
+    return { values: () => rows, set: (next: ReadonlyArray<string>) => setRows(() => [...next]) }
   }),
-  Match.when("reconcile", () => {
+  Match.when("splice", () => {
     const [state, setState] = createStore({ rows: [...VALUES] })
-    return { values: () => state.rows, set: (next: ReadonlyArray<string>) => setState("rows", reconcile([...next])) }
+    return {
+      values: () => state.rows,
+      set: (next: ReadonlyArray<string>) =>
+        setState((draft) => {
+          draft.rows.splice(0, draft.rows.length, ...next)
+        }),
+    }
+  }),
+  Match.when("assign", () => {
+    allowAssign()
+    const [state, setState] = createStore({ rows: [...VALUES] })
+    return {
+      values: () => state.rows,
+      set: (next: ReadonlyArray<string>) =>
+        setState((draft) => {
+          draft.rows = [...next]
+        }),
+    }
   }),
   Match.exhaustive,
 )
+
+/** The app's own "assign" form, under test: Solid 2's advice to it, not a diagnostic of the group's. */
+function allowAssign(): void {
+  allowDiagnostic("IMMUTABLE_UPDATE_IN_STORE", "the assign form under test replaces the app's array with the same items, reordered")
+}
 
 /** A column of eight 200x50 items, 10 px apart, a `kind` group over `order`. */
 const mountList = (kind: Kind, order: Order): void => {
@@ -97,7 +128,7 @@ const mountList = (kind: Kind, order: Order): void => {
       )),
       Match.exhaustive,
     )
-  render(() => <WardicProvider env={DomLive}>{list()}</WardicProvider>)
+  unmountList = mount(() => <WardicProvider env={DomLive}>{list()}</WardicProvider>).unmount
 }
 
 /** `run` over each store form's list on both groups, each mounted, settled and taken down in turn. */
@@ -108,7 +139,7 @@ const eachList = async (run: (order: Order, name: string) => Promise<void>): Pro
       mountList(kind, order)
       await wait(150)
       await run(order, `${kind}, ${form}`)
-      await resetScene()
+      await reset()
     }
   }
 }
@@ -121,7 +152,7 @@ const press = async (key: string): Promise<void> => {
   await wait(60)
 }
 
-describe("Reorder groups with values from a Solid 1 store (#721)", () => {
+describe("Reorder groups with values from a Solid 2 store (#721)", () => {
   it("RS1: a drag five places moves the item five places, on both groups, in every store form", async () => {
     await eachList(async (order, name) => {
       const from = centreOf(item("b"))
@@ -153,6 +184,7 @@ describe("Reorder groups with values from a Solid 1 store (#721)", () => {
       item("b").focus()
       await press("Space")
       order.set(REVERSED)
+      flush()
       await wait(500)
       await press("ArrowDown")
       await wait(500)
@@ -164,6 +196,7 @@ describe("Reorder groups with values from a Solid 1 store (#721)", () => {
   it("RS4: the app's own reorder of its store animates, on both groups, in every store form", async () => {
     await eachList(async (order, name) => {
       order.set(REVERSED)
+      flush()
       await wait(80)
       const mid = topOf("a")
       expect(mid, `${name}: a few frames on, a is on its way`).toBeGreaterThan(40)
@@ -174,22 +207,32 @@ describe("Reorder groups with values from a Solid 1 store (#721)", () => {
   }, 120_000)
 
   it("RS5: a store keeping the array onReorder handed it, two other items swapped in it while an item is lifted: dropped", async () => {
+    allowAssign()
     for (const kind of KINDS) {
       const [state, setState] = createStore({ rows: [...VALUES] })
       // The group's own array, kept as the store's: no copy.
-      mountList(kind, { values: () => state.rows, set: (next) => setState("rows", next as Array<string>) })
+      mountList(kind, {
+        values: () => state.rows,
+        set: (next) =>
+          setState((draft) => {
+            draft.rows = next as Array<string>
+          }),
+      })
       await wait(150)
       item("b").focus()
       await press("Space")
       await press("ArrowDown")
       // b lifted and a step on (acbdefgh): the app swaps a and h in place, b's node not moved.
-      setState("rows", reconcile(["h", "c", "b", "d", "e", "f", "g", "a"]))
+      setState((draft) => {
+        draft.rows.splice(0, draft.rows.length, "h", "c", "b", "d", "e", "f", "g", "a")
+      })
+      flush()
       await wait(500)
       expect(document.activeElement, `${kind}: b still has focus`).toBe(item("b"))
       await press("ArrowDown")
       await wait(500)
-      expect(state.rows.join(""), `${kind}: dropped, so the arrow moved nothing`).toBe("hcbdefga")
-      await resetScene()
+      expect(untrack(() => state.rows.join("")), `${kind}: dropped, so the arrow moved nothing`).toBe("hcbdefga")
+      await reset()
     }
   }, 60_000)
 })

@@ -53,7 +53,7 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid"
+import { wardic } from "@wardic/solid/v1"
 import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js"
 import { Checkbox, CONTROLS_STYLE, NOTE_STYLE } from "./controls.tsx"
 import { attachDragRecorder } from "./drag-recorder.ts"

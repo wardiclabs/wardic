@@ -58,7 +58,7 @@
  *
  * @module
  */
-import { LayoutGroup, Reorder, wardic } from "@wardic/solid"
+import { LayoutGroup, Reorder, wardic } from "@wardic/solid/v1"
 import { batch, createSignal, For, type JSX, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import type { Box, Point } from "../lab/drag-run.ts"
 import type { ReorderEvent, ReorderFrame } from "../lab/reorder-run.ts"

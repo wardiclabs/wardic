@@ -1,84 +1,71 @@
-// Appear animations, the Solid binding's server half (#48, ADR-0044): an element whose whole mount
-// animation the server knows plays it in CSS from first paint; the provider writes every rule and
-// timing into a `<style>` in the head once the render is done.
+// Appear animations on Solid 2, the server half (#209 PR 4a, ADR-0044, ADR-0045): the Solid 1
+// binding's AR cases (`../appear.ssr.test.tsx`) on `@solidjs/web`. The head's `<style>` goes through
+// the head registry (`useHead`, registered on the server only); a late `<Loading>` chunk's rules
+// stream with the chunk as a head patch, which Solid's own `$df` appends to the head when the chunk
+// lands, where Solid 1 needed a `<style>` in the chunk and `Appear.adoptChunks`.
 //
 // - AR1: a qualifying element gets `animation: var(--wardic-aN)`, and the head its rule and timing.
 // - AR2: the provider's `appear={false}` and an element's own turn it off; so does `initial={false}`.
-// - AR3: an element the server can't play keeps its Starting style alone: an animate-only key, a
-//   value the DOM reads (`auto`, `var()`), an easing with no name, its own `animation`, a length in
-//   two units.
+// - AR3: an element the server can't play keeps its Starting style alone.
 // - AR4: reduced motion: `"user"` adds the reduced rules under the media query; `"always"` and
 //   `"never"` write one set.
-// - AR5: a Variant child's stagger: `delayChildren` plus its place, in render order, by `from` and
-//   `staggerDirection`, as the client works it out.
-// - AR6: `when`: a child starts once its parent settles; a parent once its last child does; a start
-//   that depends on an element with no rule has none.
-// - AR7: a forever-repeating tween: an `infinite` cycle, its own delay in `animation-delay`; one with
-//   no `type` is a tween too (ADR-0051).
-// - AR8: the markup's hydration keys are the same with or without it.
-// - AR18 (#357): with no transition, a key samples the DOM's Default transition: an opacity's 0.3 s ease.
-// - AR9: a render with no `</head>` drops the style, and its elements keep their Starting style.
-// - AR10: a component wrap passes its `animation` through `style`.
-// - AR11: a spec's key doesn't hang on its keys' order; an easing with no name gives none.
-// - AR12 (#245): an svg-inner element's attributes play as CSS; a group whose rules write SVG
-//   geometry is defined, whole, under one `@supports`, its reduced block too; one that writes none
-//   isn't; `width` still keeps its Starting style.
-// - AR14 (#245): a stream's late chunk brings its own rules: one keyless `<style>` after its first
-//   root, with the rules the head didn't send and the chunk's slots; a late Variant child of a
-//   group the shell led is timed as a fresh mount (stagger among the late ones); a group led in
-//   the chunk as in the shell; the head holds none of the chunk's slots.
-// - AR13 (#245, #363): a layout node plays, drawn through its projection at rest as the client draws
-//   it: its Starting style and its rule draw its own `x` and `y` on the projection's translate, with
-//   its rotate and opacity, and its rule is named apart from a plain element's.
-// - AR15 (#277): a target's own transition times its Appear animation: an `animate` map's, and a
-//   dynamic variant's resolved with `custom` (its delay from the item's index, held in its rule).
-// - AR20 (#359): a spring set by time plays for its duration: a duration spring's rule ends at it.
-// - AR16 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
+// - AR5: a Variant child's stagger: `delayChildren` plus its place, by `from` and `staggerDirection`.
+// - AR6: `when`: a child starts once its parent settles; a parent once its last child does.
+// - AR7: a forever-repeating tween: an `infinite` cycle, its own delay in `animation-delay`.
+// - AR8: the markup's hydration keys are the same with or without it: the provider's head
+//   registration, made on the server only, takes no id.
+// - AR9: a render with no `</head>` and no `onHead` drops the style; its elements keep their
+//   Starting style.
+// - AR10: a component wrap and a kept ward's spread pass their animation through `style`.
+// - AR12: SVG attributes play as CSS; a group writing geometry is defined whole under one `@supports`.
+// - AR13 (#363): a layout node plays, its own `x` and `y` drawn on its projection in its Starting style and its rule.
+// - AR14: a stream's late chunk brings its own rules as a head patch: the rules the head didn't send
+//   and the chunk's slots; the shell group's late children staggered among themselves from 0; a
+//   group led in the chunk as in the shell; the head holding none of the chunk's slots. An element
+//   whose own component ran in the shell pass (only its children pend) is the shell's: Solid 2 runs
+//   a `<Loading>` subtree's components then, where Solid 1 re-rendered a `Suspense` subtree whole.
+// - AR15: a late chunk of kept wards alone brings its rules too (Solid 1 left them at their
+//   Starting style: only `wardic.*` could render the chunk's `<style>`).
+// - AR16: no element plays: the head gets no `<style>` at all.
+// - AR17 (#301): a transition's entries time each key in the rule: a fast `opacity` entry lands a
 //   fifth of the way through a rule the slow own fields set the length of.
-// - AR17 (#301): a value's own transition beside a forever repeat has no rule, as one CSS cycle can't
-//   hold both: an entry that repeats under own fields that don't, and own fields that repeat beside
-//   an entry that doesn't, or beside `default` driving every key. A `layout` entry alone leaves the
-//   cycle playing.
-// - AR22 (#429): Keyframes play on the server: the rule goes through every stop, a first `null` one
-//   from `initial`; Keyframes whose last stop is `initial`'s still play, and two that differ only in
-//   their middle stop get two rules; an `initial` with Keyframes renders its first stop, and
-//   `initial={false}` the last of `animate`'s, with no rule.
-// - AR21 (#448): a key already at its target, coerced to its shape, is left out of the rule, as the
-//   client starts it no leg: one at `1` beside a key that moves, `"0px"` against `0`, and an `auto` the
-//   DOM would read, which no longer stops the rule. An element whose every key is there has none.
-// - AR23 (#434): a `WardicConfig`'s transition times the rule of an element with none of its own;
+// - AR18 (#257 item 1): a ward whose `animate` reads an async memo, under `<Loading>`: its region
+//   streams once the data is in (a server waits for it and renders the component again), its rule
+//   running from `initial` to the fetched target.
+// - AR19 (#257 item 1): a key setup fixes, still loading on a server, is the client's error too, and
+//   so is a pending `animate` with `initial={false}`.
+// - AR20 (#434): a `WardicConfig`'s transition times the rule of an element with none of its own;
 //   one with its own keeps it, and an inner config with `inherit: true` lays its delay over it.
-// - AR24 (#434): an element under a `WardicConfig`'s `reducedMotion` renders as a page with that setting
+// - AR21 (#434): an element under a `WardicConfig`'s `reducedMotion` renders as a page with that setting
 //   at its provider would: "always" its reduced play alone, "never" its normal one alone, and "user"
 //   both, the reduced under the media query, which a provider's "never" then writes for it alone.
-// - AR26 (#468): under a `WardicConfig`'s `skipAnimations`, or its transition's own, an element's rule is
-//   0 s, holding its end from first paint, with no reduced play under the media query, a forever-repeating
-//   one too; beside it, outside, its own timing.
-// - AR27 (#468): a skipped Variant child holds no stagger, and waits no time for its skipped parent's
-//   `when: "beforeChildren"`.
-// - AR28 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
-// - AR29 (#438): an entrance on a `transition.path`: its rule follows the curve, `y` off 0 midway, and
-//   ends on its target; two paths name two rules.
-// - AR30 (#585): the provider's `appear="explain"` says, at Warning, why each element that doesn't play
+// - AR22 (#468): under a `WardicConfig`'s `skipAnimations`, a ward's and an element's rule is 0 s,
+//   holding its end, with no reduced play; a skipped Variant child holds no stagger.
+// - AR23 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
+// - AR24 (#525): a wrapped component whose element takes its props by a spread, its child pending,
+//   is the shell's too: the pending read waits at the wrap's `children()`, its rule in the head.
+// - AR25 (#585): the provider's `appear="explain"` says, at Warning, why each element that doesn't play
 //   waits for the JavaScript, naming its tag and keys; `true`, or no `appear`, says nothing.
-// - AR31 (#618, P1): the provider's `nonce`: the head's `<style>` carries it (a late chunk's, dom's
-//   `Appear.chunkStyle`, in `dom/test/appear.node.test.ts`).
-// - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
-//   under a config's "never" to settle as that parent plays: its move, not a snap.
+// - AR26 (#618, M6): two renders of a page whose rules blend colours give the same markup: the second
+//   samples them with the Interpolators the first built, which a server keeps.
+// - AR27 (#618, P1): the provider's `nonce`: the head's `<style>` carries it, and a late chunk's head
+//   patch too; with none, neither has one.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { arc, createWard, stagger, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
-import { createResource, For, type JSX, Suspense } from "solid-js"
-import { renderToStream, renderToString } from "solid-js/web"
-import { describe, expect, it } from "vitest"
-import { delayOf, headCss, propertyOf, said, timing } from "./appear-markup.ts"
-import { tagsOf } from "./ssr-helpers.ts"
-import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
+import { stagger, ward, wardic, WardicConfig, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
+import { createMemo, Errored, For, Loading, Show } from "solid-js"
+import { describe, expect, it } from "vitest"
+import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
+import { delayOf, headCss, propertyOf, said, timing } from "./appear-markup.ts"
+import { tagsOf } from "./ssr.ts"
 
-/** A whole document with a head, as SolidStart renders it, and `ui` under a provider. */
-const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never"; readonly nonce?: string } = {}): string =>
+type ProviderProps = { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never"; readonly nonce?: string }
+
+/** A whole document with a head, as a start-mode app renders it, and `ui` under a provider. */
+const page = (ui: () => JSX.Element, provider: ProviderProps = {}): string =>
   renderToString(() => (
     <html>
       <head>
@@ -92,9 +79,21 @@ const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "ex
     </html>
   ))
 
+/** The head's Appear style, or "". */
+
+/**
+ * The head patches a streamed write carries (`_$HY.hp[id] = [[op, key, tag, attrs, text], …]`, which
+ * `$df` applies when its chunk lands): each Appear `<style>`'s text.
+ */
+const appearPatches = (write: string): ReadonlyArray<string> =>
+  [...write.matchAll(/\(_\$HY\.hp=_\$HY\.hp\|\|\{\}\)\["[^"]+"\]=(\[\[[\s\S]*?\]\]);/g)].flatMap((m) =>
+    (JSON.parse(m[1]!) as ReadonlyArray<ReadonlyArray<unknown>>)
+      .filter((patch) => patch[2] === "style" && Object.hasOwn((patch[3] ?? {}) as object, "data-wardic-appear"))
+      .map((patch) => String(patch[4])))
+
 const rise = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 } } as const
 
-describe("Appear animations on a server (#48, ADR-0044)", () => {
+describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   it("AR1: a qualifying element gets animation: var(--wardic-aN), and the head its rule and timing", () => {
     const html = page(() => <wardic.div {...rise} />)
     const div = tagsOf(html).find((t) => t.name === "div")
@@ -137,6 +136,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
         <wardic.div {...rise} style={own} />
         <wardic.div {...rise} transition={{ type: "tween", ease: Easing.cubicBezier(0.4, 0, 0.2, 1) }} />
         <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
+        {/* eslint-disable-next-line solid/style-prop -- a string style is what this element checks */}
         <wardic.div {...rise} style="color: red; animation: spin 1s infinite" />
         <wardic.div initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff" }} />
       </>
@@ -148,7 +148,6 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(plays).toEqual([false, false, false, false, false, true, false, false, true])
     expect(divs[4]?.style.animation, "its own animation stays").toBe("spin 1s infinite")
     expect(divs[7]?.style.animation, "a CSS-text style's own too").toBe("spin 1s infinite")
-    // Only the two that play have their timing in the head: an element ruled out leaves its slot undefined.
     expect(css.split("@media")[0]!.match(/--wardic-a\d+:/g), css).toHaveLength(2)
   })
 
@@ -208,7 +207,6 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     }
     const before = run("beforeChildren")
     expect(delayOf(before.parent)).toBe(0)
-    // The parent's 0.5 s tween settles a 60 Hz frame after it arrives, as the client's does.
     expect(before.children.map(delayOf).map((d) => Math.round(d * 1000) / 1000)).toEqual([0.517, 0.617])
     const after = run("afterChildren")
     expect(after.children.map(delayOf)).toEqual([0, 0.1])
@@ -224,30 +222,30 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const div = tagsOf(html).find((t) => t.name === "div")
     const animation = timing(headCss(html), propertyOf(div?.style.animation)).normal
     expect(animation).toMatch(/ 2s linear 0\.3s infinite forwards$/)
-    // No `type`: a repeat makes it a tween (ADR-0051), so it repeats for ever too.
-    const untyped = page(() => <wardic.div initial={{ rotate: 0 }} animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, delay: 0.3 }} />)
-    const spin = tagsOf(untyped).find((t) => t.name === "div")
-    expect(timing(headCss(untyped), propertyOf(spin?.style.animation)).normal).toMatch(/ 2s linear 0\.3s infinite forwards$/)
-  })
-
-  it("AR18: with no transition, each key samples the DOM's Default transition (ADR-0051)", () => {
-    const html = page(() => <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} />)
-    const animation = timing(headCss(html), propertyOf(tagsOf(html).find((t) => t.name === "div")?.style.animation)).normal
-    expect(animation, "an opacity's 0.3 s ease, as the client runs it").toMatch(/ 0\.3s linear 0s 1 forwards$/)
   })
 
   it("AR8: the markup's hydration keys are the same with or without it", () => {
+    const Card = () => {
+      const card = ward(rise)
+      return <aside {...card} />
+    }
     const ui = () => (
-      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}>
-        <wardic.li variants={{ hidden: { x: -10 }, shown: { x: 0 } }} />
-        <wardic.li variants={{ hidden: { x: -10 }, shown: { x: 0 } }} />
-      </wardic.ul>
+      <>
+        <wardic.ul initial="hidden" animate="shown" variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}>
+          <wardic.li variants={{ hidden: { x: -10 }, shown: { x: 0 } }} />
+          <wardic.li variants={{ hidden: { x: -10 }, shown: { x: 0 } }} />
+        </wardic.ul>
+        <Card />
+        <For each={[0, 1]}>{() => <wardic.p {...rise} />}</For>
+      </>
     )
-    const keys = (html: string) => [...html.matchAll(/data-hk="([^"]+)"/g)].map((m) => m[1])
-    expect(keys(page(ui))).toEqual(keys(page(ui, { appear: false })))
+    const keys = (html: string) => [...html.matchAll(/_hk=([^\s>"]+)/g)].map((m) => m[1])
+    const on = keys(page(ui))
+    expect(on.length, "the markup has keys").toBeGreaterThan(3)
+    expect(on).toEqual(keys(page(ui, { appear: false })))
   })
 
-  it("AR9: a render with no </head> drops the style; its elements keep their Starting style", () => {
+  it("AR9: a render with no </head> and no onHead drops the style; its elements keep their Starting style", () => {
     const html = renderToString(() => (
       <WardicProvider env={DomLive}>
         <wardic.div {...rise} />
@@ -265,12 +263,12 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(Option.isNone(at({ x: 0 }, { x: 1 }, (t) => t * t))).toBe(true)
   })
 
-  it("AR10: a component wrap and a createWard spread pass their animation through style", () => {
-    const Card = (p: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties }) => <article ref={p.ref} style={p.style} />
+  it("AR10: a component wrap and a kept ward's spread pass their animation through style", () => {
+    const Card = (p: { readonly ref?: JSX.Ref<HTMLElement>; readonly style?: JSX.CSSProperties | string }) => <article ref={p.ref} style={p.style} />
     const WCard = wardic.create(Card)
     const Spread = () => {
-      const ward = createWard(rise)
-      return <aside {...ward()} />
+      const card = ward(rise)
+      return <aside {...card} />
     }
     const html = page(() => (
       <>
@@ -304,7 +302,6 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(circle?.attrs.r).toBe("4")
     expect(css).toMatch(/@keyframes wardic-\w+\{0%\{cx:0px;r:4px\}/)
     expect(css).toMatch(/@keyframes wardic-\w+\{0%\{stroke-dasharray:0 1;stroke-dashoffset:0\}/)
-    // The group, the circle's leader and the path beside it too, under the circle's condition.
     const [plain, media = ""] = css.split("@media (prefers-reduced-motion: reduce)")
     const guarded = (text: string) => /@supports \(cx:0px\) and \(r:0px\)\{:root\{([^}]*)\}\}/.exec(text)?.[1] ?? ""
     for (const name of ["g", "circle", "path"]) {
@@ -312,20 +309,18 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
       expect(guarded(plain!), name).toContain(`${property(name)}:`)
       expect(guarded(media), `${name} reduced`).toContain(`${property(name)}:`)
     }
-    // The rect writes no geometry: defined with no condition.
     const rect = tagsOf(html).find((t) => t.name === "rect" && t.attrs["data-k"] === undefined)
     const rectProperty = propertyOf(rect?.style.animation)
     expect(rectProperty).not.toBe("")
     expect(guarded(plain!)).not.toContain(rectProperty)
     expect(/(?:^|\})(:root\{[^}]*\})/.exec(plain!)?.[1]).toContain(`${rectProperty}:`)
-    // `width` can't be guarded: the rect keeps its Starting style.
     const sized = tagsOf(html).find((t) => t.attrs["data-k"] === "sized")
     expect(timing(css, propertyOf(sized?.style.animation)).normal).toBe("")
   })
 
   it("AR13: a layout node plays, drawn through its projection at rest, its own translate on top (#245, #363)", () => {
     const entrance = { initial: { opacity: 0, y: 40, rotate: 10 }, animate: { opacity: 1, y: 0, rotate: 0 } } as const
-    const Card = (p: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties }) => <article ref={p.ref} style={p.style} />
+    const Card = (p: { readonly ref?: JSX.Ref<HTMLElement>; readonly style?: JSX.CSSProperties | string }) => <article ref={p.ref} style={p.style} />
     const WCard = wardic.create(Card)
     const html = page(() => (
       <>
@@ -342,8 +337,6 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
       const name = timing(css, propertyOf(div(k)?.style.animation)).normal.split(" ")[0]!
       return { name, body: new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? "" }
     }
-    // The Starting style: its own y on its projection at rest, the rotate and opacity, as the client's
-    // first commit draws it (#363).
     for (const k of ["layout", "shared"]) {
       expect(div(k)?.style.transform, k).toBe("translate3d(0px, 40px, 0px) rotate(10deg)")
       expect(div(k)?.style.opacity, k).toBe("0")
@@ -353,161 +346,148 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(article?.style.transform, "a component wrap's too").toBe("translate3d(0px, 40px, 0px) rotate(10deg)")
     const wrapName = timing(css, propertyOf(article?.style.animation)).normal.split(" ")[0]!
     expect(new RegExp(`@keyframes ${wrapName}\\{(.*?\\})\\}`).exec(css)?.[1], "its rule draws the same").toBe(ruleOf("layout").body)
-    // Its rule: the same, every stop.
     const layout = ruleOf("layout")
     expect(layout.body.startsWith("0%{transform:translate3d(0px, 40px, 0px) rotate(10deg);opacity:0}"), layout.body).toBe(true)
     expect(ruleOf("shared").name, "a layoutId node's too").toBe(layout.name)
     const plain = ruleOf("plain")
     expect(plain.body.startsWith("0%{transform:translateY(40px) rotate(10deg);opacity:0}"), plain.body).toBe(true)
     expect(plain.name, "named apart: the client's spec names it the same").not.toBe(layout.name)
-    // Only its own x animating: it slides, as the client draws it (#363).
     expect(div("slide")?.style.transform).toBe("translate3d(-30px, 0px, 0px)")
     expect(ruleOf("slide").body.startsWith("0%{transform:translate3d(-30px, 0px, 0px)}"), ruleOf("slide").body).toBe(true)
     expect(ruleOf("slide").body, "it slides home").toContain("100%{transform:none}")
   })
 
-  it("AR14: a stream's late chunk brings its own rules, after its first root, keyless (#245)", async () => {
-    const items = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
+  /** Stream `ui` as a document under a provider, each write as the stream sent it. */
+  const stream = (ui: () => JSX.Element, provider: ProviderProps = {}): Promise<ReadonlyArray<string>> => {
     const writes: Array<string> = []
-    // Each late part resolves once the write before it is out, not on a timer: a part ready before
-    // the shell is written goes into the shell, as on a slow runner's cold first render (#460).
-    const waits: Array<{ readonly out: (w: string) => boolean; readonly go: () => void }> = []
-    const written = (out: (w: string) => boolean): Promise<void> => new Promise((go) => void waits.push({ out, go }))
-    const write = (w: string): void => {
-      writes.push(w)
-      waits.filter((x) => x.out(w)).forEach((x) => x.go())
-    }
-    await new Promise<void>((resolve) => {
-      renderToStream(() => {
-        const [data] = createResource(() => written(() => true).then(() => [0, 1, 2]))
-        const [later] = createResource(() => written((w) => w.includes('data-k="late0"')).then(() => "later"))
-        return (
-          <html>
-            <head>
-              <title>t</title>
-            </head>
-            <body>
-              <WardicProvider env={DomLive}>
-                <wardic.h1 data-k="title" {...rise} />
-                <wardic.ul
-                  data-k="list"
-                  initial="hidden"
-                  animate="shown"
-                  variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
-                  transition={{ type: "tween", duration: 0.3, staggerChildren: 0.1, when: "beforeChildren" }}
-                >
-                  <wardic.li data-k="shell" variants={items} />
-                  <Suspense fallback={<li>loading</li>}>
-                    <For each={data()}>{(i) => <wardic.li data-k={`late${i}`} variants={items} />}</For>
-                    <wardic.h1 data-k="late-title" {...rise} />
-                    <wardic.ol initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ staggerChildren: 0.05 }}>
-                      <For each={[0, 1]}>
-                        {(i) => (
-                          <div>
-                            <wardic.li data-k={`own${i}`} variants={items} />
-                          </div>
-                        )}
-                      </For>
-                    </wardic.ol>
-                  </Suspense>
-                </wardic.ul>
-                <Suspense fallback={<p>loading</p>}>
-                  <wardic.p data-k="second" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
-                    {later()}
-                  </wardic.p>
-                </Suspense>
-              </WardicProvider>
-            </body>
-          </html>
-        )
-      }).pipe({ write, end: () => resolve() } as unknown as { write: (v: string) => void; end: () => void })
+    return new Promise((resolve) => {
+      renderToStream(() => (
+        <html>
+          <head>
+            <title>t</title>
+          </head>
+          <body>
+            <WardicProvider env={DomLive} {...provider}>
+              {ui()}
+            </WardicProvider>
+          </body>
+        </html>
+      )).pipe({ write: (v) => void writes.push(v), end: () => resolve(writes) })
+    })
+  }
+
+  /** A value an async memo gives after `ms`, read under `<Loading>`. */
+  const after = <A,>(ms: number, value: A) =>
+    createMemo(async () => {
+      await new Promise((r) => setTimeout(r, ms))
+      return value
+    })
+
+  it("AR14: a stream's late chunk brings its own rules as a head patch (#245)", async () => {
+    const items = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
+    const writes = await stream(() => {
+      const data = after(20, [0, 1, 2])
+      // Far enough after the first that a slow runner still sends them as two chunks: at 60 ms,
+      // CI's once arrived in one write.
+      const later = after(500, "later")
+      return (
+        <>
+          <wardic.h1 data-k="title" {...rise} />
+          <wardic.ul
+            data-k="list"
+            initial="hidden"
+            animate="shown"
+            variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
+            transition={{ type: "tween", duration: 0.3, staggerChildren: 0.1, when: "beforeChildren" }}
+          >
+            <wardic.li data-k="shell" variants={items} />
+            <Loading fallback={<li>loading</li>}>
+              <For each={data()}>{(i) => <wardic.li data-k={`late${i}`} variants={items} />}</For>
+              {/* Made by the data, so made late: a component that reads none runs in the shell pass. */}
+              <Show when={data()}>
+                <wardic.h1 data-k="late-title" {...rise} />
+                <wardic.ol initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ staggerChildren: 0.05 }}>
+                  <For each={[0, 1]}>
+                    {(i) => (
+                      <div>
+                        <wardic.li data-k={`own${i}`} variants={items} />
+                      </div>
+                    )}
+                  </For>
+                </wardic.ol>
+              </Show>
+            </Loading>
+          </wardic.ul>
+          <Loading fallback={<p>loading</p>}>
+            <wardic.p data-k="second" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
+              {later()}
+            </wardic.p>
+          </Loading>
+        </>
+      )
     })
     const shell = writes[0]!
     const chunks = writes.slice(1).filter((w) => w.includes("<template"))
-    expect(chunks, "two chunks, one a boundary").toHaveLength(2)
+    expect(chunks, "two chunks").toHaveLength(2)
     const chunk = chunks.find((w) => w.includes('data-k="late0"'))!
-    // The later chunk has its own style: its element is its root too.
     const second = chunks.find((w) => w.includes('data-k="second"'))!
-    const secondCss = /<style data-wardic-appear-chunk>([\s\S]*?)<\/style>/.exec(second)?.[1] ?? ""
-    const secondTag = tagsOf(second).find((t) => t.attrs["data-k"] === "second")
-    expect(timing(secondCss, propertyOf(secondTag?.style.animation)).normal, "the later chunk's own style").not.toBe("")
-    expect(chunk, "the chunk came after the shell").toBeDefined()
+    expect(chunk.includes("<style"), "no <style> in the chunk's markup").toBe(false)
+    const [css = ""] = appearPatches(chunk)
+    expect(appearPatches(chunk), "one Appear head patch a chunk").toHaveLength(1)
     const head = headCss(shell)
-    const styles = [...chunk.matchAll(/<style([^>]*)>([\s\S]*?)<\/style>/g)]
-    expect(styles, "one style a chunk").toHaveLength(1)
-    const [, attributes, css] = styles[0]!
-    expect(attributes, "server text: no hydration key").toBe(` ${Appear.CHUNK_ATTRIBUTE}`)
-    expect(chunk.indexOf("<style"), "after its first root").toBeGreaterThan(chunk.indexOf('data-k="late0"'))
+    // An element whose own component ran in the shell is the shell's, though its markup streams
+    // later: Solid 2 runs a `<Loading>` subtree's components in the shell pass and holds only the
+    // pending reads (here the `<p>`'s text). Its rule and timing are in the head; its CSS starts when
+    // its chunk is inserted. The chunk brings no patch of its own.
+    const secondTag = tagsOf(second).find((t) => t.attrs["data-k"] === "second")
+    expect(timing(head, propertyOf(secondTag?.style.animation)).normal, "the second chunk's element, in the head").not.toBe("")
+    expect(appearPatches(second), "nothing new in its chunk").toEqual([])
     const tag = (k: string) => tagsOf(chunk).find((t) => t.attrs["data-k"] === k) ?? tagsOf(shell).find((t) => t.attrs["data-k"] === k)
-    const late = (k: string) => timing(css!, propertyOf(tag(k)?.style.animation))
+    const late = (k: string) => timing(css, propertyOf(tag(k)?.style.animation))
     // The late title shares the shell title's rule: not sent again.
     const titleRule = timing(head, propertyOf(tag("title")?.style.animation)).normal.split(" ")[0]!
     expect(late("late-title").normal.split(" ")[0]).toBe(titleRule)
     expect(css).not.toContain(`@keyframes ${titleRule}{`)
-    // The shell's group: its own child waits for the leader (`beforeChildren`); its late children are
-    // a fresh mount from the chunk's landing, staggered among themselves, waiting on no one.
+    // The shell's group: its own child waits for the leader; its late children are a fresh mount
+    // from the chunk's landing, staggered among themselves.
     expect(delayOf(timing(head, propertyOf(tag("shell")?.style.animation)).normal), "the shell child waits").toBeGreaterThan(0.29)
     expect(["late0", "late1", "late2"].map((k) => delayOf(late(k).normal))).toEqual([0, 0.1, 0.2])
     expect(["late0", "late1", "late2"].map((k) => late(k).reduced), "the reduced block too").not.toContain("")
-    // A group led in the chunk, as in the shell: its items, each in a plain wrapper, are timed together
-    // (the chunk's root is the group's leader, not each item).
+    // A group led in the chunk, as in the shell: its items, each in a plain wrapper, are timed together.
     expect(["own0", "own1"].map((k) => delayOf(late(k).normal))).toEqual([0, 0.05])
     // The head holds the shell's slots only.
     expect(timing(head, propertyOf(tag("shell")?.style.animation)).normal).not.toBe("")
     for (const k of ["late0", "late-title", "own0"]) expect(timing(head, propertyOf(tag(k)?.style.animation)).normal, k).toBe("")
   })
 
-  it("AR15: a target's own transition times its Appear animation, a dynamic variant's with custom (#277)", () => {
-    const html = page(() => (
-      <>
-        <wardic.div data-k="map" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { type: "tween", duration: 0.7, ease: Easing.linear } }} />
-        <wardic.div data-k="fn" custom={2} variants={ITEM} initial="hidden" animate="visible" />
-      </>
-    ))
-    const css = headCss(html)
-    const animationOf = (k: string): string => timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal
-    expect(animationOf("map"), "the map's own 0.7 s").toMatch(/ 0\.7s linear 0s /)
-    // Its own delay is held in its rule: 2 × 0.25 s still, then its 0.3 s.
-    expect(animationOf("fn"), "the variant's 0.5 s delay and 0.3 s").toMatch(/ 0\.8s linear 0s /)
+  it("AR15: a late chunk of kept wards alone brings its rules too", async () => {
+    const Card = (props: { readonly k: string }) => {
+      const card = ward(rise)
+      return <aside {...card} data-k={props.k} />
+    }
+    const writes = await stream(() => {
+      const data = after(20, ["a", "b"])
+      return (
+        <Loading fallback={<p>loading</p>}>
+          <For each={data()}>{(k) => <Card k={k} />}</For>
+        </Loading>
+      )
+    })
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="a"'))!
+    const patches = appearPatches(chunk)
+    expect(patches.filter((css) => css !== ""), "one style with the chunk's rules").toHaveLength(1)
+    for (const k of ["a", "b"]) {
+      const aside = tagsOf(chunk).find((t) => t.attrs["data-k"] === k)
+      expect(timing(patches[0]!, propertyOf(aside?.style.animation)).normal, k).not.toBe("")
+    }
   })
 
-  it("AR19: a named ease plays on its curve, and its rule is keyed by the name (#360)", () => {
-    const html = page(() => <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1, ease: "easeIn" }} />)
-    const css = headCss(html)
-    const animation = timing(css, propertyOf(tagsOf(html).find((t) => t.name === "div")?.style.animation)).normal
-    expect(animation, "a 1 s rule").toMatch(/ 1s linear 0s /)
-    const name = animation.split(" ")[0]!
-    const rule = new RegExp(`@keyframes ${name}\\{((?:[\\d.]+%\\{[^}]*\\})*)\\}`).exec(css)?.[1] ?? ""
-    const stops = Array.from(rule.matchAll(/([\d.]+)%\{[^}]*opacity:([\d.]+)/g), (m) => ({ at: Number(m[1]) / 100, opacity: Number(m[2]) }))
-    expect(stops.length, "sampled").toBeGreaterThan(3)
-    for (const stop of stops) expect(stop.opacity, `at ${stop.at}`).toBeCloseTo(Easing.easeIn(stop.at), 2)
+  it("AR16: no element plays: the head gets no <style> at all", () => {
+    const html = page(() => <wardic.div animate={{ opacity: 1 }} />)
+    expect(html).not.toContain("data-wardic-appear")
   })
 
-  it("AR20: a duration spring's rule moves until its duration, on its target, and settles at it (#359)", () => {
-    const variants = { hidden: { x: 0 }, shown: { x: 100 } }
-    const spring = { type: "spring", duration: 0.8, bounce: 0.4 } as const
-    const html = page(() => (
-      <wardic.section initial="hidden" animate="shown" variants={variants} transition={{ ...spring, when: "beforeChildren" }}>
-        <wardic.p variants={variants} transition={spring} />
-      </wardic.section>
-    ))
-    const css = headCss(html)
-    const [section, p] = tagsOf(html).filter((t) => t.name === "section" || t.name === "p")
-    const animation = timing(css, propertyOf(section?.style.animation)).normal
-    // Its rule ends at the last frame it's drawn moving: past 0.7 s, by 0.8 s.
-    const seconds = Number(/ ([\d.]+)s linear/.exec(animation)?.[1])
-    expect(seconds).toBeGreaterThan(0.7)
-    expect(seconds).toBeLessThanOrEqual(0.8)
-    const name = animation.split(" ")[0]!
-    const rule = new RegExp(`@keyframes ${name}\\{(.*?)\\}\\}`).exec(css)?.[1] ?? ""
-    expect(rule.endsWith("100%{transform:translateX(100px)"), "ends on 100px").toBe(true)
-    const xs = Array.from(rule.matchAll(/translateX\(([\d.-]+)px\)/g), (m) => Number(m[1]))
-    expect(Math.max(...xs), "a bounce of 0.4: past 100 on the way").toBeGreaterThan(105)
-    // It settles at its 0.8 s (48 frames of 1/60 s), as the client's: the child starts then.
-    expect(delayOf(timing(css, propertyOf(p?.style.animation)).normal)).toBeCloseTo(0.8, 9)
-  })
-
-  it("AR16: a transition's entries time each key in the rule (#301)", () => {
+  it("AR17: a transition's entries time each key in the rule (#301)", () => {
     const linear = Easing.linear
     const html = page(() => (
       <wardic.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1, ease: linear, opacity: { type: "tween", duration: 0.2, ease: linear } }} />
@@ -524,78 +504,59 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(faded?.body, "y still on its way").toMatch(/translateY\((1[0-9]|[5-9])\.?[\d]*px\)/)
   })
 
-  it("AR17: a value's own transition beside a forever repeat has no rule; a layout entry alone plays (#301)", () => {
-    const quick = { type: "tween", duration: 0.3, ease: Easing.linear } as const
-    const html = page(() => (
-      <>
-        <wardic.div data-k="entry" {...rise} transition={{ ...quick, opacity: { ...quick, repeat: Number.POSITIVE_INFINITY } }} />
-        <wardic.div data-k="own" {...rise} transition={{ ...quick, repeat: Number.POSITIVE_INFINITY, opacity: quick }} />
-        <wardic.div data-k="default" {...rise} transition={{ ...quick, repeat: Number.POSITIVE_INFINITY, default: quick }} />
-        <wardic.div data-k="layout" {...rise} transition={{ ...quick, repeat: Number.POSITIVE_INFINITY, layout: quick }} />
-      </>
-    ))
-    const css = headCss(html)
-    const animationOf = (k: string): string => timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal
-    expect(animationOf("entry"), "an entry that repeats: no rule").toBe("")
-    expect(animationOf("own"), "own fields that repeat beside an entry: no rule").toBe("")
-    expect(animationOf("default"), "own fields that repeat, every key on default: no rule").toBe("")
-    expect(animationOf("layout"), "a layout entry alone: the cycle plays").toMatch(/ 0\.6s linear 0s infinite /)
-  })
-
-  it("AR21: a key already at its target is left out of the rule; an element with every key there has none (#448)", () => {
-    const html = page(() => (
-      <>
-        <wardic.div data-k="still" initial={{ opacity: 1, y: 20 }} animate={{ opacity: 1, y: 0 }} />
-        <wardic.div data-k="coerced" initial={{ x: "0px", opacity: 0 }} animate={{ x: 0, opacity: 1 }} />
-        <wardic.div data-k="auto" initial={{ height: "auto", opacity: 0 }} animate={{ height: "auto", opacity: 1 }} />
-        <wardic.div data-k="there" initial={{ x: "0px", opacity: 1 }} animate={{ x: 0, opacity: 1 }} />
-      </>
-    ))
-    const css = headCss(html)
-    const ruleOf = (k: string): string => {
-      const name = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal.split(" ")[0] ?? ""
-      return new RegExp(`@keyframes ${name}\\{0%\\{([^}]*)\\}`).exec(css)?.[1] ?? ""
+  it("AR18: a ward's animate from an async memo: its region streams once the data is in, its rule to the fetched target (#257 item 1)", async () => {
+    const Card = () => {
+      const x = after(20, 100)
+      const card = ward({ initial: { x: 0, opacity: 0 }, animate: () => ({ x: x(), opacity: 1 }), transition: { type: "tween", duration: 0.3 } })
+      return <div {...card} data-k="card" />
     }
-    expect(ruleOf("still"), "y alone").toBe("transform:translateY(20px)")
-    expect(ruleOf("coerced"), "opacity alone").toBe("opacity:0")
-    expect(ruleOf("auto"), "opacity alone, the auto left out").toBe("opacity:0")
-    expect(tagsOf(html).find((t) => t.attrs["data-k"] === "there")?.style.animation, "every key there: none").toBeUndefined()
-  })
-
-  it("AR22: Keyframes play on the server; initial's render its first stop, initial={false} animate's last (#429)", () => {
-    const LINEAR_1S = { type: "tween", duration: 1, ease: "linear" } as const
-    const html = page(() => (
-      <>
-        <wardic.div data-k="stops" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0.5] }} transition={LINEAR_1S} />
-        <wardic.div data-k="null" initial={{ x: 20 }} animate={{ x: [null, 100, 0] }} transition={LINEAR_1S} />
-        <wardic.div data-k="first" initial={{ x: [30, 90] }} animate={{ x: 0 }} />
-        <wardic.div data-k="last" initial={false} animate={{ x: [0, 100, 40] }} />
-        <wardic.div data-k="pulse" initial={{ opacity: 1 }} animate={{ opacity: [1, 0.2, 1] }} transition={LINEAR_1S} />
-        <wardic.div data-k="low" initial={{ opacity: 0 }} animate={{ opacity: [0, 0.3, 1] }} transition={LINEAR_1S} />
-        <wardic.div data-k="high" initial={{ opacity: 0 }} animate={{ opacity: [0, 0.7, 1] }} transition={LINEAR_1S} />
-      </>
+    const writes = await stream(() => (
+      <Loading fallback={<p>loading</p>}>
+        <Card />
+      </Loading>
     ))
-    const css = headCss(html)
-    const tag = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
-    const ruleOf = (k: string): string => {
-      const name = timing(css, propertyOf(tag(k)?.style.animation)).normal.split(" ")[0] ?? ""
-      return new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? ""
-    }
-    expect(ruleOf("stops"), "from its first stop").toMatch(/^0%\{opacity:0\}/)
-    expect(ruleOf("stops"), "through its middle one").toContain("{opacity:1}")
-    expect(ruleOf("stops"), "to its last").toMatch(/100%\{opacity:0\.5\}$/)
-    expect(ruleOf("null"), "a null first stop from initial").toMatch(/^0%\{transform:translateX\(20px\)\}/)
-    expect(ruleOf("null")).toContain("{transform:translateX(100px)}")
-    expect(ruleOf("null"), "to its last, at rest").toMatch(/100%\{transform:none\}$/)
-    expect(tag("first")?.style.transform, "initial's first stop").toBe("translateX(30px)")
-    expect(tag("last")?.style.transform, "animate's last stop").toBe("translateX(40px)")
-    expect(tag("last")?.style.animation, "and nothing plays").toBeUndefined()
-    expect(ruleOf("pulse"), "its last stop initial's, still played").toContain("{opacity:0.2}")
-    expect(ruleOf("low"), "its own middle stop").toContain("{opacity:0.3}")
-    expect(ruleOf("high"), "its own middle stop, a rule of its own").toContain("{opacity:0.7}")
+    expect(writes[0], "not in the shell: its region waits").not.toContain('data-k="card"')
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="card"'))!
+    expect(chunk, "in a late chunk").toBeDefined()
+    const css = appearPatches(chunk).join("")
+    const div = tagsOf(chunk).find((t) => t.attrs["data-k"] === "card")
+    const name = timing(css, propertyOf(div?.style.animation)).normal.split(" ")[0]!
+    const body = new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? ""
+    expect(body, "from initial").toContain("0%{transform:none;opacity:0}")
+    expect(body, "to the fetched target").toContain("100%{transform:translateX(100px);opacity:1}")
   })
 
-  it("AR23: a WardicConfig's transition times an element with none of its own; inherit: true lays its delay over it (#434)", () => {
+  it("AR19: a key setup fixes, still loading on a server, is the client's error", () => {
+    const Card = () => {
+      const layout = after(20, true as const)
+      const card = ward({ animate: { x: 100 }, layout: () => layout() })
+      return <div {...card} data-k="card" />
+    }
+    const html = renderToString(() => (
+      <WardicProvider env={DomLive}>
+        <Errored fallback={(err) => <p data-err>{String((err() as Error).message)}</p>}>
+          <Card />
+        </Errored>
+      </WardicProvider>
+    ))
+    expect(html).toContain("ward(config): `layout` was still loading when the ward was made.")
+    // So is a pending `animate` a ward would start at.
+    const Starting = () => {
+      const x = after(20, 100)
+      const card = ward({ initial: false, animate: () => ({ x: x() }) })
+      return <div {...card} data-k="card" />
+    }
+    const starting = renderToString(() => (
+      <WardicProvider env={DomLive}>
+        <Errored fallback={(err) => <p data-err>{String((err() as Error).message)}</p>}>
+          <Starting />
+        </Errored>
+      </WardicProvider>
+    ))
+    expect(starting).toContain("with `initial={false}` a ward starts there")
+  })
+
+  it("AR20: a WardicConfig's transition times an element with none of its own; inherit: true lays its delay over it (#434)", () => {
     const rise = { initial: { opacity: 0 }, animate: { opacity: 1 } } as const
     const html = page(() => (
       <WardicConfig transition={{ type: "tween", duration: 1.5, ease: Easing.linear }}>
@@ -614,7 +575,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(animationOf("inherits"), "the outer 1.5 s after its 0.25 s, held in the rule").toMatch(/ 1\.75s linear 0s /)
   })
 
-  it("AR24: an element under a WardicConfig's reducedMotion renders as its provider would with that setting (#434)", () => {
+  it("AR21: an element under a WardicConfig's reducedMotion renders as its provider would with that setting (#434)", () => {
     const rise = { initial: { opacity: 0, x: 20 }, animate: { opacity: 1, x: 0 }, transition: { type: "tween", duration: 0.3, ease: Easing.linear } } as const
     const timingsOf = (html: string) => {
       const css = headCss(html)
@@ -648,106 +609,69 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(underNever("never"), "beside it, the provider's \"never\"").toEqual(alone("never"))
   })
 
-  it("AR25: a Variant child that follows the user waits, reduced too, for its \"never\" parent's move (#434)", () => {
+  it("AR22: under skipAnimations, a ward's and an element's rule is 0 s, holding its end; no stagger (#468)", () => {
     const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
-    const html = page(() => (
-      <WardicConfig reducedMotion="never">
-        <wardic.ul initial="hidden" animate="shown" variants={{ hidden: { x: 20 }, shown: { x: 0 } }} transition={{ ...tween, when: "beforeChildren" }}>
-          <WardicConfig reducedMotion="user">
-            <wardic.li data-k="child" variants={{ hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }} />
-          </WardicConfig>
-        </wardic.ul>
-      </WardicConfig>
-    ))
-    const css = headCss(html)
-    const child = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === "child")?.style.animation))
-    expect(delayOf(child.normal), "it waits for its parent's 0.3 s move").toBeCloseTo(0.3, 2)
-    expect(delayOf(child.reduced), "its reduced timing waits for that move too, not a snap").toBeCloseTo(0.3, 2)
-  })
-
-  it("AR26: under skipAnimations, or a transition's own, an element's rule is 0 s, holding its end (#468)", () => {
-    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
-    const rise = { initial: { opacity: 0, x: 20 }, animate: { opacity: 1, x: 0 } } as const
+    const Card = (): JSX.Element => {
+      const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: tween })
+      return <div data-k="ward" {...card} />
+    }
+    const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
     const html = page(() => (
       <>
         <WardicConfig skipAnimations>
-          <wardic.div data-k="skipped" {...rise} transition={tween} />
-          <wardic.div data-k="forever" {...rise} transition={{ ...tween, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse" }} />
+          <Card />
+          <wardic.div data-k="element" initial={{ x: 20 }} animate={{ x: 0 }} transition={tween} />
+          <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ staggerChildren: 0.2 }}>
+            <wardic.li data-k="first" variants={item} />
+            <wardic.li data-k="second" variants={item} />
+          </wardic.ul>
         </WardicConfig>
-        <wardic.div data-k="own" {...rise} transition={{ ...tween, skipAnimations: true }} />
-        <wardic.div data-k="outside" {...rise} transition={tween} />
+        <wardic.div data-k="outside" initial={{ x: 20 }} animate={{ x: 0 }} transition={tween} />
       </>
     ), { reducedMotion: "user" })
     const css = headCss(html)
-    const tag = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
-    const timingOf = (k: string) => timing(css, propertyOf(tag(k)?.style.animation))
-    const ruleOf = (k: string): string => {
-      const name = timingOf(k).normal.split(" ")[0] ?? ""
-      return new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? ""
-    }
-    for (const k of ["skipped", "forever", "own"]) {
-      expect(timingOf(k).normal, `${k}: 0 s, once, from first paint`).toMatch(/ 0s linear 0s 1 forwards$/)
+    const timingOf = (k: string) => timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation))
+    for (const k of ["ward", "element", "first", "second"]) {
+      expect(timingOf(k).normal, `${k}: 0 s, from first paint`).toMatch(/ 0s linear 0s 1 forwards$/)
       expect(timingOf(k).reduced, `${k}: no reduced play`).toBe("")
-      expect(ruleOf(k), `${k}: its end throughout`).toMatch(/^0%,100%\{.*opacity:1/)
-      expect(ruleOf(k), `${k}: x at rest`).toContain("transform:none")
     }
-    expect(tag("skipped")?.style.opacity, "its Starting style, under the rule").toBe("0")
     expect(timingOf("outside").normal, "outside: its own 0.3 s").toMatch(/ 0\.3s linear 0s 1 forwards$/)
-    expect(timingOf("outside").reduced, "and its reduced play").not.toBe("")
   })
 
-  it("AR27: a skipped Variant child holds no stagger, and waits no time for its skipped parent (#468)", () => {
+  it("AR23: a delayChildren: stagger() times each Variant child's rule by its index (#436)", () => {
     const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
     const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
     const html = page(() => (
-      <WardicConfig skipAnimations>
-        <wardic.ul initial="hidden" animate="shown" variants={{ hidden: { x: 20 }, shown: { x: 0 } }} transition={{ ...tween, staggerChildren: 0.2, when: "beforeChildren" }}>
-          <wardic.li data-k="first" variants={item} />
-          <wardic.li data-k="second" variants={item} />
-        </wardic.ul>
-      </WardicConfig>
-    ))
-    const css = headCss(html)
-    const delayIn = (k: string): number => delayOf(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)
-    expect(delayIn("first"), "after its 0 s parent").toBe(0)
-    expect(delayIn("second"), "no stagger slot").toBe(0)
-  })
-
-  it("AR28: a delayChildren: stagger() times each Variant child's rule by its index (#436)", () => {
-    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
-    const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
-    const html = page(() => (
-      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ delayChildren: stagger(0.1, { from: "last" }), staggerChildren: 1 }}>
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ delayChildren: stagger(0.1, { from: "center" }) }}>
         <wardic.li data-k="a" variants={item} />
         <wardic.li data-k="b" variants={item} />
         <wardic.li data-k="c" variants={item} />
       </wardic.ul>
     ))
     const css = headCss(html)
-    const delayIn = (k: string): number => delayOf(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)
-    expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the last, staggerChildren unread").toEqual([0.2, 0.1, 0])
+    const delayIn = (k: string): number => Number(/s linear (-?[\d.]+)s/.exec(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)?.[1] ?? Number.NaN)
+    expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the centre").toEqual([0.1, 0, 0.1])
   })
 
-  it("AR29: an entrance on a transition.path: its rule follows the curve and ends on its target; two paths, two rules (#438)", () => {
-    const tween = { type: "tween", duration: 0.6, ease: Easing.linear } as const
-    const html = page(() => (
-      <>
-        <wardic.div data-k="strong" initial={{ x: 0 }} animate={{ x: 200 }} transition={{ ...tween, path: arc({ strength: 1 }) }} />
-        <wardic.div data-k="gentle" initial={{ x: 0 }} animate={{ x: 200 }} transition={{ ...tween, path: arc({ strength: 0.25 }) }} />
-      </>
-    ))
-    const css = headCss(html)
-    const ruleOf = (k: string): string => {
-      const name = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal.split(" ")[0] ?? ""
-      return new RegExp(`@keyframes ${name}\\{((?:[\\d.]+%\\{[^}]*\\})*)\\}`).exec(css)?.[1] ?? ""
-    }
-    const strong = ruleOf("strong")
-    const ys = Array.from(strong.matchAll(/translateY\(([\d.-]+)px\)/g), (m) => Math.abs(Number(m[1])))
-    expect(Math.max(...ys), "y off 0 by half the distance midway").toBeGreaterThan(90)
-    expect(strong.endsWith("100%{transform:translateX(200px)}"), strong.slice(-80)).toBe(true)
-    expect(ruleOf("gentle"), "another path, another rule").not.toBe(strong)
+  it("AR24: a wrapped component's pending child waits at its wrap, its rule in the head (#525)", async () => {
+    const Line = (p: JSX.HTMLAttributes<HTMLParagraphElement>) => <p {...p} />
+    const WLine = wardic.create(Line)
+    const writes = await stream(() => {
+      const later = after(20, "later")
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <WLine data-k="wrapped" {...rise}>
+            {later()}
+          </WLine>
+        </Loading>
+      )
+    })
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="wrapped"'))!
+    const line = tagsOf(chunk).find((t) => t.attrs["data-k"] === "wrapped")
+    expect(timing(headCss(writes[0]!), propertyOf(line?.style.animation)).normal, "in the head").not.toBe("")
+    expect(appearPatches(chunk), "nothing new in its chunk").toEqual([])
   })
-  it("AR30: appear=\"explain\" says why each element that doesn't play waits, naming it; without it, nothing (#585)", async () => {
+  it("AR25: appear=\"explain\" says why each element that doesn't play waits, naming it; without it, nothing (#585)", async () => {
     const ui = (): JSX.Element => (
       <>
         <wardic.h1 {...rise}>Plays</wardic.h1>
@@ -766,14 +690,36 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(await said(() => page(ui, { appear: true })), "nor with true").toEqual([])
   })
 
-  it("AR31: the provider's nonce: the head's style carries it; with none, it has none (#618)", () => {
-    expect(page(() => <wardic.div {...rise} />, { nonce: "r4nd0m" })).toMatch(/<style data-wardic-appear[^>]*nonce="r4nd0m"/)
-    expect(page(() => <wardic.div {...rise} />)).not.toContain("nonce=")
+  it("AR27: the provider's nonce: the head's style carries it, and a late chunk's patch too (#618)", async () => {
+    const html = page(() => <wardic.div {...rise} />, { nonce: "r4nd0m" })
+    expect(html, "the head's style").toMatch(/<style data-wardic-appear[^>]*nonce="r4nd0m"/)
+    expect(page(() => <wardic.div {...rise} />), "none without one").not.toContain("nonce=")
+    const writes = await stream(() => {
+      const data = after(20, true)
+      // Made by the data, so made late, as AR14's.
+      return (
+        <Loading fallback={<p>loading</p>}>
+          <Show when={data()}>
+            <wardic.p data-k="late" {...rise} />
+          </Show>
+        </Loading>
+      )
+    }, { nonce: "r4nd0m" })
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="late"'))!
+    const patches = [...chunk.matchAll(/\(_\$HY\.hp=_\$HY\.hp\|\|\{\}\)\["[^"]+"\]=(\[\[[\s\S]*?\]\]);/g)].flatMap((m) => JSON.parse(m[1]!) as ReadonlyArray<ReadonlyArray<unknown>>)
+    const style = patches.find((patch) => patch[2] === "style")
+    expect((style?.[3] as Record<string, unknown> | undefined)?.["nonce"], "the late chunk's patch").toBe("r4nd0m")
+  })
+
+  it("AR26: two renders of a page whose rules blend colours give the same markup (#618)", () => {
+    const ui = (): JSX.Element => (
+      <>
+        <wardic.div initial={{ "background-color": "#bf616a", opacity: 0 }} animate={{ "background-color": "#a3be8c", opacity: 1 }} />
+        <wardic.div initial={{ color: "rgb(0, 0, 0)" }} animate={{ color: "rgb(255, 255, 255)" }} transition={{ type: "spring", stiffness: 300, damping: 20 }} />
+      </>
+    )
+    const first = page(ui)
+    expect(headCss(first), "a colour sampled into the rules").toContain("background-color")
+    expect(page(ui)).toBe(first)
   })
 })
-
-/** A list item's dynamic variant (#277): its delay from its index, `custom`. */
-const ITEM: WardicVariants = {
-  hidden: { opacity: 0 },
-  visible: (i: number) => ({ opacity: 1, transition: { type: "tween", duration: 0.3, ease: Easing.linear, delay: i * 0.25 } }),
-}

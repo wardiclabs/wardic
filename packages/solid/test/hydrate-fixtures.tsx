@@ -1,470 +1,571 @@
-// Fixtures for the hydration project (ADR-0021, decision 10). Each export is rendered on
-// the server by the `serverRender` command (Solid's server build, in Node) and hydrated in
-// Chromium from this same module (the hydratable client build), so both sides run the
-// same code. Every fixture but F0 runs under DomLive, as an app does.
-//
-// EXPECTED says what each fixture's markup carries and how its element moves:
-//   - `starting`: the server's style on `[data-k=startK]` (HY3);
-//   - `startingAttrs`: the server's attributes there (F6's `draggable`, F8's SVG keys);
-//   - `tracks`: numbers read on the client: at the first paint after hydration each is
-//     at most a quarter of the way to its target (HY4: no flash), and it settles at it
-//     (HY5);
-//   - `texts`: readouts, `server` in the markup and the first paint, `settled` after.
-import * as Renderer from "@wardic/core/Renderer"
+// Fixtures for the Solid 2 binding's hydration tests (#209 PR 4a): each export is rendered on the
+// server (Node) by the hydrate project's commands and hydrated in Chromium from this one module.
+// Appear animations' A1–A8 are the Solid 1 binding's (`../appear-fixtures.tsx`) on Solid 2. Each
+// element to watch carries `data-k`. Not a test file itself.
+import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
-import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
   AnimatePresence,
+  createDrag,
+  createPresence,
+  createFocus,
   createHover,
-  createPageInView,
+  createInView,
+  createPress,
   createReducedMotion,
-  streamToSignal,
+  createScroll,
+  createSpring,
+  createTime,
+  createTransform,
+  createVelocity,
+  fromAtom,
   LayoutGroup,
   Reorder,
-  createWard,
+  reorderGroup,
+  reorderItem,
+  streamToSignal,
+  useAnimateLayout,
+  useWardicFiber,
+  ward,
   wardic,
+  WardicConfig,
   type WardicEnv,
   WardicProvider,
-  type WardicTransition,
-  type WardicValues,
 } from "@wardic/solid"
-import { TestLive } from "@wardic/test"
+import type { JSX } from "@solidjs/web"
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
-import { createRenderEffect, For, type JSX, Show } from "solid-js"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { Atom } from "effect/reactivity"
+import { type Component, createEffect, createMemo, createSignal, For, Loading, Reveal, Show } from "solid-js"
 
-const TWEEN: WardicTransition = { type: "tween", duration: 0.3 }
-
-/** The DOM's projection (the server's, ADR-0021 decision 2), for the expected styles. */
-const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
-
-/** `values` projected as the server writes it: every key a string. */
-const projected = (values: Record<string, unknown>): Record<string, string> =>
-  Object.fromEntries(Object.entries(domProject(values)).map(([k, v]) => [k, String(v)]))
-
-const live = (ui: () => JSX.Element, env: WardicEnv = DomLive) => (): JSX.Element => (
-  <WardicProvider env={env}>{ui()}</WardicProvider>
-)
-
-/** Props a wrapped component receives from wardic.create. */
-interface ShapeProps {
-  readonly ref?: (el: HTMLElement) => void
-  readonly style?: JSX.CSSProperties
-  readonly draggable?: "false" | "true"
-  readonly children?: JSX.Element
+/** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
+let env: WardicEnv = DomLive
+/** Set the client Environment the fixtures hydrate under; reset it after. */
+export const setAppearEnv = (next: WardicEnv): void => {
+  env = next
 }
 
-const RefAndStyle = (p: ShapeProps): JSX.Element => (
-  <div data-k="f3" ref={p.ref} style={p.style} draggable={p.draggable}>
-    {p.children}
-  </div>
-)
-const RefOnly = (p: ShapeProps): JSX.Element => (
-  <div data-k="f4" ref={p.ref}>
-    {p.children}
-  </div>
-)
-const StyleInner = (p: ShapeProps): JSX.Element => (
-  <div data-k="f5" ref={p.ref}>
-    <span data-k="f5-inner" style={p.style}>
-      {p.children}
-    </span>
-  </div>
-)
-const WRefAndStyle = wardic.create(RefAndStyle)
-const WRefOnly = wardic.create(RefOnly)
-const WStyleInner = wardic.create(StyleInner)
+const page = (children: () => JSX.Element): JSX.Element => <WardicProvider env={env}>{children()}</WardicProvider>
 
-const VALUES = ["a", "b", "c"]
+/** A card rising in on the default spring. */
+export const A1 = (): JSX.Element => page(() => <wardic.div data-k="card" style={{ width: "40px", height: "40px" }} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} />)
 
-export const F0 = live(
-  () => (
-    <wardic.div data-k="f0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN}>
-      f0
-    </wardic.div>
-  ),
-  TestLive,
-)
-
-export const F1 = live(() => (
-  <wardic.div data-k="f1" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={TWEEN}>
-    f1
-  </wardic.div>
-))
-
-function Spread(): JSX.Element {
-  const ward = createWard({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: TWEEN })
-  return (
-    <section data-k="f2" {...ward()}>
-      f2
-    </section>
-  )
+/** A list whose items stagger in by 0.12 s, on a tween. */
+export const A2 = (): JSX.Element => {
+  const variants = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  return page(() => (
+    <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}>
+      <wardic.li data-k="i0" variants={variants} style={{ height: "10px" }} />
+      <wardic.li data-k="i1" variants={variants} style={{ height: "10px" }} />
+      <wardic.li data-k="i2" variants={variants} style={{ height: "10px" }} />
+    </wardic.ul>
+  ))
 }
-export const F2 = live(() => <Spread />)
 
-export const F3 = live(() => (
-  <WRefAndStyle initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN}>
-    f3
-  </WRefAndStyle>
-))
+/** A slow tween, long enough for a hydration in the middle of it. */
+export const A3 = (): JSX.Element =>
+  page(() => (
+    <wardic.div
+      data-k="slow"
+      style={{ width: "40px", height: "40px" }}
+      initial={{ opacity: 0, x: 0 }}
+      animate={{ opacity: 1, x: 200 }}
+      transition={{ type: "tween", duration: 1.2 }}
+    />
+  ))
 
-export const F4 = live(() => (
-  <WRefOnly initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN}>
-    f4
-  </WRefOnly>
-))
-
-export const F5 = live(() => (
-  <WStyleInner initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN}>
-    f5
-  </WStyleInner>
-))
-
-export const F6 = live(() => (
-  <wardic.div data-k="f6" drag="x" initial={{ opacity: 0.5 }} animate={{ opacity: 1 }} transition={TWEEN}>
-    f6
-  </wardic.div>
-))
-
-export const F7 = live(() => (
-  <Reorder.Group data-k="f7" values={VALUES} onReorder={() => {}}>
-    <For each={VALUES}>{(value) => <Reorder.Item value={value}>{value}</Reorder.Item>}</For>
-  </Reorder.Group>
-))
-
-export const F8 = live(() => (
-  <svg width="100" height="20">
-    <wardic.circle data-k="f8" r={5} cy={10} initial={{ cx: 10, opacity: 0.2 }} animate={{ cx: 40, opacity: 1 }} transition={TWEEN} />
-  </svg>
-))
-
-export const F9 = live(() => (
-  <AnimatePresence>
-    <Show when={true}>
-      <wardic.div data-k="f9" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={TWEEN}>
-        f9
-      </wardic.div>
-    </Show>
-  </AnimatePresence>
-))
-
-export const F10 = live(() => (
-  <LayoutGroup>
-    <wardic.div data-k="f10" layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN}>
-      f10
-    </wardic.div>
-  </LayoutGroup>
-))
-
-function ReducedMotion(): JSX.Element {
-  const reduced = createReducedMotion()
-  return (
-    <p>
-      <span data-k="rm">{String(reduced())}</span>
-      <Show when={!reduced()}>
-        <i data-k="motion-ok" />
-      </Show>
-    </p>
-  )
+/** A parent that fades in before its child rises (`when: "beforeChildren"`). */
+export const A4 = (): JSX.Element => {
+  const child = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
+  return page(() => (
+    <wardic.section
+      data-k="parent"
+      initial="hidden"
+      animate="shown"
+      variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
+      transition={{ type: "tween", duration: 0.3, when: "beforeChildren" }}
+    >
+      <wardic.p data-k="child" variants={child} transition={{ type: "tween", duration: 0.4 }} style={{ height: "10px" }} />
+    </wardic.section>
+  ))
 }
-export const F11 = live(() => <ReducedMotion />)
 
-/** The readout runs inside its target, so the target's ref is set when createHover runs. */
-function HoverReadout(props: { readonly target: () => HTMLElement | undefined }): JSX.Element {
-  // On a server the ref is never set and nothing starts (ADR-0021, decision 8).
-  const hovered = createHover(props.target())
-  return <span data-k="hv">{String(hovered())}</span>
-}
-function Hover(): JSX.Element {
-  let target: HTMLDivElement | undefined
-  return (
-    <div data-k="hover-target" ref={target}>
-      hover me <HoverReadout target={() => target} />
-    </div>
-  )
-}
-export const F12 = live(() => <Hover />)
+/** A spinner that loops for ever. */
+export const A5 = (): JSX.Element =>
+  page(() => (
+    <wardic.div
+      data-k="spin"
+      style={{ width: "20px", height: "20px" }}
+      initial={{ rotate: 0 }}
+      animate={{ rotate: 360 }}
+      transition={{ type: "tween", duration: 0.8, repeat: Number.POSITIVE_INFINITY, ease: Easing.linear }}
+    />
+  ))
+
+/** An SVG circle growing across and fading in, and a line drawing itself (#245): attributes, played as CSS. */
+export const A6 = (): JSX.Element =>
+  page(() => (
+    <svg width="120" height="60">
+      <wardic.circle
+        data-k="dot"
+        fill="teal"
+        initial={{ cx: 10, r: 4, opacity: 0 }}
+        animate={{ cx: 90, r: 16, opacity: 1 }}
+        transition={{ type: "tween", duration: 1.2 }}
+      />
+      <wardic.path data-k="line" d="M0 50L120 50" stroke="black" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ type: "tween", duration: 1.2 }} />
+    </svg>
+  ))
 
 /**
- * What each render of HOLD_RM and HOLD_STREAM saw, in order (on the client; the server has
- * its own copy of this module). Tests reset it before rendering.
+ * A layout card entering with scale, opacity and its own y (#245): the y isn't drawn on a layout
+ * node (ADR-0016). `__a7grow()` grows the spacer above it, a layout change it animates.
  */
-export const seen: { readonly reduced: Array<boolean>; readonly stream: Array<string>; readonly page: Array<boolean> } = { reduced: [], stream: [], page: [] }
+export const A7 = (): JSX.Element => {
+  const [grown, setGrown] = createSignal(false)
+  ;(globalThis as { __a7grow?: () => void }).__a7grow = () => setGrown(true)
+  return page(() => (
+    <div style={{ position: "relative", "padding-top": "10px" }}>
+      <div style={{ height: `${Number(grown()) * 60}px` }} />
+      <wardic.div
+        data-k="card"
+        layout
+        layoutDependency={grown()}
+        style={{ width: "40px", height: "40px", background: "teal" }}
+        initial={{ opacity: 0, scale: 0.5, y: 30 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "tween", duration: 1.2 }}
+      />
+    </div>
+  ))
+}
 
-function ReducedRecorder(): JSX.Element {
-  const reduced = createReducedMotion()
-  createRenderEffect(() => seen.reduced.push(reduced()))
+/**
+ * A list its shell leads, its items streamed in a late `<Loading>` chunk (#245): staggered by
+ * 0.12 s on a tween. The items are made by the data, so made late. `__a8add()` adds an item, a list
+ * update after hydration.
+ */
+export const A8 = (): JSX.Element => {
+  const items = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  const [data, setData] = createSignal(async (): Promise<ReadonlyArray<number>> => {
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    return [0, 1, 2]
+  })
+  ;(globalThis as { __a8add?: () => void }).__a8add = () => void setData((list) => [...list, list.length])
+  return page(() => (
+    <wardic.ul
+      data-k="list"
+      initial="hidden"
+      animate="shown"
+      variants={{ hidden: {}, shown: {} }}
+      transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}
+    >
+      <Loading fallback={<li>loading</li>}>
+        <For each={data()}>{(i) => <wardic.li data-k={`s${i}`} variants={items} style={{ height: "10px" }} />}</For>
+      </Loading>
+    </wardic.ul>
+  ))
+}
+
+/**
+ * A heading on a tag no other fixture uses (`hgroup`), so its `wardic.<tag>` component is made the
+ * first time this fixture renders on each side, inside the render (WH1).
+ */
+export const W1 = (): JSX.Element =>
+  page(() => (
+    <main>
+      <wardic.hgroup data-k="w" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        first use
+      </wardic.hgroup>
+      <wardic.p data-k="after">after it</wardic.p>
+    </main>
+  ))
+
+/** W1 on a tag of its own (`address`), for a client that made its component before hydrating (WH2). */
+export const W2 = (): JSX.Element =>
+  page(() => (
+    <main>
+      <wardic.address data-k="w" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        first use
+      </wardic.address>
+      <wardic.p data-k="after">after it</wardic.p>
+    </main>
+  ))
+
+/**
+ * Every v2 helper and component with a server branch, one a fixture (KH): it, then `After`, a
+ * component of its own, so its element's hydration key follows the ids the helper took. A helper
+ * taking an id on one side only moves it, and hydration misses the server's `after`.
+ */
+const keyed = (Helper: Component): JSX.Element =>
+  page(() => (
+    <main>
+      <Helper />
+      <After />
+    </main>
+  ))
+const After = (): JSX.Element => <p data-k="after">after</p>
+
+/** Sensors on an element, and the reduced-motion preference. */
+export const KSensors = (): JSX.Element =>
+  keyed(() => {
+    const hover = createHover()
+    const press = createPress()
+    const focus = createFocus()
+    const inView = createInView()
+    const drag = createDrag()
+    const reduced = createReducedMotion()
+    return (
+      <div ref={[hover, press, focus, inView, drag]}>
+        {String(hover())} {String(press())} {String(focus())} {String(inView())} {String(drag() === null)} {String(reduced())}
+      </div>
+    )
+  })
+
+/** `createTransform` on a signal and on a ward's `read`. */
+export const KTransform = (): JSX.Element =>
+  keyed(() => {
+    const n = (): number => 1
+    const doubled = createTransform(n, (v: number) => v * 2)
+    const card = ward({ initial: { x: 0 }, animate: { x: 0 } })
+    const fade = createTransform(card.read("x"), [0, 10], [1, 0])
+    return (
+      <div {...card}>
+        {doubled()} {fade()}
+      </div>
+    )
+  })
+
+/** `createSpring`, `createVelocity` and `createTime`. */
+export const KSpring = (): JSX.Element =>
+  keyed(() => {
+    const n = (): number => 1
+    const spring = createSpring(n)
+    const velocity = createVelocity(n)
+    const time = createTime()
+    return (
+      <span>
+        {Math.round(spring())} {Math.round(velocity())} {String(time() >= 0)}
+      </span>
+    )
+  })
+
+/** `createScroll`. */
+export const KScroll = (): JSX.Element =>
+  keyed(() => {
+    const { scrollY } = createScroll()
+    return <span>{String(scrollY() >= 0)}</span>
+  })
+
+/** `fromAtom` with a server value, and `streamToSignal`. */
+export const KAtom = (): JSX.Element =>
+  keyed(() => {
+    const count = fromAtom(Atom.make(3), { serverValue: 3 })
+    const streamed = streamToSignal(Stream.make(1), 1)
+    return (
+      <span>
+        {count()} {streamed()}
+      </span>
+    )
+  })
+
+/** `useWardicFiber`. */
+export const KFiber = (): JSX.Element =>
+  keyed(() => {
+    useWardicFiber(() => Effect.void)
+    return <span>fiber</span>
+  })
+
+/** `<LayoutGroup>` around a layout element, and `useAnimateLayout`. */
+export const KLayout = (): JSX.Element =>
+  keyed(() => {
+    useAnimateLayout()
+    return (
+      <LayoutGroup>
+        <wardic.div layout style={{ width: "40px", height: "10px" }} />
+      </LayoutGroup>
+    )
+  })
+
+/** `<AnimatePresence>` around a shown child, and with `initial={false}`. */
+export const KPresence = (): JSX.Element =>
+  keyed(() => (
+    <>
+      <AnimatePresence>
+        <Show when={true}>
+          <wardic.div exit={{ opacity: 0 }}>in</wardic.div>
+        </Show>
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        <Show when={true}>
+          <wardic.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            held
+          </wardic.div>
+        </Show>
+      </AnimatePresence>
+    </>
+  ))
+
+/** `Reorder.Group` and `Reorder.Item`. */
+export const KReorder = (): JSX.Element =>
+  keyed(() => {
+    const [items, setItems] = createSignal(["a", "b"])
+    return (
+      <Reorder.Group values={items()} onReorder={setItems}>
+        <For each={items()}>{(value) => <Reorder.Item value={value}>{value}</Reorder.Item>}</For>
+      </Reorder.Group>
+    )
+  })
+
+/** `reorderGroup` and `reorderItem`. */
+export const KReorderFactories = (): JSX.Element =>
+  keyed(() => {
+    const [items, setItems] = createSignal(["a", "b"])
+    const list = reorderGroup({ values: items, onReorder: setItems })
+    return (
+      <ul {...list}>
+        <For each={items()}>
+          {(value) => {
+            const row = reorderItem(list, { value })
+            return <li {...row}>{value}</li>
+          }}
+        </For>
+      </ul>
+    )
+  })
+
+/** A kept ward spread, one given to `ref`, `read(key)`, and its `Provider` around a Variant child. */
+export const KWard = (): JSX.Element =>
+  keyed(() => {
+    const card = ward({ initial: "a", animate: "b", variants: { a: { x: 0 }, b: { x: 0 } } })
+    const plain = ward({ animate: { opacity: 1 } })
+    const x = card.read("x")
+    return (
+      <div {...card}>
+        <card.Provider>
+          <wardic.span variants={{ a: { opacity: 1 }, b: { opacity: 1 } }}>{x()}</wardic.span>
+        </card.Provider>
+        <p ref={plain}>ref</p>
+      </div>
+    )
+  })
+
+const Wrapped = (props: { readonly ref?: JSX.Ref<HTMLDivElement> }): JSX.Element => <div ref={props.ref}>wrapped</div>
+const WardicWrapped = wardic.create(Wrapped)
+
+/** `wardic.create(Component)`. */
+export const KCreate = (): JSX.Element => keyed(() => <WardicWrapped animate={{ opacity: 1 }} />)
+
+/** `when(name)` (#355) on a ward, a Reorder group and a presence handle, each in an effect. */
+export const KWhen = (): JSX.Element =>
+  keyed(() => {
+    const card = ward({ drag: "x" })
+    const [items, setItems] = createSignal(["a", "b"])
+    const list = reorderGroup({ values: items, onReorder: setItems })
+    const presence = createPresence()
+    createEffect(card.when("dragEnd"), () => {})
+    createEffect(list.when("reorderEnd"), () => {})
+    createEffect(presence.when("exitComplete"), () => {})
+    return (
+      <>
+        <div {...card}>card</div>
+        <ul {...list} />
+        <AnimatePresence ref={presence}>
+          <Show when={true}>
+            <wardic.p exit={{ opacity: 0 }}>in</wardic.p>
+          </Show>
+        </AnimatePresence>
+      </>
+    )
+  })
+
+/**
+ * Wards given to `wardRef` (#349): on `wardic.*` with a child made with its `parent`, on
+ * `wardic.create`, under a presence, and a group and its items given to `Reorder`'s components.
+ */
+export const KGiven = (): JSX.Element =>
+  keyed(() => {
+    const VARIANTS = { a: { opacity: 0.5 }, b: { opacity: 1 } }
+    const list = ward({ initial: "a", animate: "b", variants: VARIANTS })
+    const row = ward({ variants: VARIANTS }, { parent: list })
+    const wrapped = ward({ animate: { opacity: 1 } })
+    const toast = ward({ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } })
+    const [items, setItems] = createSignal(["a", "b"])
+    const group = reorderGroup({ values: items, onReorder: setItems })
+    return (
+      <>
+        <wardic.ul wardRef={list}>
+          <wardic.li wardRef={row}>row</wardic.li>
+        </wardic.ul>
+        <WardicWrapped wardRef={wrapped} />
+        <AnimatePresence>
+          <Show when={true}>
+            <wardic.div wardRef={toast}>toast</wardic.div>
+          </Show>
+        </AnimatePresence>
+        <Reorder.Group groupRef={group}>
+          <For each={items()}>
+            {(value) => {
+              const item = reorderItem(group, { value })
+              return <Reorder.Item wardRef={item}>{value}</Reorder.Item>
+            }}
+          </For>
+        </Reorder.Group>
+      </>
+    )
+  })
+
+/**
+ * Listening wards given to `wardRef` (#398): the element's motion props beside them, a Variant child
+ * building its own node in the parent it renders in, one made with a `parent`, and a given group and
+ * item with their element props.
+ */
+export const KListening = (): JSX.Element =>
+  keyed(() => {
+    const VARIANTS = { a: { opacity: 0.5 }, b: { opacity: 1 } }
+    const card = ward()
+    const row = ward()
+    const list = ward({ initial: "a", animate: "b", variants: VARIANTS })
+    const tip = ward(undefined, { parent: list })
+    const [items, setItems] = createSignal(["a", "b"])
+    const group = reorderGroup({ values: items, onReorder: setItems })
+    return (
+      <>
+        <wardic.div wardRef={card} initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ width: "10px" }}>card</wardic.div>
+        <wardic.ul initial="a" animate="b" variants={VARIANTS}>
+          <wardic.li wardRef={row} variants={VARIANTS}>row</wardic.li>
+        </wardic.ul>
+        <wardic.ul wardRef={list} />
+        <wardic.p wardRef={tip} variants={VARIANTS}>tip</wardic.p>
+        <Reorder.Group groupRef={group} axis="y">
+          <For each={items()}>
+            {(value) => {
+              const item = reorderItem(group, { value })
+              return <Reorder.Item wardRef={item} initial={{ opacity: 0.5 }} animate={{ opacity: 1 }}>{value}</Reorder.Item>
+            }}
+          </For>
+        </Reorder.Group>
+      </>
+    )
+  })
+
+/** Two regions under `<Reveal>` (#257 item 13, AH13): the second's data first, an Appear element in it. */
+export const A9 = (): JSX.Element => {
+  const later = <A,>(ms: number, value: A): Promise<A> => new Promise((resolve) => setTimeout(() => resolve(value), ms))
+  const slow = createMemo(() => later(300, "slow"))
+  const fast = createMemo(() => later(30, "fast"))
+  return page(() => (
+    <Reveal>
+      <Loading fallback={<p data-k="fb1">first loading</p>}>
+        <p data-k="slow">{slow()}</p>
+      </Loading>
+      <Loading fallback={<p data-k="fb2">second loading</p>}>
+        <p>{fast()}</p>
+        <wardic.div data-k="fast" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: "tween", duration: 0.5 }} style={{ width: "40px", height: "40px" }} />
+      </Loading>
+    </Reveal>
+  ))
+}
+
+/** What HE1–HE2's card heard: each release's `offset.x` through the memo, or `undefined`. */
+export const heard: Array<number | undefined> = []
+
+/**
+ * A card whose releases are read as an async value (#343): a memo over `card.each("dragEnd")` with
+ * `options`, and an effect. Made under a `<Loading>`, and streamed from a server, whose `each` ends
+ * at once.
+ */
+const releasedWith = (options: { readonly ssrSource?: "client" }) => (): JSX.Element => {
+  const card = ward({ drag: "x" })
+  const released = createMemo(() => card.each("dragEnd"), options)
+  createEffect(released, (release) => {
+    heard.push(UndefinedOr.map(release, (r) => r.offset.x))
+  })
+  return <div data-k="card" {...card} style={{ width: "80px", height: "40px", background: "#8af" }} />
+}
+const ReleasedInBrowser = releasedWith({ ssrSource: "client" })
+const ReleasedPlain = releasedWith({})
+
+/** HE1: the README's form, `ssrSource: "client"`. */
+export const HE1 = (): JSX.Element =>
+  page(() => (
+    <Loading fallback={<p>loading</p>}>
+      <ReleasedInBrowser />
+    </Loading>
+  ))
+
+/** HE3 (#355): `card.when("dragEnd")` in an effect, under no `<Loading>`. */
+export const HE3 = (): JSX.Element =>
+  page(() => {
+    const card = ward({ drag: "x" })
+    createEffect(card.when("dragEnd"), (release) => {
+      heard.push(release.offset.x)
+    })
+    return <div data-k="card" {...card} style={{ width: "80px", height: "40px", background: "#8af" }} />
+  })
+
+/** HE2: a plain memo over `each`. */
+export const HE2 = (): JSX.Element =>
+  page(() => (
+    <Loading fallback={<p>loading</p>}>
+      <ReleasedPlain />
+    </Loading>
+  ))
+
+/** A ward's card and a staggered list under a `WardicConfig`'s `skipAnimations` (#468): drawn landed from first paint. */
+export const A10 = (): JSX.Element => {
+  const variants = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  const Card = (): JSX.Element => {
+    const card = ward({ initial: { opacity: 0, y: 40 }, animate: { opacity: 1, y: 0 }, transition: { type: "tween", duration: 1.5 }, style: { width: "40px", height: "40px" } })
+    return <div data-k="card" {...card} />
+  }
+  return page(() => (
+    <WardicConfig skipAnimations>
+      <Card />
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.3 }}>
+        <wardic.li data-k="i0" variants={variants} style={{ height: "10px" }} />
+        <wardic.li data-k="i1" variants={variants} style={{ height: "10px" }} />
+      </wardic.ul>
+    </WardicConfig>
+  ))
+}
+
+/**
+ * A card and a staggered list under a provider whose `appear` is off (#724): the server gives no element an
+ * Appear animation, so each animates from hydration, and the Handoff has nothing to read.
+ */
+export const R1 = (): JSX.Element => {
+  const variants = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
   return (
-    <p>
-      <span data-k="rm2">{String(reduced())}</span>
-      <Show when={!reduced()}>
-        <i data-k="ok2" />
-      </Show>
-    </p>
+    <WardicProvider env={env} appear={false}>
+      <wardic.div data-k="card" style={{ width: "40px", height: "40px" }} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} />
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}>
+        <wardic.li data-k="i0" variants={variants} style={{ height: "10px" }} />
+        <wardic.li data-k="i1" variants={variants} style={{ height: "10px" }} />
+      </wardic.ul>
+    </WardicProvider>
   )
 }
-/** HY-H1: createReducedMotion, whose live value a test can make differ from the server's. */
-export const HOLD_RM = live(() => <ReducedRecorder />)
 
-function PageRecorder(): JSX.Element {
-  const visible = createPageInView()
-  createRenderEffect(() => seen.page.push(visible()))
-  return <span data-k="pv">{String(visible())}</span>
-}
-/** HY-H4 (#443): createPageInView, which a test can hide while the server says shown. */
-export const HOLD_PAGE = live(() => <PageRecorder />)
-
-function StreamRecorder(): JSX.Element {
-  // A stream that emits at once: without the hold, a hydrating client would show "live"
-  // in the hydration render, over the server's "server".
-  const value = streamToSignal(Stream.succeed("live"), "server")
-  createRenderEffect(() => seen.stream.push(value()))
-  return <span data-k="st">{value()}</span>
-}
-/** HY-H2 and HY-H3: streamToSignal over a stream that emits at once. */
-export const HOLD_STREAM = live(() => <StreamRecorder />)
-
-/** The Environment the log fixture hydrates under (DomLive on the server; HY-L1 swaps it). */
-let logEnv: WardicEnv = DomLive
-/** Set the client Environment for {@link LOG} and {@link LOG_CARD}; HY-L1 to HY-L4 call it before rendering. */
-export const setLogEnv = (env: WardicEnv): void => {
-  logEnv = env
-}
-/** HY-L1 to HY-L3: a wardic.div whose Starting style a custom Renderer could change. */
-export const LOG = (): JSX.Element => (
-  <WardicProvider env={logEnv}>
-    <wardic.div data-k="log" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={TWEEN}>
-      log
-    </wardic.div>
-  </WardicProvider>
-)
-
-const LogCardShape = (p: ShapeProps): JSX.Element => (
-  <div data-k="log-card" ref={p.ref} style={p.style}>
-    {p.children}
-  </div>
-)
-const WLogCard = wardic.create(LogCardShape)
-/** HY-L4: LOG's twin for a component wrap (the commit sink's path). */
-export const LOG_CARD = (): JSX.Element => (
-  <WardicProvider env={logEnv}>
-    <WLogCard initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={TWEEN}>
-      log card
-    </WLogCard>
-  </WardicProvider>
-)
-
-/** A number the client reads, its server value and its target. */
-export interface Track {
-  readonly label: string
-  readonly read: (host: HTMLElement) => number
-  readonly from: number
-  readonly to: number
-}
-
-/** A readout's text in the server markup and after mount. */
-export interface Text {
-  readonly k: string
-  readonly server: string
-  readonly settled: string
-}
-
-export interface Expected {
-  readonly startK: string
-  readonly starting: Readonly<Record<string, string>>
-  readonly startingAttrs?: Readonly<Record<string, string>>
-  readonly tracks: ReadonlyArray<Track>
-  readonly texts?: ReadonlyArray<Text>
-}
-
-const el = (host: HTMLElement, k: string): HTMLElement | null => host.querySelector<HTMLElement>(`[data-k="${k}"]`)
-/** The visible opacity: the computed opacities of `ks` multiplied. */
-const opacity = (...ks: ReadonlyArray<string>) => (host: HTMLElement): number =>
-  ks.reduce((acc, k) => {
-    const node = el(host, k)
-    return acc * Option.match(Option.fromNullOr(node), { onNone: () => 1, onSome: (n) => Number(getComputedStyle(n).opacity) })
-  }, 1)
-/** The painted uniform scale: the computed transform matrix's x-axis length, 1 for none. */
-const scale = (k: string) => (host: HTMLElement): number => {
-  const node = el(host, k)
-  const t = Option.match(Option.fromNullOr(node), { onNone: () => "none", onSome: (n) => getComputedStyle(n).transform })
-  if (t === "" || t === "none") return 1
-  const v = /\(([^)]+)\)/.exec(t)![1]!.split(",").map(Number)
-  return Math.hypot(v[0]!, v[1]!)
-}
-/** The painted background's red channel, 0 to 1. */
-const red = (k: string) => (host: HTMLElement): number => {
-  const node = el(host, k)
-  const c = Option.match(Option.fromNullOr(node), { onNone: () => "", onSome: (n) => getComputedStyle(n).backgroundColor })
-  const m = /\((\d+)/.exec(c)
-  return Option.match(Option.fromNullOr(m), { onNone: () => Number.NaN, onSome: (match) => Number(match[1]) / 255 })
-}
-const attr = (k: string, name: string) => (host: HTMLElement): number => Number(el(host, k)?.getAttribute(name) ?? NaN)
-
-const DRAG_X = { "touch-action": "pan-y", "user-select": "none", "-webkit-user-select": "none", "-webkit-touch-callout": "none" }
-
-// #47 (ADR-0022): a key no `initial` sets has no Starting style; the client starts it from its
-// Own value after mount, so hydration shows no blink (F13), and a gesture-only key leaves the
-// markup and the first paint alone (F14).
-export const F13 = live(() => (
-  <wardic.div data-k="f13" animate={{ opacity: 0.5 }} transition={TWEEN}>
-    f13
-  </wardic.div>
-))
-
-export const F14 = live(() => (
-  <wardic.div data-k="f14" style={{ width: "40px" }} whileHover={{ scale: 1.5 }} whileTap={{ opacity: 0.5 }}>
-    f14
-  </wardic.div>
-))
-
-// #57 (ADR-0023, ADR-0021's amendment): an `initial` whose transform keys are all at their
-// Identity server-renders `transform: none`, Motion's markup. The hydrating client holds it and
-// animates from it (F15), or keeps it at rest (F16). Literal, not `projected`: the markup is
-// the point.
-export const F15 = live(() => (
-  <wardic.div data-k="f15" initial={{ scale: 1 }} animate={{ scale: 1.2 }} transition={TWEEN}>
-    f15
-  </wardic.div>
-))
-
-export const F16 = live(() => (
-  <wardic.div data-k="f16" initial={{ x: 0, scale: 1 }} whileHover={{ scale: 1.5 }}>
-    f16
-  </wardic.div>
-))
-
-// #56 (ADR-0024): a string `initial` server-renders as it is; the hydrating client holds it at the
-// first paint, then animates from it rather than snapping to its target.
-export const F17 = live(() => (
-  <wardic.div data-k="f17" initial={{ "background-color": "#000" }} animate={{ "background-color": "#fff" }} transition={TWEEN}>
-    f17
-  </wardic.div>
-))
-
-// #50 (ADR-0007, ADR-0021's amendments): a Variant child with no `initial` of its own
-// server-renders its `wardic.ul`'s `initial` name, the hydrating client holds it, and the list
-// enters staggered from it.
-const LIST = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
-export const F18 = live(() => (
-  <wardic.ul initial="hidden" animate="shown" variants={LIST} transition={{ ...TWEEN, staggerChildren: 0.05 }}>
-    <wardic.li variants={LIST}>a</wardic.li>
-    <wardic.li data-k="f18" variants={LIST}>
-      b
-    </wardic.li>
-  </wardic.ul>
-))
-
-// #134: `initial={false}` starts at `animate`, in the markup and from the first paint, and
-// nothing animates at mount: on an element (F19), a Variant child (F20) and the child of an
-// `<AnimatePresence initial={false}>` with an `initial` of its own (F21).
-export const F19 = live(() => (
-  <wardic.div data-k="f19" initial={false} animate={{ opacity: 0.5 }} transition={TWEEN}>
-    f19
-  </wardic.div>
-))
-export const F20 = live(() => (
-  <wardic.ul initial={false} animate="shown" variants={LIST} transition={{ ...TWEEN, staggerChildren: 0.05 }}>
-    <wardic.li variants={LIST}>a</wardic.li>
-    <wardic.li data-k="f20" variants={LIST}>
-      b
-    </wardic.li>
-  </wardic.ul>
-))
-export const F21 = live(() => (
-  <AnimatePresence initial={false}>
-    <wardic.div data-k="f21" initial={{ opacity: 0 }} animate={{ opacity: 0.5 }} transition={TWEEN}>
-      f21
-    </wardic.div>
-  </AnimatePresence>
-))
-
-// #151: an SVG circle's custom property is a style property under its own name, on the server
-// and after hydration; its opacity reads it, so it shows from the server's paint on.
-export const F22 = live(() => (
-  <svg width="40" height="40">
-    <wardic.circle
-      data-k="f22"
-      r={10}
-      cx={20}
-      cy={20}
-      style={{ opacity: "var(--brandLevel)" }}
-      initial={{ "--brandLevel": 0.4 } as WardicValues}
-      animate={{ "--brandLevel": 0.8 } as WardicValues}
-      transition={TWEEN}
-    />
-  </svg>
-))
-
-// #130: a transform key and a Live value in `style` are in the server's Starting style, under
-// `initial`'s, kept through hydration, and the gate takes them over from mount.
-export const F23 = live(() => (
-  <wardic.div data-k="f23" style={{ x: 30, opacity: () => 0.6 }} initial={{ scale: 0.5 }} animate={{ scale: 1 }} transition={TWEEN}>
-    f23
-  </wardic.div>
-))
-
-export const FIXTURES = { F0, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23 } as const
-export type FixtureName = keyof typeof FIXTURES
-
-export const EXPECTED: Readonly<Record<FixtureName, Expected>> = {
-  // TestLive's Clock never ticks in a browser, so F0 holds its Starting style (a control).
-  F0: { startK: "f0", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f0"), from: 0, to: 0 }] },
-  F1: { startK: "f1", starting: projected({ opacity: 0, x: 10 }), tracks: [{ label: "opacity", read: opacity("f1"), from: 0, to: 1 }] },
-  F2: { startK: "f2", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f2"), from: 0, to: 1 }] },
-  F3: { startK: "f3", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f3"), from: 0, to: 1 }] },
-  // A component that applies no style has no server Starting style (decision 6).
-  F4: { startK: "f4", starting: {}, tracks: [{ label: "opacity", read: opacity("f4"), from: 0, to: 1 }] },
-  F5: {
-    startK: "f5-inner",
-    starting: projected({ opacity: 0 }),
-    tracks: [{ label: "visible opacity", read: opacity("f5", "f5-inner"), from: 0, to: 1 }],
-  },
-  F6: {
-    startK: "f6",
-    starting: { ...projected({ opacity: 0.5 }), ...DRAG_X },
-    startingAttrs: { draggable: "false" },
-    tracks: [{ label: "opacity", read: opacity("f6"), from: 0.5, to: 1 }],
-  },
-  F7: { startK: "f7", starting: { "overflow-anchor": "none" }, tracks: [] },
-  F8: {
-    startK: "f8",
-    starting: {},
-    startingAttrs: { cx: "10", opacity: "0.2" },
-    tracks: [
-      { label: "cx", read: attr("f8", "cx"), from: 10, to: 40 },
-      { label: "opacity", read: opacity("f8"), from: 0.2, to: 1 },
-    ],
-  },
-  F9: { startK: "f9", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f9"), from: 0, to: 1 }] },
-  F10: { startK: "f10", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f10"), from: 0, to: 1 }] },
-  F11: { startK: "rm", starting: {}, tracks: [], texts: [{ k: "rm", server: "false", settled: "false" }] },
-  F12: { startK: "hv", starting: {}, tracks: [], texts: [{ k: "hv", server: "false", settled: "false" }] },
-  // An `animate`-only key: no Starting style, and the first paint after hydration keeps the
-  // element's own opacity (1) on its way to 0.5: no blink to 0, no jump to the target.
-  F13: { startK: "f13", starting: {}, tracks: [{ label: "opacity", read: opacity("f13"), from: 1, to: 0.5 }] },
-  // A gesture-only key: the markup and the painted scale are untouched until a gesture.
-  F14: { startK: "f14", starting: { width: "40px" }, tracks: [{ label: "scale", read: scale("f14"), from: 1, to: 1 }] },
-  // An identity `initial`: `none` in the markup, held at the first paint, then animated from 1.
-  F15: { startK: "f15", starting: { transform: "none" }, tracks: [{ label: "scale", read: scale("f15"), from: 1, to: 1.2 }] },
-  // An identity `initial` at rest: `none` in the markup, at the first paint and after mount.
-  F16: { startK: "f16", starting: { transform: "none" }, tracks: [] },
-  // A string `initial`: in the markup, held at the first paint, then animated (not snapped) to white.
-  F17: { startK: "f17", starting: projected({ "background-color": "#000" }), tracks: [{ label: "red", read: red("f17"), from: 0, to: 1 }] },
-  // #50: a Variant child's Starting style is its ancestor's `initial` name.
-  F18: { startK: "f18", starting: projected({ opacity: 0 }), tracks: [{ label: "opacity", read: opacity("f18"), from: 0, to: 1 }] },
-  // #134: at its `animate` in the markup, at the first paint and after: no motion at all.
-  F19: { startK: "f19", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f19"), from: 0.5, to: 0.5 }] },
-  F20: { startK: "f20", starting: projected({ opacity: 1 }), tracks: [{ label: "opacity", read: opacity("f20"), from: 1, to: 1 }] },
-  F21: { startK: "f21", starting: projected({ opacity: 0.5 }), tracks: [{ label: "opacity", read: opacity("f21"), from: 0.5, to: 0.5 }] },
-  F22: { startK: "f22", starting: { "--brandLevel": "0.4" }, tracks: [{ label: "opacity", read: opacity("f22"), from: 0.4, to: 0.8 }] },
-  F23: {
-    startK: "f23",
-    starting: projected({ x: 30, opacity: 0.6, scale: 0.5 }),
-    tracks: [
-      { label: "opacity", read: opacity("f23"), from: 0.6, to: 0.6 },
-      { label: "scale", read: scale("f23"), from: 0.5, to: 1 },
-    ],
-  },
+/**
+ * A card in the shell, and a list whose items stream in a late `<Loading>` chunk (#724): two hydration
+ * passes, the shell's and, when the chunk lands after it, the chunk's.
+ */
+export const R2 = (): JSX.Element => {
+  const items = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  const [data] = createSignal(async (): Promise<ReadonlyArray<number>> => {
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    return [0, 1, 2]
+  })
+  return page(() => (
+    <>
+      <wardic.div data-k="card" style={{ width: "40px", height: "40px" }} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1.5 }} />
+      <wardic.ul data-k="list" initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}>
+        <Loading fallback={<li>loading</li>}>
+          <For each={data()}>{(i) => <wardic.li data-k={`s${i}`} variants={items} style={{ height: "10px" }} />}</For>
+        </Loading>
+      </wardic.ul>
+    </>
+  ))
 }

@@ -1,6 +1,6 @@
 import { createAsyncStore, useAction } from "@solidjs/router"
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, type WardicDragInfo } from "@wardic/solid"
+import { AnimatePresence, type WardicDragInfo } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic-drag-layout.ts"
 import { createSignal, For, onCleanup, Show, Suspense } from "solid-js"
 import { dismissNotice, notices, restoreNotices } from "~/lib/store.ts"

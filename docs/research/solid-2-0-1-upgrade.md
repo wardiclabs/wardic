@@ -127,9 +127,10 @@ All on 2026-11-18, the branch at its last code commit unless said:
 - **`bun run pack:check`:** 52 of 52 steps, once `packages/solid/dist` was cleared of tsc output for modules
   the lift removed (#817).
 - **The size gate:** every app within +1% of its base; `s2-slim` past its old budget, [above](#size).
-- **`bench:solid --base main`** on the bench box (a9a3fef, before the review's renames and flights' owner;
-  base `main` on its own dependencies, so rc.21 against 2.0.1), 11 paired reps: every gate passed on both
-  bindings. Solid 2: warm mount +3.0% [−4.2% – +6.9%], retarget +1.7%, unmount +4.0%; bytes +1.2%; retained
+- **`bench:solid --base main`** on the bench box (a9a3fef, before the review's renames and flights' owner),
+  11 paired reps: every gate passed on both bindings. Both sides' Solid 2 page ran on the working tree's
+  2.0.1, as `vite.solid2.ts` resolves Solid 2 from its own package for either side, so this is Wardic's own
+  change, the owner per ward, not Solid's (said wrongly as rc.21 against 2.0.1 until #566's PR 2). Solid 2: warm mount +3.0% [−4.2% – +6.9%], retarget +1.7%, unmount +4.0%; bytes +1.2%; retained
   +0.6% (`hover + press`) and +0.4% (`reorder item`), about 0.1 KB per element. Solid 1, unchanged: mount
   −3.0%, bytes +0.2%.
 - **`bench:core --base main`** on the box: Bun and Chromium, every workload passing; Node too noisy twice

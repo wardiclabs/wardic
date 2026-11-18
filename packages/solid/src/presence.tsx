@@ -1,82 +1,57 @@
 /**
- * `<AnimatePresence>` — exit-before-unmount for its children (ADR-0007; many since #277, ADR-0048).
+ * `<AnimatePresence>` on Solid 2 (#209, ADR-0007): exit-before-unmount for its children (many since
+ * #277, ADR-0048), and `mode="wait"`, as the Solid 1 binding's. Its work (each retained node, its parent-driven exit,
+ * the twins it hands back) is Solid-free, in dom's `unstable/PresenceController`. What's Solid 2's:
  *
- * Doctrine: the LEAVING child cannot animate its own exit — Solid disposes its
- * reactive owner (and would remove its DOM node) the instant the `<Show>` (or
- * other control flow) that renders it flips false. So exit is PARENT-DRIVEN:
+ * - **The children are resolved with `children()`** under the presence's context, so each child's
+ *   ward registers its exit record with it.
+ * - **An effect tells the controller which elements are present,** in its apply: after Solid 2's
+ *   flush has applied the change, the leaving nodes removed. The controller puts them back before
+ *   the flush ends, so no paint shows them gone.
+ * - **Once settled** (`onSettledClientOnly`), the first render has ended, for `initial={false}` (#134).
  *
- *   1. While a child is alive, its spine REGISTERS a record with the nearest
- *      `<AnimatePresence>` via {@link PresenceContext}: `snapshot.current`, the
- *      latest emitted value-map, which the spine updates each frame, and `exitOf`,
- *      which resolves its exit as it leaves (a target, a variant name, or a dynamic
- *      variant resolved with `custom`). The child does NOT unregister on its own
- *      `onCleanup` — `<AnimatePresence>` owns removal.
- *   2. `<AnimatePresence>` resolves its children via Solid `children()` (one, or a
- *      `<For>`'s many) and tracks the present elements. When one with a registration
- *      leaves the resolved children, it RE-INSERTS / KEEPS that DOM node where it was
- *      instead of letting it vanish, then runs the exit itself (from
- *      `snapshot.current` toward what `exitOf` resolves, via the provider runtime + the
- *      Renderer's `project`/`commit`), and on the exit's settle removes the node from
- *      the DOM and the registration.
- *   3. A leaving child with no registration, a plain one, still runs the exits of the
- *      Wardic elements inside it and hands back the twins inside it, staying until
- *      they've ended (#392); with nothing inside it to wait for, it goes at once.
- *
- * Node retention (the hard part): mirrors solid-transition-group's approach, child by
- * child. We resolve `children()` (which returns the live DOM nodes) and, when
- * the reactive branch drops one, RE-APPEND the captured node to our container so
- * the disposed owner's removal is undone — the node survives long enough for the
- * parent-driven exit, then we remove it on settle. The registration's snapshot /
- * exit refs are plain objects that outlive the child's owner, so the exit has
- * everything it needs after the child is gone.
- *
- * A child is its DOM node (#277): each that leaves exits on its own, in its place. A
- * child that comes back mid-exit is a new node: with the leaver's `key` on its Wardic
- * element it takes over from where the leaver is (#286); without one it enters beside
- * the leaver while the leaver finishes, as Motion shows two children it can't tell
- * apart.
- *
- * A leaving child that isn't a twin hands back the twins inside it (#181): each
- * crossfades onto its other twin while the child runs its own exit, and the child
- * goes once both have ended. Its exit's values reach the projection, so a twin
- * inside stays on its other twin while the exit moves or scales the child.
+ * @module
  */
-import * as Predicate from "effect/Predicate"
+import { isServer, type JSX } from "@solidjs/web"
+import * as Bool from "effect/Boolean"
+import { constUndefined } from "effect/Function"
+import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
+import { children, createContext, createEffect, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
 import * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime } from "./provider.tsx"
-import { isServer } from "./server.ts"
+import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
+import { hasRef, makePresenceHandle, type Presence, serverPresenceHandle } from "./presence-handle.ts"
 
 /**
- * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
- * there is no presence in scope — `createWard` then skips exit registration.
+ * The nearest `<AnimatePresence>`'s registrar, `null` outside one: Solid 2 takes an `undefined`
+ * default for none and then throws in `useContext`.
  */
-export const PresenceContext = createContext<PresenceController.PresenceContextValue | undefined>(undefined)
+export const PresenceContext = createContext<PresenceController.PresenceContextValue | null>(null)
 
-/** Read the nearest {@link PresenceContext}, or `undefined` outside one. */
-export const usePresenceContext = (): PresenceController.PresenceContextValue | undefined => useContext(PresenceContext)
+/** The nearest `<AnimatePresence>`'s registrar, `undefined` outside one. */
+export const usePresenceContext = (): PresenceController.PresenceContextValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(PresenceContext)))
 
 /** {@link AnimatePresence}'s props. */
 export interface AnimatePresenceProps {
-  readonly children: JSX.Element
+  readonly children?: JSX.Element
   /**
    * `false`: the child present at this presence's first render starts at its `animate`, with no
    * enter animation (it and every Wardic element under it, as Motion's); a child that enters later
-   * animates in from its `initial`. Exits are unchanged. On a server, the rendered child.
+   * animates in from its `initial`. Exits are unchanged.
    */
   readonly initial?: boolean
   /**
-   * Called once every exiting child has animated out and been removed (Motion's prop): not
-   * when a child comes back mid-exit, nor when the presence itself goes. Read when it's called.
+   * Its exits, heard: a `createPresence()` handle, or a callback handed the
+   * presence's own handle. Optional: left out, no handle is made. Read once.
    */
-  readonly onExitComplete?: (() => void) | undefined
+  readonly ref?: ((presence: Presence) => void) | undefined
   /**
    * How a child enters while another exits, Motion's `mode`: `"sync"` (the default),
    * at once, beside the leaver; `"popLayout"`, at once, the leaver popped out of the flow where it was
    * (`position: absolute`, its size kept), so the children after it take their places, a `layout`
    * one animating there; `"wait"`, once every leaver has animated out and been removed. A
-   * waiting child is built at once, as Solid builds it, so its own code (`onMount` included) runs
+   * waiting child is built at once, as Solid builds it, so its own code (its effects included) runs
    * then, off the page; its Wardic elements start once it's on the page. An `<svg>` root is popped too
    * (#744), beyond Motion's, though a rotated or skewed ancestor puts it off its place; the SVG
    * elements inside an `<svg>` exit where they are (#702).
@@ -115,153 +90,86 @@ export interface AnimatePresenceProps {
 }
 
 /**
- * `<AnimatePresence>` — wraps its children (a conditional one, or a `<For>`'s) and
- * animates each one's exit before it's removed; one that comes back mid-exit with the
- * leaver's `key` on its Wardic element takes over from where the leaver is. Must be used
- * inside a `<WardicProvider>` (it drives the exit on the provider runtime) and may wrap any
- * control flow (e.g. `<Show>`). A leaving child runs its own `exit` if it's a `wardic.*` element or a
- * `createWard` spine, and the exits of the Wardic elements inside it either way, staying until
- * they've ended; a plain child with nothing inside it to wait for goes at once.
+ * Wraps its children (a conditional one, `<Show>`, or a `<For>`'s) and animates each one's exit
+ * before it's removed: each that leaves exits in its place, and one that comes back mid-exit
+ * is a new node, entering beside the leaver, or, with the leaver's `key` on its Wardic element,
+ * taking over from where the leaver is.
+ * A leaving child runs its own `exit` if it's a `wardic.*` element or an element with a ward on
+ * it, and the exits of the Wardic elements inside it either way, staying until they've ended; a
+ * plain child with nothing inside it to wait for goes at once. Inside a `<WardicProvider>`.
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
-  const runtime = useWardicRuntime()
-  const reducedMotion = useWardicReducedMotion()
-  const positionalKeys = useWardicPositionalKeys()
-  const defaultTransition = useWardicDefaultTransition()
-  // A server render has no exit to drive and no runtime to log on: the same component
-  // boundaries, with a context that registers nothing (ADR-0021).
+  // A server render has no exit to drive: the same boundaries, a context that registers nothing.
+  // eslint-disable-next-line solid/components-return-once -- `isServer` is a constant: the component takes one path for its life
   if (isServer) return serverPresence(props)
+  // Its own handle, made only when `ref` is given (#257): its exits are told to it, and it's handed to `ref`.
+  const ref = untrack(() => props.ref)
+  const own = Bool.match(hasRef(ref), { onTrue: makePresenceHandle, onFalse: constUndefined })
   // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
-  const [released, release] = createSignal<void>(undefined, { equals: false })
-  // The retained nodes, their exits and the twins they hand back (dom's `unstable/PresenceController`).
+  const [released, release] = createSignal<undefined>(undefined, { equals: false })
   // The presence above, if any (#277's PR 5c): read before this one provides its own.
   const parent = usePresenceContext()
   const presence = PresenceController.makePresence({
-    runtime,
+    runtime: useWardicRuntime(),
     renderer: useWardicRenderer(),
     projection: useBuiltProjection(),
-    reducedMotion,
-    positionalKeys,
-    defaultTransition,
-    initial: () => props.initial,
-    // Motion's `onExitComplete` (#257).
-    events: PresenceController.exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),
+    reducedMotion: useWardicReducedMotion(),
+    positionalKeys: useWardicPositionalKeys(),
+    defaultTransition: useWardicDefaultTransition(),
+    initial: () => untrack(() => props.initial),
+    events: UndefinedOr.map(own, (handle) => handle.events),
     mode: () => props.mode,
     custom: () => untrack(() => props.custom),
     anchorX: () => untrack(() => props.anchorX),
     anchorY: () => untrack(() => props.anchorY),
     presenceAffectsLayout: () => untrack(() => props.presenceAffectsLayout),
-    release: () => release(),
+    release: () => release(undefined),
   })
-  // `initial={false}` (#134): the children set up with this first render start at their
-  // `animate`; one that enters after it animates in.
-  onMount(presence.mounted)
+  UndefinedOr.map(own, (handle) => (ref as (presence: Presence) => void)(handle.handle))
+  onSettledClientOnly(presence.mounted)
+  // `propagate` (#277's PR 5c): with a presence above, its teardown waits to hear whether this one's
+  // child left. Read before this presence provides its own context.
+  onCleanup(PresenceController.propagateTo(parent, untrack(() => props.propagate) === true, presence))
 
-  // Inner tracker: resolved + the tracking effect MUST run UNDER the
-  // PresenceContext.Provider, so the children's reactive owners are created
-  // within the context and their `createWard` spines see `usePresenceContext()`.
-  // (Resolving children() in the outer body would put their owners ABOVE the
-  // provider and they'd never register an exit record.)
+  // Resolved under the context, so the child's ward sees it.
   const Tracker = (): JSX.Element => {
-    // children() memoizes the resolved value; a <Show> flip changes what it
-    // returns (the node -> undefined and back).
     const resolved = children(() => props.children)
     // What goes on the page (#277): every child, but under `mode="wait"` one entering is held off it
     // while a child exits. The controller is told what went on.
     const shown = createMemo(() => {
       released()
       return presence.shown(resolved())
-    })
-    createEffect(() => presence.present(shown()))
+    }, CLIENT_ONLY)
+    createEffect(
+      shown,
+      (current) => {
+        presence.present(current)
+      },
+      CLIENT_ONLY,
+    )
     return shown as unknown as JSX.Element
   }
-
-  // `propagate` (#277's PR 5c): with a presence above, its teardown waits to hear whether this one's
-  // child left. Read before this presence provides its own context.
-  onCleanup(PresenceController.propagateTo(parent, untrack(() => props.propagate) === true, presence))
 
   // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
   const context: PresenceController.PresenceContextValue = { ...presence.context, data: () => props.custom }
   return (
-    <PresenceContext.Provider value={context}>
+    <PresenceContext value={context}>
       <Tracker />
-    </PresenceContext.Provider>
+    </PresenceContext>
   )
-}
-
-/** The element `target` is: an element, or an accessor of one; `undefined` before it has one. */
-const elementOf = (target: unknown): Element | undefined => {
-  if (Predicate.isFunction(target)) return asElement(target())
-  return asElement(target)
-}
-
-/** `at`, if it's an element. */
-const asElement = (at: unknown): Element | undefined => {
-  if (at instanceof Element) return at
-  return undefined
-}
-
-/** A presence hook's registration (#277's PR 5b): `isPresent`, `false` from its child's leave. */
-const watchOf = (target: unknown, holds: boolean, onLeave: (safeToRemove: () => void, custom: unknown) => void): Accessor<boolean> => {
-  const [present, setPresent] = createSignal(true)
-  if (isServer) return present
-  UndefinedOr.map(usePresenceContext(), (presence) =>
-    UndefinedOr.map(presence.watch, (watch) =>
-      watch({
-        element: () => elementOf(target),
-        holds,
-        leave: (custom, release) => {
-          setPresent(false)
-          onLeave(release, custom)
-        },
-        gone: () => {},
-      })))
-  return present
-}
-
-/**
- * Motion's `usePresence`, in Solid's shape: the leaving child that holds
- * `target` (an element, or an accessor of one) stays until `safeToRemove` is called. `onLeave` is
- * called when it leaves, once its node is back in place (or popped, `mode="popLayout"`), with the
- * presence's `custom`: the child's own code is already disposed by then, so what it does there is
- * plain DOM work (a Web Animation, a timer) that ends by calling `safeToRemove`. Never at the
- * presence's own teardown, and outside a presence, never. One that throws is reported, and lets the
- * child go. Returns whether the child is present: `false` from its leave, for handlers still firing
- * on the retained node.
- */
-export function usePresence(
-  target: unknown,
-  // Motion's `custom` is `any`: the callback declares its own.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onLeave: (safeToRemove: () => void, custom: any) => void,
-): Accessor<boolean> {
-  return watchOf(target, true, onLeave)
-}
-
-/**
- * Motion's `useIsPresent`: whether the child that holds `target` is present, `false`
- * from its leave on. The child's own effects are disposed as it leaves, so it's for what still runs
- * on the retained node: an event handler, a timer. Outside a presence, always `true`.
- */
-export function useIsPresent(target: unknown): Accessor<boolean> {
-  return watchOf(target, false, () => {})
-}
-
-/** Motion's `usePresenceData`: the nearest presence's `custom`, `undefined` outside one. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function usePresenceData<T = any>(): Accessor<T | undefined> {
-  const presence = usePresenceContext()
-  return () => UndefinedOr.map(UndefinedOr.map(presence, (p) => p.data), (data) => data()) as T | undefined
 }
 
 /** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
 const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
+  // A `ref` is handed the server's handle, on which nothing exits (#257).
+  const ref = untrack(() => props.ref)
+  if (hasRef(ref)) ref(serverPresenceHandle())
   // A server renders once: every child is set up with the first render (#134).
-  const ctx: PresenceController.PresenceContextValue = { register: () => () => {}, blocksInitial: () => props.initial === false, data: () => props.custom }
+  const context: PresenceController.PresenceContextValue = { register: () => () => {}, blocksInitial: () => untrack(() => props.initial) === false, data: () => props.custom }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
   return (
-    <PresenceContext.Provider value={ctx}>
+    <PresenceContext value={context}>
       <Tracker />
-    </PresenceContext.Provider>
+    </PresenceContext>
   )
 }

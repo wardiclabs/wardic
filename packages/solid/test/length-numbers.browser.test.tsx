@@ -1,30 +1,27 @@
-// A bare number on a CSS length, drawn (#522, Motion's `animate={{ height: 200 }}`), on Solid 1.
+// A bare number on a CSS length, drawn (#522, Motion's `animate={{ height: 200 }}`), on Solid 2.
 //
-// - LB1: a number on a one-word length and on multi-word ones lands in px: `height`, `margin-top`,
+// - LBV1: a number on a one-word length and on multi-word ones lands in px: `height`, `margin-top`,
 //   `border-top-left-radius`.
-// - LB2: a Keyframes list mixing numbers and strings (`[0, "100px", 200]`) is drawn through every
+// - LBV2: a Keyframes list mixing numbers and strings (`[0, "100px", 200]`) is drawn through every
 //   frame in px and lands on its last stop.
-import { render } from "@solidjs/testing-library"
+import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
-import type { JSX } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
-import { resetScene } from "./reorder-harness.tsx"
-
-afterEach(resetScene)
+import { mount } from "./mount.tsx"
 
 const FAST = { type: "tween", ease: "linear", duration: 0.1 } as const
 
 const show = (ui: () => JSX.Element): HTMLElement => {
-  const { container } = render(() => <WardicProvider env={DomLive}>{ui()}</WardicProvider>)
-  return container.querySelector<HTMLElement>("[data-box]")!
+  const { host } = mount(() => <WardicProvider env={DomLive}>{ui()}</WardicProvider>)
+  return host.querySelector<HTMLElement>("[data-box]")!
 }
 
 const px = (el: Element, key: string): number => Number.parseFloat(getComputedStyle(el).getPropertyValue(key))
 
-describe("a bare number on a CSS length, drawn on Solid 1 (#522)", () => {
-  it("LB1: a number on a one-word and on multi-word lengths lands in px", async () => {
+describe("a bare number on a CSS length, drawn on Solid 2 (#522)", () => {
+  it("LBV1: a number on a one-word and on multi-word lengths lands in px", async () => {
     const box = show(() => (
       <wardic.div data-box style={{ width: "40px" }} initial={{ height: 0 }} animate={{ height: 200, "margin-top": 20, "border-top-left-radius": 8 }} transition={FAST} />
     ))
@@ -33,7 +30,7 @@ describe("a bare number on a CSS length, drawn on Solid 1 (#522)", () => {
     expect(getComputedStyle(box).getPropertyValue("border-top-left-radius")).toBe("8px")
   })
 
-  it("LB2: a Keyframes list mixing numbers and strings is drawn in px through every frame", async () => {
+  it("LBV2: a Keyframes list mixing numbers and strings is drawn in px through every frame", async () => {
     const box = show(() => <wardic.div data-box style={{ width: "40px" }} initial={{ height: 0 }} animate={{ height: [0, "100px", 200] }} transition={{ ...FAST, duration: 0.3 }} />)
     const heights: Array<number> = []
     while (px(box, "height") < 200 && heights.length < 120) {

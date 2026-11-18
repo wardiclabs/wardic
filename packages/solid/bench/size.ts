@@ -27,14 +27,12 @@ import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:
 import { join } from "node:path"
 import { brotliCompressSync, gzipSync } from "node:zlib"
 import { build } from "vite"
-import solid from "vite-plugin-solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { solid2 } from "../vite.solid2.ts"
-import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, bindingPluginsOf, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 /** An app fails when its gzip passes this ratio of the base's. */
 const GATE = 1.01
@@ -188,7 +186,7 @@ render(() => <WardicProvider env={DomLive}><List /></WardicProvider>, document.b
  */
 const routes = (render: string, entry: string, name: string): App => ({
   name,
-  v2: entry.endsWith("v2"),
+  v2: render === "@solidjs/web",
   source: `import { lazy, Show } from "solid-js"
 import { render } from "${render}"
 import { DomLive } from "@wardic/dom"
@@ -213,35 +211,35 @@ export default function Moves() { return <LazyWardic features={[layout]}><w.div 
 
 const APPS: ReadonlyArray<App> = [
   { name: "s1-plain", v2: false, source: plain("solid-js/web") },
-  { name: "s1-complete", v2: false, source: complete("solid-js/web", "@wardic/solid", false) },
-  { name: "s1-presence", v2: false, source: complete("solid-js/web", "@wardic/solid", true) },
-  { name: "s1-slim", v2: false, source: slim("solid-js/web", "@wardic/solid", []) },
-  { name: "s1-colors", v2: false, source: slim("solid-js/web", "@wardic/solid", ["colors"]) },
-  { name: "s1-layout", v2: false, source: slim("solid-js/web", "@wardic/solid", ["layout"]) },
-  { name: "s1-hover", v2: false, source: slim("solid-js/web", "@wardic/solid", ["hover"]) },
-  { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid", ["drag"]) },
-  { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
-  { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
-  { name: "s1-instance", v2: false, source: instance("solid-js/web", "@wardic/solid", ["domAnimation"]) },
-  { name: "s1-scroll", v2: false, source: scrollApp("solid-js/web", "@wardic/solid") },
-  { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid") },
-  { name: "s1-reorder-batch", v2: false, source: reorderBatch("solid-js/web", "@wardic/solid") },
-  routes("solid-js/web", "@wardic/solid", "s1-routes"),
+  { name: "s1-complete", v2: false, source: complete("solid-js/web", "@wardic/solid/v1", false) },
+  { name: "s1-presence", v2: false, source: complete("solid-js/web", "@wardic/solid/v1", true) },
+  { name: "s1-slim", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", []) },
+  { name: "s1-colors", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["colors"]) },
+  { name: "s1-layout", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["layout"]) },
+  { name: "s1-hover", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["hover"]) },
+  { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["drag"]) },
+  { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["domAnimation"]) },
+  { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["domMax"]) },
+  { name: "s1-instance", v2: false, source: instance("solid-js/web", "@wardic/solid/v1", ["domAnimation"]) },
+  { name: "s1-scroll", v2: false, source: scrollApp("solid-js/web", "@wardic/solid/v1") },
+  { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid/v1") },
+  { name: "s1-reorder-batch", v2: false, source: reorderBatch("solid-js/web", "@wardic/solid/v1") },
+  routes("solid-js/web", "@wardic/solid/v1", "s1-routes"),
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
-  { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
-  { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", true) },
-  { name: "s2-slim", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", []) },
-  { name: "s2-colors", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["colors"]) },
-  { name: "s2-layout", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["layout"]) },
-  { name: "s2-hover", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["hover"]) },
-  { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["drag"]) },
-  { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
-  { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
-  { name: "s2-instance", v2: true, source: instance("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
-  { name: "s2-scroll", v2: true, source: scrollApp("@solidjs/web", "@wardic/solid/unstable/v2") },
-  { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid/unstable/v2") },
-  { name: "s2-reorder-batch", v2: true, source: reorderBatch("@solidjs/web", "@wardic/solid/unstable/v2") },
-  routes("@solidjs/web", "@wardic/solid/unstable/v2", "s2-routes"),
+  { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid", false) },
+  { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid", true) },
+  { name: "s2-slim", v2: true, source: slim("@solidjs/web", "@wardic/solid", []) },
+  { name: "s2-colors", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["colors"]) },
+  { name: "s2-layout", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["layout"]) },
+  { name: "s2-hover", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["hover"]) },
+  { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["drag"]) },
+  { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["domAnimation"]) },
+  { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["domMax"]) },
+  { name: "s2-instance", v2: true, source: instance("@solidjs/web", "@wardic/solid", ["domAnimation"]) },
+  { name: "s2-scroll", v2: true, source: scrollApp("@solidjs/web", "@wardic/solid") },
+  { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid") },
+  { name: "s2-reorder-batch", v2: true, source: reorderBatch("@solidjs/web", "@wardic/solid") },
+  routes("@solidjs/web", "@wardic/solid", "s2-routes"),
 ]
 
 /** What a source map's sources are counted under. */
@@ -252,7 +250,7 @@ const groupOf = (source: string): Group => {
   const own = /packages\/(core|dom|solid)\/src\//.exec(source)
   if (own !== null) return own[1] as Group
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?effect\//.test(source)) return "effect"
-  if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(solid-js|solid-js-2|@solidjs)\//.test(source)) return "solid-js"
+  if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(solid-js|solid-js-1|solid-js-2|@solidjs)\//.test(source)) return "solid-js"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?culori\//.test(source)) return "culori"
   return "other"
 }
@@ -339,7 +337,7 @@ const appSizeOf = async (root: string, deps: string, app: App, entry: string, si
     logLevel: "error",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
+    plugins: [sideResolver(root, deps), bindingPluginsOf(app.v2)],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist", app.name),

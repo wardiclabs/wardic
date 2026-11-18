@@ -3,12 +3,12 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
-    "jsxImportSource": "solid-js",
+    "jsxImportSource": "@solidjs/web",
     // `dist/solid/`: the JSX kept as JSX, for the `solid` export condition (#554).
     "outDir": "${configDir}/dist/solid"
   },
   "include": ["src"],
-  "// exclude": "The Solid 2 binding is tsconfig.v2.json's (#209): it compiles against Solid 2.",
-  "exclude": ["src/unstable"],
+  "// exclude": "The Solid 1 binding is tsconfig.v1.build.json's (#566): it compiles against Solid 1.",
+  "exclude": ["src/v1"],
   "references": [{ "path": "../core" }, { "path": "../dom" }]
 }

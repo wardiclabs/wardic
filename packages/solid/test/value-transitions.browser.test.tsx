@@ -1,25 +1,23 @@
-// Per-value transitions on Solid 1 (#301, Motion's `getValueTransition`): a transition's entry by a
-// value's name drives that value, `default` every value without one, wherever a transition goes.
-// Real frames: a fast entry lands while a slow transition's value is still on its way.
+// Per-value transitions on Solid 2 (#301, Motion's `getValueTransition`), as the Solid 1 binding's VT
+// tests pin them. Real frames, under the diagnostics gate: a fast entry lands while a slow
+// transition's value is still on its way.
 //
-// - VT1: the element's transition: a value's entry drives it, the rest run on the own fields.
-// - VT2: `default` drives a value without an entry, not the transition's own fields.
-// - VT3: an entry with `inherit: true` takes the own fields' delay; without, its value starts at once.
-// - VT4: a variant's own transition.
-// - VT5: a gesture target's own transition.
-// - VT6: a list's names: each name's entries drive the keys it sets.
-// - VT7: an exit's own transition.
-// - VT8: a stagger's delay holds each entry: the second child's fast entry waits its slot.
-// - VT9: an exit's stagger inside a leaving child (#290) holds each entry too.
-import { cleanup, render } from "@solidjs/testing-library"
+// - TV1: the element's transition: a value's entry drives it, the rest run on the own fields.
+// - TV2: `default` drives a value without an entry, not the transition's own fields.
+// - TV3: a variant's own transition.
+// - TV4: a gesture target's own transition.
+// - TV5: a list's names: each name's entries drive the keys it sets.
+// - TV6: an exit's own transition.
+// - TV7: a stagger's delay holds each entry: the second child's fast entry waits its slot.
+// - TV8: `default` drives layout with no `layout` entry.
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
+import { AnimatePresence, wardic, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
+import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
-import { createSignal, For, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { createSignal, flush, For, Show } from "solid-js"
+import { describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
-
-afterEach(cleanup)
+import { mount } from "./mount.tsx"
 
 const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
@@ -29,15 +27,21 @@ const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(
 
 const opacityOf = (el: HTMLElement): number => Number(getComputedStyle(el).opacity)
 const xOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).m41
+const leftOf = (el: Element): number => el.getBoundingClientRect().left
 
 const FAST = { type: "tween", duration: 0.1 } as const
 const SLOW = { type: "tween", duration: 1 } as const
 const BOX = { display: "block", width: "20px", height: "20px" } as const
 
-/** Render `ui` inside a provider; the returned function finds a `data-k`. */
-const mount = (ui: () => JSX.Element) => {
-  const { container } = render(() => <WardicProvider env={DomLive}>{ui()}</WardicProvider>)
-  return (k: string): HTMLElement => container.querySelector<HTMLElement>(`[data-k="${k}"]`)!
+/** `set(value)`, applied now. */
+const flushed = <A,>(set: (value: A) => unknown) => (value: A): void => {
+  set(value)
+  flush()
+}
+
+const mountIn = (ui: () => JSX.Element) => {
+  const { host } = mount(() => <WardicProvider env={DomLive}>{ui()}</WardicProvider>)
+  return (k: string): HTMLElement => host.querySelector<HTMLElement>(`[data-k="${k}"]`)!
 }
 
 /** Hover `el` until `held()` (the recognizer attaches its listener asynchronously). */
@@ -55,10 +59,10 @@ const xWhenFaded = async (el: HTMLElement): Promise<number> => {
   return xOf(el)
 }
 
-describe("per-value transitions on Solid 1 (#301)", () => {
-  it("VT1: the element's transition: a value's entry drives it, the rest run on the own fields", async () => {
+describe("per-value transitions on Solid 2 (#301)", () => {
+  it("TV1: the element's transition: a value's entry drives it, the rest run on the own fields", async () => {
     const [on, setOn] = createSignal(false)
-    const q = mount(() => (
+    const q = mountIn(() => (
       <wardic.div
         data-k="el"
         initial={{ x: 0, opacity: 0 }}
@@ -68,41 +72,27 @@ describe("per-value transitions on Solid 1 (#301)", () => {
       />
     ))
     await frames(3)
-    setOn(true)
+    flushed(setOn)(true)
     expect(await xWhenFaded(q("el")), "x on the own fields' 1 s").toBeLessThan(60)
     await until(() => xOf(q("el")) > 99.9, 3000)
     expect(xOf(q("el"))).toBeGreaterThan(99.9)
   })
 
-  it("VT2: default drives a value without an entry, not the transition's own fields", async () => {
-    const q = mount(() => <wardic.div data-k="el" initial={{ x: 0, opacity: 1 }} animate={{ x: 100, opacity: 0 }} transition={{ ...FAST, default: SLOW, x: FAST }} style={BOX} />)
+  it("TV2: default drives a value without an entry, not the transition's own fields", async () => {
+    const q = mountIn(() => <wardic.div data-k="el" initial={{ x: 0, opacity: 1 }} animate={{ x: 100, opacity: 0 }} transition={{ ...FAST, default: SLOW, x: FAST }} style={BOX} />)
     await until(() => xOf(q("el")) > 99.9, 2000)
     expect(xOf(q("el")), "x on its entry").toBeGreaterThan(99.9)
     expect(opacityOf(q("el")), "opacity on default's 1 s, not the own 0.1 s").toBeGreaterThan(0.4)
   })
 
-  it("VT3: an entry with inherit takes the own fields' delay; without, its value starts at once", async () => {
-    const q = mount(() => (
-      <>
-        <wardic.div data-k="held" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...SLOW, delay: 0.4, opacity: { inherit: true, duration: 0.1 } }} style={BOX} />
-        <wardic.div data-k="free" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ ...SLOW, delay: 0.4, opacity: FAST }} style={BOX} />
-      </>
-    ))
-    await until(() => opacityOf(q("free")) > 0.99, 2000)
-    expect(opacityOf(q("free")), "its own 0.1 s, no delay").toBeGreaterThan(0.99)
-    expect(opacityOf(q("held")), "held through the own fields' 0.4 s delay").toBe(0)
-    await until(() => opacityOf(q("held")) > 0.99, 2000)
-    expect(opacityOf(q("held")), "then its own 0.1 s").toBeGreaterThan(0.99)
-  })
-
-  it("VT4: a variant's own transition", async () => {
+  it("TV3: a variant's own transition", async () => {
     const variants: WardicVariants = { hidden: { x: 0, opacity: 0 }, shown: { x: 100, opacity: 1, transition: { ...SLOW, opacity: FAST } } }
-    const q = mount(() => <wardic.div data-k="el" variants={variants} initial="hidden" animate="shown" style={BOX} />)
+    const q = mountIn(() => <wardic.div data-k="el" variants={variants} initial="hidden" animate="shown" style={BOX} />)
     expect(await xWhenFaded(q("el")), "x on the variant's own 1 s").toBeLessThan(60)
   })
 
-  it("VT5: a gesture target's own transition", async () => {
-    const q = mount(() => (
+  it("TV4: a gesture target's own transition", async () => {
+    const q = mountIn(() => (
       <wardic.div data-k="el" initial={{ x: 0, opacity: 0 }} animate={{ x: 0, opacity: 0 }} whileHover={{ x: 100, opacity: 1, transition: { ...SLOW, opacity: FAST } }} style={BOX} />
     ))
     await frames(3)
@@ -110,19 +100,19 @@ describe("per-value transitions on Solid 1 (#301)", () => {
     expect(await xWhenFaded(q("el")), "x on the hover target's own 1 s").toBeLessThan(60)
   })
 
-  it("VT6: a list's names: each name's entries drive the keys it sets", async () => {
+  it("TV5: a list's names: each name's entries drive the keys it sets", async () => {
     const variants: WardicVariants = {
       hidden: { x: 0, opacity: 0 },
       fade: { opacity: 1, transition: { ...SLOW, opacity: FAST } },
       slide: { x: 100, transition: { ...FAST, default: SLOW } },
     }
-    const q = mount(() => <wardic.div data-k="el" variants={variants} initial="hidden" animate={["fade", "slide"]} style={BOX} />)
+    const q = mountIn(() => <wardic.div data-k="el" variants={variants} initial="hidden" animate={["fade", "slide"]} style={BOX} />)
     expect(await xWhenFaded(q("el")), "x on slide's default 1 s, not its own 0.1 s").toBeLessThan(60)
   })
 
-  it("VT7: an exit's own transition", async () => {
+  it("TV6: an exit's own transition", async () => {
     const [shown, setShown] = createSignal(true)
-    const q = mount(() => (
+    const q = mountIn(() => (
       <AnimatePresence>
         <Show when={shown()}>
           <wardic.div data-k="el" initial={false} animate={{ x: 0, opacity: 1 }} exit={{ x: 100, opacity: 0, transition: { ...SLOW, opacity: FAST } }} style={BOX} />
@@ -131,7 +121,7 @@ describe("per-value transitions on Solid 1 (#301)", () => {
     ))
     await frames(3)
     const leaving = q("el")
-    setShown(false)
+    flushed(setShown)(false)
     await until(() => opacityOf(leaving) < 0.01, 2000)
     expect(leaving.isConnected, "still leaving").toBe(true)
     expect(opacityOf(leaving), "faded out on its fast entry").toBeLessThan(0.01)
@@ -140,12 +130,11 @@ describe("per-value transitions on Solid 1 (#301)", () => {
     expect(leaving.isConnected, "removed once x lands").toBe(false)
   })
 
-  it("VT8: a stagger's delay holds each entry: the second child's fast entry waits its slot", async () => {
-    const parent: WardicVariants = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
-    const item: WardicVariants = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
-    const q = mount(() => (
-      <wardic.ul variants={parent} initial="hidden" animate="shown" transition={{ ...SLOW, staggerChildren: 0.4, opacity: FAST }}>
-        <For each={[0, 1]}>{(i) => <wardic.li data-k={`i${i}`} variants={item} style={BOX} />}</For>
+  it("TV7: a stagger's delay holds each entry: the second child's fast entry waits its slot", async () => {
+    const variants: WardicVariants = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
+    const q = mountIn(() => (
+      <wardic.ul variants={variants} initial="hidden" animate="shown" transition={{ ...SLOW, staggerChildren: 0.4, opacity: FAST }}>
+        <For each={[0, 1]}>{(i) => <wardic.li data-k={`i${i}`} variants={variants} style={BOX} />}</For>
       </wardic.ul>
     ))
     await until(() => opacityOf(q("i0")) > 0.99, 2000)
@@ -157,26 +146,39 @@ describe("per-value transitions on Solid 1 (#301)", () => {
     expect(opacityOf(q("i1")), "then fades on the fast entry").toBeGreaterThan(0.99)
   })
 
-  it("VT9: an exit's stagger inside a leaving child holds each entry too (#290)", async () => {
-    const list: WardicVariants = { shown: {}, gone: { opacity: 1, transition: { staggerChildren: 0.4 } } }
-    const item: WardicVariants = { shown: { opacity: 1 }, gone: { opacity: 0 } }
-    const [open, setOpen] = createSignal(true)
-    const q = mount(() => (
-      <AnimatePresence>
-        <Show when={open()}>
-          <wardic.ul data-k="list" variants={list} initial="shown" animate="shown" exit="gone">
-            <For each={[0, 1]}>{(i) => <wardic.li data-k={`i${i}`} variants={item} transition={{ ...SLOW, opacity: FAST }} style={BOX} />}</For>
-          </wardic.ul>
-        </Show>
-      </AnimatePresence>
+  it("TV8: default drives layout with no layout entry", async () => {
+    const [moved, setMoved] = createSignal(false)
+    const slow: WardicTransition = { type: "spring", stiffness: 20, damping: 10 }
+    const transitions: ReadonlyArray<WardicTransition> = [{ ...slow, default: { type: "tween", duration: 0.2 } }, { type: "tween", duration: 0.2, default: slow }]
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "relative", height: "120px" }}>
+          <For each={transitions}>
+            {(transition, i) => (
+              <wardic.div
+                data-box
+                layout
+                layoutDependency={moved()}
+                transition={transition}
+                style={{ position: "absolute", top: `${i() * 60}px`, left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }), width: "40px", height: "40px" }}
+              />
+            )}
+          </For>
+        </div>
+      </WardicProvider>
     ))
-    await frames(3)
-    const [first, second] = [q("i0"), q("i1")]
-    setOpen(false)
-    await until(() => opacityOf(first) < 0.01, 2000)
-    expect(opacityOf(first), "the first on its fast entry").toBeLessThan(0.01)
-    expect(opacityOf(second), "the second waits its 0.4 s slot").toBe(1)
-    await until(() => opacityOf(second) < 0.01, 2000)
-    expect(opacityOf(second), "then fades on its fast entry").toBeLessThan(0.01)
+    await frames(5)
+    const boxes = Array.from(host.querySelectorAll("[data-box]"))
+    const origin = leftOf(boxes[0]!)
+    flushed(setMoved)(true)
+    const lefts: Array<ReadonlyArray<number>> = []
+    for (let i = 0; i < 30; i++) {
+      await raf()
+      lefts.push(boxes.map((b) => leftOf(b) - origin))
+    }
+    const landed = lefts.findIndex((l) => Math.abs(l[0]! - 200) < 0.01)
+    expect(landed, "default's 0.2 s tween lands within 18 frames").toBeLessThan(18)
+    expect(landed).toBeGreaterThan(0)
+    expect(lefts[landed + 4]![1]!, "default's slow spring, not the own 0.2 s").toBeLessThan(195)
   })
 })

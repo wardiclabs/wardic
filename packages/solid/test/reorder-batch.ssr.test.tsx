@@ -1,4 +1,4 @@
-// `Reorder.BatchGroup` on Solid 1's server (#712's PR 3, Q37, Q39), with Solid's server build in the `node`
+// `Reorder.BatchGroup` on Solid 2's server (#712's PR 3, Q37, Q39), with Solid's server build in the `node`
 // environment, on DomLive.
 //
 // - BS1: a column: the group sized to its places, `overflow-anchor: none`; each item in the list's order, at
@@ -39,7 +39,7 @@ import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { For } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { expectDragDefaults, serve, tagsOf } from "./ssr-helpers.ts"
+import { serve, tagsOf } from "./ssr.ts"
 
 const VALUES = ["a", "b", "c", "d", "e"]
 
@@ -74,7 +74,14 @@ const list = (scene: Scene) => () => (
   </Reorder.BatchGroup>
 )
 
-describe("Reorder.BatchGroup on a server", () => {
+/** A drag element's defaults on a server-rendered tag, with `touchAction` for its axis: Solid 1's `expectDragDefaults`. */
+const expectDragDefaults = (t: ReturnType<typeof tagsOf>[number], touchAction: string): void => {
+  expect(t.attrs.draggable, `${t.name} draggable`).toBe("false")
+  expect(t.style["touch-action"], `${t.name} touch-action`).toBe(touchAction)
+  expect(t.style["user-select"], `${t.name} user-select`).toBe("none")
+}
+
+describe("Reorder.BatchGroup on a server, on Solid 2", () => {
   it("BS1: a column: the group sized, each item at its place, sized, with the drag defaults and a tab stop", () => {
     const [group, ...items] = tagsOf(serve(list({ axis: "y" })))
     expect(group?.name).toBe("ul")
@@ -157,7 +164,7 @@ const columnList = (sizing: ReorderBatchSizing<string>) => () => (
 /** An item's width when it takes the group's content width: all of its query container's, the group's. */
 const GROUP_WIDTH = "100cqi"
 
-describe("Reorder.BatchGroup of items of different sizes on a server (#714)", () => {
+describe("Reorder.BatchGroup of items of different sizes on a server, on Solid 2 (#714)", () => {
   it("BS5: a column: each item its own height, each place below the one before; the group as tall as them all", () => {
     const [group, ...items] = tagsOf(serve(sizedList({ axis: "y" })))
     expect([group?.style.position, group?.style.width, group?.style.height, group?.style["container-type"]], "no container: every item gives its width").toEqual(["relative", "120px", "350px", undefined])

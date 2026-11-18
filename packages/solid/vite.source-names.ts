@@ -1,5 +1,5 @@
 // Names for the Solid 2 binding's computations, in its test runs only (#320): each `createMemo`,
-// `createEffect`, `createSignal`… in `src/unstable/v2` gets a `name` of its source `file:line` and the
+// `createEffect`, `createSignal`… in `src`, but Solid 1's `src/v1` (#566), gets a `name` of its source `file:line` and the
 // variable it's assigned to, so a diagnostic or an attribution table says `ward.tsx:1187` where it
 // said `effect`. Nothing ships: the package's source is unchanged, and production Solid ignores
 // names anyway.
@@ -7,13 +7,13 @@
 // The call is rewritten before the TS and JSX compile, so the lines are the source's:
 // `createMemo<T>(…)` becomes `__wardicNamed("ward.tsx:816 target", "createMemo", createMemo)(…)`,
 // its type arguments dropped (they're erased anyway), with `__wardicNamed` imported from
-// `test/v2/source-names.ts`. Solid's own `transformSourceNames` (`@solidjs/compiler`) names only a
+// `test/source-names.ts`. Solid's own `transformSourceNames` (`@solidjs/compiler`) names only a
 // primitive assigned to a variable, and most of the binding's effects are bare calls.
 import { join } from "node:path"
 import type { Plugin } from "vite"
 
-const DIR = "/packages/solid/src/unstable/v2/"
-const HELPER = join(import.meta.dirname, "test/v2/source-names.ts")
+const DIR = "/packages/solid/src/"
+const HELPER = join(import.meta.dirname, "test/source-names.ts")
 const PRIMITIVES = "createMemo|createEffect|createRenderEffect|createTrackedEffect|createSignal|createProjection|createReaction|createOptimistic"
 /** A call of one, not a property's (`x.createEffect(`), with its type arguments if any. */
 const CALL = new RegExp(`(?<![.\\w$])(${PRIMITIVES})(<[^()\\n]*>)?\\s*\\(`, "g")
@@ -42,6 +42,7 @@ export const sourceNames = (): Plugin => ({
     const at = file.indexOf(DIR)
     if (at < 0 || !/\.tsx?$/.test(file)) return null
     const short = file.slice(at + DIR.length)
+    if (short.startsWith("v1/")) return null
     let out = ""
     let last = 0
     for (const match of code.matchAll(CALL)) {

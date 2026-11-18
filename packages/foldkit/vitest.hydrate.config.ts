@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import { renderToString } from "foldkit/experimental/server"
 import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand } from "vitest/node"
-import { BROWSER_COMMANDS } from "../solid/vitest.browser.config.ts"
+import { BROWSER_COMMANDS } from "../solid/vitest.browser-commands.ts"
 import { FOLDKIT_PREBUNDLED } from "./vitest.browser.config.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 

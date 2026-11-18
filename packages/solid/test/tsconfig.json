@@ -1,5 +1,6 @@
 {
-  "// note": "IDE-facing config for the Solid test files. The package's tsconfig.json includes only `src` (it's the composite build project), so test .tsx files would otherwise be orphaned and the editor falls back to inferred defaults (jsx: 'react') — erroring on every Solid JSX node. This config (nearest to the test files) gives the editor the Solid JSX settings. The CLI gate `typecheck:tests` still runs ../tsconfig.test.json (src + test); this inherits the same compilerOptions via extends, so they can't drift.",
+  "// note": "IDE-facing config for the Solid 2 binding's tests, nearest to them: Solid 2's types and `@solidjs/web` JSX, from ../tsconfig.test.json, where the CLI gate (`typecheck:tests`) runs them. Solid 1's are test/v1/tsconfig.json's (#566).",
   "extends": "../tsconfig.test.json",
-  "include": ["."]
+  "include": ["."],
+  "exclude": ["v1"]
 }

@@ -38,7 +38,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Request } from "playwright"
 // The binding's own gate, so the dev mode fails on what its tests fail on.
-import { codeOf, gated, reports } from "../../../../packages/solid/test/v2/gate-filter.ts"
+import { codeOf, gated, reports } from "../../../../packages/solid/test/gate-filter.ts"
 import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 

@@ -1,0 +1,5 @@
+{
+  "// note": "IDE-facing config for the Solid 1 binding's tests (#566), nearest to them: Solid 1's types and JSX, from ../../tsconfig.v1.json, where the CLI gate (`typecheck:tests`) runs them.",
+  "extends": "../../tsconfig.v1.json",
+  "include": ["."]
+}

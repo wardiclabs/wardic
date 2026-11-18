@@ -25,7 +25,7 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid"
+import { wardic } from "@wardic/solid/v1"
 import { batch, createSignal, type JSX, onCleanup } from "solid-js"
 import { CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
 import type { ScenarioDef } from "./types.ts"

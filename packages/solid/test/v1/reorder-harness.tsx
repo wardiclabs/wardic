@@ -1,0 +1,293 @@
+// Shared scene and real-input helpers for the `<Reorder>` browser tests (ADR-0020):
+// reorder.browser.test.tsx, reorder-headless.browser.test.tsx and
+// reorder-engine.browser.test.tsx.
+//
+// The lists are the evidence runs' (.tmp/reorder/probe-common.js): a column of 200x50
+// items (a 60 px pitch), a row of 80x50 items (a 90 px pitch) and a wrapped grid of
+// 80x50 items, three to a row, each 10 px apart. Frames are read post-paint: every rAF
+// posts a MessageChannel message, whose handler runs after that frame's rendering
+// update (the layout lab's method).
+import type * as ReorderController from "@wardic/dom/ReorderController"
+import { cleanup, render } from "@solidjs/testing-library"
+import type * as CoreReorder from "@wardic/core/Reorder"
+import { DomLive } from "@wardic/dom"
+import { Reorder, type WardicValues, WardicProvider } from "@wardic/solid/v1"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { type Accessor, createSignal, For, type JSX } from "solid-js"
+import { afterPaint, raf } from "../browser-helpers.ts"
+import { add, glide, heldButton, mouse, type Pt, wait } from "../real-mouse.ts"
+
+// The real mouse and its points are Solid-free, in real-mouse.ts (#793): re-exported here for the Solid tests.
+export { add, centreOf, glide, mouse, type Pt, wait } from "../real-mouse.ts"
+
+export const settle = async (): Promise<void> => {
+  for (let i = 0; i < 4; i++) await raf()
+  await afterPaint()
+}
+
+/**
+ * A flick that lets go with its last move (#369, #496): grab at `g`, glide `slow` px right, make 3
+ * moves of `step` px 35 ms apart, and leave the 4th to `mouse.up`, which moves there and lets go in
+ * one command. Returns where the up lets go.
+ *
+ * A release's velocity is its last 100 ms's. Let go a command after the last move, the up lagged it
+ * by 14–71 ms in the full browser suite, and past 100 ms it lets go with none: no glide. Here the up
+ * follows a real step within one round trip, whatever the load.
+ */
+export const flingFrom = async (g: Pt, slow: number, step: number): Promise<Pt> => {
+  await mouse.down(g)
+  await glide(g, add(g, slow, 0), 10, 20)
+  for (let k = 1; k <= 3; k++) {
+    await mouse.move(add(g, slow + step * k, 0))
+    await wait(35)
+  }
+  return add(g, slow + 4 * step, 0)
+}
+
+/** For `afterEach`: release a held button, park the mouse, clear any selection, unmount, scroll home. */
+export const resetScene = async (): Promise<void> => {
+  if (heldButton()) await mouse.up({ x: 5, y: 5 })
+  await mouse.move({ x: 5, y: 5 })
+  window.getSelection()?.removeAllRanges()
+  cleanup()
+  window.scrollTo(0, 0)
+}
+
+/** Where `el`'s top-left corner is relative to the grab point `g`. */
+export const grabOffsetOf = (el: Element, g: Pt): Pt => {
+  const b = el.getBoundingClientRect()
+  return { x: b.left - g.x, y: b.top - g.y }
+}
+
+/** How far (px, the larger axis) `el` paints from where the pointer at `pointer` holds it. */
+export const offPointer = (el: Element, pointer: Pt, grabOffset: Pt): number => {
+  const b = el.getBoundingClientRect()
+  return Math.max(Math.abs(b.left - pointer.x - grabOffset.x), Math.abs(b.top - pointer.y - grabOffset.y))
+}
+
+/** A painted frame: when its rAF ran, and what `read` returned just after its paint. */
+export interface Frame<T> {
+  /** `performance.now()` in its rAF callback: comparable with other `performance.now()` reads. */
+  readonly frameAt: number
+  /**
+   * The frame's own timestamp, the one rAF hands its callbacks and the frame loop steps by. Time a
+   * speed by it: a loaded page runs other callbacks before this one, so `frameAt` drifts a few ms
+   * from frame to frame where this doesn't (#778).
+   */
+  readonly rafAt: number
+  readonly v: T
+}
+
+/** Read `read` just after every painted frame until `stop()`. */
+export const sampleFrames = <T,>(read: () => T): { readonly stop: () => ReadonlyArray<Frame<T>> } => {
+  const frames: Array<Frame<T>> = []
+  const channel = new MessageChannel()
+  let on = true
+  let frameAt = 0
+  let rafAt = 0
+  const post = (t: number): void => {
+    frameAt = performance.now()
+    rafAt = t
+    channel.port2.postMessage(undefined)
+  }
+  channel.port1.onmessage = () => {
+    frames.push({ frameAt, rafAt, v: read() })
+    if (on) requestAnimationFrame(post)
+  }
+  requestAnimationFrame(post)
+  return {
+    stop: () => {
+      on = false
+      channel.port1.close()
+      return frames
+    },
+  }
+}
+
+/** The values in DOM order. */
+export const domOrder = (root: ParentNode = document): ReadonlyArray<string> =>
+  [...root.querySelectorAll<HTMLElement>("[data-value]")].map((el) => el.dataset.value!)
+
+export const VALUES = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t"]
+
+export type Layout = "y" | "x" | "xy"
+
+export const LAYOUTS: Record<Layout, { readonly n: number; readonly w: number; readonly h: number; readonly group: JSX.CSSProperties }> = {
+  y: { n: 5, w: 200, h: 50, group: { "flex-direction": "column", width: "200px" } },
+  x: { n: 5, w: 80, h: 50, group: { "flex-direction": "row" } },
+  xy: { n: 6, w: 80, h: 50, group: { "flex-direction": "row", "flex-wrap": "wrap", width: "280px" } },
+}
+
+export interface SceneOptions {
+  readonly layout?: Layout
+  readonly n?: number
+  /** The group's `axis` prop, read reactively; absent = detected. */
+  readonly axis?: Accessor<CoreReorder.Axis | undefined>
+  readonly rtl?: boolean
+  /** `row-reverse` / `column-reverse`. */
+  readonly reverse?: boolean
+  /** Centred in the viewport, so a width change moves it sideways (#39). */
+  readonly centred?: boolean
+  /** Inside a plain `overflow: auto` container (not `layoutScroll`) this tall. */
+  readonly container?: number
+  /** A 3000 px tall page. */
+  readonly tall?: boolean
+  /** Items hold text a drag can select. */
+  readonly text?: boolean
+  readonly groupAs?: "ul" | "ol" | "div" | "section"
+  readonly itemAs?: "li" | "div" | "article"
+  /** Extra group style, read reactively (the user's, over the scene's). */
+  readonly groupStyle?: Accessor<JSX.CSSProperties>
+  /** Extra item style, read reactively (the user's, over the scene's). */
+  readonly itemStyle?: Accessor<JSX.CSSProperties>
+  readonly whileDrag?: WardicValues
+  /** Each item's `dragElastic` (#140): its release's bounce. */
+  readonly dragElastic?: number
+  /** Read with the values, so a change to it re-reads them, unchanged (#348). */
+  readonly alsoRead?: Accessor<unknown>
+  /** Each item's own size, by its value (#714): over the layout's. */
+  readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
+}
+
+export interface Scene {
+  readonly order: Accessor<ReadonlyArray<string>>
+  readonly setOrder: (values: ReadonlyArray<string>) => void
+  /** Every `onReorder` call's values, in order. */
+  readonly reorders: ReadonlyArray<ReadonlyArray<string>>
+  /** When each `onReorder` call ran (`performance.now()`). */
+  readonly reorderTimes: ReadonlyArray<number>
+  /** Every `onReorderEnd` call (#257 item 3), in order. */
+  readonly ends: ReadonlyArray<ReorderController.End<string>>
+  /** Every `onHoldStart`, `onReorderEnd` and `onHoldEnd` call (#348), in order, as `start a 0`, `reorder a 0→2`, `end a 0→2 drop`. */
+  readonly holds: ReadonlyArray<string>
+  readonly item: (value: string) => HTMLElement
+  readonly group: () => HTMLElement
+  readonly scroller: HTMLElement | undefined
+}
+
+export const groupCss = (o: SceneOptions): JSX.CSSProperties => {
+  const layout = o.layout ?? "y"
+  const inContainer = o.container !== undefined
+  return {
+    ...Bool.match(o.rtl === true, { onTrue: () => ({ direction: "rtl" }), onFalse: () => ({}) }),
+    position: Bool.match(inContainer, { onTrue: () => "relative", onFalse: () => "absolute" }),
+    left: Bool.match(inContainer, {
+      onTrue: () => "0px",
+      onFalse: () => Bool.match(o.centred === true, { onTrue: () => "calc(50% - 100px)", onFalse: () => "40px" }),
+    }),
+    top: Bool.match(inContainer, { onTrue: () => "0px", onFalse: () => "40px" }),
+    display: "flex",
+    gap: "10px",
+    margin: "0",
+    padding: "0",
+    ...LAYOUTS[layout].group,
+    ...Bool.match(inContainer && layout !== "y", { onTrue: () => ({ width: "max-content" }), onFalse: () => ({}) }),
+    ...Bool.match(o.reverse === true, {
+      onTrue: () => ({ "flex-direction": Bool.match(layout === "y", { onTrue: () => "column-reverse", onFalse: () => "row-reverse" }) }),
+      onFalse: () => ({}),
+    }),
+  }
+}
+
+export const itemCss = (o: SceneOptions): JSX.CSSProperties => {
+  const l = LAYOUTS[o.layout ?? "y"]
+  return {
+    width: `${l.w}px`,
+    height: `${l.h}px`,
+    "box-sizing": "border-box",
+    border: "1px solid #333",
+    background: "#9cf",
+    "list-style": "none",
+    "font-family": "monospace",
+    ...Bool.match(o.text === true, { onTrue: () => ({ "font-size": "20px", "white-space": "nowrap", overflow: "hidden" }), onFalse: () => ({}) }),
+  }
+}
+
+/** An item's own size as style (#714), when the scene gives each its own. */
+const ownSizeOf = (o: SceneOptions, value: string): JSX.CSSProperties =>
+  UndefinedOr.match(o.sizeOf, { onUndefined: () => ({}), onDefined: (sizeOf) => ({ width: `${sizeOf(value).width}px`, height: `${sizeOf(value).height}px` }) })
+
+/** `order`'s values, read with `o.alsoRead` when there is one. */
+const valuesOf = (order: Accessor<ReadonlyArray<string>>, o: SceneOptions): ReadonlyArray<string> => {
+  o.alsoRead?.()
+  return order()
+}
+
+/** Mount `values` (default the layout's count) as a `Reorder.Group` of `Reorder.Item`s keyed by `<For>`. */
+export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
+  const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES.slice(0, o.n ?? LAYOUTS[o.layout ?? "y"].n))
+  const [scroller, setScroller] = createSignal<HTMLElement>()
+  const [groupEl, setGroupEl] = createSignal<HTMLElement>()
+  const reorders: Array<ReadonlyArray<string>> = []
+  const reorderTimes: Array<number> = []
+  const ends: Array<ReorderController.End<string>> = []
+  const holds: Array<string> = []
+  const onReorder = (values: Array<string>): void => {
+    reorders.push(values)
+    reorderTimes.push(performance.now())
+    setOrder(values)
+  }
+  const group = (): JSX.Element => (
+    <Reorder.Group
+      ref={(el: HTMLElement) => setGroupEl(el)}
+      values={valuesOf(order, o)}
+      onReorder={onReorder}
+      onReorderEnd={(end: ReorderController.End<string>) => {
+        ends.push(end)
+        holds.push(`reorder ${end.value} ${end.from}→${end.to}`)
+      }}
+      onHoldStart={(start: ReorderController.HoldStart<string>) => holds.push(`start ${start.value} ${start.from}`)}
+      onHoldEnd={(end: ReorderController.HoldEnd<string>) => holds.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)}
+      axis={o.axis?.()}
+      {...UndefinedOr.match(o.groupAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
+      style={{ ...groupCss(o), ...o.groupStyle?.() }}
+    >
+      <For each={order()}>
+        {(value) => (
+          <Reorder.Item
+            value={value}
+            data-value={value}
+            {...UndefinedOr.match(o.itemAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
+            {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
+            {...UndefinedOr.match(o.dragElastic, { onUndefined: () => ({}), onDefined: (dragElastic) => ({ dragElastic }) })}
+            style={{ ...itemCss(o), ...ownSizeOf(o, value), ...o.itemStyle?.() }}
+          >
+            {Bool.match(o.text === true, { onTrue: () => `item ${value} text`, onFalse: () => value })}
+          </Reorder.Item>
+        )}
+      </For>
+    </Reorder.Group>
+  )
+  render(() => (
+    <WardicProvider env={DomLive}>
+      {UndefinedOr.match(o.container, {
+        onDefined: (height) => (
+          <div
+            ref={(el: HTMLElement) => setScroller(el)}
+            style={{ position: "absolute", left: "40px", top: "40px", width: "230px", height: `${height}px`, overflow: "auto" }}
+          >
+            {group()}
+          </div>
+        ),
+        onUndefined: () =>
+          Bool.match(o.tall === true, {
+            onTrue: () => <div style={{ height: "3000px" }}>{group()}</div>,
+            onFalse: () => group(),
+          }),
+      })}
+    </WardicProvider>
+  ))
+  await settle()
+  return {
+    order,
+    setOrder,
+    reorders,
+    reorderTimes,
+    ends,
+    holds,
+    item: (value) => document.querySelector<HTMLElement>(`[data-value="${value}"]`)!,
+    group: () => groupEl()!,
+    scroller: scroller(),
+  }
+}

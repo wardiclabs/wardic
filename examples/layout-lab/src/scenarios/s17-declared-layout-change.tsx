@@ -21,7 +21,7 @@
  *
  * @module
  */
-import { useAnimateLayout, wardic } from "@wardic/solid"
+import { useAnimateLayout, wardic } from "@wardic/solid/v1"
 import { batch, createSignal, For, type JSX, Show } from "solid-js"
 import type { ScenarioDef } from "./types.ts"
 

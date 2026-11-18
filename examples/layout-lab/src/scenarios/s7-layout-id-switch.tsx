@@ -38,7 +38,7 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid"
+import { wardic } from "@wardic/solid/v1"
 import { batch, createSignal, type JSX, Match, onMount, Show, Switch } from "solid-js"
 import { CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "./controls.tsx"
 import type { ScenarioDef, TriggerMeta } from "./types.ts"

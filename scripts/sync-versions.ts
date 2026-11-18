@@ -6,8 +6,9 @@
  *   was written, and doesn't count a stale one as a change (`--frozen-lockfile` passes); but
  *   `bun pm pack` writes a `workspace:*` dependency as the version the lockfile has, so
  *   `@wardic/dom@1.0.0-rc.1` would name `@wardic/core@0.1.0-alpha.0`.
- * - **`VERSION`:** the constant a package's `src/index.ts` exports (`@wardic/dom`, `@wardic/solid`,
- *   `@wardic/test`). Changesets doesn't touch source, so 1.0.0-rc.1 shipped `"0.1.0-alpha.0"`.
+ * - **`VERSION`:** the constant a package's `src/index.ts` exports (`@wardic/dom`, `@wardic/test`), and
+ *   `@wardic/solid`'s `src/v1/index.tsx` (#566). Changesets doesn't touch source, so 1.0.0-rc.1 shipped
+ *   `"0.1.0-alpha.0"`.
  *
  *   bun scripts/sync-versions.ts
  */
@@ -38,12 +39,15 @@ writeFileSync(LOCKFILE, lock)
 
 for (const pkg of PACKAGES) {
   const dir = join(ROOT, "packages", pkg)
-  // `@wardic/solid`'s root module is `index.tsx`, as it re-exports components; the rest's `index.ts`.
-  const index = [join(dir, "src", "index.tsx"), join(dir, "src", "index.ts")].find((file) => existsSync(file)) ?? join(dir, "src", "index.ts")
-  const source = readFileSync(index, "utf8")
-  const constant = /^export const VERSION = "([^"]*)"$/m.exec(source)
+  // A root module is `index.tsx` when it re-exports components, else `index.ts`; `@wardic/solid`'s `VERSION`
+  // is its `v1`'s since 2.0, Solid 1's binding's (#566).
   const version = versionIn(dir)
-  if (constant === null || version === undefined || constant[1] === version) continue
-  writeFileSync(index, source.replace(constant[0], `export const VERSION = "${version}"`))
-  console.log(`@wardic/${pkg} VERSION: ${constant[1]} → ${version}`)
+  for (const module of [join(dir, "src", "index.tsx"), join(dir, "src", "index.ts"), join(dir, "src", "v1", "index.tsx")]) {
+    if (!existsSync(module)) continue
+    const source = readFileSync(module, "utf8")
+    const constant = /^export const VERSION = "([^"]*)"$/m.exec(source)
+    if (constant === null || version === undefined || constant[1] === version) continue
+    writeFileSync(module, source.replace(constant[0], `export const VERSION = "${version}"`))
+    console.log(`@wardic/${pkg} VERSION (${module.slice(dir.length + 1)}): ${constant[1]} → ${version}`)
+  }
 }

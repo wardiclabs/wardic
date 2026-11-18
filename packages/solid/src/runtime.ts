@@ -1,6 +1,6 @@
 /**
  * What a `WardicProvider` holds, for the Solid 1 binding and the Solid 2 one
- * (`@wardic/solid/unstable/v2`, #209) alike: the Environment's types, the runtime and the services
+ * (`@wardic/solid`, #209) alike: the Environment's types, the runtime and the services
  * built over it on first need, and what a server render holds instead. Solid-free: each binding's
  * provider is a thin shell over it, so the two can't drift.
  *

@@ -1,44 +1,47 @@
-// The Default transition on the page (#357, ADR-0051): `DomLive`'s, Motion's by value, reaches what
-// a Wardic element runs with no transition, and an exit's. Painted values, read after each frame.
+// The Default transition on Solid 2's page (#357, ADR-0051): `DomLive`'s, Motion's by value, reaches
+// what a ward runs with no transition, and an exit's. Painted values, read after each frame.
 //
-// - DTB1: no transition: the opacity is a 0.3 s ease, landing exactly 0.3 s in, and the x Motion's
-//   500 / 25 spring, which overshoots. Under the one 170 / 26 spring neither did.
+// - DTB1: a ward with no transition: the opacity is a 0.3 s ease, landing 0.3 s in, and the x
+//   Motion's 500 / 25 spring, which overshoots.
 // - DTB2: an exit with no transition fades on the 0.3 s ease: the element goes about 0.3 s after.
-import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, ward, wardic, WardicProvider } from "@wardic/solid"
+import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
-import { createSignal, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
-import { opacityOf, translateXOf } from "./base-values-harness.ts"
+import { createSignal, flush, Show } from "solid-js"
+import { describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
-import { sampleFrames, settle, wait } from "./reorder-harness.tsx"
-
-afterEach(cleanup)
+import { mount } from "./mount.tsx"
+import { sampleFrames, settle, wait } from "./reorder-scene.tsx"
 
 const BOX: JSX.CSSProperties = { position: "absolute", left: "40px", top: "40px", width: "40px", height: "40px", background: "teal" }
 
-describe("the Default transition on the page (#357)", () => {
-  it("DTB1: no transition: the opacity on the 0.3 s ease, the x on Motion's 500 / 25 spring", async () => {
+const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
+const xOf = (el: Element): number => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41
+
+describe("the Default transition on Solid 2's page (#357)", () => {
+  it("DTB1: a ward with no transition: the opacity on the 0.3 s ease, the x on Motion's 500 / 25 spring", async () => {
     const [on, setOn] = createSignal(false)
-    let el!: HTMLElement
-    render(() => (
+    const { host } = mount(() => (
       <WardicProvider env={DomLive}>
-        <wardic.div
-          ref={(n: HTMLElement) => (el = n)}
-          style={BOX}
-          initial={{ opacity: 0, x: 0 }}
-          animate={{ opacity: Bool.match(on(), { onTrue: () => 1, onFalse: () => 0 }), x: Bool.match(on(), { onTrue: () => 100, onFalse: () => 0 }) }}
-        />
+        {(() => {
+          const card = ward({
+            initial: { opacity: 0, x: 0 },
+            animate: () => ({ opacity: Bool.match(on(), { onTrue: () => 1, onFalse: () => 0 }), x: Bool.match(on(), { onTrue: () => 100, onFalse: () => 0 }) }),
+          })
+          return <div data-card {...card} style={BOX} />
+        })()}
       </WardicProvider>
     ))
     await settle()
-    const s = sampleFrames(() => ({ opacity: opacityOf(el), x: translateXOf(el) }))
+    const el = host.querySelector<HTMLElement>("[data-card]")!
+    const s = sampleFrames(() => ({ opacity: opacityOf(el), x: xOf(el) }))
     // A frame at rest first, then the Retarget.
     await raf()
     await raf()
     setOn(true)
-    await until(() => opacityOf(el) === 1 && Math.abs(translateXOf(el) - 100) < 0.01, 3000)
+    flush()
+    await until(() => opacityOf(el) === 1 && Math.abs(xOf(el) - 100) < 0.01, 3000)
     await wait(200)
     const frames = s.stop()
     const moving = frames.findIndex((f) => f.v.opacity > 0)
@@ -53,7 +56,7 @@ describe("the Default transition on the page (#357)", () => {
 
   it("DTB2: an exit with no transition fades on the 0.3 s ease", async () => {
     const [shown, setShown] = createSignal(true)
-    render(() => (
+    const { host } = mount(() => (
       <WardicProvider env={DomLive}>
         <AnimatePresence>
           <Show when={shown()}>
@@ -63,9 +66,10 @@ describe("the Default transition on the page (#357)", () => {
       </WardicProvider>
     ))
     await settle()
-    const leaving = document.querySelector<HTMLElement>("[data-leaving]")!
+    const leaving = host.querySelector<HTMLElement>("[data-leaving]")!
     const s = sampleFrames(() => leaving.isConnected)
     setShown(false)
+    flush()
     await until(() => !leaving.isConnected, 2000)
     const frames = s.stop()
     const gone = frames.findIndex((f) => !f.v)

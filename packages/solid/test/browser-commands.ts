@@ -1,6 +1,6 @@
-// The browser commands registered in packages/solid/vitest.browser.config.ts (and
-// `serverRender`, in packages/solid/vitest.hydrate.config.ts; `serverRender2` and `serverStream2`, in
-// vitest.hydrate-v2.config.ts), typed
+// The browser commands registered in packages/solid/vitest.browser-commands.ts (and
+// `serverRender`, in packages/solid/vitest.hydrate-v1.config.ts; `serverRender2` and `serverStream2`, in
+// vitest.hydrate.config.ts, #566), typed
 // once for every test file that imports this module (a second `declare module` block
 // with a different signature wouldn't compile).
 import type {} from "vitest/browser"
@@ -50,7 +50,7 @@ declare module "vitest/browser" {
      */
     serverRender: (file: string, exportName: string, renderId: string) => Promise<ServerRender>
     /**
-     * The Solid 2 binding's server render (#209 PR 4a, the v2-hydrate project): `exportName` from
+     * The Solid 2 binding's server render (#209 PR 4a, the hydrate project): `exportName` from
      * `file` with `@solidjs/web`'s server build under `renderId`; its head tags (`onHead`) as `head`.
      */
     serverRender2: (file: string, exportName: string, renderId: string) => Promise<ServerRender & { readonly head: string }>

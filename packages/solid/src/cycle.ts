@@ -1,6 +1,6 @@
 /**
- * `createCycle` on Solid 1 (#443, Motion's `useCycle`): one of a list of states at a time, stepped
- * through.
+ * `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through. Solid 1's
+ * binding has its own, `v1/cycle.ts`, with this `Cycle` (#566).
  *
  * @module
  */
@@ -30,5 +30,6 @@ export const createCycle = <T,>(...items: ReadonlyArray<T>): readonly [Accessor<
     current = nextIndexOf(current, items.length, next)
     setIndex(current)
   }
+  // eslint-disable-next-line solid/reactivity -- the accessor itself is returned, for its caller to read where it tracks
   return [() => items[index()] as T, cycle]
 }

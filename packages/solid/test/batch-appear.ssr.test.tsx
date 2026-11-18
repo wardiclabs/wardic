@@ -1,4 +1,4 @@
-// A Batch's members' Appear animations on Solid 1's server (#706, ADR-0044 *Amendment (#706)*): one rule
+// A Batch's members' Appear animations on Solid 2's server (#706, ADR-0044 *Amendment (#706)*): one rule
 // for the members on one set of transitions, each member's own values as custom properties, its delay
 // its own, under a provider in a page with a head.
 //
@@ -15,9 +15,9 @@
 //   `<AnimatePresence initial={false}>`, nothing plays and the head holds no rule.
 // - BS5: members whose transitions differ (a scale toward 0 runs a Default transition of its own) are two
 //   groups: two rules, two slots, each member its group's.
-// - BS6 (#245's chunks): a Batch in a stream's late chunk plays when a Wardic element in that chunk writes
-//   its `<style>`, which brings the Batch's slot (and its rule, unless the head sent it); in a chunk with
-//   none, its members name a slot no style defines, and keep their start until hydration (Q7).
+// - BS6 (#245's chunks): a Batch in a stream's late `<Loading>` chunk plays when a Wardic element in that
+//   chunk asks for its head patch, which brings the Batch's slot (and its rule, unless the head sent it); in
+//   a chunk with none, its members name a slot no patch defines, and keep their start until hydration (Q7).
 // - BS7 (Q16, Q20, Q21): a Batch Reorder group's entrance with its `appear`, its `initial`'s keys moving to
 //   their identity at each item's place: the items carry only the slot, the rule writes only `opacity`; a
 //   grid from its width, items in flow, the same; without `appear`, nothing.
@@ -26,11 +26,11 @@
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import { AnimatePresence, createBatch, Reorder, stagger, wardic, WardicConfig, WardicProvider } from "@wardic/solid"
-import { createResource, For, type JSX, Suspense } from "solid-js"
-import { renderToStream, renderToString } from "solid-js/web"
+import { type JSX, renderToStream, renderToString } from "@solidjs/web"
+import { createMemo, For, Loading, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { said } from "./appear-markup.ts"
-import { tagsOf } from "./ssr-helpers.ts"
+import { tagsOf } from "./ssr.ts"
 
 /** A whole document with a head, as SolidStart renders it, and `ui` under a provider. */
 const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never" } = {}): string =>
@@ -195,8 +195,11 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
           <div data-k="z" {...rows.member("z")} />
         </>
       )
-      if (quiet) return <AnimatePresence initial={false}>{ui()}</AnimatePresence>
-      return ui()
+      return (
+        <Show when={quiet} fallback={ui()}>
+          <AnimatePresence initial={false}>{ui()}</AnimatePresence>
+        </Show>
+      )
     }
     const html = page(list(false))
     expect(styleOf(html, "c")["--wardic-y1"]).toBe("80px")
@@ -231,16 +234,8 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
     expect(css.match(/@keyframes wardic-b/g)?.length, "two rules, and their reduced ones").toBe(4)
   })
 
-  it("BS6: in a late chunk, a Batch plays when a Wardic element there writes the chunk's style; else its start", async () => {
+  it("BS6: in a late <Loading> chunk, a Batch plays when a Wardic element there asks for its head patch; else its start", async () => {
     const writes: Array<string> = []
-    // Each late part resolves once the write before it is out (AR14's way): a part ready before the shell
-    // is written goes into the shell.
-    const waits: Array<{ readonly out: (w: string) => boolean; readonly go: () => void }> = []
-    const written = (out: (w: string) => boolean): Promise<void> => new Promise((go) => void waits.push({ out, go }))
-    const write = (w: string): void => {
-      writes.push(w)
-      waits.filter((x) => x.out(w)).forEach((x) => x.go())
-    }
     const Tiles = (props: { readonly prefix: string }) => {
       const tiles = grid()
       return (
@@ -252,8 +247,14 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
     }
     await new Promise<void>((resolve) => {
       renderToStream(() => {
-        const [first] = createResource(() => written(() => true).then(() => "first"))
-        const [second] = createResource(() => written((w) => w.includes('data-k="with0"')).then(() => "second"))
+        const after = (ms: number) =>
+          createMemo(async () => {
+            await new Promise((r) => setTimeout(r, ms))
+            return "late"
+          })
+        const first = after(20)
+        // Far enough after the first that a slow runner still sends them as two chunks (AR14's).
+        const second = after(500)
         return (
           <html>
             <head>
@@ -261,37 +262,40 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
             </head>
             <body>
               <WardicProvider env={DomLive}>
-                <Suspense fallback={<p>loading</p>}>
-                  <wardic.h1 data-k="title" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    {first()}
-                  </wardic.h1>
-                  <Tiles prefix="with" />
-                </Suspense>
-                <Suspense fallback={<p>loading</p>}>
-                  <p>{second()}</p>
-                  <Tiles prefix="alone" />
-                </Suspense>
+                <Loading fallback={<p>loading</p>}>
+                  {/* Made by the data, so made late: a component that reads none runs in the shell pass. */}
+                  <Show when={first()}>
+                    <wardic.h1 data-k="title" initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
+                    <Tiles prefix="with" />
+                  </Show>
+                </Loading>
+                <Loading fallback={<p>loading</p>}>
+                  <Show when={second()}>
+                    <Tiles prefix="alone" />
+                  </Show>
+                </Loading>
               </WardicProvider>
             </body>
           </html>
         )
-      }).pipe({ write, end: () => resolve() } as unknown as { write: (v: string) => void; end: () => void })
+      }).pipe({ write: (v: string) => void writes.push(v), end: () => resolve() })
     })
-    const chunks = writes.slice(1).filter((w) => w.includes("<template"))
-    const withRoot = chunks.find((w) => w.includes('data-k="with0"')) as string
-    const alone = chunks.find((w) => w.includes('data-k="alone0"')) as string
-    const chunkCss = (chunk: string): string => /<style data-wardic-appear-chunk[^>]*>([\s\S]*?)<\/style>/.exec(chunk)?.[1] ?? ""
-    // With a Wardic element: its style brings its members' slot, and the rule, unless the head sent it
-    // (Solid renders a suspended boundary's children in the shell's pass too, and a sheet sends a rule once).
+    const patchesOf = (write: string): string =>
+      [...write.matchAll(/\(_\$HY\.hp=_\$HY\.hp\|\|\{\}\)\["[^"]+"\]=(\[\[[\s\S]*?\]\]);/g)].flatMap((m) =>
+        (JSON.parse(m[1] as string) as ReadonlyArray<ReadonlyArray<unknown>>)
+          .filter((patch) => patch[2] === "style" && Object.hasOwn((patch[3] ?? {}) as object, "data-wardic-appear"))
+          .map((patch) => String(patch[4]))).join("")
+    const withRoot = writes.slice(1).find((w) => w.includes('data-k="with0"')) as string
+    const alone = writes.slice(1).find((w) => w.includes('data-k="alone0"')) as string
+    // With a Wardic element: its patch brings the members' slot, and the rule unless the head sent it.
     const property = /var\((--wardic-a\d+)\)/.exec(styleOf(withRoot, "with2").animation ?? "")?.[1] ?? ""
     expect(property).toMatch(/^--wardic-a\d+$/)
-    const name = new RegExp(`${property}:(wardic-b[\\w-]+) `).exec(chunkCss(withRoot))?.[1] ?? ""
+    const name = new RegExp(`${property}:(wardic-b[\\w-]+) `).exec(patchesOf(withRoot))?.[1] ?? ""
     expect(name).toMatch(/^wardic-b/)
-    expect(`${headCss(writes[0] as string)}${chunkCss(withRoot)}`).toContain(`@keyframes ${name}{`)
-    // Alone: its members name a slot no style defines.
+    expect(`${headCss(writes[0] as string)}${patchesOf(withRoot)}`).toContain(`@keyframes ${name}{`)
+    // Alone: its members name a slot no patch defines.
     const lonely = /var\((--wardic-a\d+)\)/.exec(styleOf(alone, "alone2").animation ?? "")?.[1] ?? ""
     expect(lonely).toMatch(/^--wardic-a\d+$/)
-    expect(chunkCss(alone)).toBe("")
     expect(writes.join("")).not.toContain(`${lonely}:`)
   })
 

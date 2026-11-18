@@ -1,5 +1,5 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
-import { createSpring, createTransform } from "@wardic/solid"
+import { createSpring, createTransform } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"

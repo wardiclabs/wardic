@@ -8,10 +8,13 @@ import { execSync } from "node:child_process"
 import { cpSync, existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import type { Plugin } from "vite"
+import type { Plugin, PluginOption } from "vite"
+import solid from "vite-plugin-solid"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { solid1 } from "../vite.solid1.ts"
+import { solid2 } from "../vite.solid2.ts"
 
 /** The packages a side builds from. */
 export const PACKAGES = ["core", "dom", "solid"] as const
@@ -66,7 +69,31 @@ export const sourcesInto = (root: string, commit: string | undefined, manifests 
 }
 
 /** A `@wardic/*` subpath that's a folder, not a module: its index, without its extension. */
-const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index" }
+const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index", v1: "v1/index" }
+
+/** A package's module for `sub`, its root's for none: the module itself, or a folder's index. */
+const subpathModuleOf = (sub: string | undefined): string =>
+  UndefinedOr.match(sub, {
+    onUndefined: () => "index",
+    onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => name),
+  })
+
+/**
+ * Where a side from before #566 (no `src/v1`) had each binding the pages and apps name as after it: Solid 2's
+ * root at `unstable/v2`, Solid 1's `v1` at the root.
+ */
+const BEFORE_SWAP: Readonly<Record<string, string>> = { index: "unstable/v2/index", "v1/index": "index" }
+
+/** `@wardic/solid`'s module for `sub` on a side, the binding it names as after #566 on a side from before it too. */
+const solidModuleOf = (root: string, sub: string | undefined): string => {
+  const module = subpathModuleOf(sub)
+  if (existsSync(join(root, "packages/solid/src/v1"))) return module
+  return Option.getOrElse(Option.fromUndefinedOr(BEFORE_SWAP[module]), () => module)
+}
+
+/** A page's or an app's build plugins for its binding: Solid 2's compile, or Solid 1's resolution and vite-plugin-solid's compile. */
+export const bindingPluginsOf = (v2: boolean): PluginOption =>
+  Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })
 
 /**
  * A side's module `stem`: `.tsx` when the side has it, else `.ts`. `@wardic/solid`'s entries are `index.tsx`,
@@ -99,10 +126,7 @@ export const sideResolver = (root: string, deps: string): Plugin => ({
         "packages",
         pkg!,
         "src",
-        UndefinedOr.match(sub, {
-          onUndefined: () => "index",
-          onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => name),
-        }),
+        Bool.match(pkg === "solid", { onTrue: () => solidModuleOf(root, sub), onFalse: () => subpathModuleOf(sub) }),
       ))
       return { id, moduleSideEffects: sideEffectsOf(root, pkg!) }
     }

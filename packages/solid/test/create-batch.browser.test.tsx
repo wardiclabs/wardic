@@ -1,402 +1,339 @@
-// `createBatch` on Solid 1 (#665, ADR-0070 decisions 10–15 and *Amendment (#665)*): many elements on the
-// same keys as one Batch, each held to a Wardic element with the same props on the same Frame loop.
+// `createBatch` on Solid 2 (#665, ADR-0070 decisions 10–15 and *Amendment (#665)*): Solid 1's, its
+// landings an async value. Its shared work is Solid 1's tests' (`../create-batch.browser.test.tsx`).
 //
-// - CB1: a batched element draws what a `wardic.div` with the same `initial`, `animate` and `transition`
-//   draws, frame by frame, to its landing and through a change of `animate`.
-// - CB2: a change's delay staggers the members it moves, by rank, each as a `wardic.div` delayed so; a
-//   member whose target is unchanged isn't written.
-// - CB3: with no transition, each key takes its Default transition by the member's own target: a scale
-//   toward 0 lands as a `wardic.div`'s toward 0 does, beside one toward 2.
-// - CB4: under reduced motion `x` lands at once and `opacity` animates, as a `wardic.div`'s do; under
-//   `skipAnimations` every key lands at once.
-// - CB5: with no `initial` a member sets off from each key's identity, as a `wardic.div` with none
-//   does; with `initial: false` it starts at its target.
-// - CB6: `onAnimationStart` comes once as members set off, `onAnimationComplete` once they all rest, with
-//   how many set off; an unmount stops its run.
-// - CB7: a key the DOM's Batch can't draw, a key a later target gives, a target that isn't a number,
-//   an inertia and a repeat are errors naming them.
-// - CB8: a member's handle keeps its element's own `style`, less the properties the Batch draws, and calls
-//   its `ref`; a `style` given as a string is an error, since Solid would write over the Batch's drawing.
-// - CB9: a member whose element is made again mid-flight carries on, frame for frame, beside one whose isn't.
-// - CB10: with no transition of its own, a Batch runs the nearest `WardicConfig`'s, as a `wardic.div` does.
-// - CB11: per-value entries as a `wardic.div`'s: an entry with only a `delay` holds that key's Default
-//   transition by it; a top-level `delay` holds the keys on the top level's fields, not one with its own entry.
-// - CB12: an element inside an `<svg>` turns about its own centre: `transform-box: fill-box`.
-import { cleanup, render } from "@solidjs/testing-library"
+// - CV1: a batched element draws what a `w.div` with the same props draws, frame by frame, through a
+//   change of `animate`.
+// - CV2: `settled()` is `undefined` and not pending before anything moves, pending while members move,
+//   then the landing, with how many set off; `next("settled")` resolves with it; an unmount stops it.
+// - CV3: `when("settled")` tells an effect every landing.
+// - CV4: `createAnimate`'s `animate(grid, …)` moves its members on Solid 2 too, each as the same call on a
+//   plain element under the same provider moves it, frame for frame: its controls are awaited, and
+//   `scope.settled()` is pending while it plays.
+// - CV5: `animate(memberEl, …)` moves its Batch keys as `animate(grid.at(i), …)` does, the rest as a
+//   plain element's call, paused and sought as one; the Batch holds what it moved, so its next change
+//   goes on from there (Q14).
+//   The element's own `style`, given before the handle's spread, stays: the handle gives none.
+// - CV6: a list of members goes as one Batch call, its stagger counting the members that move, not one
+//   already there (Q35).
+// - CV7: through an element, a transform the Batch doesn't draw (or `transform` itself), and three stops
+//   for its key, are errors naming the key (Q33, Q34).
+// - CV8: a sequence of Batch Segments, a value's stops and a function of each member's index, staggered,
+//   placed with `at` and repeated, moves each member as the same sequence moves plain elements, frame for
+//   frame, paused, sought and played on as one (Q36–Q39).
+// - CV9: a Segment of members' elements moves their Batch key in the Batch and the rest as a plain
+//   element's; a member named through the Batch and its element is one subject (Q40).
+// - CV10: a key the Batch doesn't have and a string, in a Segment of it, and a transform it doesn't draw
+//   through a member's element, are errors naming the key.
+//
+// Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
+// halts that root's reactive system for the file's later tests.
 import { DomLive } from "@wardic/dom"
-import * as Bool from "effect/Boolean"
-import { createBatch, stagger, wardic, WardicConfig, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import type { JSX } from "@solidjs/web"
+import { createAnimate, createBatch, stagger, w, type WardicAnimate, type WardicAnimationScope, WardicProvider } from "@wardic/solid"
+import { createEffect, createSignal, For, isPending } from "solid-js"
+import { describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
-
-afterEach(cleanup)
+import { mount } from "./mount.tsx"
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
 const SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
+const TWEEN = { duration: 0.4 } as const
 
-const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
-const xOf = (el: Element): number => matrixOf(el).m41
+const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
 
-const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
-const scaleOf = (el: Element): number => matrixOf(el).a
-
-/** `frames` frames of `read` on each of `elements`, read after each frame: one array per element. */
-const readsOver = async (frames: number, elements: ReadonlyArray<Element>, read: (el: Element) => number): Promise<ReadonlyArray<ReadonlyArray<number>>> => {
+/** `frames` frames of each element's `x`, read after each frame: one array per element. */
+const xsOver = async (frames: number, elements: ReadonlyArray<Element>): Promise<ReadonlyArray<ReadonlyArray<number>>> => {
   const out = elements.map((): Array<number> => [])
   for (let f = 0; f < frames; f++) {
     await raf()
-    elements.forEach((el, n) => out[n].push(read(el)))
+    elements.forEach((el, n) => out[n].push(xOf(el)))
   }
   return out
 }
 
-/** Each frame of `batched` within 1e-6 of `ward`'s. */
-const expectSame = (batched: ReadonlyArray<number>, ward: ReadonlyArray<number>): void => {
-  expect(batched.length).toBe(ward.length)
-  batched.forEach((value, f) => expect(value, `frame ${f}`).toBeCloseTo(ward[f], 6))
+/** Each frame of `a` within 1e-6 of `b`'s. */
+const expectSame = (a: ReadonlyArray<number>, b: ReadonlyArray<number>): void => {
+  expect(a.length).toBe(b.length)
+  a.forEach((x, f) => expect(x, `frame ${f}`).toBeCloseTo(b[f], 6))
 }
 
-/** Mount `Scene`, a component, under a provider on `DomLive`; its unmount. */
-const mount = (Scene: () => JSX.Element, reducedMotion: "always" | "never" = "never"): (() => void) =>
-  render(() => (
-    <WardicProvider env={DomLive} reducedMotion={reducedMotion}>
-      <Scene />
-    </WardicProvider>
-  )).unmount
-
-/** `frames` frames of both elements' `x`, read after each. */
-const xsOver = async (frames: number, a: Element, b: Element): Promise<ReadonlyArray<readonly [number, number]>> => {
-  const out: Array<readonly [number, number]> = []
-  for (let f = 0; f < frames; f++) {
-    await raf()
-    out.push([xOf(a), xOf(b)])
-  }
-  return out
-}
-
-describe("createBatch on Solid 1 (#665)", () => {
-  it("CB1: a batched element draws what a wardic.div with the same props draws, frame by frame", async () => {
+describe("createBatch on Solid 2 (#665)", () => {
+  it("CV1: a batched element draws what a w.div with the same props draws, frame by frame", async () => {
     const [target, setTarget] = createSignal(100)
     let ward!: HTMLDivElement
     let member!: HTMLDivElement
     const Scene = (): JSX.Element => {
-      const grid = createBatch({ count: 1, initial: () => ({ x: 0 }), animate: () => ({ x: target() }), transition: SPRING })
+      const grid = createBatch({ count: 1, initial: { x: 0 }, animate: () => ({ x: target() }), transition: SPRING })
       return (
         <>
-          <wardic.div ref={ward} style={BOX} initial={{ x: 0 }} animate={{ x: target() }} transition={SPRING} />
+          <w.div ref={(el: HTMLDivElement) => (ward = el)} style={BOX} initial={{ x: 0 }} animate={{ x: target() }} transition={SPRING} />
           <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
         </>
       )
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive}>
         <Scene />
       </WardicProvider>
     ))
-    const there = await xsOver(60, ward, member)
-    expect(there.some(([x]) => x > 1 && x < 99)).toBe(true)
-    there.forEach(([x, y]) => expect(y).toBeCloseTo(x, 6))
-    expect(there.at(-1)).toEqual([100, 100])
+    const there = await xsOver(60, [ward, member])
+    expect(there[0].some((x) => x > 1 && x < 99)).toBe(true)
+    expectSame(there[1], there[0])
+    expect(there[1].at(-1)).toBe(100)
     setTarget(30)
-    const back = await xsOver(60, ward, member)
-    back.forEach(([x, y]) => expect(y).toBeCloseTo(x, 6))
-    expect(back.at(-1)).toEqual([30, 30])
+    const back = await xsOver(60, [ward, member])
+    expectSame(back[1], back[0])
+    expect(back[1].at(-1)).toBe(30)
   })
 
-  it("CB2: a change staggers the members it moves by rank, each as a wardic.div delayed so; one unchanged isn't written", async () => {
-    const [targets, setTargets] = createSignal([0, 0, 0, 0, 0])
-    const delay = stagger(0.05)
+  it("CV2: settled() is pending while members move, then their landing; next(\"settled\") resolves; unmount stops it", async () => {
+    const [target, setTarget] = createSignal(0)
     const members: Array<HTMLDivElement> = []
-    const wards: Array<HTMLDivElement> = []
-    // Members 2, 3 and 4 move: ranks 0, 1 and 2 of 3, which their wards wait by.
-    const ranks = [0, 0, 0, 1, 2]
-    mount(() => {
-      const grid = createBatch({ count: 5, initial: false, animate: (i) => ({ x: targets()[i] }), transition: { ...SPRING, delay } })
-      return (
-        <For each={[0, 1, 2, 3, 4]}>
-          {(i) => (
-            <>
-              <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />
-              <wardic.div ref={(el: HTMLDivElement) => (wards[i] = el)} style={BOX} initial={false} animate={{ x: targets()[i] }} transition={{ ...SPRING, delay: delay(ranks[i], 3) }} />
-            </>
-          )}
-        </For>
-      )
-    })
-    await raf()
-    await raf()
-    const before = members[0].style.transform
-    setTargets([0, 0, 120, 120, 120])
-    const frames = await readsOver(45, [...members.slice(2), ...wards.slice(2)], xOf)
-    Array.from({ length: 3 }).forEach((_, n) => expectSame(frames[n], frames[n + 3]))
-    // The last waits 0.1 s, the first not at all.
-    expect(frames[2][3]).toBe(0)
-    expect(frames[0][3]).toBeGreaterThan(0)
-    expect(members[0].style.transform).toBe(before)
-  })
-
-  it("CB3: with no transition each key takes its Default transition by its own target: a scale toward 0 beside one toward 2", async () => {
-    const members: Array<HTMLDivElement> = []
-    const wards: Array<HTMLDivElement> = []
-    const targets = [0, 2]
-    mount(() => {
-      const grid = createBatch({ count: 2, initial: { scale: 1 }, animate: (i) => ({ scale: targets[i] }) })
-      return (
-        <For each={[0, 1]}>
-          {(i) => (
-            <>
-              <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />
-              <wardic.div ref={(el: HTMLDivElement) => (wards[i] = el)} style={BOX} initial={{ scale: 1 }} animate={{ scale: targets[i] }} />
-            </>
-          )}
-        </For>
-      )
-    })
-    const frames = await readsOver(40, [...members, ...wards], scaleOf)
-    expectSame(frames[0], frames[2])
-    expectSame(frames[1], frames[3])
-    expect(frames[0].at(-1)).toBe(0)
-    expect(frames[1].at(-1)).toBe(2)
-  })
-
-  it("CB4: under reduced motion x lands at once and opacity animates, as a wardic.div's; under skipAnimations every key lands at once", async () => {
-    let member!: HTMLDivElement
-    let ward!: HTMLDivElement
-    const Pair = (): JSX.Element => {
-      const grid = createBatch({ count: 1, initial: { x: 0, opacity: 0 }, animate: () => ({ x: 100, opacity: 1 }), transition: SPRING })
-      return (
-        <>
-          <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
-          <wardic.div ref={ward} style={BOX} initial={{ x: 0, opacity: 0 }} animate={{ x: 100, opacity: 1 }} transition={SPRING} />
-        </>
-      )
+    let grid!: ReturnType<typeof createBatch>
+    const Scene = (): JSX.Element => {
+      grid = createBatch({ count: 2, initial: false, animate: (i) => ({ x: target() + i * 10 }), transition: SPRING })
+      return <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
     }
-    const unmount = mount(() => <Pair />, "always")
-    const xs: Array<readonly [number, number]> = []
-    const opacities: Array<readonly [number, number]> = []
-    for (let f = 0; f < 30; f++) {
-      await raf()
-      xs.push([xOf(member), xOf(ward)])
-      opacities.push([opacityOf(member), opacityOf(ward)])
-    }
-    xs.forEach(([batched, own]) => expect(batched).toBeCloseTo(own, 6))
-    opacities.forEach(([batched, own]) => expect(batched).toBeCloseTo(own, 6))
-    // `x` from 0 to 100 in one frame, never between; `opacity` through the values between.
-    expect(xs.every(([x]) => x === 0 || x === 100)).toBe(true)
-    expect(xs.at(-1)).toEqual([100, 100])
-    expect(opacities.some(([opacity]) => opacity > 0.05 && opacity < 0.95)).toBe(true)
-    unmount()
-    mount(() => (
-      <WardicConfig skipAnimations>
-        <Pair />
-      </WardicConfig>
+    const { unmount } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
     ))
     await raf()
     await raf()
-    expect([xOf(member), opacityOf(member)]).toEqual([100, 1])
-  })
-
-  it("CB5: with no initial a member sets off from each key's identity, as a wardic.div with none; initial false starts at its target", async () => {
-    let member!: HTMLDivElement
-    let ward!: HTMLDivElement
-    let still!: HTMLDivElement
-    mount(() => {
-      const grid = createBatch({ count: 1, animate: () => ({ x: 80 }), transition: SPRING })
-      const held = createBatch({ count: 1, initial: false, animate: () => ({ x: 80 }), transition: SPRING })
-      return (
-        <>
-          <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
-          <wardic.div ref={ward} style={BOX} animate={{ x: 80 }} transition={SPRING} />
-          <div style={BOX} {...held.at(0, { ref: (el) => (still = el as HTMLDivElement) })} />
-        </>
-      )
-    })
-    const frames = await readsOver(40, [member, ward, still], xOf)
-    expectSame(frames[0], frames[1])
-    expect(frames[0][1]).toBeLessThan(80)
-    expect(frames[2].every((x) => x === 80)).toBe(true)
-  })
-
-  it("CB6: onAnimationStart once as members set off, onAnimationComplete once they all rest, with how many; unmount stops its run", async () => {
-    const calls: Array<string> = []
-    const [target, setTarget] = createSignal(100)
-    const members: Array<HTMLDivElement> = []
-    const unmount = mount(() => {
-      const grid = createBatch({
-        count: 3, initial: { x: 0 }, animate: (i) => ({ x: target() + i }), transition: SPRING,
-        onAnimationStart: () => calls.push("start"),
-        onAnimationComplete: (landing) => calls.push(`complete ${landing.moved}`),
-      })
-      return <For each={[0, 1, 2]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
-    })
-    await readsOver(70, members, xOf)
-    expect(calls).toEqual(["start", "complete 3"])
+    expect(grid.settled(), "nothing landed").toBeUndefined()
+    expect(isPending(() => grid.settled()), "nor pending").toBe(false)
+    const landing = grid.next("settled")
+    setTarget(100)
+    await raf()
+    await raf()
+    expect(isPending(() => grid.settled()), "moving").toBe(true)
+    await expect(landing).resolves.toEqual({ moved: 2 })
+    await raf()
+    expect(isPending(() => grid.settled()), "landed").toBe(false)
+    expect(grid.settled()).toEqual({ moved: 2 })
+    expect(members.map(xOf)).toEqual([100, 110])
     setTarget(0)
     await raf()
     await raf()
-    unmount()
     const at = members[0].style.transform
-    await readsOver(5, members, xOf)
+    unmount()
+    await raf()
+    await raf()
     expect(members[0].style.transform).toBe(at)
-    expect(calls).toEqual(["start", "complete 3", "start"])
   })
 
-  it("CB7: a key the DOM's Batch can't draw, a key a later target gives, and an inertia are errors naming them", async () => {
-    const Wide = (): JSX.Element => {
-      createBatch({ count: 1, animate: () => ({ width: 10 }) as never })
-      return null
-    }
-    expect(() => mount(() => <Wide />)).toThrow(/"width"/)
-    const Spun = (): JSX.Element => {
-      createBatch({ count: 1, animate: () => ({ x: 10 }), transition: { type: "inertia" } as never })
-      return null
-    }
-    expect(() => mount(() => <Spun />)).toThrow(/inertia/)
-    const Stops = (): JSX.Element => {
-      const grid = createBatch({ count: 1, animate: () => ({ x: [0, 10, 20] }) as never })
-      return <div {...grid.at(0)} />
-    }
-    expect(() => mount(() => <Stops />)).toThrow(/"x"/)
-    const Repeats = (): JSX.Element => {
-      createBatch({ count: 1, animate: () => ({ x: 10 }), transition: { duration: 0.2, repeat: 2 } })
-      return null
-    }
-    expect(() => mount(() => <Repeats />)).toThrow(/repeat/)
-    const [more, setMore] = createSignal(false)
-    mount(() => {
-      const grid = createBatch({ count: 1, animate: () => Bool.match(more(), { onTrue: () => ({ x: 1, y: 2 }), onFalse: () => ({ x: 1 }) }) as never })
-      return <div {...grid.at(0)} />
-    })
-    expect(() => setMore(true)).toThrow(/"y"/)
-  })
-
-  it("CB8: a handle keeps its element's own style, less what the Batch draws, and calls its ref; a string style is an error", async () => {
-    let moved!: HTMLDivElement
-    let faded!: HTMLDivElement
-    let refs = 0
-    mount(() => {
-      const xs = createBatch({ count: 1, initial: false, animate: () => ({ x: 30 }) })
-      const both = createBatch({ count: 1, initial: false, animate: () => ({ x: 30, opacity: 0.8 }) })
-      const own = { ...BOX, opacity: 0.5 }
-      return (
-        <>
-          <div {...xs.at(0, { style: own, ref: (el) => ((moved = el as HTMLDivElement), refs++) })} />
-          <div {...both.at(0, { style: own, ref: (el) => ((faded = el as HTMLDivElement), refs++) })} />
-        </>
-      )
-    })
-    await raf()
-    await raf()
-    expect(refs).toBe(2)
-    expect([moved.style.background, moved.style.opacity, xOf(moved)]).toEqual(["teal", "0.5", 30])
-    expect([faded.style.background, faded.style.opacity, xOf(faded)]).toEqual(["teal", "0.8", 30])
-    const Text = (): JSX.Element => {
-      const grid = createBatch({ count: 1, animate: () => ({ x: 1 }) })
-      return <div {...grid.at(0, { style: "width: 10px" as never })} />
-    }
-    expect(() => mount(() => <Text />)).toThrow(/style/)
-  })
-
-  it("CB9: a member whose element is made again mid-flight carries on, frame for frame, beside one whose isn't", async () => {
+  it("CV3: when(\"settled\") tells an effect every landing", async () => {
     const [target, setTarget] = createSignal(0)
-    const [shown, setShown] = createSignal(true)
-    const members: Array<HTMLDivElement> = []
-    mount(() => {
-      const grid = createBatch({ count: 2, initial: false, animate: () => ({ x: target() }), transition: { ...SPRING, delay: 0.05 } })
-      return (
-        <>
-          <Show when={shown()}>
-            <div style={BOX} {...grid.at(0, { ref: (el) => (members[0] = el as HTMLDivElement) })} />
-          </Show>
-          <div style={BOX} {...grid.at(1, { ref: (el) => (members[1] = el as HTMLDivElement) })} />
-        </>
-      )
-    })
-    await raf()
-    setTarget(150)
-    await readsOver(8, members, xOf)
-    setShown(false)
-    await raf()
-    setShown(true)
-    const after = await readsOver(40, members, xOf)
-    expectSame(after[0], after[1])
-    expect(after[0][0]).toBeGreaterThan(10)
-    expect(after[0].at(-1)).toBe(150)
-  })
-
-  it("CB10: with no transition of its own, a Batch runs the nearest WardicConfig's, as a wardic.div does", async () => {
-    let member!: HTMLDivElement
-    let ward!: HTMLDivElement
-    mount(() => {
-      const Inner = (): JSX.Element => {
-        const grid = createBatch({ count: 1, initial: { x: 0 }, animate: () => ({ x: 90 }) })
-        return (
-          <>
-            <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
-            <wardic.div ref={ward} style={BOX} initial={{ x: 0 }} animate={{ x: 90 }} />
-          </>
-        )
-      }
-      return (
-        <WardicConfig transition={{ duration: 0.4, ease: "linear" }}>
-          <Inner />
-        </WardicConfig>
-      )
-    })
-    const frames = await readsOver(30, [member, ward], xOf)
-    expectSame(frames[0], frames[1])
-    expect(frames[0].some((x) => x > 1 && x < 89)).toBe(true)
-  })
-
-  it("CB11: per-value entries as a wardic.div's: an entry with only a delay, and a top-level delay beside a key's own entry", async () => {
-    const elements: Array<HTMLDivElement> = []
-    const transitions = [
-      { x: { delay: 0.15 } },
-      { ...SPRING, delay: 0.1, opacity: { duration: 0.2 } },
-    ] as const
-    mount(() => (
-      <For each={[0, 1]}>
-        {(n) => {
-          const grid = createBatch({ count: 1, initial: { x: 0, opacity: 0 }, animate: () => ({ x: 70, opacity: 1 }), transition: transitions[n] })
-          return (
-            <>
-              <div style={BOX} {...grid.at(0, { ref: (el) => (elements[n * 2] = el as HTMLDivElement) })} />
-              <wardic.div ref={(el: HTMLDivElement) => (elements[n * 2 + 1] = el)} style={BOX} initial={{ x: 0, opacity: 0 }} animate={{ x: 70, opacity: 1 }} transition={transitions[n]} />
-            </>
-          )
-        }}
-      </For>
-    ))
-    const xs: Array<Array<number>> = elements.map(() => [])
-    const opacities: Array<Array<number>> = elements.map(() => [])
-    for (let f = 0; f < 40; f++) {
-      await raf()
-      elements.forEach((el, e) => {
-        xs[e].push(xOf(el))
-        opacities[e].push(opacityOf(el))
+    const heard: Array<number> = []
+    const Scene = (): JSX.Element => {
+      const grid = createBatch({ count: 2, initial: false, animate: (i) => ({ x: target() + i }), transition: SPRING })
+      createEffect(grid.when("settled"), (landing) => {
+        heard.push(landing.moved)
       })
+      return <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i)} />}</For>
     }
-    expectSame(xs[0], xs[1])
-    expectSame(opacities[0], opacities[1])
-    expectSame(xs[2], xs[3])
-    expectSame(opacities[2], opacities[3])
-    // The entry's delay holds `x` 0.15 s; opacity, on its own entry, isn't held by the top level's.
-    expect(xs[0].slice(0, 7).every((x) => x === 0)).toBe(true)
-    expect(opacities[2][2]).toBeGreaterThan(0)
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await raf()
+    setTarget(40)
+    for (let f = 0; f < 70; f++) await raf()
+    setTarget(0)
+    for (let f = 0; f < 70; f++) await raf()
+    expect(heard).toEqual([2, 2])
   })
 
-  it("CB12: an element inside an <svg> turns about its own centre", async () => {
-    let rect!: SVGRectElement
-    mount(() => {
-      const grid = createBatch({ count: 1, initial: false, animate: () => ({ rotate: 45 }) })
+  it("CV4: animate(grid, …) moves each member as the same call on a plain element: awaited, scope.settled() pending meanwhile", async () => {
+    const members: Array<HTMLDivElement> = []
+    const plain: Array<HTMLDivElement> = []
+    let grid!: ReturnType<typeof createBatch>
+    let scope!: WardicAnimationScope
+    let animate!: WardicAnimate
+    const Scene = (): JSX.Element => {
+      grid = createBatch({ count: 2, initial: false, animate: () => ({ x: 0 }) })
+      ;[scope, animate] = createAnimate()
       return (
-        <svg width="100" height="100">
-          <rect width="20" height="20" {...grid.at(0, { ref: (el) => (rect = el as SVGRectElement) })} />
-        </svg>
+        <div ref={scope}>
+          <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
+          <For each={[0, 1]}>{(i) => <div style={BOX} ref={(el: HTMLDivElement) => (plain[i] = el)} />}</For>
+        </div>
       )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await raf()
+    // Its first read is never pending (a ward's settled() isn't either): read before the call, as CV1 of createAnimate's does.
+    expect(scope.settled()).toBeUndefined()
+    const controls = animate(grid, { x: (i) => 50 + i * 10 }, SPRING)
+    plain.forEach((el, i) => animate(el, { x: 50 + i * 10 }, SPRING))
+    const frames = await xsOver(2, [...members, ...plain])
+    expect(isPending(() => scope.settled()), "playing").toBe(true)
+    const rest = await xsOver(60, [...members, ...plain])
+    ;[0, 1].forEach((i) => expectSame([...frames[i], ...rest[i]], [...frames[i + 2], ...rest[i + 2]]))
+    await controls
+    expect(members.map(xOf)).toEqual([50, 60])
+    await raf()
+    expect(isPending(() => scope.settled()), "landed").toBe(false)
+  })
+
+  /** `count` batched members at `x()` and `count` plain elements under one provider and one scope; the Batch, `animate`, and the elements. */
+  const mountBoth = (count: number, x: () => number = () => 0) => {
+    const members: Array<HTMLDivElement> = []
+    const plain: Array<HTMLDivElement> = []
+    let grid!: ReturnType<typeof createBatch>
+    let animate!: WardicAnimate
+    const indices = Array.from({ length: count }, (_, i) => i)
+    const Scene = (): JSX.Element => {
+      grid = createBatch({ count, initial: false, animate: () => ({ x: x() }) })
+      const [scope, made] = createAnimate()
+      animate = made
+      return (
+        <div ref={scope}>
+          <For each={indices}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
+          <For each={indices}>{(i) => <div style={BOX} ref={(el: HTMLDivElement) => (plain[i] = el)} />}</For>
+        </div>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    return { grid: () => grid, animate: () => animate, members, plain }
+  }
+
+  it("CV5: animate(memberEl) moves its Batch keys as animate(grid.at(i)), the rest as a plain element's call; the Batch goes on from there", async () => {
+    const [target, setTarget] = createSignal(0)
+    // eslint-disable-next-line solid/reactivity -- read in createBatch's animate, which tracks it
+    const both = mountBoth(2, target)
+    await raf()
+    const animate = both.animate()
+    const tomato = "rgb(255, 99, 71)"
+    const split = animate(both.members[0], { x: 60, "background-color": tomato }, TWEEN)
+    const batched = animate(both.grid().at(1), { x: 60 }, TWEEN)
+    const own = animate(both.plain[0], { "background-color": tomato }, TWEEN)
+    const xs = await xsOver(6, [both.members[0], both.members[1]])
+    expectSame(xs[0], xs[1])
+    expect(getComputedStyle(both.members[0]).backgroundColor).toBe(getComputedStyle(both.plain[0]).backgroundColor)
+    // Paused and sought as one.
+    ;[split, batched, own].forEach((controls) => {
+      controls.pause()
+      controls.time = 0.2
     })
     await raf()
-    expect([rect.style.transformBox, rect.style.transformOrigin]).toEqual(["fill-box", "50% 50%"])
+    expect(xOf(both.members[0])).toBeCloseTo(xOf(both.members[1]), 6)
+    expect(getComputedStyle(both.members[0]).backgroundColor).toBe(getComputedStyle(both.plain[0]).backgroundColor)
+    ;[split, batched, own].forEach((controls) => controls.play())
+    await split
+    setTarget(100)
+    const on = await xsOver(50, [both.members[0], both.members[1]])
+    expectSame(on[0], on[1])
+    expect(on[0][0]).toBeGreaterThan(59)
+  })
+
+  it("CV6: a list of members goes as one Batch call, its stagger counting the movers; a plain element keeps its index's", async () => {
+    const both = mountBoth(3)
+    await raf()
+    const animate = both.animate()
+    await animate(both.grid().at(2), { x: 80 }, { duration: 0 })
+    const delay = stagger(0.05)
+    // Members 0 and 1 move, ranks 0 and 1 of 2: member 2 is at 80 already.
+    void animate([both.members[0], both.members[2], both.plain[0], both.members[1]], { x: 80 }, { ...SPRING, delay })
+    ;[1, 2].forEach((p, rank) => animate(both.plain[p], { x: 80 }, { ...SPRING, delay: delay(rank, 2) }))
+    const frames = await xsOver(40, [both.members[0], both.members[1], both.plain[1], both.plain[2]])
+    expectSame(frames[0], frames[2])
+    expectSame(frames[1], frames[3])
+  })
+
+  it("CV7: through an element, a transform the Batch doesn't draw, and three stops for its key, are errors naming the key", async () => {
+    const both = mountBoth(1)
+    await raf()
+    const animate = both.animate()
+    expect(() => animate(both.members[0], { rotate: 10 })).toThrow(/"rotate"/)
+    expect(() => animate(both.members[0], { transform: "rotate(10deg)" })).toThrow(/"transform"/)
+    expect(() => animate(both.members[0], { x: [0, 10, 20] })).toThrow(/"x"/)
+  })
+
+  const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
+
+  /** `frames` frames of each of `reads`: one array per read. */
+  const readsOver = async (frames: number, reads: ReadonlyArray<() => number>): Promise<ReadonlyArray<ReadonlyArray<number>>> => {
+    const out = reads.map((): Array<number> => [])
+    for (let f = 0; f < frames; f++) {
+      await raf()
+      reads.forEach((read, n) => out[n].push(read()))
+    }
+    return out
+  }
+
+  it("CV8: Batch Segments of stops and a function move each member as the same sequence moves plain elements, paused and sought as one", async () => {
+    const both = mountBoth(3)
+    await raf()
+    const animate = both.animate()
+    const delay = stagger(0.05)
+    const fanned = (i: number): number => 20 + i * 30
+    const options = { repeat: 1, repeatType: "mirror" } as const
+    let landed = false
+    const batched = animate([
+      [both.grid(), { x: [0, 100] }, { duration: 0.3 }],
+      [both.grid(), { x: (i) => fanned(i) }, { delay, at: "-0.1", ease: "easeInOut" }],
+    ], options)
+    void batched.then(() => {
+      landed = true
+    })
+    const own = animate([
+      [both.plain, { x: [0, 100] }, { duration: 0.3 }],
+      ...both.plain.map((el, i) => [el, { x: fanned(i) }, { delay: delay(i, 3), at: 0.2, ease: "easeInOut" }] as const),
+    ], options)
+    expect(batched.duration).toBeCloseTo(own.duration, 9)
+    const frames = await xsOver(20, [...both.members, ...both.plain])
+    Array.from({ length: 3 }).forEach((_, i) => expectSame(frames[i], frames[i + 3]))
+    batched.pause()
+    own.pause()
+    batched.time = 0.9
+    own.time = 0.9
+    batched.play()
+    own.play()
+    const rest = await xsOver(30, [...both.members, ...both.plain])
+    Array.from({ length: 3 }).forEach((_, i) => expectSame(rest[i], rest[i + 3]))
+    expect(rest[0].at(-1)).toBeCloseTo(0, 6)
+    expect(landed).toBe(true)
+  })
+
+  it("CV9: members' elements move their Batch key in the Batch and the rest as a plain element's; one member, one subject", async () => {
+    const both = mountBoth(2)
+    await raf()
+    const animate = both.animate()
+    void animate([
+      [both.members, { x: 50, opacity: 0.4 }, { duration: 0.3 }],
+      [both.grid(), { x: 100 }, { duration: 0.3 }],
+      [both.members[0], { x: -20 }, { at: "<", duration: 0.2 }],
+    ])
+    animate([
+      [both.plain, { x: 50, opacity: 0.4 }, { duration: 0.3 }],
+      [both.plain, { x: 100 }, { duration: 0.3 }],
+      [both.plain[0], { x: -20 }, { at: "<", duration: 0.2 }],
+    ])
+    const frames = await readsOver(45, [...[...both.members, ...both.plain].map((el) => () => xOf(el)), ...[...both.members, ...both.plain].map((el) => () => opacityOf(el))])
+    expectSame(frames[0], frames[2])
+    expectSame(frames[1], frames[3])
+    expectSame(frames[4], frames[6])
+    expectSame(frames[5], frames[7])
+    expect([frames[0].at(-1), frames[4].at(-1)]).toEqual([100, 0.4])
+  })
+
+  it("CV10: a key the Batch doesn't have, a string, and an undrawn transform through a member's element are errors naming the key", async () => {
+    const both = mountBoth(1)
+    await raf()
+    const animate = both.animate()
+    expect(() => animate([[both.grid(), { opacity: 1 }]])).toThrow(/"opacity", which isn't one of its keys \(x\)/)
+    expect(() => animate([[both.grid(), { x: "2rem" as never }]])).toThrow(/"x" as "2rem"/)
+    expect(() => animate([[both.members[0], { rotate: 10 }]])).toThrow(/"rotate"/)
   })
 })

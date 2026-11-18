@@ -1,15 +1,14 @@
 /**
- * A Batch's Appear animation (#706, ADR-0044 *Amendment (#706)*) as Solid 1 renders it: its server plan
+ * A Batch's Appear animation (#706, ADR-0044 *Amendment (#706)*) as Solid 2 renders it: its server plan
  * under the provider and config around it, and its Handoff's part of the Batch's env. Shared by
  * `createBatch` and `Reorder.BatchGroup`.
  *
  * @module
  */
-import { DEV } from "solid-js"
+import { DEV, isHydrating } from "solid-js"
 import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import { useWardicAppear, useWardicSkipAnimations } from "./provider.tsx"
-import { isHydrating } from "./server.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /** A Batch's server plan for its members' Appear animation, under the provider and config around it. */

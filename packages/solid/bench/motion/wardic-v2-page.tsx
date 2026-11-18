@@ -2,7 +2,7 @@
 // `?kind=plain`: bench:solid's page-v2. Each update is written then `flush()`ed, so Solid 2 applies it
 // in the timed task, as `flushSync` does for React's.
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { wardic, WardicProvider } from "@wardic/solid"
 import { type JSX, render } from "@solidjs/web"
 import { createSignal, flush, For, Show } from "solid-js"
 import { addStyle, atIn, install } from "./timing.ts"

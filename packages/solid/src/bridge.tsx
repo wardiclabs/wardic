@@ -1,32 +1,23 @@
 /**
- * Reactive bridges (ADR-0006): the two adapters that turn Effect-side reactive
- * sources into Solid `Accessor`s the JSX layer can read.
+ * Reactive bridges on Solid 2 (#209, ADR-0006), as the Solid 1 binding's: `streamToSignal` runs a
+ * core `Stream` into a signal for as long as its owner lives, and `fromAtom` reads an Effect `Atom`
+ * through the provider's registry. Their signals are written from outside Solid (a fiber, the
+ * registry), so a change shows at Solid 2's next flush. `fromAtom`'s accessor carries its Atom
+ * (#209 PR 3's Q2), so a `style` given it follows the Atom itself, in the frame the Atom is set.
  *
- * - {@link streamToSignal} bridges a core frame/recognizer `Stream` into a Solid
- *   signal: a fiber forked on the provider runtime runs `Stream.runForEach`,
- *   pushing each emission into the signal. The fiber is scoped to the consuming
- *   component's `onCleanup` (via {@link runScoped}), so unmount interrupts it,
- *   tears down its Scope, and drops the ref-count on the Shared sources it
- *   subscribed to — exactly the per-element fiber lifecycle ADR-0006 prescribes.
- * - {@link fromAtom} bridges an Effect `Atom` (reactive service inputs like
- *   `Probe.prefersReducedMotion` / `Probe.viewport`) into a Solid signal via the
- *   provider runtime's `AtomRegistry`: it reads the atom's current value for the
- *   initial signal, subscribes to push updates, and unsubscribes on `onCleanup`.
- *
- * Both MUST be called within a Solid owner (component body / `createRoot`) —
- * they register `onCleanup` and read the runtime from context.
+ * @module
  */
-import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
-import type * as Scope from "effect/Scope"
-import * as Stream from "effect/Stream"
 import type * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
-import { type Accessor, createSignal, from, onCleanup, onMount } from "solid-js"
-import { runScoped, runWatch, useWardicRuntime } from "./provider.tsx"
+import * as Stream from "effect/Stream"
+import { isServer } from "@solidjs/web"
+import { type Accessor, createSignal, isHydrating, onCleanup } from "solid-js"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import type { WardicServices } from "./runtime.ts"
-import { isHydrating, isServer } from "./server.ts"
+import { runScoped, useWardicRuntime } from "./provider.tsx"
+import { onSettledClientOnly } from "./solid-reactivity.ts"
 
 /**
  * A core `Stream` as an accessor: `initial` until its first value, then its latest, the stream run on
@@ -38,37 +29,32 @@ import { isHydrating, isServer } from "./server.ts"
  */
 // `Stream.runForEach` through `runScoped`; `set(() => v)`, so an object or function value is stored as
 // it is. The stream's `R` is the provider runtime's services.
-export const streamToSignal = <A,>(
-  stream: Stream.Stream<A, never, WardicServices>,
-  initial: A,
-): Accessor<A> => {
-  const [get, set] = createSignal(initial)
+export const streamToSignal = <A,>(stream: Stream.Stream<A, never, WardicServices>, initial: A): Accessor<A> => {
   const runtime = useWardicRuntime()
-  runScoped(
-    runtime,
-    Stream.runForEach(stream, (v) => Effect.sync(() => set(() => v))),
-  )
-  return get
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
+  runScoped(runtime, Stream.runForEach(stream, (next) => Effect.sync(() => setValue(() => next))))
+  return value
 }
 
 /**
- * A gesture watch's values as a Solid `Accessor` (#318, ADR-0055): `initial` until the first, the
- * watch run with {@link runWatch} (a Scope of its own, closed with the owner; a handler's throw
- * reported). Must be called within a Solid owner under a `WardicProvider`.
+ * `atom` as an accessor carrying it: a signal set from `registry` at each change, unsubscribed when
+ * the owner is disposed. Every Atom the binding hands to Solid goes through it (a ward's `read`, the
+ * Live-value helpers, `fromAtom`). Call it where you'd make a signal. Its unsubscribe goes to
+ * `addCleanup`, the owner's `onCleanup` unless given: a ward's accessor first called in a ref, where
+ * Solid 2.0 refuses `onCleanup`, gives its own (#566).
  */
-export const watchToSignal = <A,>(
-  watchOf: (handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
-  initial: A,
-): Accessor<A> => {
-  const [get, set] = createSignal(initial)
-  runWatch(useWardicRuntime(), (onDefect) => watchOf({ on: (value) => set(() => value), onDefect }))
-  return get
+export const followAtom = <A,>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>, addCleanup: (cleanup: () => void) => void = onCleanup): Accessor<A> => {
+  const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>)
+  addCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
+  // eslint-disable-next-line solid/reactivity -- the accessor itself is returned, for its caller to read where it tracks
+  return LiveStyle.carry(value, atom)
 }
 
 /**
  * An Effect `Atom` as an accessor: read through the provider's `AtomRegistry`, and followed until the
  * owner is cleaned up. For a server render, give `serverValue`: the server renders it, and a hydrating
- * page keeps it until mount, then follows the atom.
+ * page keeps it until it has settled, then follows the atom. It carries the Atom, so a `style` given it
+ * follows the Atom itself.
  *
  * @example
  * const visible = fromAtom(probe.visible, { serverValue: true })
@@ -84,16 +70,13 @@ export const fromAtom = <A,>(atom: Atom.Atom<A>, options?: { readonly serverValu
     return () => serverValue
   }
   if (held && isHydrating()) {
-    const [value, setValue] = createSignal<A>(options.serverValue as A)
-    onMount(() => {
+    const [value, setValue] = createSignal<A>(options.serverValue as Exclude<A, Function>)
+    onSettledClientOnly(() => {
       const registry = runtime.runSync(AtomRegistry.AtomRegistry)
       setValue(() => registry.get(atom))
-      onCleanup(registry.subscribe(atom, (v) => setValue(() => v)))
+      return registry.subscribe(atom, (next) => setValue(() => next))
     })
     return value
   }
-  // A `Context.Service` key is itself an `Effect<Shape, never, Identifier>`,
-  // so running it on the provider runtime yields the registry instance.
-  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
-  return from<A>((set) => registry.subscribe(atom, (v) => set(() => v)), registry.get(atom))
+  return followAtom(runtime.runSync(AtomRegistry.AtomRegistry), atom)
 }

@@ -1,133 +1,119 @@
 /**
- * Low-level sensor hooks (`createX`) — the thin Solid surface over core's
- * recognizers and reactive service inputs (ADR-0006).
+ * Sensors on Solid 2 (#209 PR 3's Q1): each is a ref that's also its reading, as a ward is a ref
+ * carrying its props. Give it to an element's `ref` (alone, or in an array beside a ward); call it
+ * with nothing to read it, tracked as any signal:
  *
- * Each boolean/sample sensor runs the matching core watch with `watchToSignal`
- * (#318, #379): the recognizer's `wardic.*` span, and a Scope of its own with no
- * fiber, closed on the consuming component's unmount (dropping the shared feed's
- * count). `createReducedMotion` bridges
- * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}, `createReducedMotionConfig` lays the
- * nearest config's setting over it, and `createPageInView` bridges `Probe.visible` (#443). `createTransform` moved to
- * `live-value.ts`, with `createSpring` (#130).
+ * ```tsx
+ * const hovered = createHover()
+ * <div ref={hovered}>{hovered() ? "in" : "out"}</div>
+ * ```
  *
- * All hooks MUST be called within a component/owner (they register `onCleanup`
- * through the bridges and read the runtime from context).
+ * Each wraps a core recognizer (ADR-0006): attached, it runs on the provider's runtime until the
+ * sensor's owner is disposed or it's given another element. Each is a watch (#318, #379, ADR-0055),
+ * in a Scope of its own with no fiber. Its value starts at its rest (`false`,
+ * or `null` for a drag) and stays there on a server, where no ref is called. `createReducedMotion`,
+ * `createReducedMotionConfig` and `createPageInView` take no element: they follow the Probe's
+ * preference, the nearest config's setting over it, and the page's visibility (#443).
+ *
+ * @module
  */
+import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
-import * as Bool from "effect/Boolean"
-import { constFalse } from "effect/Function"
+import * as Report from "@wardic/dom/Report"
+import type * as Cause from "effect/Cause"
+import * as Effect from "effect/Effect"
+import * as Scope from "effect/Scope"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
-import { fromAtom, watchToSignal } from "./bridge.tsx"
+import { isServer } from "@solidjs/web"
+import { type Accessor, createSignal, onCleanup } from "solid-js"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { inViewOptionsOf } from "./gesture-callbacks.ts"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
+import type { WardicServices } from "./runtime.ts"
+import { fromAtom } from "./bridge.tsx"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
-import { isServer } from "./server.ts"
 
 export type { CreateDragOptions } from "./drag-samples.ts"
 
-
-/** Whether an element's config wants each of its gesture recognizers (#87, #273). */
-export interface Wants<C> {
-  readonly hover: (config: C) => boolean
-  readonly press: (config: C) => boolean
-  readonly inView: (config: C) => boolean
-  readonly focus: (config: C) => boolean
-  readonly pan: (config: C) => boolean
-}
-
-/** Each gesture recognizer's start: the layers' state signals, and pan's watch (it sets no layer). */
-export interface Starts {
-  readonly hover: () => Accessor<boolean>
-  readonly press: () => Accessor<boolean>
-  readonly inView: () => Accessor<boolean>
-  readonly focus: () => Accessor<boolean>
-  readonly pan: () => void
-}
-
 /**
- * The layer recognizers {@link createWhenWanted} has started: each its state's accessor, absent until
- * it starts.
+ * A sensor: give it to an element's `ref` (alone, or in an array beside a ward), and call it with
+ * nothing to read it, tracked as any signal. Given another element, it follows that one.
  */
-export interface Started {
-  readonly hover?: Accessor<boolean> | undefined
-  readonly press?: Accessor<boolean> | undefined
-  readonly inView?: Accessor<boolean> | undefined
-  readonly focus?: Accessor<boolean> | undefined
+export interface Sensor<A> {
+  /** Its reading, tracked. */
+  (): A
+  /** Attach it to `element`: Solid calls it as a ref. */
+  (element: Element): void
 }
 
-const NONE_STARTED: Started = {}
+/** Whether a sensor's call is Solid applying it as a ref. */
+const isElement = (value: unknown): value is Element => Predicate.hasProperty(value, "nodeType")
 
-/** No layer recognizer started, for good: an element that can never want one (#525). */
-export const NEVER_STARTED: Accessor<Started> = () => NONE_STARTED
-
-/** A layer's state: its recognizer's, `false` until it starts. */
-export const stateOf = (started: Accessor<boolean> | undefined): boolean =>
-  UndefinedOr.match(started, { onUndefined: constFalse, onDefined: (state) => state() })
 
 /**
- * An element's gesture recognizers, each started only once its config wants it (#87, ADR-0040;
- * #273), and kept from then on. Motion's rule: its hover, tap, inView, focus and pan features attach
- * only once their props are set. An element that never wants one starts no fiber and no
- * subscription; one that stops wanting it keeps the recognizer, so a prop that toggles starts it
- * once. A pointer already resting on the element when hover starts counts from its next entry, as
- * Motion's does.
- *
- * One computation reads `config()` once a change for them all: a `wardic.*` element's config is
- * rebuilt at each read. The layers' recognizers started are one signal, so a reader tracks it once,
- * and then each started one's state ({@link stateOf}): Solid 1 tracks every read, the same signal's
- * again included. Each start runs under the caller's owner, not this computation, so its recognizer
- * lives and ends with the caller (its `onCleanup`), not with the next change.
+ * A sensor of a watch's values (#318, ADR-0055), at `initial` until its first: attached, the watch
+ * runs in a Scope of its own, closed when the sensor is given another element or its owner is
+ * disposed. Call within an owner.
  */
-export const createWhenWanted = <C,>(config: Accessor<C>, wants: Wants<C>, starts: Starts): Accessor<Started> => {
-  const owner = getOwner()
-  const [started, setStarted] = createSignal<Started>(NONE_STARTED)
-  let panning = false
-  createComputed(() => {
-    const c = config()
-    const was = untrack(started)
-    let now = was
-    if (Predicate.isUndefined(was.hover)) {
-      if (wants.hover(c)) now = { ...now, hover: runWithOwner(owner, starts.hover) }
+export const watchSensorOf = <A,>(
+  watchOf: (target: Element, handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+  initial: A,
+): Sensor<A> => {
+  // A server never calls a ref: the sensor rests where it starts.
+  if (isServer) return ((): A => initial) as Sensor<A>
+  const runtime = useWardicRuntime()
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
+  // The element it's attached to, and its watch's Scope there.
+  let attached: { readonly element: Element; readonly scope: Scope.Closeable } | undefined
+  const detach = (): void => {
+    UndefinedOr.map(attached, ({ scope }) => OwnerScope.close(runtime, scope, "wardic.sensor: a finalizer failed"))
+    attached = undefined
+  }
+  onCleanup(detach)
+  const onDefect = (cause: Cause.Cause<never>): void => {
+    runtime.runFork(Report.failure("wardic.sensor: a gesture handler failed", cause))
+  }
+  const attach = (element: Element): void => {
+    if (Predicate.isNotUndefined(attached) && attached.element === element) return
+    detach()
+    // Attached before its watch starts, so one that throws as it subscribes is closed all the same (#618).
+    const scope = OwnerScope.open(runtime)
+    attached = { element, scope }
+    runtime.runSync(watchOf(element, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect }).pipe(Scope.provide(scope)))
+  }
+  // eslint-disable-next-line solid/reactivity -- the sensor: a ref Solid calls with its element, and an accessor its caller reads where it tracks
+  return ((element?: unknown): A | undefined => {
+    if (isElement(element)) {
+      attach(element)
+      return undefined
     }
-    if (Predicate.isUndefined(was.press)) {
-      if (wants.press(c)) now = { ...now, press: runWithOwner(owner, starts.press) }
-    }
-    if (Predicate.isUndefined(was.inView)) {
-      if (wants.inView(c)) now = { ...now, inView: runWithOwner(owner, starts.inView) }
-    }
-    if (Predicate.isUndefined(was.focus)) {
-      if (wants.focus(c)) now = { ...now, focus: runWithOwner(owner, starts.focus) }
-    }
-    if (now !== was) setStarted(now)
-    if (Bool.not(panning)) {
-      if (wants.pan(c)) {
-        panning = true
-        runWithOwner(owner, starts.pan)
-      }
-    }
-  })
-  return started
+    return value()
+  }) as Sensor<A>
 }
 
 /**
- * `true` while `target` is in view, `false` otherwise. What "in view" means is a `viewport`'s, as on a
- * Wardic element: `root`, a scrolling container (the window if none); `margin`, grown around it, as
- * CSS `rootMargin`; `amount` of the element that must show, `"some"`, `"all"` or 0 to 1; and `once`,
- * to stay `true` after the first entry. `false` until the first entry. `target` is the element itself,
- * and `root` is read as it's called, so call it where both exist. Motion's `useInView`.
+ * `true` while the element it's given to as a `ref` is in view, `false` otherwise. What "in view"
+ * means is a `viewport`'s, as on a Wardic element: `root`, a scrolling container (the window if none);
+ * `margin`, grown around it, as CSS `rootMargin`; `amount` of the element that must show, `"some"`,
+ * `"all"` or 0 to 1; and `once`, to stay `true` after the first entry. `root` is read as it's
+ * attached: an ancestor's `ref`, which Solid applies before its children's, has it by then. Motion's
+ * `useInView`.
  *
  * @example
- * const visible = createInView(props.card, { amount: "all", once: true })
+ * const visible = createInView({ amount: "all", once: true })
+ * <section ref={visible}>{visible() ? "Seen" : "Not yet"}</section>
  * @see https://wardic.dev/reference/solid/gestures/create-in-view
  */
-// The core in-view watch (#318), its options mapped as the element's `viewport` is (#273): `root` read
-// as it starts.
-export const createInView = (target: unknown, viewport?: WardConfig.WardicViewport): Accessor<boolean> =>
-  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchInView(target, inViewOptionsOf(viewport), { on: (transition) => on(transition.active), onDefect }), false)
+// The core in-view watch, its options mapped as the element's `viewport` is (#273): `root` read as
+// it's attached.
+export const createInView = (viewport?: WardConfig.WardicViewport): Sensor<boolean> =>
+  watchSensorOf<boolean>(
+    (target, { on, onDefect }) => Recognizer.watchInView(target, inViewOptionsOf(viewport), { on: (transition) => on(transition.active), onDefect }),
+    false,
+  )
 
 /**
  * Whether the visitor's system asks for reduced motion, as an accessor. A server renders `false`, and a
@@ -142,12 +128,8 @@ export const createInView = (target: unknown, viewport?: WardConfig.WardicViewpo
 // The Probe's `prefersReducedMotion` Atom, held until mount (the Hydration hold, ADR-0021 decision 8).
 // The engine reads the preference as each animation starts, and snaps its positional keys (ADR-0029).
 export const createReducedMotion = (): Accessor<boolean> => {
-  // Before the provider is asked for: a server render needs none, as Solid 2's doesn't (#583).
   if (isServer) return () => false
-  const runtime = useWardicRuntime()
-  // Resolve the Probe service once to read its reactive atom; a Context.Service
-  // key is itself an Effect, so running it yields the service instance.
-  const probe = runtime.runSync(Probe.Probe)
+  const probe = useWardicRuntime().runSync(Probe.Probe)
   return fromAtom(probe.prefersReducedMotion, { serverValue: false })
 }
 
@@ -172,18 +154,16 @@ export const createReducedMotionConfig = (): Accessor<boolean> => {
 /**
  * Whether the page is shown: `false` while it's hidden, in a tab in the background or a minimised
  * window. Pause what nobody can see, such as a carousel's autoplay. A server renders `true`, and a
- * hydrating page keeps it until it has mounted. Motion's `usePageInView`.
+ * hydrating page keeps it until it has settled. Motion's `usePageInView`.
  *
  * @example
  * const visible = createPageInView()
- * createEffect(() => (visible() ? player.play() : player.pause()))
+ * createEffect(visible, (shown) => (shown ? player.play() : player.pause()))
  * @see https://wardic.dev/reference/solid/gestures/create-page-in-view
  */
-// #443, the Probe's `visible`. The Hydration hold keeps `true` until mount, as Motion's starts
-// `true` and corrects itself after its first render.
+// #443, the Probe's `visible`, held until settled (the Hydration hold).
 export const createPageInView = (): Accessor<boolean> => {
-  const runtime = useWardicRuntime()
   if (isServer) return () => true
-  const probe = runtime.runSync(Probe.Probe)
+  const probe = useWardicRuntime().runSync(Probe.Probe)
   return fromAtom(probe.visible, { serverValue: true })
 }

@@ -1,5 +1,5 @@
 import { DomLive } from "@wardic/dom"
-import { domAnimation, LazyWardic, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { domAnimation, LazyWardic, w, WardicProvider } from "@wardic/solid"
 
 /** An element that enters, and one whose `drag` is loaded lazily, as an app would write them. */
 export default function App() {

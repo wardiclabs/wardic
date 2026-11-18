@@ -15,7 +15,7 @@
  *
  * @module
  */
-import { createWard, wardic } from "@wardic/solid"
+import { createWard, wardic } from "@wardic/solid/v1"
 import { createEffect, createSignal, For, type JSX, on } from "solid-js"
 import type { ScenarioDef } from "./types.ts"
 

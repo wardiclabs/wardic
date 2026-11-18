@@ -10,7 +10,8 @@ import { wardicSource } from "./scripts/wardic-source.ts"
 //   @wardic/dom's `*.node.test.ts` (its server guard and Starting-style tests, ADR-0021)
 //   run here too, because they need a runtime with no DOM.
 // - `ssr` (packages/solid/vitest.ssr.config.ts): @wardic/solid rendered with Solid's
-//   server build in the `node` environment, as on a server (ADR-0003, ADR-0020).
+//   server build in the `node` environment, as on a server (ADR-0003, ADR-0020); `v1-ssr`,
+//   Solid 1's binding, `@wardic/solid/v1` (#566).
 //
 // Everything DOM-related lives in the canonical browser tier (run via
 // `bun run test:browser`, vitest.browser.config.ts):
@@ -42,14 +43,14 @@ export default defineConfig({
           ],
         },
       },
+      // The Solid 2 binding's server renders, `@wardic/solid` (#209, #566), and Solid 1's, `@wardic/solid/v1`.
       "packages/solid/vitest.ssr.config.ts",
-      // The Solid 2 binding's server renders, `@wardic/solid/unstable/v2` (#209).
-      "packages/solid/vitest.ssr-v2.config.ts",
+      "packages/solid/vitest.ssr-v1.config.ts",
       // The Foldkit binding's server renders, Foldkit's `renderToString` in Node (#794).
       "packages/foldkit/vitest.ssr.config.ts",
       // The docs' testing guide, its samples run in jsdom as a reader's tests would (#558).
       "packages/solid/vitest.jsdom.config.ts",
-      "packages/solid/vitest.jsdom-v2.config.ts",
+      "packages/solid/vitest.jsdom-v1.config.ts",
     ],
   },
 })

@@ -1,33 +1,30 @@
-// The gesture Features (#511, ADR-0067 decisions 3 and 14), on the Solid 1 binding: each gesture is a
-// Feature, and they stand on one input, the Environment's when it gives one, else the DOM's, which
-// `DomLive` no longer builds.
-// - FG1, without `hover`, a `w.div`'s `whileHover` does nothing, no input is built, and development says
+// The gesture Features (#511, ADR-0067 decisions 3 and 14), on the Solid 2 binding, as
+// `../features-gestures.browser.test.tsx` is on Solid 1's.
+// - FGV1, without `hover`, a `w.div`'s `whileHover` does nothing, no input is built, and development says
 //   so once per provider, naming the import.
-// - FG2, `hover` given at once: a `w.div` hovers, over the DOM's input, which the Feature built.
-// - FG3, `domAnimation` loaded lazily: no word while it's on its way, and once it arrives, an element
+// - FGV2, `hover` given at once: a `w.div` hovers, over the DOM's input, which the Feature built.
+// - FGV3, `domAnimation` loaded lazily: no word while it's on its way, and once it arrives, an element
 //   already mounted hovers.
-// - FG4, `drag` given at once, under an Environment that gives its own input: the drag runs on that
+// - FGV4, `drag` given at once, under an Environment that gives its own input: the drag runs on that
 //   input. Without `drag`, `drag` does nothing, and development says so.
-// - FG5 (#551), `drag` loaded lazily: an element mounted while it's on its way drags once it arrives,
+// - FGV5 (#525), an element given no gesture key watches for a late gesture only from its first want:
+//   its `next("hoverStart")`, asked before `domAnimation` arrives lazily, is heard once it's here.
+// - FGV6 (#551), `drag` loaded lazily: an element mounted while it's on its way drags once it arrives,
 //   a drag before then doing nothing; a load that brings no `drag` gets development's word then.
-import { cleanup, render } from "@solidjs/testing-library"
+import type { JSX } from "@solidjs/web"
 import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
-import { domAnimation, drag, type FeatureLoad, hover, LazyWardic, w, WardicProvider } from "@wardic/solid"
+import { domAnimation, drag, type FeatureLoad, hover, LazyWardic, w, type Ward, WardicProvider } from "@wardic/solid"
 import * as Context from "effect/Context"
 import * as Option from "effect/Option"
-import { For, type JSX } from "solid-js"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { For } from "solid-js"
+import { describe, expect, it, vi } from "vitest"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import { useFeatureRegistry } from "../src/provider.tsx"
 import { opacityOf, until, waitAtMost } from "./browser-helpers.ts"
 import { pushedPointer } from "./pushed-pointer.ts"
-import { resetScene, settle, wait } from "./reorder-harness.tsx"
-
-afterEach(async () => {
-  await resetScene()
-  cleanup()
-})
+import { mount } from "./mount.tsx"
+import { settle, wait } from "./reorder-scene.tsx"
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px" }
 const TWEEN = { type: "tween", duration: 0.2 } as const
@@ -61,8 +58,8 @@ const hoverUntil = (el: HTMLElement, done: () => boolean, ms: number): Promise<v
 /** Whether its provider's Features have built the gestures' input. */
 const hasInput = (registry: Feature.FeatureRegistry): boolean => Option.isSome(Context.getOption(registry.built() as Context.Context<InputSource.InputSource>, InputSource.InputSource))
 
-describe("The gesture Features (#511), Solid 1", () => {
-  it("FG1: without `hover`, a w.div's whileHover does nothing, no input is built, and development says so once per provider", async () => {
+describe("The gesture Features (#511), Solid 2", () => {
+  it("FGV1: without `hover`, a w.div's whileHover does nothing, no input is built, and development says so once per provider", async () => {
     const els: Array<HTMLElement> = []
     let registry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
@@ -70,7 +67,7 @@ describe("The gesture Features (#511), Solid 1", () => {
       return undefined
     }
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <Probe />
           <For each={[0, 1]}>
@@ -89,14 +86,14 @@ describe("The gesture Features (#511), Solid 1", () => {
     expect(words[0]).toContain('import { hover } from "@wardic/solid"')
   })
 
-  it("FG2: `hover` given at once: a w.div hovers, over the DOM's input the Feature built", async () => {
+  it("FGV2: `hover` given at once: a w.div hovers, over the DOM's input the Feature built", async () => {
     let el!: HTMLElement
     let registry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
       registry = useFeatureRegistry()
       return undefined
     }
-    render(() => (
+    mount(() => (
       <WardicProvider env={DomLive} features={[hover]}>
         <Probe />
         <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} whileHover={{ opacity: 1 }} transition={TWEEN} />
@@ -109,7 +106,7 @@ describe("The gesture Features (#511), Solid 1", () => {
     expect(hasInput(registry), "the input built").toBe(true)
   })
 
-  it("FG3: domAnimation loaded lazily: no word while it's on its way, and an element already mounted hovers once it's here", async () => {
+  it("FGV3: domAnimation loaded lazily: no word while it's on its way, and an element already mounted hovers once it's here", async () => {
     let arrive!: () => void
     const load: FeatureLoad = () =>
       new Promise((resolve) => {
@@ -117,7 +114,7 @@ describe("The gesture Features (#511), Solid 1", () => {
       })
     let el!: HTMLElement
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <LazyWardic features={load}>
             <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} whileHover={{ opacity: 1 }} transition={TWEEN} />
@@ -134,10 +131,36 @@ describe("The gesture Features (#511), Solid 1", () => {
     expect(opacityOf(el)).toBe(1)
   })
 
-  it("FG4: `drag` runs on the Environment's own input; without `drag`, development says so", async () => {
+  it("FGV5: an element with no gesture key hears next('hoverStart'), asked before domAnimation arrives lazily", async () => {
+    let arrive!: () => void
+    const load: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arrive = () => resolve(domAnimation)
+      })
+    let el!: HTMLElement
+    let card!: Ward
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <LazyWardic features={load}>
+          <w.div ref={(n: HTMLElement) => (el = n)} wardRef={(ward: Ward) => (card = ward)} style={BOX} initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} />
+        </LazyWardic>
+      </WardicProvider>
+    ))
+    await settle()
+    let heard = false
+    void card.next("hoverStart").then(() => {
+      heard = true
+    })
+    arrive()
+    await wait(50)
+    await hoverUntil(el, () => heard, 2000)
+    expect(heard, "the hover started once its Feature arrived").toBe(true)
+  })
+
+  it("FGV4: `drag` runs on the Environment's own input; without `drag`, development says so", async () => {
     const pointer = pushedPointer()
     let el!: HTMLElement
-    render(() => (
+    const dragged = mount(() => (
       <WardicProvider env={pointer.env} features={[drag]}>
         <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
       </WardicProvider>
@@ -150,9 +173,9 @@ describe("The gesture Features (#511), Solid 1", () => {
     await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
     expect(el.getBoundingClientRect().left - x0, "dragged on the pushed input").toBeGreaterThan(90)
 
-    cleanup()
+    dragged.unmount()
     const lines = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <w.div style={BOX} drag="x" />
         </WardicProvider>
@@ -161,7 +184,7 @@ describe("The gesture Features (#511), Solid 1", () => {
     })
     expect(lines.filter((l) => l.includes(word("drag"))), "one word").toHaveLength(1)
   })
-  it("FG5 (#551): `drag` loaded lazily: an element mounted while it's on its way drags once it's here, and a load without it says so then", async () => {
+  it("FGV6 (#551): `drag` loaded lazily: an element mounted while it's on its way drags once it's here, and a load without it says so then", async () => {
     const pointer = pushedPointer()
     let arrive!: () => void
     const load: FeatureLoad = () =>
@@ -169,8 +192,9 @@ describe("The gesture Features (#511), Solid 1", () => {
         arrive = () => resolve([drag])
       })
     let el!: HTMLElement
+    let first!: ReturnType<typeof mount>
     const lines = await logged(async () => {
-      render(() => (
+      first = mount(() => (
         <WardicProvider env={pointer.env}>
           <LazyWardic features={load}>
             <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
@@ -195,7 +219,7 @@ describe("The gesture Features (#511), Solid 1", () => {
     await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
     expect(el.getBoundingClientRect().left - x0, "dragged once it's here").toBeGreaterThan(90)
 
-    cleanup()
+    first.unmount()
     // A load that brings no `drag`: nothing said while it's on its way, and one word once it's here.
     let arriveHover!: () => void
     const hoverOnly: FeatureLoad = () =>
@@ -203,7 +227,7 @@ describe("The gesture Features (#511), Solid 1", () => {
         arriveHover = () => resolve([hover])
       })
     const before = await logged(async () => {
-      render(() => (
+      mount(() => (
         <WardicProvider env={DomLive}>
           <LazyWardic features={hoverOnly}>
             <w.div style={BOX} drag="x" />

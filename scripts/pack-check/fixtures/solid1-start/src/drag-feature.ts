@@ -1,1 +1,1 @@
-export { drag } from "@wardic/solid"
+export { drag } from "@wardic/solid/v1"

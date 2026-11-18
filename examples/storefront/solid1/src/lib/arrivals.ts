@@ -3,7 +3,7 @@
  * header's cart button, sharing its `layoutId`, so Wardic flies it there from the row it left. Written
  * only by a click, so a server's render never has one.
  */
-import type { Feature } from "@wardic/solid"
+import type { Feature } from "@wardic/solid/v1"
 import { createSignal } from "solid-js"
 
 /** A piece arriving at the cart: its photo. */

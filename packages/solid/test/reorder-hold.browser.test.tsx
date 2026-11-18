@@ -1,44 +1,51 @@
-// A Reorder group's holds on Solid 1 (#348, ADR-0020 *Amendment (#348)*): an item in a user's hand,
-// from its drag's start or its keyboard lift to its end, told by `onHoldStart` and `onHoldEnd`, with
-// `onReorderEnd` between when it moved. Real mouse, real keys, real frames.
+// A Reorder group's holds on Solid 2 (#348, ADR-0020 *Amendment (#348)*): an item in a user's hand,
+// from its drag's start or its keyboard lift to its end, told as `list.each("holdStart")` and
+// `list.each("holdEnd")`, with `reorderEnd` between when it moved. Real mouse, real keys, real frames.
 //
-// - HO1: a drag's start is told at the drag's start, not the press; at its release, reorderEnd,
-//   then the end (`drop`).
-// - HO2: a click is no hold. HO3: a drag dropped back ends with no reorderEnd.
-// - HO4: a keyboard lift is a hold: dropped elsewhere, reorderEnd then its end. HO5: Escape ends it
-//   as a `cancel`. HO6: focus leaving drops it.
-// - HO7: one at a time: a drag of another item, its press moving no focus, ends the lift first; each
+// - HD1: a drag's start is told at the drag's start, not the press; at its release, reorderEnd, then
+//   the end (`drop`).
+// - HD2: a click is no hold. HD3: a drag dropped back ends with no reorderEnd.
+// - HD4: a keyboard lift is a hold: dropped elsewhere, reorderEnd then its end. HD5: Escape ends it
+//   as a `cancel`. HD6: focus leaving drops it.
+// - HD7: one at a time: a drag of another item, its press moving no focus, ends the lift first; each
 //   hold ends once.
-// - HO8: the dragged item unmounting mid-drag ends its hold as an `unmount`; its release tells nothing.
-// - HO9: another item unmounting mid-drag leaves the hold be. HO10: an item unmounting after its
-//   hold ended tells nothing more. HO11: a lift outlives a re-read of the values that changes nothing.
+// - HD8: the dragged item unmounting mid-drag ends its hold as an `unmount`; its release tells nothing.
+// - HD9: another item unmounting mid-drag leaves the hold be. HD10: an item unmounting after its
+//   hold ended tells nothing more. HD11: a lift outlives a re-read of the values that changes nothing.
+import type { ReorderGroup } from "@wardic/solid"
 import { createSignal } from "solid-js"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { commands, page } from "vitest/browser"
+import { afterEach, describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
 import "./browser-commands.ts"
 import { raf } from "./browser-helpers.ts"
-import { add, centreOf, glide, mountReorder, mouse, resetScene, type Scene, type SceneOptions, settle, wait } from "./reorder-harness.tsx"
+import { add, centreOf, glide, mountReorder, mouse, resetScene, type Scene, type SceneOptions, settle, wait } from "./reorder-scene.tsx"
 
 afterEach(resetScene)
-let viewport = { width: 0, height: 0 }
-beforeAll(async () => {
-  viewport = { width: window.innerWidth, height: window.innerHeight }
-  await page.viewport(1000, viewport.height)
-  await wait(50)
-})
-afterAll(async () => {
-  await page.viewport(viewport.width, viewport.height)
-})
 
 const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
 }
 
-const SCENE = (o: SceneOptions = {}): Promise<Scene> => mountReorder(o)
-const LOG = (s: Scene): ReadonlyArray<string> => s.holds
+/** The group's holdStart, reorderEnd and holdEnd from now on, in order, as `start a 0`, `reorder a 0→2`, `end a 0→2 drop`. */
+const record = (list: ReorderGroup<string>): ReadonlyArray<string> => {
+  const log: Array<string> = []
+  void (async () => {
+    for await (const start of list.each("holdStart")) log.push(`start ${start.value} ${start.from}`)
+  })()
+  void (async () => {
+    for await (const end of list.each("reorderEnd")) log.push(`reorder ${end.value} ${end.from}→${end.to}`)
+  })()
+  void (async () => {
+    for await (const end of list.each("holdEnd")) log.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)
+  })()
+  return log
+}
 
-describe("a Reorder group's holds on Solid 1 (#348)", () => {
-  it("HO1: a drag tells its start at the drag's start, not the press; at the release, reorderEnd, then its end", async () => {
+const SCENE = (o: SceneOptions = {}): Promise<Scene> => mountReorder({ factories: false, ...o })
+const LOG = (s: Scene): ReadonlyArray<string> => record(s.list())
+
+describe("a Reorder group's holds on Solid 2 (#348)", () => {
+  it("HD1: a drag tells its start at the drag's start, not the press; at the release, reorderEnd, then its end", async () => {
     const s = await SCENE()
     const log = LOG(s)
     const g = centreOf(s.item("a"))
@@ -56,7 +63,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual(["start a 0", `reorder a 0→${to}`, `end a 0→${to} drop`])
   })
 
-  it("HO2: a click is no hold", async () => {
+  it("HD2: a click is no hold", async () => {
     const s = await SCENE()
     const log = LOG(s)
     const g = centreOf(s.item("a"))
@@ -66,7 +73,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual([])
   })
 
-  it("HO3: a drag dropped back where it began ends, with no reorderEnd", async () => {
+  it("HD3: a drag dropped back where it began ends, with no reorderEnd", async () => {
     const s = await SCENE()
     const log = LOG(s)
     const g = centreOf(s.item("a"))
@@ -80,7 +87,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual(["start a 0", "end a 0→0 drop"])
   })
 
-  it("HO4: a keyboard lift is a hold: dropped elsewhere, reorderEnd, then its end", async () => {
+  it("HD4: a keyboard lift is a hold: dropped elsewhere, reorderEnd, then its end", async () => {
     const s = await SCENE()
     const log = LOG(s)
     s.item("b").focus()
@@ -96,7 +103,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual(["start b 1", "reorder b 1→3", "end b 1→3 drop"])
   })
 
-  it("HO5: Escape ends a lift as a cancel, the order put back, with no reorderEnd", async () => {
+  it("HD5: Escape ends a lift as a cancel, the order put back, with no reorderEnd", async () => {
     const s = await SCENE()
     const log = LOG(s)
     s.item("b").focus()
@@ -108,7 +115,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual(["start b 1", "end b 1→1 cancel"])
   })
 
-  it("HO6: focus leaving a lifted item drops it: its end", async () => {
+  it("HD6: focus leaving a lifted item drops it: its end", async () => {
     const s = await SCENE()
     const log = LOG(s)
     s.item("b").focus()
@@ -120,7 +127,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual(["start b 1", "reorder b 1→2", "end b 1→2 drop"])
   })
 
-  it("HO7: one hold at a time: a drag of another item, its press moving no focus, ends the lift first", async () => {
+  it("HD7: one hold at a time: a drag of another item, its press moving no focus, ends the lift first", async () => {
     const s = await SCENE()
     const log = LOG(s)
     // Keep the press from moving focus, so nothing but the drag's start ends the lift.
@@ -138,7 +145,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect(log.filter((line) => line.startsWith("end")).length, "each hold ended once").toBe(2)
   })
 
-  it("HO8: the dragged item unmounting mid-drag ends its hold as an unmount", async () => {
+  it("HD8: the dragged item unmounting mid-drag ends its hold as an unmount", async () => {
     const s = await SCENE()
     const log = LOG(s)
     const g = centreOf(s.item("a"))
@@ -154,7 +161,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect(log.length, "its release tells nothing more").toBe(2)
   })
 
-  it("HO9: another item unmounting mid-drag leaves the hold be", async () => {
+  it("HD9: another item unmounting mid-drag leaves the hold be", async () => {
     const s = await SCENE()
     const log = LOG(s)
     const g = centreOf(s.item("a"))
@@ -169,7 +176,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log]).toEqual(["start a 0", "end a 0→0 drop"])
   })
 
-  it("HO10: an item unmounting after its hold ended tells nothing more", async () => {
+  it("HD10: an item unmounting after its hold ended tells nothing more", async () => {
     const s = await SCENE()
     const log = LOG(s)
     s.item("b").focus()
@@ -183,7 +190,7 @@ describe("a Reorder group's holds on Solid 1 (#348)", () => {
     expect([...log], "each hold ends once").toEqual(["start b 1", "end b 1→1 drop"])
   })
 
-  it("HO11: a lift outlives a re-read of the values that changes nothing", async () => {
+  it("HD11: a lift outlives a re-read of the values that changes nothing", async () => {
     const [tick, setTick] = createSignal(0)
     const s = await SCENE({ alsoRead: tick })
     const log = LOG(s)

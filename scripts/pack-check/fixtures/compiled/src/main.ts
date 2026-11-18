@@ -1,5 +1,5 @@
 import { DomLive } from "@wardic/dom"
-import { domAnimation, drag, LazyWardic, w, WardicProvider } from "@wardic/solid"
+import { domAnimation, drag, LazyWardic, w, WardicProvider } from "@wardic/solid/v1"
 import { createComponent, render } from "solid-js/web"
 
 // The page Page.tsx writes in JSX, written with `createComponent`, so no JSX compile runs here.
