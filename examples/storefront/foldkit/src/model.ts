@@ -51,6 +51,8 @@ export type PageState = typeof PageState.Type
 
 export const Model = Schema.Struct({
   route: AppRoute,
+  /** The URL's query, `""` without one: a page reads its own (`?hydrate=`). */
+  query: Schema.String,
   prefs: Prefs,
   /** Each theme switch turns its icon half a turn on (#365). */
   themeSwitches: Schema.Number,
