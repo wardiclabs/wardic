@@ -26,6 +26,7 @@
 import type * as Values from "../Values.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Config from "./Config.ts"
@@ -100,6 +101,10 @@ export const createAnimationControls = (): Config.WardicAnimationControls => {
 
 /** Whether `u` is **Animation controls** (Motion's `isAnimationControls`). */
 export const isAnimationControls = (u: unknown): u is Config.WardicAnimationControls => Predicate.hasProperty(u, Config.CONTROLS)
+
+/** An element's `animate` as **Animation controls**, when it is them: what a binding reads once at its mount (#798); `undefined` for a target or a name. */
+export const controlsOf = (animate: unknown): Config.WardicAnimationControls | undefined =>
+  Bool.match(isAnimationControls(animate), { onTrue: () => animate as Config.WardicAnimationControls, onFalse: constUndefined })
 
 /** Reach `element` from `controls`, until the returned function: its mount to its unmount. */
 export const subscribe = (controls: Config.WardicAnimationControls, element: Controlled): (() => void) => {

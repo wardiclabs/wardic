@@ -51,7 +51,6 @@ import { nearestPresence } from "./presence.ts"
 import { groupDelivered, reorderItemOf } from "./reorder.ts"
 import { hydrationMounted, type Provider, reducedMotionUnder, type State } from "./services.ts"
 import { configValueOf, dropNode, layoutGroupOf, nodeOf } from "./tree.ts"
-import type { VariantNode } from "./variant-node.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** An element's config as the spine reads it: what the view delivered, with its merged `style`. */
@@ -288,10 +287,10 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
   const id = `wardic-foldkit-${ids++}`
   let config = configOf(deliveredTo(element))
   // Its Animation controls (#433; #798, Q4): the ones it mounted with, kept; each change they make is its
-  // `animate` entry as the spine reads it (`asControlled`), its Variant children following through its node.
-  const controls = controlsOf(node, config)
-  const asControlled = (c: Config): Config => Bool.match(node.controlled, { onTrue: () => AnimationControls.controlledConfigOf(c, node.change()), onFalse: () => c })
-  let view = spineViewOf(asControlled(config), configValue, dispatch, registry, provider, element)
+  // `animate` entry as the spine reads it, the node's configured form, its Variant children following.
+  const controls = AnimationControls.controlsOf(config.animate)
+  const viewOf = (): View => spineViewOf(node.configured(config), configValue, dispatch, registry, provider, element)
+  let view = viewOf()
   const configNow = (): View => view
   // The nearest `w.Presence` above it (decision 29), told its key now, before that presence decides what it shows (#286).
   const presence = nearestPresence(provider, state, element)
@@ -537,7 +536,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     const uninstall = installSetter(element, (delivered) => {
       config = configOf(delivered)
       if (DEV) warnChangedControls(provider, id, controls, config)
-      view = spineViewOf(asControlled(config), configValue, dispatch, registry, provider, element)
+      view = viewOf()
       // A Reorder group's values that changed (decision 28): its controller told, before the pass that lays the items out in them.
       groupDelivered(element)
       exitConfig.current = Spine.exitConfigOf(view, inherited)
@@ -579,7 +578,10 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       const unwatchName = UndefinedOr.match(inherited, {
         onUndefined: () => constVoid,
         // Its ancestor's Controls change is a trigger too (#433), even to the same name.
-        onDefined: (parentContext) => reactivity.watch(() => VariantTree.triggerKeyOf(parentContext.variant(), VariantTree.handDownFrom(parentContext), changeOf(parentContext)), retarget),
+        onDefined: (parentContext) => {
+          const inheritedChange = VariantTree.controlsChangeOf(undefined, parentContext)
+          return reactivity.watch(() => VariantTree.triggerKeyOf(parentContext.variant(), VariantTree.handDownFrom(parentContext), inheritedChange()), retarget)
+        },
       })
       const unwatchGate = reactivity.watch(node.canStart, (open) => {
         if (Bool.and(open, Predicate.isNotUndefined(last))) spine.retarget(UndefinedOr.getOrThrow(last))
@@ -600,7 +602,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
           AnimationControls.controlledElement(
             (change) => {
               node.setChange(change)
-              view = spineViewOf(asControlled(config), configValue, dispatch, registry, provider, element)
+              view = viewOf()
               retarget()
               recheck()
             },
@@ -637,23 +639,20 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
   return UndefinedOr.match(presence, { onUndefined: begin, onDefined: (p) => p.enroll(element, begin) })
 }
 
-/** The Animation controls `config`, an element's first delivery, gives as its `animate` (#433): none for a target or a name. */
-const controlsOf = (node: VariantNode, config: Config): AnimationControls.WardicAnimationControls | undefined =>
-  Bool.match(node.controlled, { onTrue: () => config.animate as AnimationControls.WardicAnimationControls, onFalse: constUndefined })
-
-/** The Controls change in effect for `context`'s element, as its Variant children read it: none without controls. */
-const changeOf = (context: VariantTree.WardicVariantContextValue): AnimationControls.ControlsChange | undefined =>
-  UndefinedOr.match(context.change, { onUndefined: constUndefined, onDefined: (read) => read() })
-
 /** Development's word on a render giving an element other controls, or values in their place (#798, Q17): it keeps the ones it mounted with. */
 const CONTROLS_CHANGED =
   "wardic.controls: a w.* element's Animation controls are read at its mount, and a later render gave it other controls, or values in their place: it keeps the ones it mounted with. Key the element, so the new ones mount with it."
 
-/** Say {@link CONTROLS_CHANGED} once an element, when a delivery's `animate` isn't the controls it mounted with. */
+/** Development's word on the reverse (the review's note): controls given to an element that mounted with none don't reach it. */
+const CONTROLS_LATE = "wardic.controls: a w.* element mounted without Animation controls, and a later render gave it some: they don't reach it. Key the element, so they mount with it."
+
+/** Say the word, once an element, when a delivery's `animate` isn't what it mounted with: other controls, values in their place, or controls where there were none. */
 const warnChangedControls = (provider: Provider, id: string, controls: AnimationControls.WardicAnimationControls | undefined, config: Config): void => {
-  if (Predicate.isUndefined(controls)) return
-  if (config.animate === controls) return
-  provider.registry.warnOnce(`controls:${id}`, CONTROLS_CHANGED)
+  const word = UndefinedOr.match(controls, {
+    onUndefined: () => Bool.match(AnimationControls.isAnimationControls(config.animate), { onTrue: () => CONTROLS_LATE, onFalse: constUndefined }),
+    onDefined: (mounted) => Bool.match(config.animate === mounted, { onTrue: constUndefined, onFalse: () => CONTROLS_CHANGED }),
+  })
+  UndefinedOr.map(word, (message) => provider.registry.warnOnce(`controls:${id}`, message))
 }
 
 /** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */

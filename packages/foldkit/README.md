@@ -48,6 +48,7 @@ What this binding does differently from `@wardic/solid`, for what Foldkit gives 
 - **The References and the Tracer reach Wardic through `env`** (ADR-0071, decision 10). A `w.*` element's Mount never sees the program's `resources`, so a Tracer or a Reference set there doesn't reach Wardic's Layer: give them in `Wardic.make({ env })`, as `Layer.merge(DomLive, …)`, until Foldkit gives Mounts services.
 - **`wardic.hydrate`, not `Runtime.hydrate`**, for a server-rendered page (above): Foldkit has no head channel for the Appear rules and no hook around its hydration render, so the Handle does both before it hands Foldkit the program.
 - **Server rendering is for `makeApplication` programs**: Foldkit's `renderToString` and `Runtime.hydrate` take those alone; a `makeElement` program renders on the client.
+- **No Playback controls**: Solid's `animate` returns them (pause, play, speed, time, complete, cancel); on Foldkit the Effect is the handle, awaited for its end and interrupted to stop it (an `interrupt: true` Command's second dispatch), so pause, speed and seek have no place to live.
 - **One `w.Provider()`, on the topmost `w.*` element**: Foldkit has no wrapper node, so the element carrying the Provider attribute is the root of the walk that writes the server's styles and samples its Appear animations (above).
 
 The rest is as `@wardic/solid` has it, an attribute for each prop.

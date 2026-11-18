@@ -19,6 +19,8 @@
 //   `isControllingVariants`): its Variant children follow the names it's started to.
 // - AC10: a later render giving the element other controls warns once in development, and the element
 //   keeps the ones it mounted with.
+// - AC11: a start reaches a Variant child's own Variant children (the review's find): the grandchildren
+//   join the change, so the Effect waits for them and the override is theirs too.
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -33,7 +35,7 @@ import * as AnimationControls from "@wardic/foldkit/AnimationControls"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { raf, until } from "../../solid/test/browser-helpers.ts"
-import { BOX, boxOf, type Embedded, embed, logged, said } from "./harness.ts"
+import { BOX, boxOf, computedOpacityOf, type Embedded, embed, frames, logged, said, translateXOf, wait } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive })
 type W = Wardic.Html<Message, never>
@@ -75,13 +77,8 @@ const drive = (view: View, actions: Record<string, Effect.Effect<void>>): Embedd
   return held
 }
 
-const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
-const xOf = (el: Element): number => matrixOf(el).m41
-const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
-const frames = async (n: number): Promise<void> => {
-  for (let i = 0; i < n; i++) await raf()
-}
-const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const xOf = translateXOf
+const opacityOf = computedOpacityOf
 /** What the Commands have landed, in order. */
 const doneOf = (held: Embedded<string>): ReadonlyArray<string> => Array.from(held.container.querySelectorAll("#done li")).map((li) => li.textContent)
 
@@ -323,5 +320,42 @@ describe("Animation controls on Foldkit (#798)", () => {
     held.send("go")
     await until(() => doneOf(held).includes("go"), 2000, "the mounted controls still reach it")
     expect(xOf(a)).toBeCloseTo(100, 0)
+  })
+
+  it("AC11: a start reaches a Variant child's own Variant children, waits for them, and its override is theirs", async () => {
+    const controls = AnimationControls.make()
+    const GROUP: Ward.Config["variants"] = { hidden: { opacity: 0.5 }, visible: { opacity: 1, transition: { duration: 0.1, staggerChildren: 0.15 } } }
+    const held = drive(
+      (_on, h, w) =>
+        w.ul([h.Id("list"), w.Initial("hidden"), w.Animate(controls), w.Variants(LIST), h.Style({ listStyle: "none" })], [
+          w.li([h.Id("group"), w.Variants(GROUP)], [w.span([h.Id("leaf"), w.Variants(ITEM), h.Style({ ...BOX, display: "block" })])]),
+        ]),
+      {
+        show: AnimationControls.start(controls, "visible"),
+        slow: AnimationControls.start(controls, "visible", { duration: 0.6, ease: "linear" }),
+        hide: Effect.sync(() => controls.set("hidden")),
+      },
+    )
+    const leaf = await boxOf(held, "leaf")
+    const group = await boxOf(held, "group")
+    await frames(4)
+    expect(xOf(leaf), "hidden").toBeCloseTo(-40, 1)
+    const began = performance.now()
+    held.send("show")
+    await until(() => doneOf(held).includes("show"), 3000, "the start lands")
+    // One child at each level: no stagger, the grandchild's own 0.2 s past the list's 0.1 s.
+    expect(performance.now() - began, "waited for the grandchild's 0.2 s, not the list's 0.1 s").toBeGreaterThan(150)
+    expect(xOf(leaf), "the grandchild followed").toBeCloseTo(0, 1)
+    expect(opacityOf(group)).toBeCloseTo(1, 2)
+    held.send("hide")
+    await until(() => doneOf(held).includes("hide"), 2000, "set ran")
+    await frames(3)
+    expect(xOf(leaf), "set reached it too").toBeCloseTo(-40, 1)
+    held.send("slow")
+    await until(() => xOf(leaf) > -30, 2000, "the grandchild moves")
+    await wait(150)
+    expect(xOf(leaf), "on the override's 0.6 s, not its own 0.2 s").toBeLessThan(-8)
+    await until(() => doneOf(held).includes("slow"), 3000, "the override's start lands")
+    expect(xOf(leaf)).toBeCloseTo(0, 1)
   })
 })
