@@ -6,7 +6,8 @@
 //     its export conditions (browser, node, development) pick the build as they would for an app.
 //   - Its `alias` and `dedupe` reach what Vite's dependency pre-bundling resolves without plugins:
 //     vite-plugin-solid's own `solid-js/web`, `@solidjs/testing-library`'s and `@solid-primitives/refs`'
-//     `solid-js`, each to the alias at the project's root.
+//     `solid-js`, each to the alias at the project's root. Only when Vite serves (the test projects): a
+//     build pre-bundles nothing, and the bench's and `size`'s base side has no alias at its root.
 //   - A dependency Node loads on a server (a test project's externals) never comes here: inline it.
 // - **Compile:** vite-plugin-solid's (`babel-preset-solid`), given beside it.
 //
@@ -30,15 +31,18 @@ const ALIAS: Readonly<Record<string, string>> = {
 export const solid1 = (): Plugin => ({
   name: "wardic:solid1",
   enforce: "pre",
-  config: () => ({
-    resolve: {
-      alias: [
-        { find: /^solid-js(?=\/|$)/, replacement: "solid-js-1" },
-        { find: /^@solidjs\/router(?=\/|$)/, replacement: "@solidjs/router-1" },
-      ],
-      dedupe: ["solid-js-1", "@solidjs/router-1"],
-    },
-  }),
+  config: (_config, { command }) => {
+    if (command !== "serve") return undefined
+    return {
+      resolve: {
+        alias: [
+          { find: /^solid-js(?=\/|$)/, replacement: "solid-js-1" },
+          { find: /^@solidjs\/router(?=\/|$)/, replacement: "@solidjs/router-1" },
+        ],
+        dedupe: ["solid-js-1", "@solidjs/router-1"],
+      },
+    }
+  },
   async resolveId(source, _importer, options) {
     const match = /^(solid-js-1|solid-js|@solidjs\/router-1|@solidjs\/router)(\/.*)?$/.exec(source)
     if (match === null) return null
