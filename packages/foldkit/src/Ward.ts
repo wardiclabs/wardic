@@ -351,7 +351,8 @@ export interface Config<Message = never>
   readonly dragConstraints?: DragConstraints | undefined
   /** `w.StartsDrag(…)`: a pointer pressed on this element starts the controls' drags. */
   readonly startsDrag?: StartsDrag | undefined
-  /** `w.AnimationScope(scope)`: the element is the scope's (#798): a Command's selectors given the scope resolve inside it, and its release stops the animations started in it. */
+  // #798, Q7.
+  /** `w.AnimationScope(scope)`: the element is the scope's: a Command's selectors given the scope resolve inside it, and its release stops the animations started in it. */
   readonly animationScope?: AnimationScope | undefined
   /** `w.OnDragStart(…)`: sent as a drag of the element starts, past its threshold (Motion's `onDragStart`). */
   readonly onDragStart?: GestureHandler<Message, PointerEvent, DragInfo> | undefined

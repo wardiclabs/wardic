@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { until } from "../../solid/test/browser-helpers.ts"
-import { type ActionsMessage, BOX, boxOf, doneOf, type Embedded, embedActions, frames, translateXOf } from "./harness.ts"
+import { type ActionsMessage, BOX, boxOf, doneOf, type Embedded, embedActions, endedWord, frames, translateXOf } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive })
 
@@ -24,13 +24,6 @@ afterEach(() => {
   app?.dispose()
   app = undefined
 })
-
-/** An animation's end as the action's word: `landed:<bool>`, or `missing:<subject>`. */
-const ended = (effect: Effect.Effect<Wardic.AnimationEnd, Wardic.AnimationFailed, Wardic.Wardic>): Effect.Effect<string, never, Wardic.Wardic> =>
-  effect.pipe(
-    Effect.map((end) => `landed:${end.landed}`),
-    Effect.catchTag("AnimationFailed", (failure) => Effect.succeed(`missing:${failure.subject}`)),
-  )
 
 /** Embed `view` with the sequences `actions` play, on the Handle's resources. */
 const drive = (view: (h: HtmlBuilder<ActionsMessage>) => Html, actions: Record<string, Effect.Effect<string, never, Wardic.Wardic>>): Embedded<string> => {
@@ -47,7 +40,7 @@ const LINEAR = { duration: 0.3, ease: "linear" } as const
 describe("Wardic.animate(sequence) on Foldkit (#798)", () => {
   it("S1: Segments one after another, landed after the last; interrupting the fiber stops it where it is", async () => {
     const held = drive(boxes, {
-      play: ended(Wardic.animate([["#a", { x: 100 }, LINEAR], ["#b", { x: 100 }, LINEAR]])),
+      play: endedWord(Wardic.animate([["#a", { x: 100 }, LINEAR], ["#b", { x: 100 }, LINEAR]])),
     })
     const a = await boxOf(held, "a")
     const b = await boxOf(held, "b")
@@ -74,7 +67,7 @@ describe("Wardic.animate(sequence) on Foldkit (#798)", () => {
 
   it("S2: at: < starts beside the Segment before, a negative at overlaps it, and a label names a time", async () => {
     const held = drive(boxes, {
-      play: ended(
+      play: endedWord(
         Wardic.animate([
           ["#a", { x: 100 }, { duration: 0.4, ease: "linear" }],
           ["#b", { x: 100 }, { duration: 0.4, ease: "linear", at: "<" }],
@@ -106,7 +99,7 @@ describe("Wardic.animate(sequence) on Foldkit (#798)", () => {
   it("S3: a function Segment is told its value each frame, from 0 to 1, and lands", async () => {
     const seen: Array<number> = []
     const held = drive(boxes, {
-      play: ended(Wardic.animate([[(value: number) => void seen.push(value), { duration: 0.2, ease: "linear" }]])),
+      play: endedWord(Wardic.animate([[(value: number) => void seen.push(value), { duration: 0.2, ease: "linear" }]])),
     })
     await boxOf(held, "a")
     held.send("play")
@@ -119,8 +112,8 @@ describe("Wardic.animate(sequence) on Foldkit (#798)", () => {
 
   it("S4: a sequence that animates nothing fails as a sequence; a Segment finding nothing beside one that does is skipped", async () => {
     const held = drive(boxes, {
-      nothing: ended(Wardic.animate([["#nowhere", { x: 100 }, LINEAR], "label"])),
-      some: ended(Wardic.animate([["#nowhere", { x: 100 }, LINEAR], ["#a", { x: 100 }, { duration: 0.1 }]])),
+      nothing: endedWord(Wardic.animate([["#nowhere", { x: 100 }, LINEAR], "label"])),
+      some: endedWord(Wardic.animate([["#nowhere", { x: 100 }, LINEAR], ["#a", { x: 100 }, { duration: 0.1 }]])),
     })
     const a = await boxOf(held, "a")
     held.send("nothing")

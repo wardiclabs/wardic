@@ -15,7 +15,7 @@ import { DomLive } from "@wardic/dom"
 import * as AnimationScope from "@wardic/foldkit/AnimationScope"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { until } from "../../solid/test/browser-helpers.ts"
-import { type ActionsMessage, BOX, boxOf, doneOf, type Embedded, embedActions, frames, translateXOf } from "./harness.ts"
+import { type ActionsMessage, BOX, boxOf, doneOf, type Embedded, embedActions, endedWord, frames, translateXOf } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive })
 type W = Wardic.Html<ActionsMessage, never>
@@ -25,13 +25,6 @@ afterEach(() => {
   app?.dispose()
   app = undefined
 })
-
-/** An animation's end as the action's word: `landed:<bool>`, or `missing:<subject>`. */
-const ended = (effect: Effect.Effect<Wardic.AnimationEnd, Wardic.AnimationFailed, Wardic.Wardic>): Effect.Effect<string, never, Wardic.Wardic> =>
-  effect.pipe(
-    Effect.map((end) => `landed:${end.landed}`),
-    Effect.catchTag("AnimationFailed", (failure) => Effect.succeed(`missing:${failure.subject}`)),
-  )
 
 /** Embed `view` with `actions`, on the Handle's resources. */
 const drive = (view: (on: boolean, h: HtmlBuilder<ActionsMessage>, w: W) => Html, actions: Record<string, Effect.Effect<string, never, Wardic.Wardic>>): Embedded<string> => {
@@ -50,8 +43,8 @@ describe("The Animation scope on Foldkit (#798)", () => {
   it("C1: a selector with a scope finds the scope's elements alone; without one, the document's", async () => {
     const scope = AnimationScope.make()
     const held = drive((_on, h, w) => h.div([], [list(h, w, "one", [w.AnimationScope(scope)]), list(h, w, "two")]), {
-      scoped: ended(Wardic.animate(".item", { x: 50 }, { ...FAST, scope })),
-      all: ended(Wardic.animate(".item", { x: 100 }, FAST)),
+      scoped: endedWord(Wardic.animate(".item", { x: 50 }, { ...FAST, scope })),
+      all: endedWord(Wardic.animate(".item", { x: 100 }, FAST)),
     })
     const one = await boxOf(held, "one-0")
     const two = await boxOf(held, "two-0")
@@ -76,7 +69,7 @@ describe("The Animation scope on Foldkit (#798)", () => {
         ]),
       {
         // A subject outside the scope, started in it: an element, since a selector resolves inside the scope.
-        far: ended(Effect.suspend(() => Wardic.animate(app!.container.querySelector("#far")!, { x: 200 }, { duration: 1, ease: "linear", scope }))),
+        far: endedWord(Effect.suspend(() => Wardic.animate(app!.container.querySelector("#far")!, { x: 200 }, { duration: 1, ease: "linear", scope }))),
       },
     )
     const far = await boxOf(held, "far")
@@ -97,7 +90,7 @@ describe("The Animation scope on Foldkit (#798)", () => {
 
   it("C3: without a scope a selector resolves under the w.Provider() element: an element outside it isn't found", async () => {
     const held = drive((_on, h, w) => h.div([], [w.div([h.Id("app"), w.Provider()], [h.div([h.Id("in"), h.Class("item"), h.Style(BOX)])]), h.div([h.Id("out"), h.Class("item"), h.Style(BOX)])]), {
-      go: ended(Wardic.animate(".item", { x: 50 }, FAST)),
+      go: endedWord(Wardic.animate(".item", { x: 50 }, FAST)),
     })
     const inside = await boxOf(held, "in")
     const outside = await boxOf(held, "out")
@@ -111,7 +104,7 @@ describe("The Animation scope on Foldkit (#798)", () => {
   it("C4: a scope whose element isn't mounted finds nothing", async () => {
     const scope = AnimationScope.make()
     const held = drive((_on, h, w) => list(h, w, "one"), {
-      go: ended(Wardic.animate(".item", { x: 50 }, { ...FAST, scope })),
+      go: endedWord(Wardic.animate(".item", { x: 50 }, { ...FAST, scope })),
     })
     await boxOf(held, "one-0")
     expect(scope.element()).toBeUndefined()

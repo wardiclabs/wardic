@@ -16,7 +16,7 @@ import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import { constFalse, constTrue, constVoid } from "effect/Function"
+import { constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -61,7 +61,7 @@ export class LayoutFailed extends Data.TaggedError("LayoutFailed")<{
 }> {}
 
 /** What a Command's Effect is a member of: the Handle's Provider, built when none is live, and the count out. */
-const member = Effect.fnUntraced(function* () {
+const member: () => Effect.Effect<Member, never, Wardic> = Effect.fnUntraced(function* () {
   const handle = yield* Wardic
   const state = stateOf(handle)
   const provider = yield* providerFor(state, undefined, undefined)
@@ -120,60 +120,6 @@ const settling = (state: State, provider: Provider, layout: Layout, left: () => 
     return Effect.sync(left)
   })
 
-/** What `animate` takes with a subject: dom's options, less `onComplete`, which the Effect's success is, and the **Animation scope** its selectors resolve under (#798, Q8). */
-// An intersection, not an `Omit`: dom's options are a union of transitions, which `Omit` spreads past
-// what TypeScript represents (TS2590).
-export type AnimateOptions = Imperative.WardicAnimateOptions & { readonly onComplete?: never; readonly scope?: AnimationScope | undefined }
-
-/** A sequence, as dom plays it (#798, Q6; Motion's `animate(sequence)`): Segments of elements, function Segments and labels, laid out in time. No Batch Segment: Foldkit has no Batch. */
-export type Sequence = Imperative.WardicAnimationSequence
-
-/** What `animate` takes with a sequence: dom's options, less `onComplete`, which the Effect's success is, and the scope (#798, Q8). */
-export type SequenceOptions = Omit<Imperative.WardicSequenceOptions, "onComplete"> & { readonly onComplete?: never; readonly scope?: AnimationScope | undefined }
-
-/** `AnimationFailed`'s subject for a sequence none of whose Segments found anything (#798, Q15). */
-const SEQUENCE = "a sequence"
-
-/** Where a Command's selectors resolve (Q8): the scope's element, else the `w.Provider()` element, else the document; a scope whose element isn't mounted finds nothing. */
-interface Under {
-  readonly root: Element | undefined
-  readonly mounted: boolean
-}
-
-const underOf = (provider: Provider, scope: AnimationScope | undefined): Under =>
-  UndefinedOr.match(scope, {
-    onUndefined: () => ({ root: provider.root, mounted: true }),
-    onDefined: (given) => {
-      const root = given.element()
-      return { root, mounted: Predicate.isNotUndefined(root) }
-    },
-  })
-
-/** A subject form's options as dom takes them: without the scope, the binding's own. */
-const transitionOf = (options: AnimateOptions | undefined): Imperative.WardicAnimateOptions | undefined =>
-  UndefinedOr.map(options, (given) => {
-    const { scope: _scope, ...rest } = given
-    return rest as Imperative.WardicAnimateOptions
-  })
-
-/** A sequence's options as dom takes them: without the scope. */
-const sequenceOptionsOf = (options: SequenceOptions | undefined): Imperative.WardicSequenceOptions | undefined =>
-  UndefinedOr.map(options, (given) => {
-    const { scope: _scope, ...rest } = given
-    return rest
-  })
-
-/** Whether a Segment animates anything under `root` (Q6): a function Segment does; a Segment of elements when its subject finds one; a label (a string, or `{ name, at }`) never. */
-const segmentAnimates = (segment: Imperative.WardicSegment, root: Element | undefined): boolean =>
-  Bool.match(Arr.isArray(segment), {
-    onFalse: constFalse,
-    onTrue: () =>
-      Option.match(Arr.head(segment as ReadonlyArray<unknown>), {
-        onNone: constFalse,
-        onSome: (head) => Bool.match(Predicate.isFunction(head), { onTrue: constTrue, onFalse: () => countOf(head as Imperative.WardicAnimationSubject, root) > 0 }),
-      }),
-  })
-
 /** How many elements `subject` names, under `root`: a selector's matches, an element, or a list's members. */
 const countOf = (subject: Imperative.WardicAnimationSubject, root: Element | undefined): number => {
   if (Predicate.isNullish(subject)) return 0
@@ -206,63 +152,112 @@ const envOf = (state: State, provider: Provider): Imperative.AnimateEnv => ({
   variableValues: provider.valueReads.variableValues,
 })
 
+/** What a Command's animation options carry on Foldkit: the scope the binding's, `onComplete` the Effect's success, so neither reaches dom. */
+// #798, Q8: the scope an option on both forms. `onComplete?: never`, as before: the Effect succeeds in its place.
+interface Scoped {
+  readonly onComplete?: never
+  readonly scope?: AnimationScope | undefined
+}
+
+/** What `animate` takes with a subject: dom's options, less `onComplete`, which the Effect's success is, and the **Animation scope** its selectors resolve under. */
+// An intersection, not an `Omit`: dom's options are a union of transitions, which `Omit` spreads past
+// what TypeScript represents (TS2590).
+export type AnimateOptions = Imperative.WardicAnimateOptions & Scoped
+
+/** A sequence (Motion's `animate(sequence)`): Segments of elements, function Segments and labels, laid out in time. No Batch Segment: Foldkit has no Batch. */
+// #798, Q6. dom's sequence less its Batch Segment, which the type says as the doc does.
+export type Sequence = ReadonlyArray<Exclude<Imperative.WardicSegment, Imperative.WardicBatchSegment>>
+
+/** What `animate` takes with a sequence: dom's options, less `onComplete`, which the Effect's success is, and the scope. */
+export type SequenceOptions = Imperative.WardicSequenceOptions & Scoped
+
+/** `AnimationFailed`'s subject for a sequence none of whose Segments found anything (#798, Q15). */
+const SEQUENCE = "a sequence"
+
+/** The scope `options` name, or none. */
+const scopeIn = (options: Scoped | undefined): AnimationScope | undefined => UndefinedOr.map(options, (given) => given.scope)
+
+/** `options` as dom takes them: the scope, the binding's own, left out. Typed loosely, since dom's option types are unions `Omit` spreads past what TypeScript represents. */
+const withoutScope = (options: Scoped): Readonly<Record<string, unknown>> => {
+  const { scope: _scope, ...rest } = options as Scoped & Readonly<Record<string, unknown>>
+  return rest
+}
+
+/**
+ * Where a Command's selectors resolve (#798, Q8): under the scope's element; with no scope, under the
+ * `w.Provider()` element, else the document (`undefined`); none for a scope whose element isn't
+ * mounted, which finds nothing before any element is looked at.
+ */
+const insideOf = (provider: Provider, scope: AnimationScope | undefined): Option.Option<Element | undefined> =>
+  UndefinedOr.match(scope, { onUndefined: () => Option.some(provider.root), onDefined: (given) => Option.fromUndefinedOr(given.element()) })
+
+/** What a Command's Effect is a member of: the Handle's state and Provider, and the count out. */
+interface Member {
+  readonly state: State
+  readonly provider: Provider
+  readonly left: () => void
+}
+
 /**
  * `animate`'s two forms (Motion's `animate`, as `useAnimate` gives it): a subject to values, or a
- * sequence (#798, Q6). Each an Effect for a Command, succeeding once the animation ends with whether
- * it landed, failing with {@link AnimationFailed} when nothing finds anything to animate, and stopped
- * by its fiber's interruption.
+ * sequence. Each an Effect for a Command, succeeding once the animation ends with whether it landed,
+ * failing with {@link AnimationFailed} when nothing finds anything to animate, and stopped by its
+ * fiber's interruption.
  */
+// #798, Q6: one interface, the form told by dom's `isSequence`.
 export interface Animate {
+  // ADR-0071, decision 26; #791 Q21; #798 Q8 for the scope.
   /**
-   * An **Imperative animation** of `subject` (ADR-0071, decision 26): an element, a selector resolved
-   * under `options.scope`'s element, else the `w.Provider()` element, else the document, or a list of
-   * elements, to `values` on `options`' transition. A Wardic element animates through its own spine,
-   * latest wins, as Motion's; a plain element through a spine of its own. Fails when the subject finds
-   * nothing, a scope not mounted included. Wrap it in `Command.define`, with `resources: wardic.resources`.
+   * An **Imperative animation** of `subject`: an element, a selector resolved under `options.scope`'s
+   * element, else the `w.Provider()` element, else the document, or a list of elements, to `values` on
+   * `options`' transition. A Wardic element animates through its own spine, latest wins, as Motion's; a
+   * plain element through a spine of its own. Fails when the subject finds nothing, a scope not mounted
+   * included. Wrap it in `Command.define`, with `resources: wardic.resources` on the program.
    */
   (subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options?: AnimateOptions): Effect.Effect<AnimationEnd, AnimationFailed, Wardic>
+  // #798, Q6 and Q15. Motion's `animate(sequence)`.
   /**
-   * A **Sequence** (#798, Q6; Motion's `animate(sequence)`): its Segments laid out in time, labels and
-   * `at` among them, played as one animation under `options`. Fails when the whole sequence animates
-   * nothing: every Segment of elements found none and no function Segment is in it; a Segment that
-   * finds nothing beside ones that do is skipped.
+   * A **Sequence**: its Segments laid out in time, labels and `at` among them, played as one animation
+   * under `options`. Fails when the whole sequence animates nothing: every Segment of elements found
+   * none and no function Segment is in it; a Segment that finds nothing beside ones that do is skipped.
    */
   (sequence: Sequence, options?: SequenceOptions): Effect.Effect<AnimationEnd, AnimationFailed, Wardic>
 }
 
-/** `animate` (above): the form told by what it's given (dom's `isSequence`). */
-export const animate: Animate = ((first: Imperative.WardicAnimationSubject | Sequence, second?: WardConfig.WardicVariant | SequenceOptions, third?: AnimateOptions) =>
-  Bool.match(Imperative.isSequence(first), {
-    onTrue: () => playing(first as Sequence, second as SequenceOptions | undefined),
-    onFalse: () => animating(first as Imperative.WardicAnimationSubject, second as WardConfig.WardicVariant, third),
-  })) as Animate
-
-/** The subject form of {@link animate}. */
-const animating: (subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options: AnimateOptions | undefined) => Effect.Effect<AnimationEnd, AnimationFailed, Wardic> = Effect.fnUntraced(
-  function* (subject, values, options) {
-    // A member from before its subject is checked: a Provider built for a subject that finds nothing is
-    // left again at once, not kept up with no member.
-    const { state, provider, left } = yield* member()
-    const scope = UndefinedOr.map(options, (given) => given.scope)
-    const under = underOf(provider, scope)
-    if (Bool.or(Bool.not(under.mounted), countOf(subject, under.root) === 0)) {
-      left()
-      return yield* Effect.fail(new AnimationFailed({ subject: nameOf(subject) }))
-    }
-    return yield* running(state, provider, under.root, left, scope, (run) => (run as unknown as RunSubject)(subject, values, transitionOf(options)))
-  },
-)
-
-/** The sequence form of {@link animate}. */
-const playing: (sequence: Sequence, options: SequenceOptions | undefined) => Effect.Effect<AnimationEnd, AnimationFailed, Wardic> = Effect.fnUntraced(function* (sequence, options) {
-  const { state, provider, left } = yield* member()
-  const scope = UndefinedOr.map(options, (given) => given.scope)
-  const under = underOf(provider, scope)
-  if (Bool.or(Bool.not(under.mounted), Bool.not(Arr.some(sequence, (segment) => segmentAnimates(segment, under.root))))) {
-    left()
-    return yield* Effect.fail(new AnimationFailed({ subject: SEQUENCE }))
+/** `animate` (above): the form told by what it's given, as dom's own `animate` tells it. */
+export const animate: Animate = ((first: Imperative.WardicAnimationSubject | Sequence, second?: WardConfig.WardicVariant | SequenceOptions, third?: AnimateOptions) => {
+  if (Imperative.isSequence(first)) {
+    const options = second as SequenceOptions | undefined
+    return commanded(scopeIn(options), (under) => Arr.some(first, (segment) => Imperative.segmentAnimates(segment, under)), SEQUENCE, (run) =>
+      (run as unknown as RunSequence)(first, UndefinedOr.map(options, withoutScope) as Imperative.WardicSequenceOptions | undefined))
   }
-  return yield* running(state, provider, under.root, left, scope, (run) => (run as unknown as RunSequence)(sequence, sequenceOptionsOf(options)))
+  return commanded(scopeIn(third), (under) => countOf(first, under) > 0, nameOf(first), (run) =>
+    (run as unknown as RunSubject)(first, second as WardConfig.WardicVariant, UndefinedOr.map(third, withoutScope) as Imperative.WardicAnimateOptions | undefined))
+}) as Animate
+
+/**
+ * A Command's animation of either form: a member of the Handle's Provider while it runs (a member
+ * from before anything is looked at, so a Provider built for one that finds nothing is left again at
+ * once), its selectors' root under `scope`, `finds` asked of that root, nothing found failing as
+ * `named`, and `start` run on dom's scoped `animate`.
+ */
+const commanded: (
+  scope: AnimationScope | undefined,
+  finds: (under: Element | undefined) => boolean,
+  named: string,
+  start: (run: Imperative.WardicAnimate) => Imperative.WardicPlaybackControls,
+) => Effect.Effect<AnimationEnd, AnimationFailed, Wardic> = Effect.fnUntraced(function* (scope, finds, named, start) {
+  const held = yield* member()
+  const inside = insideOf(held.provider, scope)
+  if (Option.isNone(inside)) {
+    held.left()
+    return yield* Effect.fail(new AnimationFailed({ subject: named }))
+  }
+  if (Bool.not(finds(inside.value))) {
+    held.left()
+    return yield* Effect.fail(new AnimationFailed({ subject: named }))
+  }
+  return yield* running(held, inside.value, scope, start)
 })
 
 /** dom's `animate` in its subject form, named plainly: its overloads' union is more than TypeScript represents at a call. */
@@ -273,35 +268,28 @@ type RunSequence = (sequence: Sequence, options?: Imperative.WardicSequenceOptio
 
 /**
  * The animation `start` runs on dom's scoped `animate`, until it ends: its end as the Effect's success,
- * its interruption as its stop. With a `scope`, the scope hears the start and the end too (Q7): what
- * its element's release stops, each then ending with `landed: false` (Q19).
+ * its interruption as its stop. With a `scope`, the scope's watch is told each start and end too
+ * (Q7): what its element's release stops, each then ending with `landed: false` (Q19).
  */
-const running = (
-  state: State,
-  provider: Provider,
-  root: Element | undefined,
-  left: () => void,
-  scope: AnimationScope | undefined,
-  start: (run: Imperative.WardicAnimate) => Imperative.WardicPlaybackControls,
-): Effect.Effect<AnimationEnd> =>
+const running = (held: Member, under: Element | undefined, scope: AnimationScope | undefined, start: (run: Imperative.WardicAnimate) => Imperative.WardicPlaybackControls): Effect.Effect<AnimationEnd> =>
   Effect.callback<AnimationEnd>((resume) => {
     const controls = MutableRef.make(Option.none<Imperative.WardicPlaybackControls>())
-    const also = UndefinedOr.map(scope, watchOf)
-    const watch: Imperative.AnimationWatch = {
-      started: (made) => {
-        MutableRef.set(controls, Option.some(made))
-        UndefinedOr.map(also, (told) => told.started(made))
+    const watch = Imperative.alsoTold(
+      {
+        started: (made) => {
+          MutableRef.set(controls, Option.some(made))
+        },
+        ended: (_made, landed) => {
+          held.left()
+          resume(Effect.succeed({ landed }))
+        },
       },
-      ended: (made, landed) => {
-        UndefinedOr.map(also, (told) => told.ended(made, landed))
-        left()
-        resume(Effect.succeed({ landed }))
-      },
-    }
-    start(Imperative.scopedAnimate(envOf(state, provider), () => root, watch))
+      UndefinedOr.map(scope, watchOf),
+    )
+    start(Imperative.scopedAnimate(envOf(held.state, held.provider), () => under, watch))
     return Effect.sync(() => {
       Option.map(MutableRef.get(controls), (made) => made.stop())
-      left()
+      held.left()
     })
   })
 

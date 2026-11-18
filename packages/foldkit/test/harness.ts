@@ -17,7 +17,7 @@ import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import { expect, vi } from "vitest"
 import type * as Features from "@wardic/foldkit/Features"
-import type * as Wardic from "@wardic/foldkit/Wardic"
+import * as Wardic from "@wardic/foldkit/Wardic"
 import { raf, until } from "../../solid/test/browser-helpers.ts"
 import { type Pt } from "../../solid/test/real-mouse.ts"
 
@@ -191,9 +191,16 @@ export const embedActions = <R = never>(view: (on: boolean, h: HtmlBuilder<Actio
       }),
     view: (model, h) => h.div([h.Id("root")], [view(model.on, h), h.ul([h.Id("done")], model.done.map((name) => h.li([], [name])))]),
     toMessage: (name) => Bool.match(name === "toggle", { onTrue: () => ActionsMessage.Toggle(), onFalse: () => ActionsMessage.Do({ name }) }),
-    ...UndefinedOr.match(resources, { onUndefined: () => ({}), onDefined: (layer) => ({ resources: layer }) }),
+    resources,
   })
 }
+
+/** An animation's end as an action's word (`embedActions`): `landed:<bool>`, or `missing:<subject>` for an `AnimationFailed`. */
+export const endedWord = <R>(effect: Effect.Effect<Wardic.AnimationEnd, Wardic.AnimationFailed, R>): Effect.Effect<string, never, R> =>
+  effect.pipe(
+    Effect.map((end) => `landed:${end.landed}`),
+    Effect.catchTag("AnimationFailed", (failure) => Effect.succeed(`missing:${failure.subject}`)),
+  )
 
 /** What the actions' Commands have landed, in order (`embedActions`). */
 export const doneOf = (held: Pick<Embedded<never>, "container">): ReadonlyArray<string> => Array.from(held.container.querySelectorAll("#done li")).map((li) => li.textContent)

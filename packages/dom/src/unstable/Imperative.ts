@@ -761,8 +761,7 @@ export const serverAnimate: WardicAnimate = () => finishedControls()
 
 // --- Sequences (#433's PR 2) ------------------------------------------------------------------
 
-/** Whether `animate` was given a sequence (Motion's `isSequence`): a list with a Segment in it. */
-/** Whether `given` is a sequence rather than a subject (#433): a list with a Segment, itself a list, in it; a list of elements has none. A binding whose `animate` is its own tells the forms apart by it (#798). */
+/** Whether `given` is a sequence rather than a subject (#433, Motion's `isSequence`): a list with a Segment, itself a list, in it; a list of elements has none. A binding whose `animate` is its own tells the forms apart by it (#798). */
 export const isSequence = (given: unknown): given is WardicAnimationSequence =>
   Bool.match(Arr.isArray(given), { onTrue: () => Arr.some(given as ReadonlyArray<unknown>, Arr.isArray), onFalse: () => false })
 
@@ -907,6 +906,21 @@ const stepsOf = (sequence: WardicAnimationSequence, scope: Element | undefined, 
 }
 
 /**
+ * Whether a Segment animates anything under `scope` (#798): a function Segment does, and a Batch's; a
+ * Segment of elements when its subject finds one, a selector inside `scope`, else the document; a
+ * label (a string, or `{ name, at }`) never. What a binding asks of a sequence before it plays it,
+ * since one that animates nothing lands at once.
+ */
+export const segmentAnimates = (segment: WardicSegment, scope: Element | undefined): boolean => {
+  if (Predicate.isString(segment)) return false
+  if (Bool.not(Arr.isArray(segment))) return false
+  const parts = segment as ReadonlyArray<unknown>
+  if (Predicate.isNotUndefined(BatchMembers.batchSubjectOf(parts[0]))) return true
+  if (Predicate.isFunction(parts[0])) return true
+  return subjectsOf(parts[0] as WardicAnimationSubject, scope).length > 0
+}
+
+/**
  * A function Segment's value animated (#433): its stops, a first `null` 0, through the
  * Interpolators on its tween over the sequence, each frame told to its callback. Cancelled, the
  * callback hears its first stop again, as Motion's motion value is set back.
@@ -996,6 +1010,22 @@ export interface WardicAnimationScope<T extends Element = HTMLElement> {
   readonly animations: ReadonlyArray<WardicPlaybackControls>
 }
 
+/** `watch`, with `also` told each start and end after it, when given: a scope's own watch beside its owner's (#433), a binding's beside a scope's (#798). */
+export const alsoTold = (watch: AnimationWatch, also: AnimationWatch | undefined): AnimationWatch =>
+  UndefinedOr.match(also, {
+    onUndefined: () => watch,
+    onDefined: (more) => ({
+      started: (controls) => {
+        watch.started(controls)
+        more.started(controls)
+      },
+      ended: (controls, landed) => {
+        watch.ended(controls, landed)
+        more.ended(controls, landed)
+      },
+    }),
+  })
+
 /**
  * An Animation scope's ref and what it hears of its animations (#433): each in `animations` while in
  * flight, and `also` told too (Solid 2's `settled()`). `stopAll` stops them, at its owner's cleanup.
@@ -1021,18 +1051,19 @@ export const scopeOf = <T extends Element>(also?: AnimationWatch): {
     current: { get: () => current },
     animations: { get: animationsNow },
   }) as WardicAnimationScope<T>
-  const watch: AnimationWatch = {
-    started: (controls) => {
-      live.add(controls)
-      listed = undefined
-      UndefinedOr.map(also, (more) => more.started(controls))
+  const watch = alsoTold(
+    {
+      started: (controls) => {
+        live.add(controls)
+        listed = undefined
+      },
+      ended: (controls) => {
+        live.delete(controls)
+        listed = undefined
+      },
     },
-    ended: (controls, landed) => {
-      live.delete(controls)
-      listed = undefined
-      UndefinedOr.map(also, (more) => more.ended(controls, landed))
-    },
-  }
+    also,
+  )
   // Stopping one ends it, which deletes it from the set: safe in the set's own walk.
   return { scope, watch, stopAll: () => Iter.forEach(live, (controls) => controls.stop()) }
 }
