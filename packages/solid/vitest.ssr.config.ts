@@ -1,4 +1,5 @@
 import solidPlugin from "vite-plugin-solid"
+import { solid1 } from "./vite.solid1.ts"
 import { defineConfig } from "vitest/config"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
@@ -13,9 +14,10 @@ import { wardicSource } from "../../scripts/wardic-source.ts"
 // builds no runtime (ADR-0021).
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [wardicSource(), solidPlugin({ ssr: true })],
+  plugins: [wardicSource(), solid1(), solidPlugin({ ssr: true })],
   resolve: { dedupe: ["solid-js", "effect"] },
-  ssr: { noExternal: [/@wardic\//] },
+  // Processed here, not by Node: their `solid-js` then goes through `solid1()`, to Solid 1 (#566).
+  ssr: { noExternal: [/@wardic\//, /@solid-primitives\//] },
   test: {
     name: "ssr",
     environment: "node",

@@ -118,6 +118,7 @@ import { type CDPSession, chromium, type Page } from "playwright"
 import { build } from "vite"
 import solid from "vite-plugin-solid"
 import * as Arr from "effect/Array"
+import { solid1 } from "../vite.solid1.ts"
 import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
@@ -244,7 +245,7 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
     logLevel: "warn",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
+    plugins: [sideResolver(root, deps), Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist"),

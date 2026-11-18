@@ -1,7 +1,7 @@
 /**
  * `bun run skills`: copies the agent skills Wardic's libraries ship into `.claude/skills/`, from the
  * versions installed here, so an agent working in this repo reads the guidance for the versions in
- * use. Rerun it after bumping `solid-js-2` (Solid 2, installed under that alias in packages/solid),
+ * use. Rerun it after bumping `solid-js` (Solid 2 in packages/solid, #566),
  * `@solidjs/web`, `@solidjs/diagnostics` or `effect`; never edit the copies.
  *
  * - **Solid 2** ships skills in its packages: `solid-js`' `skills/` (the 2.0 primer, its cheatsheet,
@@ -20,7 +20,7 @@ const ROOT = resolve(import.meta.dir, "..")
 const OUT = join(ROOT, ".claude/skills")
 const MANIFEST = join(OUT, ".library-skills.json")
 
-/** Where packages/solid's dependencies are installed: Solid 2 lives there as `solid-js-2`. */
+/** Where packages/solid's dependencies are installed: Solid 2 is its `solid-js` (#566). */
 const SOLID = join(ROOT, "packages/solid/node_modules")
 
 /** A package's directory and version, read from where it's installed. */
@@ -87,7 +87,7 @@ if (existsSync(MANIFEST)) {
     rmSync(join(OUT, skill), { recursive: true, force: true })
   }
 }
-copySkills("solid-js", join(SOLID, "solid-js-2"))
+copySkills("solid-js", join(SOLID, "solid-js"))
 copySkills("@solidjs/web", join(SOLID, "@solidjs/web"))
 copySkills("@solidjs/diagnostics", join(SOLID, "@solidjs/diagnostics"))
 copyEffect()

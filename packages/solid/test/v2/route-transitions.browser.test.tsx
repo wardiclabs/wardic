@@ -20,7 +20,7 @@
 // - RTV9 (#682): rapid back and forth (piece A, the list, piece B, 150 ms apart): A's photo on the
 //   list that leaves, mid-flight back from A's leaving hero, stays where it's drawn as it fades.
 import type { JSX } from "@solidjs/web"
-import { createRouter, memoryHistory, useNavigate, useParams } from "@solidjs/router-2"
+import { createRouter, memoryHistory, useNavigate, useParams } from "@solidjs/router"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"

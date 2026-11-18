@@ -84,8 +84,8 @@ export default defineConfig({
   resolve: { conditions: ["development", "browser"], dedupe: ["effect"] },
   // The @wardic packages ship TypeScript and JSX source, and Solid 2 resolves through the plugin:
   // bundle them for the server load too.
-  ssr: { noExternal: [/@wardic\//, "solid-js-2", "@solidjs/web", "@solidjs/signals"] },
-  optimizeDeps: { include: [...PREBUNDLED], exclude: ["solid-js-2", "@solidjs/web", "@solidjs/signals"] },
+  ssr: { noExternal: [/@wardic\//, "solid-js", "@solidjs/web", "@solidjs/signals"] },
+  optimizeDeps: { include: [...PREBUNDLED], exclude: ["solid-js", "@solidjs/web", "@solidjs/signals"] },
   test: {
     name: "v2-hydrate",
     include: ["test/v2/**/*.hydrate.browser.test.{ts,tsx}"],

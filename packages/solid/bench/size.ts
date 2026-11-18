@@ -33,6 +33,7 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { solid1 } from "../vite.solid1.ts"
 import { solid2 } from "../vite.solid2.ts"
 import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
@@ -252,7 +253,7 @@ const groupOf = (source: string): Group => {
   const own = /packages\/(core|dom|solid)\/src\//.exec(source)
   if (own !== null) return own[1] as Group
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?effect\//.test(source)) return "effect"
-  if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(solid-js|solid-js-2|@solidjs)\//.test(source)) return "solid-js"
+  if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(solid-js|solid-js-1|solid-js-2|@solidjs)\//.test(source)) return "solid-js"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?culori\//.test(source)) return "culori"
   return "other"
 }
@@ -339,7 +340,7 @@ const appSizeOf = async (root: string, deps: string, app: App, entry: string, si
     logLevel: "error",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
+    plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist", app.name),

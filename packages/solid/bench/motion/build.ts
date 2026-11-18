@@ -12,6 +12,7 @@
 import { join } from "node:path"
 import { build, type InlineConfig, type Plugin } from "vite"
 import solid from "vite-plugin-solid"
+import { solid1 } from "../../vite.solid1.ts"
 import { solid2 } from "../../vite.solid2.ts"
 import { APP_TARGET } from "../sides.ts"
 
@@ -57,7 +58,7 @@ const page = (entry: string, file: string, plugins: NonNullable<InlineConfig["pl
 
 /** Builds the three scripts the pages load. */
 export const buildPages = async (): Promise<void> => {
-  await build(page("wardic-page.tsx", "wardic.js", [resolveAsSolid, solid()]))
+  await build(page("wardic-page.tsx", "wardic.js", [solid1(), resolveAsSolid, solid()]))
   // Solid 2's resolution first, so the page's `solid-js` is Solid 2's.
   await build(page("wardic-v2-page.tsx", "wardic-v2.js", [solid2({ dev: false }), resolveAsSolid]))
   await build(

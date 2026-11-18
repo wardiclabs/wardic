@@ -9,7 +9,7 @@ export default defineConfig({
   root: import.meta.dirname,
   plugins: [wardicSource(), solid2()],
   resolve: { dedupe: ["effect"] },
-  ssr: { noExternal: [/@wardic\//, "solid-js-2", "@solidjs/web", "@solidjs/signals"] },
+  ssr: { noExternal: [/@wardic\//, "solid-js", "@solidjs/web", "@solidjs/signals"] },
   test: {
     name: "v2-ssr",
     environment: "node",

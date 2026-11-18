@@ -15,7 +15,7 @@ export default defineConfig({
     conditions: ["solid2", ...defaultClientConditions],
     dedupe: ["effect"],
   },
-  optimizeDeps: { exclude: ["solid-js", "solid-js-2", "@solidjs/web", "@solidjs/signals"] },
+  optimizeDeps: { exclude: ["solid-js", "@solidjs/web", "@solidjs/signals"] },
   test: {
     name: "layout-lab-browser-v2",
     include: ["test/**/*.browser.test.tsx"],

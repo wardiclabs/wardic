@@ -5,7 +5,15 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     // `dist/solid/`: the JSX kept as JSX, for the `solid` export condition (#554).
-    "outDir": "${configDir}/dist/solid"
+    "outDir": "${configDir}/dist/solid",
+    // Solid 1 for every importer, which this package holds as `solid-js-1`: its own `solid-js` is Solid 2 (#566).
+    "paths": {
+      "solid-js": ["./node_modules/solid-js-1/types/index.d.ts"],
+      "solid-js/web": ["./node_modules/solid-js-1/web/types/index.d.ts"],
+      "solid-js/store": ["./node_modules/solid-js-1/store/types/index.d.ts"],
+      "solid-js/jsx-runtime": ["./node_modules/solid-js-1/types/jsx.d.ts"],
+      "@solidjs/router": ["./node_modules/@solidjs/router-1/dist/index.d.ts"]
+    }
   },
   "include": ["src"],
   "// exclude": "The Solid 2 binding is tsconfig.v2.json's (#209): it compiles against Solid 2.",

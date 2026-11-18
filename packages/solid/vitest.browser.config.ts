@@ -1,6 +1,7 @@
 import { playwright } from "@vitest/browser-playwright"
 import type { CDPSession } from "playwright"
 import solidPlugin from "vite-plugin-solid"
+import { solid1 } from "./vite.solid1.ts"
 import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
 import { wardicSource } from "../../scripts/wardic-source.ts"
@@ -171,7 +172,7 @@ export default defineConfig({
   // `test/**` resolves to packages/solid/test (mirrors how the project config's
   // root is its own dir).
   root: import.meta.dirname,
-  plugins: [wardicSource(), solidPlugin()],
+  plugins: [wardicSource(), solid1(), solidPlugin()],
   resolve: {
     conditions: ["development", "browser"],
   },

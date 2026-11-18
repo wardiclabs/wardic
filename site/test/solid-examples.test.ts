@@ -113,7 +113,7 @@ const asModule = (code: string): string => {
 const withoutImportOf = (code: string, binding: Binding): string =>
   code.replace(new RegExp(`^import\\s[^;]*?from\\s+"${ENTRY[binding].replace(/[/.]/g, "\\$&")}"[^\\n]*\\n`, "gm"), "")
 
-const SOLID1 = join(REPO, "packages/solid/node_modules/solid-js")
+const SOLID1 = join(REPO, "packages/solid/node_modules/solid-js-1")
 
 /** The options an example compiles with: its binding's JSX and its Solid, as the samples' tsconfigs give them. */
 const optionsOf = (binding: Binding): ts.CompilerOptions => {

@@ -87,14 +87,14 @@
     "@babel/preset-typescript": "7",
     "@solidjs/babel-plugin": "2.0.1",
     "@solidjs/diagnostics": "2.0.1",
-    "@solidjs/router": "1.0.1",
-    "@solidjs/router-2": "npm:@solidjs/router@2.0.0",
+    "@solidjs/router": "2.0.0",
+    "@solidjs/router-1": "npm:@solidjs/router@1.0.1",
     "@solidjs/web": "2.0.1",
     "@types/babel__core": "^7.20.5",
     "@wardic/test": "workspace:*",
     "babel-preset-solid": "1.9.12",
     "effect": "4.1.4",
-    "solid-js": "^1.9.18",
-    "solid-js-2": "npm:solid-js@2.0.1"
+    "solid-js": "2.0.1",
+    "solid-js-1": "npm:solid-js@1.9.18"
   }
 }

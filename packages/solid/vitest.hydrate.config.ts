@@ -1,5 +1,6 @@
 import { playwright } from "@vitest/browser-playwright"
 import solidPlugin from "vite-plugin-solid"
+import { solid1 } from "./vite.solid1.ts"
 import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand } from "vitest/node"
 import { wardicSource } from "../../scripts/wardic-source.ts"
@@ -95,13 +96,14 @@ const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, redu
 
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [wardicSource(), solidPlugin({ ssr: true })],
+  plugins: [wardicSource(), solid1(), solidPlugin({ ssr: true })],
   resolve: {
     conditions: ["development", "browser"],
     dedupe: ["solid-js", "effect"],
   },
   // The @wardic packages ship TypeScript + JSX source: bundle them for the server load too.
-  ssr: { noExternal: [/@wardic\//] },
+  // Processed here, not by Node: their `solid-js` then goes through `solid1()`, to Solid 1 (#566).
+  ssr: { noExternal: [/@wardic\//, /@solid-primitives\//] },
   // Pre-bundled up front, as the dom project does: a first import mid-run reloads the page.
   optimizeDeps: {
     include: [
@@ -167,7 +169,7 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, "test/v2/**"],
     // Polyfill setImmediate (Effect's scheduler needs it; absent in real browsers).
     setupFiles: ["./test/browser-setup.ts"],
-    server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/] } },
+    server: { deps: { inline: [/solid-js/, /@solidjs\/testing-library/, /@solid-primitives\//] } },
     browser: {
       enabled: true,
       provider: playwright(),
