@@ -1,0 +1,33 @@
+{
+  "name": "@wardic/example-storefront-foldkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The storefront showcase on Foldkit (#795): Vite with @foldkit/vite-plugin's server-rendered build and @wardic/foldkit, a page per pattern, each a feature of a ceramics shop, its store over Effect RPC.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.ts",
+    "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit",
+    "smoke": "vite build && bun ../shared/src/smoke.ts foldkit"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.1.4",
+    "@effect/platform-node": "4.1.4",
+    "@foldkit/node": "0.2.0",
+    "@wardic/core": "workspace:*",
+    "@wardic/dom": "workspace:*",
+    "@wardic/example-storefront-shared": "workspace:*",
+    "@wardic/foldkit": "workspace:*",
+    "effect": "4.1.4",
+    "foldkit": "0.171.0",
+    "shiki": "4.3.1"
+  },
+  "devDependencies": {
+    "@foldkit/vite-plugin": "0.29.1",
+    "vite": "8.3.4"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
