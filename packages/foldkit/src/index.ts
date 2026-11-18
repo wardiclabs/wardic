@@ -13,6 +13,8 @@ export * as Features from "./Features.ts"
 export * as DragControls from "./DragControls.ts"
 // Animation controls (#433; #798): made apart from the elements they drive, started from a Command.
 export * as AnimationControls from "./AnimationControls.ts"
+// Animation scopes (#433; #798): what a Command's selectors resolve under, and whose element's release stops its animations.
+export * as AnimationScope from "./AnimationScope.ts"
 // Core's Live values (ADR-0043) and the stagger helper, so an app imports nothing from `@wardic/core` (#791, Q13).
 export * as LiveValue from "@wardic/core/LiveValue"
 export { stagger } from "./Wardic.ts"

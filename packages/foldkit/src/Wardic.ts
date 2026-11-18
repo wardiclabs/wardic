@@ -33,6 +33,7 @@ import type * as FoldkitHtml from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
 import type * as FoldkitRuntime from "foldkit/runtime"
 import * as Predicate from "effect/Predicate"
+import type * as AnimationScope from "./AnimationScope.ts"
 import type * as Ward from "./Ward.ts"
 import { type Attributes, builderOf } from "./internal/builder.ts"
 import { HANDLE, resourcesOf, type Wardic as WardicTag } from "./internal/commands.ts"
@@ -41,7 +42,7 @@ import { mountOf } from "./internal/mount.ts"
 import { makeState, remember, type State } from "./internal/services.ts"
 import { viewTransitionOf } from "./internal/view-transition.ts"
 
-export { animate, animateLayout, type AnimateLayoutOptions, type AnimateOptions, AnimationFailed, type AnimationEnd, LayoutFailed, provide, Wardic } from "./internal/commands.ts"
+export { animate, animateLayout, type AnimateLayoutOptions, type AnimateOptions, AnimationFailed, type AnimationEnd, LayoutFailed, provide, type Sequence, type SequenceOptions, Wardic } from "./internal/commands.ts"
 
 /** What {@link make} takes. */
 export interface MakeOptions<F> {
@@ -139,6 +140,13 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   Appear: (value: Ward.Config["appear"]) => Ward.Attribute
   /** The subtree's settings (Motion's `MotionConfig`), this element's included, over the nearest ancestor's and the Handle's. */
   Config: (options: Ward.ConfigOptions) => Ward.Attribute
+  // #433; #798, Q7 and Q19. Motion's `useAnimate` scope, as the element's attribute.
+  /**
+   * The **Animation scope** this element is (`AnimationScope.make()`'s): a Command's `Wardic.animate(…, {
+   * scope })` looks its selectors up inside it, and the element's release stops the animations started
+   * in the scope where they are.
+   */
+  AnimationScope: (scope: AnimationScope.AnimationScope) => Ward.Attribute
   /** Sent as an animation of the element starts, with what it animates to (Motion's `onAnimationStart`). */
   OnAnimationStart: (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => Ward.Attribute
   /** Sent as that animation lands (Motion's `onAnimationComplete`); not for one a new target interrupted. */

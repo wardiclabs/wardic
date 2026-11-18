@@ -10,11 +10,14 @@ import * as Runtime from "foldkit/runtime"
 import * as Subscription from "foldkit/subscription"
 import type * as Update from "foldkit/update"
 import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Rec from "effect/Record"
 import * as Schema from "effect/Schema"
+import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import { expect, vi } from "vitest"
 import type * as Features from "@wardic/foldkit/Features"
-import type * as Wardic from "@wardic/foldkit/Wardic"
+import * as Wardic from "@wardic/foldkit/Wardic"
 import { raf, until } from "../../solid/test/browser-helpers.ts"
 import { type Pt } from "../../solid/test/real-mouse.ts"
 
@@ -158,6 +161,49 @@ export const embedKeyedList = <F>(handle: Pick<Wardic.Handle<F>, "html">, items:
     },
     toMessage: (items) => ListMessage.Items({ items }),
   })
+
+/** The actions fixtures' Model (#798): what each Command landed, listed under `#done`, and a flag `Toggle` flips. */
+export const ActionsModel = Schema.Struct({ done: Schema.Array(Schema.String), on: Schema.Boolean })
+export type ActionsModel = typeof ActionsModel.Type
+/** Its Messages: `Do` runs the action the port named, `Done` lists its landing, `Toggle` flips `on`. */
+export const ActionsMessage = defineMessageUnion({ Do: { name: Schema.String }, Done: { name: Schema.String }, Toggle: {} })
+export type ActionsMessage = typeof ActionsMessage.Type
+
+/** What `embedActions` lists for an action: its name, with the Effect's own word after a colon when it gives one. */
+const landed = (name: string, out: string | void): string => UndefinedOr.match(out as string | undefined, { onUndefined: () => name, onDefined: (word) => `${name}:${word}` })
+
+/**
+ * Embed `view` with `actions`, each an Effect a Command runs when the port names it (`send(name)`), its
+ * landing listed under `#done` as its name, or `name:word` when the Effect gives a word; `send("toggle")`
+ * flips the Model's `on`, which the view reads. `resources` is the program's, for Effects needing the Handle.
+ */
+export const embedActions = <R = never>(view: (on: boolean, h: HtmlBuilder<ActionsMessage>) => Html, actions: Record<string, Effect.Effect<string | void, never, R>>, resources?: Layer.Layer<R>): Embedded<string> => {
+  const commands = Rec.map(actions, (effect, name) => Command.define(`Do${name}`, { messages: [ActionsMessage.Done], execute: effect.pipe(Effect.map((out) => ActionsMessage.Done({ name: landed(name, out) }))) }))
+  return embed<ActionsModel, ActionsMessage, string, R>({
+    Model: ActionsModel,
+    Set: Schema.String,
+    init: { done: [], on: false },
+    update: (model, message) =>
+      ActionsMessage.match(message, {
+        Do: ({ name }) => ({ model, commands: [commands[name]!()] }),
+        Done: ({ name }) => ({ model: { ...model, done: [...model.done, name] } }),
+        Toggle: () => ({ model: { ...model, on: Bool.not(model.on) } }),
+      }),
+    view: (model, h) => h.div([h.Id("root")], [view(model.on, h), h.ul([h.Id("done")], model.done.map((name) => h.li([], [name])))]),
+    toMessage: (name) => Bool.match(name === "toggle", { onTrue: () => ActionsMessage.Toggle(), onFalse: () => ActionsMessage.Do({ name }) }),
+    resources,
+  })
+}
+
+/** An animation's end as an action's word (`embedActions`): `landed:<bool>`, or `missing:<subject>` for an `AnimationFailed`. */
+export const endedWord = <R>(effect: Effect.Effect<Wardic.AnimationEnd, Wardic.AnimationFailed, R>): Effect.Effect<string, never, R> =>
+  effect.pipe(
+    Effect.map((end) => `landed:${end.landed}`),
+    Effect.catchTag("AnimationFailed", (failure) => Effect.succeed(`missing:${failure.subject}`)),
+  )
+
+/** What the actions' Commands have landed, in order (`embedActions`). */
+export const doneOf = (held: Pick<Embedded<never>, "container">): ReadonlyArray<string> => Array.from(held.container.querySelectorAll("#done li")).map((li) => li.textContent)
 
 // Each container's id, counted.
 let embedded = 0

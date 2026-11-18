@@ -46,6 +46,7 @@ import { deliveredTo, hintFrameUnless, installSetter, patchTouched } from "./del
 import { dragOf, type SpineDragOptions } from "./drag.ts"
 import { gesturesOf } from "./gestures.ts"
 import { reactivity, recheck } from "./reactivity.ts"
+import { mounted as scopeMounted } from "./scope.ts"
 import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
 import { groupDelivered, reorderItemOf } from "./reorder.ts"
@@ -420,6 +421,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     UndefinedOr.map(taken, (seed) => spine.seed(seed))
     // The `StartsDrag` element (Q8): its downs start its controls' drags, from the first delivery that gives them.
     const startsDrag = startsDragOf(element, () => config)
+    // Its Animation scope (#798, Q7 and Q9): the scope's element from now, and the animations started in it stopped at its release.
+    const releaseScope = UndefinedOr.match(config.animationScope, { onUndefined: () => constVoid, onDefined: (scope) => scopeMounted(scope, element) })
     // Its layout (ADR-0009, ADR-0010; decision 30): one projection node for `Layout`, `LayoutId`,
     // `LayoutScroll` or `LayoutRoot`, on the provider's layout, built at the first; and, with a layout
     // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*). Each
@@ -625,6 +628,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       unregisterAnimatable()
       uninstall()
       stopRechecks()
+      releaseScope()
       startsDrag.dispose()
       UndefinedOr.map(MutableRef.get(item), (joined) => joined.dispose())
       drag.dispose()

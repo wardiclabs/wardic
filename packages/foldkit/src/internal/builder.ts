@@ -25,6 +25,7 @@ import { propertyOf } from "./delivery.ts"
 import { type Config, startingStyleOf, stringified } from "./element.ts"
 import { mountOf } from "./mount.ts"
 import { noteServerRender, registryOf, type State } from "./services.ts"
+import type { AnimationScope } from "./scope.ts"
 import { type ViewNode, walkProvider } from "./walk.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 import { IS_SERVER } from "@wardic/foldkit/internal/server"
@@ -235,6 +236,8 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.DragListener = (value: Ward.Config["dragListener"]) => attribute("dragListener", value)
   w.DragControls = (controls: Ward.DragControls) => attribute("dragControls", controls)
   w.StartsDrag = (controls: Ward.DragControls, options?: Ward.StartOptions) => attribute("startsDrag", { controls, options } satisfies Ward.StartsDrag)
+  // The Animation scope (#798, Q7): the element a Command's selectors resolve under.
+  w.AnimationScope = (scope: AnimationScope) => attribute("animationScope", scope)
   w.OnMeasureDragConstraints = (fn: Ward.Config["onMeasureDragConstraints"]) => attribute("onMeasureDragConstraints", fn)
   w.OnDragStart = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => attribute("onDragStart", handler)
   w.OnDrag = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.DragInfo>) => attribute("onDrag", handler)

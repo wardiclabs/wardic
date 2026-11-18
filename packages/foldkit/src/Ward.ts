@@ -23,6 +23,7 @@ import type * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Atom from "effect/reactivity/Atom"
+import type { AnimationScope } from "./internal/scope.ts"
 
 /** The mark of a Wardic attribute: a symbol, so no Foldkit `_tag` is ever mistaken for one. */
 export const TypeId: unique symbol = Symbol.for("@wardic/foldkit/Ward.Attribute")
@@ -94,6 +95,7 @@ export type Key =
   | "onPanEnd"
   | "reorderGroup"
   | "reorderItem"
+  | "animationScope"
 
 /**
  * A callback as a Message (ADR-0071, decision 23), in Foldkit's two handler shapes: a Message, sent
@@ -349,6 +351,9 @@ export interface Config<Message = never>
   readonly dragConstraints?: DragConstraints | undefined
   /** `w.StartsDrag(…)`: a pointer pressed on this element starts the controls' drags. */
   readonly startsDrag?: StartsDrag | undefined
+  // #798, Q7.
+  /** `w.AnimationScope(scope)`: the element is the scope's: a Command's selectors given the scope resolve inside it, and its release stops the animations started in it. */
+  readonly animationScope?: AnimationScope | undefined
   /** `w.OnDragStart(…)`: sent as a drag of the element starts, past its threshold (Motion's `onDragStart`). */
   readonly onDragStart?: GestureHandler<Message, PointerEvent, DragInfo> | undefined
   /** `w.OnDrag(…)`: sent as the drag moves, at its start and each move after (Motion's `onDrag`). */
