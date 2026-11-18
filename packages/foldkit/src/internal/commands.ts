@@ -8,6 +8,7 @@
  *
  * @module
  */
+import type * as ScrollSource from "@wardic/core/ScrollSource"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Imperative from "@wardic/dom/unstable/Imperative"
@@ -294,15 +295,26 @@ const running = (held: Member, under: Element | undefined, scope: AnimationScope
   })
 
 /**
- * `effect` run on the Provider's services (ADR-0071, the grill's Q23): how a Command makes a derived
- * Live value (`LiveValue.spring`, `follow`, `velocity`, `scroll`). The Scope is the caller's: a
- * `ManagedResource`'s `acquire`, whose Scope Foldkit closes when its Model condition drops, or an
- * `Effect.scoped` that ends with the Command. The Provider is held while that Scope lives.
+ * The services the Handle's Features give an Effect under {@link provide}, beside the Provider's own:
+ * the `scroll` Feature's `ScrollSource`, which `LiveValue.scroll` asks for (#795).
  */
-export const provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, Exclude<R, Feature.ProviderServices> | Wardic | Scope.Scope> = Effect.fnUntraced(
+export type FeatureServices = ScrollSource.ScrollSource
+
+/**
+ * `effect` run on the Provider's services (ADR-0071, the grill's Q23), and its Features' (#795): how a
+ * Command makes a derived Live value (`LiveValue.spring`, `follow`, `velocity`, `scroll`). The Scope
+ * is the caller's: a `ManagedResource`'s `acquire`, whose Scope Foldkit closes when its Model condition
+ * drops, or an `Effect.scoped` that ends with the Command. The Provider is held while that Scope
+ * lives. `LiveValue.scroll` asks for the `scroll` Feature's service: give the Handle `Features.scroll`,
+ * or the Effect dies on the service it's missing.
+ */
+export const provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, Exclude<R, Feature.ProviderServices | FeatureServices> | Wardic | Scope.Scope> = Effect.fnUntraced(
   function* <A, E, R>(effect: Effect.Effect<A, E, R>) {
     const { provider, left } = yield* member()
     yield* Effect.addFinalizer(() => Effect.sync(left))
-    return yield* Effect.provideContext(effect, provider.context)
+    // The Features' services beside the Provider's: what the Handle's Features have built, as Solid's
+    // `createScroll` reads the `ScrollSource` from the Features its provider brought.
+    const services = Context.merge(provider.context, provider.features.services()) as Context.Context<Feature.ProviderServices | FeatureServices>
+    return yield* Effect.provideContext(effect, services)
   },
 )

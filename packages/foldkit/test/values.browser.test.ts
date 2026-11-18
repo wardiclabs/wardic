@@ -14,7 +14,7 @@ import { Features, LiveValue } from "@wardic/foldkit"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { paintedReads, until } from "../../solid/test/browser-helpers.ts"
-import { boxOf, embed, type Embedded } from "./harness.ts"
+import { boxOf, embed, type Embedded, frames } from "./harness.ts"
 
 const Model = Schema.Struct({ x: Schema.Number })
 type Model = typeof Model.Type
@@ -216,6 +216,56 @@ describe("Live values", () => {
     held.send(true)
     await until(() => xOf(held, box) === 200, 3000, "the element follows the Atom to 200")
     await until(() => held.container.querySelector("#done")?.textContent === "true", 3000, "the spring rested and the Command answered")
+  })
+
+  it("w.Style follows a scroll's progress made through Wardic.provide, on a Handle with Features.scroll (#795)", async () => {
+    const scrolling = Wardic.make({ env: DomLive, features: [Features.scroll] })
+    const progress = Atom.make(0)
+    const Model = Schema.Struct({ done: Schema.Boolean })
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Go: {}, Done: {} })
+    type Message = typeof Message.Type
+    // The panel's scroll as Live values, on the Handle's Features, in the Command's own Scope: held until the panel is half scrolled.
+    const Track = Command.define("Track", {
+      messages: [Message.Done],
+      execute: Effect.scoped(
+        Wardic.provide(
+          Effect.gen(function* () {
+            const registry = yield* AtomRegistry.AtomRegistry
+            const { scrollYProgress } = yield* LiveValue.scroll({ container: document.querySelector("#panel") })
+            const stop = registry.subscribe(scrollYProgress, (at) => registry.set(progress, at), { immediate: true })
+            yield* Effect.addFinalizer(() => Effect.sync(stop))
+            yield* Effect.repeat(Effect.sleep("20 millis"), { until: () => registry.get(progress) >= 0.5 })
+            return Message.Done()
+          }),
+        ),
+      ),
+    })
+    const held = embed<Model, Message, boolean, Wardic.Wardic>({
+      Model,
+      Set: Schema.Boolean,
+      init: { done: false },
+      update: (model, message) => Message.match(message, { Go: () => ({ model, commands: [Track()] }), Done: () => ({ model: { done: true } }) }),
+      view: (model, h) => {
+        const w = scrolling.html(h)
+        return h.div([h.Id("root")], [
+          w.div([h.Id("bar"), w.Style({ scaleX: progress }), h.Style({ width: "100px", height: "4px", background: "teal", "transform-origin": "left" })]),
+          h.div([h.Id("panel"), h.Style({ height: "100px", overflow: "auto" })], [h.div([h.Style({ height: "300px" })])]),
+          h.span([h.Id("done")], [String(model.done)]),
+        ])
+      },
+      toMessage: () => Message.Go(),
+      resources: scrolling.resources,
+    })
+    app = held
+    const bar = await boxOf(held, "bar")
+    const panel = await boxOf(held, "panel")
+    held.send(true)
+    await frames(2)
+    // Half of the panel's 200 px of scroll.
+    panel.scrollTop = 100
+    await until(() => bar.style.transform.includes("scaleX(0.5)"), 3000, "the bar follows the panel's scroll to its half")
+    await until(() => held.container.querySelector("#done")?.textContent === "true", 3000, "the Command answered once the panel was half scrolled")
   })
 
   it("w.Text writes an Atom's text, w.OnUpdate sinks the element's values, and w.TransformTemplate shapes its transform", async () => {
