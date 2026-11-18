@@ -14,21 +14,21 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Area | Example | Shows |
 |---|---|---|
 | Entrances | The product grid | `variants`, `staggerChildren` |
-| Entrances | Stock that fills in as it arrives | `animate` read from the store's count: the meters wait for it, then fill; each says when it has settled (Solid 1: `<Suspense>` with a transition, `onAnimationComplete`; Solid 2: `<Loading>`, `isPending(() => bar.settled())`) |
+| Entrances | Stock that fills in as it arrives | `animate` read from the store's count: the meters wait for it, then fill; each says when it has settled (Solid 2: `<Loading>`, `isPending(() => bar.settled())`; Solid 1: `<Suspense>` with a transition, `onAnimationComplete`) |
 | Layout | A product opens into its detail view | `layoutId` twins between a scrolled page and a `position: fixed` view, `layout="position"` |
 | Layout | Filter the shop, switch the view | `layout` with `<AnimatePresence mode="popLayout">`, a grid ↔ list switch |
 | Layout | Tabs on a product page | a `layoutId` indicator, `<AnimatePresence mode="wait">` |
 | Layout | Add to cart, and see it's done | a button whose width follows its label |
 | Layout | Questions that open in place | `layout` with scale correction; Open all through `createInstantTransition` |
-| Layout | A cart drawer that keeps up | optimistic lines (Solid 1: pending submissions; Solid 2: an optimistic store) |
+| Layout | A cart drawer that keeps up | optimistic lines (Solid 2: an optimistic store; Solid 1: pending submissions) |
 | Layout | Order history in a scrolling panel | a re-sort through `animateLayout`, inside a scrolled panel |
 | Gestures | Notifications you swipe away | `drag="x"` with `dragSnapToOrigin`, a throw that flies on, an undo window, `<AnimatePresence mode="popLayout">` (Solid 2: one `action` around `next("settled")`) |
-| Gestures | A wishlist you rearrange by hand | `Reorder.Group` / `Reorder.Item` (Solid 1: each visitor's, saved with `onReorderEnd`; Solid 2: one list everyone shares, live across windows through `live()`) |
+| Gestures | A wishlist you rearrange by hand | `Reorder.Group` / `Reorder.Item` (Solid 2: one list everyone shares, live across windows through `live()`; Solid 1: each visitor's, saved with `onReorderEnd`) |
 | Gestures | Arrange a room, at any zoom | `drag` with `dragConstraints` inside a zoomed plan, under `WardicConfig`'s `transformPagePoint={correctParentTransform(() => plan)}` |
 | Presence | "Added to cart", in toasts that make room | `<AnimatePresence mode="popLayout" anchorX="right" anchorY="bottom">` over `layout` toasts: a leaving one is popped out of the stack, pinned by its bottom right, and the others close the gap as it fades |
 | Presence | A photo gallery that slides the way you go | `<AnimatePresence custom>` with variants as functions: the leaving photo reads the latest direction from the presence; no distance under reduced motion |
 | Presence | A quick view whose list leaves before it | `<AnimatePresence propagate>` inside the dialog: its suggestions run their exits when the dialog leaves, and it waits for them |
-| Presence | Saved for later, moved to the cart | a `layoutId` twin in the header's cart button, both photos `layoutCrossfade={false}`: the photo flies from its row into the cart along an `arc()`, one photo, not two crossfading; the move is optimistic, the row back if the store refuses (Solid 1: by hand; Solid 2: an optimistic store) |
+| Presence | Saved for later, moved to the cart | a `layoutId` twin in the header's cart button, both photos `layoutCrossfade={false}`: the photo flies from its row into the cart along an `arc()`, one photo, not two crossfading; the move is optimistic, the row back if the store refuses (Solid 2: an optimistic store; Solid 1: by hand) |
 | Page transitions | From the catalogue to a piece's own page | two Solid Router routes under a layout whose outlet sits in `<AnimatePresence mode="popLayout">`: each page leaves by itself, with no `key`, and a `layoutId` photo flies from its card into the piece's page and back, bowing along an `arc()`; each card's "Add" keeps its press from the card's with `propagate={{ tap: false }}`; another piece keys the page's content (`<Show keyed>`) |
 | Page transitions | Waiting for a piece's details (Solid 2 only) | a page whose details are an async memo over the store: a `<Loading>` of its own shows a skeleton and the `layoutId` photo, outside it, flies at once; without one the router's transition keeps the catalogue until they land (`useIsRouting`) |
 | Live values | A closer look at the glaze | a magnifier: `createSpring` follows the pointer, `createTransform` maps it to custom properties the lens reads |
@@ -62,7 +62,7 @@ The header's switches:
 - **The theme** cycles system, light and dark.
 - **⚙ (the store)** sets the delay on each request (300 ms to start with), or makes the next request fail, so loading states and rollbacks show when you want them.
 
-Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow network would, or `?hydrate=off`, to never hydrate, as with JavaScript off: what plays before the JavaScript then shows on its own. Solid 1's `src/entry-client.tsx` waits before it mounts; Solid 2's `src/client-setup.ts` is the plugin's `start.clientSetup`, which its generated entry awaits before `hydrate()`. (Solid 2's start mode takes an authored client entry only with an authored server entry beside it.)
+Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow network would, or `?hydrate=off`, to never hydrate, as with JavaScript off: what plays before the JavaScript then shows on its own. Solid 2's `src/client-setup.ts` is the plugin's `start.clientSetup`, which its generated entry awaits before `hydrate()` (its start mode takes an authored client entry only with an authored server entry beside it); Solid 1's `src/entry-client.tsx` waits before it mounts.
 
 ## Deploy it
 

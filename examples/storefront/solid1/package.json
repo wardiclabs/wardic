@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The storefront showcase on Solid 1 (#296): SolidStart 2.1 with @wardic/solid, a page per pattern, each a feature of a ceramics shop.",
+  "description": "The storefront showcase on Solid 1 (#296): SolidStart 2.1 with @wardic/solid/v1, a page per pattern, each a feature of a ceramics shop.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The storefront showcase on Solid 2 (#296): @solidjs/vite-plugin's start mode with server rendering and server components, and @wardic/solid/unstable/v2, each page a feature of a ceramics shop.",
+  "description": "The storefront showcase on Solid 2 (#296): @solidjs/vite-plugin's start mode with server rendering and server components, and @wardic/solid, each page a feature of a ceramics shop.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

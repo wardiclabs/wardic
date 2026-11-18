@@ -45,7 +45,7 @@
 
    - Rejected: an interim lift into `@wardic/dom`, moving 3,400 lines twice.
 5. **`unstable/` subpaths** (R3 Q2, R6 Q21): public, with no semver promise. ADR-0008 already allows the subpath. Wardic's own packages always match, through the Changesets fixed group, which `@wardic/foldkit` joins. Recorded as an *Amendment* to ADR-0069.
-   - *Amendment (#566, 2026-11-18):* they match through exact pins, `@wardic/solid` having left the group: see the *Amendment (#566)* below.
+   - *Amended by* *Amendment (#566)*: they match through exact pins, `@wardic/solid` having left the group.
    - Rejected: Tier 2 modules, which would make nearly every Motion fix a semver-major of core; bundling core's internals into each binding.
 6. **`Report` moves into core** (R6 Q22). The engine still doesn't report; the spine does, as a binding boundary, through Effect's `ErrorReporter`. Recorded as an *Amendment* to ADR-0030.
 7. **The ports** (R7 Q29, Q30):
@@ -443,4 +443,4 @@ Slice 4 (#794: server rendering, Appear and hydration) was grilled 2026-11-17 (Q
 
 ## Amendment (#566, 2026-11-18): exact pins, not the fixed group
 
-Decision 5 is amended: Wardic's own packages match through the versions each publishes with, not through the Changesets fixed group alone. `@wardic/solid` left the group at its 2.0 (ADR-0045, *Amendment (#566)*): `@wardic/core`, `@wardic/dom` and `@wardic/test` stay one group, which `@wardic/foldkit` joins. Every `@wardic/*` dependency is `workspace:*`, which `bun pack` writes as that package's exact version, and `publish-packages.ts` checks each against the package's own version in the repo before it publishes. So `@wardic/solid` runs the exact `@wardic/core` and `@wardic/dom` it was built with, and a release of theirs gives it a patch release, as a dependent. `@wardic/foldkit` reads `unstable/` subpaths as Solid's binding does, from the exact core and dom it's built with.
+Decision 5 is amended: Wardic's own packages match through the versions each publishes with, not through the Changesets fixed group alone. `@wardic/solid` left the group at its 2.0 (ADR-0045, *Amendment (#566)*): `@wardic/core`, `@wardic/dom` and `@wardic/test` stay one group, which `@wardic/foldkit` joins at its release (*Amendment (#795)*). Every `@wardic/*` dependency is `workspace:*`, which `bun pm pack` writes as that package's exact version, and `publish-packages.ts` checks each against the package's own version in the repo before it publishes. So `@wardic/solid` runs the exact `@wardic/core` and `@wardic/dom` it was built with, and a release of theirs gives it a patch release, as a dependent.

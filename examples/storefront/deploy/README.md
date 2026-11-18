@@ -8,7 +8,7 @@ The apps (Solid 2's; Solid 1's isn't deployed, #566, and Foldkit's joins with #7
 | `https://solid2.<domain>` | Wardic on Solid 2 |
 | `https://solid1.<domain>` | A permanent redirect to `solid2` (#566): Solid 1's app is no longer deployed |
 
-Each app runs as it does in the smoke test, the Solid 2 app under `vite preview`. Caddy in front adds HTTPS and compression, and flushes the live feeds as they stream. The store keeps everything in memory, one store per app, so a restart empties every cart, and the apps restart each night at 04:30 (server time) to keep that memory bounded.
+Each app runs as it does in the smoke test, the Solid 2 app under `vite preview`. Caddy in front adds HTTPS, and flushes the live feeds as they stream. The store keeps everything in memory, one store per app, so a restart empties every cart, and the apps restart each night at 04:30 (server time) to keep that memory bounded.
 
 ## Sizing
 

@@ -1,5 +1,5 @@
 {
-  "// note": "The docs' Solid 1 samples (#558), typechecked against Solid 1 and @wardic/solid's root entry: every importer's `solid-js` mapped to Solid 1, which @wardic/solid's own package holds as `solid-js-1` (#566), as the site's app maps it to Solid 2.",
+  "// note": "The docs' Solid 1 samples (#558), typechecked against Solid 1 and @wardic/solid/v1: every importer's `solid-js` mapped to Solid 1, which @wardic/solid's own package holds as `solid-js-1` (#566), as the site's app maps it to Solid 2.",
   "compilerOptions": {
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
