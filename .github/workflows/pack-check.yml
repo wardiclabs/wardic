@@ -42,8 +42,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The browser alone, as CI's: the runner image has Chromium's libraries (ci.yml says why).
       - name: Install Playwright browser
-        run: bunx playwright install --with-deps chromium
+        timeout-minutes: 3
+        run: bunx playwright install chromium
 
       # Builds the packages first; installs each fixture's other dependencies from the registry.
       - name: Pack check
