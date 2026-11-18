@@ -8,8 +8,10 @@
  * 2. Packed by Bun, which writes `workspace:*` dependencies as the version they point at (npm's own
  *    pack would leave them), as the tarball check (#554) packs them. Bun takes that version from
  *    `bun.lock`, which `bun run version-packages` keeps in step, as it keeps each package's `VERSION`
- *    constant; a package whose `VERSION`, or whose tarball's `@wardic/*` dependencies, name any other
- *    version than its own isn't published.
+ *    constant; a package whose `VERSION` names another version than its own, or whose tarball names a
+ *    `@wardic/*` dependency at another version than that package's in the repo, isn't published.
+ *    `core`, `dom` and `test` are one fixed group, at one version; `solid` versions alone since its 2.0
+ *    (#566), and names the exact `core` and `dom` it was built with.
  * 3. Published with npm, which brings trusted publishing (OIDC) and provenance, on `latest`. A pre
  *    release (`1.0.0-rc.N`, Changesets' pre mode) goes to `next` only once npm has a stable version
  *    of the package to keep on `latest`: until 1.0.0, the newest release candidate is what a plain
@@ -67,8 +69,16 @@ const tagOf = (name: string): string => {
   if (inPreMode() && hasStable(name)) return "next"
   return "latest"
 }
-/** A package's root module: `@wardic/solid`'s is `index.tsx`, as it re-exports components; the rest's `index.ts`. */
-const indexOf = (dir: string): string => [join(dir, "src", "index.tsx"), join(dir, "src", "index.ts")].find((file) => existsSync(file)) ?? join(dir, "src", "index.ts")
+/** The modules a package's `VERSION` may be in: its root (`index.tsx` when it re-exports components) and `@wardic/solid`'s `v1` (#566). */
+const versionModulesOf = (dir: string): ReadonlyArray<string> =>
+  [join(dir, "src", "index.tsx"), join(dir, "src", "index.ts"), join(dir, "src", "v1", "index.tsx")].filter((file) => existsSync(file))
+
+/** A workspace package's version in the repo, by its name. */
+const versionOf = (name: string): string | undefined => {
+  const manifest = join(ROOT, "packages", name.replace(/^@wardic\//, ""), "package.json")
+  if (!existsSync(manifest)) return undefined
+  return (JSON.parse(readFileSync(manifest, "utf8")) as { readonly version: string }).version
+}
 
 const tarballs = mkdtempSync(join(tmpdir(), "wardic-publish-"))
 
@@ -79,15 +89,18 @@ for (const pkg of PACKAGES) {
     console.log(`${name}@${version} is on npm already: skipped`)
     continue
   }
-  const constant = /^export const VERSION = "([^"]*)"$/m.exec(readFileSync(indexOf(dir), "utf8"))
-  if (constant !== null && constant[1] !== version) throw new Error(`${name}@${version} exports VERSION "${constant[1]}": run bun run version-packages`)
+  for (const module of versionModulesOf(dir)) {
+    const constant = /^export const VERSION = "([^"]*)"$/m.exec(readFileSync(module, "utf8"))
+    if (constant !== null && constant[1] !== version) throw new Error(`${name}@${version} exports VERSION "${constant[1]}": run bun run version-packages`)
+  }
   run("bun", ["pm", "pack", "--destination", tarballs, "--quiet"], dir)
   const tarball = readdirSync(tarballs).find((file) => file.startsWith(`wardic-${pkg}-${version}`))
   if (tarball === undefined) throw new Error(`bun pm pack wrote no tarball for ${name}@${version}`)
-  // The four are one fixed group: each names the others at its own version.
+  // Each names the others at their own versions in the repo, exactly: one group's at its own, and
+  // `@wardic/solid` the `core` and `dom` it was built with (#566).
   const packed = spawnSync("tar", ["-xzOf", join(tarballs, tarball), "package/package.json"], { encoding: "utf8" })
   const dependencies = (JSON.parse(packed.stdout) as { readonly dependencies?: Record<string, string> }).dependencies ?? {}
-  const stale = Object.entries(dependencies).filter(([dependency, range]) => dependency.startsWith("@wardic/") && range !== version)
+  const stale = Object.entries(dependencies).filter(([dependency, range]) => dependency.startsWith("@wardic/") && range !== versionOf(dependency))
   if (stale.length > 0) throw new Error(`${name}@${version}'s tarball names ${stale.map(([d, r]) => `${d}@${r}`).join(", ")}: run bun run version-packages`)
   const flags = ["--access", "public", "--tag", tagOf(name), "--provenance"]
   if (DRY_RUN) {
