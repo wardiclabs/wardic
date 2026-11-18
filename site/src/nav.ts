@@ -42,8 +42,8 @@ export const NAV: ReadonlyArray<NavSection> = [
     pages: [
       { path: "/", title: "What Wardic is" },
       { path: "/why", title: "Why Wardic" },
+      { path: "/start/solid-2", title: "Start" },
       { path: "/start/solid-1", title: "Start on Solid 1" },
-      { path: "/start/solid-2", title: "Start on Solid 2" },
       { path: "/motion", title: "Coming from Motion" },
       { path: "/roadmap", title: "Roadmap" },
     ],

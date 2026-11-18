@@ -11,14 +11,14 @@ Wardic gives Solid the API of Motion for React, on an engine built with [Effect]
 
 Wardic steps every animation on a page on one Frame loop, and draws what they all write together, once a frame. Measured against Motion, the work done while things move takes about half of its time or less: retargeting an animation, unmounting, and each frame while animations run.
 
-| 1,000 elements, ms | Wardic, Solid 1 | Wardic, Solid 2 | Motion 14.9 |
+| 1,000 elements, ms | Wardic, Solid 2 | Wardic, Solid 1 | Motion 14.9 |
 | --- | --- | --- | --- |
-| Mount | 37.7 | 38.8 | 39.4 |
-| A page's first mount | 62.3 | 68.3 | 53.4 |
-| Retarget while running | 17.1 | 16.3 | 43.6 |
-| Retarget at rest | 16.6 | 16.3 | 36.4 |
-| Unmount | 2.6 | 2.8 | 12.0 |
-| A frame while animating | 3.12 | 2.99 | 5.50 |
+| Mount | 38.8 | 37.7 | 39.4 |
+| A page's first mount | 68.3 | 62.3 | 53.4 |
+| Retarget while running | 16.3 | 17.1 | 43.6 |
+| Retarget at rest | 16.3 | 16.6 | 36.4 |
+| Unmount | 2.8 | 2.6 | 12.0 |
+| A frame while animating | 2.99 | 3.12 | 5.50 |
 
 Lower is faster. Mounting is where Motion keeps up: see [what it costs](#what-it-costs).
 
@@ -64,6 +64,6 @@ Every animation runs in its own span when you give your provider `WardicSpans`, 
 
 ## What it costs
 
-- **Size.** One Wardic element is 94 KB gzipped on Solid 1 and 115 KB on Solid 2, for the whole app, Solid included. On Solid 1, a little over a third of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout, the wider colour spaces and a scroll are Features, shipped only where a provider, a `LazyWardic` or a hook gives them.
+- **Size.** One Wardic element is 115 KB gzipped on Solid 2 and 94 KB on Solid 1, for the whole app, Solid included. On Solid 1, a little over a third of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout, the wider colour spaces and a scroll are Features, shipped only where a provider, a `LazyWardic` or a hook gives them.
 - **Mounting.** A mount takes about as long as Motion's, but a page's first mount takes longer, while the engine sets up and its code first runs.
 - **Effect.** `effect` is a dependency you install beside Wardic.

@@ -9,21 +9,13 @@ api: [useAnimateLayout, AnimateLayout, AnimateLayoutOptions]
 Returns `animateLayout(fn)`, which runs `fn` and animates the layout change it makes: every layout element, from where it was at the call to where the change puts it. It's for a change nothing else sees, such as a keyed `<For>` reordered or a plain element's class changed. See [What starts one](/guides/layout#what-starts-one).
 
 ```tsx
-import { useAnimateLayout } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { useAnimateLayout } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const animateLayout = useAnimateLayout()
 const shuffle = () => animateLayout(() => setItems(shuffled(items())))
 ```
 
 `fn` runs at once, so the change is there when the call returns, and an error it throws is thrown to you. Only what `fn` changes synchronously animates: a change after an `await` is in a later task, and Wardic warns. Calls in one task share one measure. On a server, `fn` just runs. Outside a `WardicProvider`, `useAnimateLayout` throws.
-
-## Solid 1
-
-`animateLayout(fn, options?)` returns what `fn` returns. `options.onSettled` is called once every layout animation the change started has ended, however each ended, or once the change is measured if it started none. `options.from` is where the change animates from: the boxes at the call (`"call"`, the default), or the last measure's (`"lastPass"`), for a change applied after the call that no measure has seen yet.
-
-```tsx
-animateLayout(() => setOrder(sorted()), { onSettled: () => setBusy(false) })
-```
 
 ## Solid 2
 
@@ -34,6 +26,14 @@ A write Solid holds still animates, once it lands: one inside an `action`, or on
 ```tsx
 await animateLayout(() => setOrder(sorted()))
 setBusy(false)
+```
+
+## Solid 1
+
+`animateLayout(fn, options?)` returns what `fn` returns. `options.onSettled` is called once every layout animation the change started has ended, however each ended, or once the change is measured if it started none. `options.from` is where the change animates from: the boxes at the call (`"call"`, the default), or the last measure's (`"lastPass"`), for a change applied after the call that no measure has seen yet.
+
+```tsx
+animateLayout(() => setOrder(sorted()), { onSettled: () => setBusy(false) })
 ```
 
 ## Coming from Motion

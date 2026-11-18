@@ -1,15 +1,21 @@
 ---
-title: Start on Solid 2
+title: Start
 description: Install Wardic in a Solid 2 app, add the provider, choose its Features, and animate your first element.
 ---
 
-# Start on Solid 2
+# Start
 
-Wardic's binding for Solid 2 is `@wardic/solid/unstable/v2`: the same elements and animation props as Solid 1's, built on Solid 2's reactivity. Where Solid 1 takes Motion's callback props, such as `onTap`, Solid 2 tells the same moments as a ward's events: give the element a ward, `<w.button wardRef={card}>`, and `onTap` is `await card.next("tap")`. See [Ward events](/reference/solid/elements/ward-events). It stays outside semver until Solid 2 itself is stable.
+Wardic's binding for Solid 2 is `@wardic/solid`, and it follows semver from `2.0.0`, its [Effect-typed parts](/roadmap#10-motions-api-on-solid) moving to a new Effect major only in a Wardic major. It works in a Solid 2 app rendered on the server or not.
+
+It takes Motion's elements and animation props. Where Motion takes callback props, such as `onTap`, Wardic tells the same moments as a ward's events: give the element a ward, `<w.button wardRef={card}>`, and `onTap` is `await card.next("tap")`. See [Ward events](/reference/solid/elements/ward-events).
+
+On Solid 1, see [Start on Solid 1](/start/solid-1): its binding is `@wardic/solid/v1`, deprecated.
 
 ## Install
 
-<InstallTabs packages="@wardic/solid @wardic/dom effect solid-js@next @solidjs/web@next" />
+<InstallTabs packages="@wardic/solid @wardic/dom effect solid-js @solidjs/web" />
+
+`effect`, `solid-js` and `@solidjs/web` are peers: Wardic uses the copies your app has.
 
 ## The provider
 
@@ -17,7 +23,7 @@ Every Wardic element sits under one `WardicProvider`. It takes the environment W
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid"
 
 export default function App() {
   return (
@@ -34,22 +40,29 @@ What an element does beyond animating its values, a gesture, layout or a colour 
 
 ```tsx
 // src/lib/wardic.ts
-import { createWardic, domAnimation } from "@wardic/solid/unstable/v2"
+import { createWardic, domAnimation } from "@wardic/solid"
 
 export const { w } = createWardic(domAnimation)
 ```
 
-Import `w` from it, not from the binding. Its elements take those Features' props, and its wards hear their events: a prop or an event of another is a type error that names it. These guides import it as `~/lib/wardic.ts`, SolidStart's alias for `src`; in a plain Vite app, import it by its path.
+Import `w` from it, not from the binding. Its elements take those Features' props, and its wards hear their events: a prop or an event of another is a type error that names it. These guides import it as `~/lib/wardic.ts`, an alias for `src`; without one, import it by its path.
 
 ## Your first element
 
-A `w.*` element animates from `initial` to `animate`, and back as its state changes:
+A `w.*` element takes Motion's props: it animates from `initial` to `animate`, and to its `whileHover` target while the pointer is over it.
 
-```tsx
+<Demo sample="enter" />
+
+<CodeTabs sample="enter" />
+
+The same motion can go on an element of your own, with a ward: `w.ward(config)`, spread onto it.
+
+```tsx solid2
 import { w } from "~/lib/wardic.ts"
 
 export function Card() {
-  return <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.03 }} />
+  const card = w.ward({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+  return <div class="card" {...card} />
 }
 ```
 
@@ -59,9 +72,18 @@ A page that drags or lays out makes an instance of its own, in a module only its
 
 ```tsx
 // src/lib/wardic-drag.ts
-import { createWardic, domAnimation, drag } from "@wardic/solid/unstable/v2"
+import { createWardic, domAnimation, drag } from "@wardic/solid"
 
 export const { w } = createWardic([domAnimation, drag])
 ```
 
 [Shipping less](/guides/features) has the rest: loading a Feature later, and the sections a `LazyWardic` makes.
+
+## Rendered on the server
+
+On a server-rendered page, an element arrives in the HTML already at `initial`, so it never flashes at its target first. Its entrance plays from the first paint, before the JavaScript has loaded, and the client takes it over mid-flight when it hydrates. See [Server rendering](/guides/server-rendering).
+
+## Next
+
+- [Animate an element](/guides/animate): `initial`, `animate` and `transition`.
+- [Coming from Motion](/motion): every Motion API, and its name in Wardic.

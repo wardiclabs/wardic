@@ -1,4 +1,4 @@
-import { createBatch } from "@wardic/solid/unstable/v2"
+import { createBatch } from "@wardic/solid"
 import { createEffect, createSignal, For } from "solid-js"
 
 const COLUMNS = 12

@@ -1,6 +1,6 @@
 import type { JSX } from "@solidjs/web"
 import { CheckFrames, DomLive, FrameLoopMetrics, WardicSpans } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"

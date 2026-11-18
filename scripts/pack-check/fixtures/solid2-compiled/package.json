@@ -1,0 +1,14 @@
+{
+  "name": "pack-check-solid2-compiled",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@solidjs/web": "2.0.1",
+    "effect": "4.1.4",
+    "solid-js": "2.0.1"
+  },
+  "devDependencies": {
+    "vite": "8.3.4"
+  }
+}

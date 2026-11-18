@@ -7,7 +7,7 @@
  * and while one is on its way the last hits stay, marked busy.
  */
 import { Dialog } from "@kobalte/core/dialog"
-import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { createMemo, createSignal, For, isPending, Loading, onFlush, onSettled, Show } from "solid-js"
 

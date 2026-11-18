@@ -1,4 +1,4 @@
-import { createScroll } from "@wardic/solid/unstable/v2"
+import { createScroll } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { For } from "solid-js"
 

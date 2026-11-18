@@ -1,4 +1,4 @@
-import { Reorder } from "@wardic/solid/unstable/v2"
+import { Reorder } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
 
 const ROWS: ReadonlyArray<string> = Array.from({ length: 1000 }, (_, i) => `Row ${i + 1}`)

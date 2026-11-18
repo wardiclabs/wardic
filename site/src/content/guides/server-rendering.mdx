@@ -15,7 +15,7 @@ The server gives each element its **starting style**, its `initial`, over its ow
 - A variant child starts at its own `initial`, or at its parent's `initial` name in its own `variants`.
 - A key that `animate` sets and `initial` doesn't starts from the element's own value, which only the browser can read: give it an `initial` to render it.
 
-Every element form renders on the server: `w.*`, `w.create`, and a ward spread on an element. Two attach in the browser only, so their element can flash: the `use:w` directive on Solid 1, and a ward given as `ref` on Solid 2.
+Every element form renders on the server: `w.*`, `w.create`, and a ward spread on an element. Two attach in the browser only, so their element can flash: a ward given as `ref` on Solid 2, and the `use:w` directive on Solid 1.
 
 ## Entrances before the JavaScript
 
@@ -56,8 +56,8 @@ Under the default `reducedMotion="user"`, the page carries both plays, the reduc
 
 ### Into the page's head
 
-- **On Solid 1,** the rules go in through Solid's `useAssets`, which SolidStart's document renders. A render with no `</head>` leaves them out, and its elements wait at their starting style.
 - **On Solid 2,** they go in through `@solidjs/web`'s head, which a document with a `<head>` renders.
+- **On Solid 1,** the rules go in through Solid's `useAssets`, which SolidStart's document renders. A render with no `</head>` leaves them out, and its elements wait at their starting style.
 
 Content streamed after the page's shell, under a `Suspense` (`Loading` on Solid 2) waiting on data, plays too: its chunk brings its own rules, and its entrances start when it lands.
 

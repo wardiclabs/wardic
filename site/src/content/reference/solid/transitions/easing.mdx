@@ -9,7 +9,7 @@ api: [easeIn, easeOut, easeInOut, circIn, circOut, circInOut, backIn, backOut, b
 How a tween moves along its time: slow then fast, fast then slow, past its end and back. A tween's `ease` takes a name, a cubic Bézier's four numbers, or one of these functions.
 
 ```tsx
-import { backOut, cubicBezier, steps } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { backOut, cubicBezier, steps } from "@wardic/solid" // or "@wardic/solid/v1"
 
 <w.div animate={{ x: 100 }} transition={{ duration: 0.5, ease: "backOut" }} />
 <w.div animate={{ x: 100 }} transition={{ duration: 0.5, ease: [0.25, 0.1, 0.35, 1] }} />

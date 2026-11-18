@@ -2,7 +2,7 @@ import type { JSX } from "@solidjs/web"
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import { DomLive } from "@wardic/dom"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
-import { WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid"
 import * as Layer from "effect/Layer"
 
 /** One spring for every key: the same object each time, so the keys on it run together. */

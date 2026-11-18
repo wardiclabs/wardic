@@ -11,7 +11,7 @@ api: [useWardicGate, FlushGate, FlushSink]
 Every Wardic element writes its values into its provider's flush gate, which commits them onto the page once a frame, together. For an element of your own built on Wardic's rendering, register it with the gate and write into it.
 
 ```tsx
-import { useWardicGate } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { useWardicGate } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const gate = useWardicGate()
 const unregister = gate.register("dial", { target: dial })

@@ -9,7 +9,7 @@ api: [createResetProjection]
 Returns `reset()`, which starts layout animations afresh: it ends every running layout animation where the layout puts its element, lets go of every leaving `layoutId` element, and has the next measure take every box as it is, animating none. For a change that replaces the page wholesale, where nothing should fly from where it was.
 
 ```tsx
-import { createResetProjection } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createResetProjection } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const reset = createResetProjection()
 const openWorkspace = (id: string) => {

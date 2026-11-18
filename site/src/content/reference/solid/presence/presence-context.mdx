@@ -9,7 +9,7 @@ api: [PresenceContext, usePresenceContext, PresenceContextValue, PresenceRecord]
 The nearest [`AnimatePresence`](/reference/solid/presence/animate-presence)'s registrar, which every Wardic element and ward under it registers its exit with. For building a presence-aware component of your own; an app needs `usePresence` or `useIsPresent` instead.
 
 ```tsx
-import { usePresenceContext } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { usePresenceContext } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const presence = usePresenceContext() // undefined outside one
 ```

@@ -9,13 +9,13 @@ api: [createInView]
 Whether an element is in view: `true` while it shows in the viewport, or in the scrolling container you give, and `false` otherwise. To animate as it comes into view, give the element `whileInView`.
 
 ```tsx
-import { createInView } from "@wardic/solid/unstable/v2"
+import { createInView } from "@wardic/solid"
 
 const visible = createInView({ amount: "all", once: true })
 <section ref={visible}>{visible() ? "Seen" : "Not yet"}</section>
 ```
 
-On Solid 1, `createInView(target, viewport?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On Solid 2, `createInView(viewport?)` is a sensor, given to the element's `ref`. On a server, and until its first report, it's `false`.
+On Solid 2, `createInView(viewport?)` is a sensor, given to the element's `ref`. On Solid 1, `createInView(target, viewport?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On a server, and until its first report, it's `false`.
 
 ## What "in view" means
 

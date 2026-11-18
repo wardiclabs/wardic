@@ -9,7 +9,7 @@ api: [Reorder, ReorderGroupProps, ReorderItemProps, ReorderGroupComponentProps, 
 `Reorder.Group` and `Reorder.Item` make a list the reader puts in order by dragging its items, or from the keyboard. Your app owns the order: the group takes it as `values`, and `onReorder` hands each new one back, as an item crosses another. See [Reorder](/guides/reorder).
 
 ```tsx
-import { Reorder } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { Reorder } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const [items, setItems] = createSignal(["Bowls", "Plates", "Cups"])
 <Reorder.Group values={items()} onReorder={setItems}>
@@ -19,7 +19,7 @@ const [items, setItems] = createSignal(["Bowls", "Plates", "Cups"])
 
 Key the items with `<For>`, by their values. An item brings its own drag, layout and gestures, so a list works under any provider.
 
-`values` can be a store's array. Set it from `onReorder` as the store takes an array: on Solid 1, `setItems(values)` for a root store or `setState("items", values)` for a field; on Solid 2, `setItems(() => values)` for a root store or a splice of the field in a draft. A signal holding the array is the cheaper input: the group reads every item at each step, and a store reads each one through its proxy. See [Saving the order](/guides/reorder#saving-the-order).
+`values` can be a store's array. Set it from `onReorder` as the store takes an array: on Solid 2, `setItems(() => values)` for a root store or a splice of the field in a draft; on Solid 1, `setItems(values)` for a root store or `setState("items", values)` for a field. A signal holding the array is the cheaper input: the group reads every item at each step, and a store reads each one through its proxy. See [Saving the order](/guides/reorder#saving-the-order).
 
 ## Reorder.Group
 
@@ -37,11 +37,11 @@ Beside them, the element's own props and [motion props](/reference/solid/element
 
 To hear a reorder end, say to save it once:
 
-- **On Solid 1,** `onReorderEnd={(end) => save(end.values)}`, with `onHoldStart` and `onHoldEnd` for an item taken in hand and let go.
 - **On Solid 2,** make the group with [`reorderGroup`](/reference/solid/reorder/reorder-group) and give it as `groupRef`, the options its config doesn't set beside it, or give a function as `groupRef`, which is handed the group the component makes. Either way, its `reorderEnd`, `holdStart` and `holdEnd` events.
+- **On Solid 1,** `onReorderEnd={(end) => save(end.values)}`, with `onHoldStart` and `onHoldEnd` for an item taken in hand and let go.
 
 ```tsx
-import { Reorder, reorderGroup } from "@wardic/solid/unstable/v2"
+import { Reorder, reorderGroup } from "@wardic/solid"
 
 const list = reorderGroup({ values: items, onReorder: setItems })
 createEffect(list.when("reorderEnd"), (end) => save(end.values))

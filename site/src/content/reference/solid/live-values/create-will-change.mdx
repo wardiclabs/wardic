@@ -9,7 +9,7 @@ api: [createWillChange, WillChange]
 A `will-change` for an element's `style`: `"auto"` until the element first animates, then `"transform"` for good, so the browser keeps it on a layer of its own from its first move on.
 
 ```tsx
-import { createWillChange } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createWillChange } from "@wardic/solid" // or "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 
 const willChange = createWillChange()

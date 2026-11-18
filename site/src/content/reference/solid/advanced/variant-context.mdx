@@ -9,7 +9,7 @@ api: [useVariantContext, WardicVariantContext, WardicVariantContextValue]
 A Wardic element with `variants` hands its names, transition and orchestration to the elements under it, through the variant context. For an element of your own that follows a parent's variants, read it.
 
 ```tsx
-import { useVariantContext } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { useVariantContext } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const parent = useVariantContext()
 const name = () => parent?.variant()

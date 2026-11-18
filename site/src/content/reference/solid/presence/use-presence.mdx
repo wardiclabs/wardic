@@ -10,24 +10,10 @@ Holds a child of an [`AnimatePresence`](/reference/solid/presence/animate-presen
 
 By the time the child leaves, its own effects have ended, so what runs then is plain work on the element that's still on the page, ending with `safeToRemove()`.
 
-## Solid 1
-
-```tsx
-import { usePresence } from "@wardic/solid"
-
-let el!: HTMLDivElement
-const isPresent = usePresence(() => el, (safeToRemove, custom) => {
-  el.animate({ opacity: [1, 0] }, 300).finished.then(safeToRemove)
-})
-<div ref={el} />
-```
-
-`usePresence(target, onLeave)`: `target` is the child's element, or an accessor of it. `onLeave(safeToRemove, custom)` is called as the child leaves, with the presence's `custom`. It returns whether the child is present, `false` from its leave on.
-
 ## Solid 2
 
 ```tsx
-import { usePresence } from "@wardic/solid/unstable/v2"
+import { usePresence } from "@wardic/solid"
 
 const exit = usePresence()
 void exit.next("leave").then(() => setTimeout(exit.safeToRemove, 300))
@@ -37,6 +23,20 @@ void exit.next("leave").then(() => setTimeout(exit.safeToRemove, 300))
 `usePresence()` returns your own exit, to give to `ref` on an element in the child. `exit.next("leave")` resolves as the child leaves, with the presence's `custom`, and `exit.each("leave")` gives every one. `exit.isPresent()` is `false` from the leave on, and `exit.safeToRemove()` lets it go.
 
 Outside a presence, the child is always present, and nothing is called.
+
+## Solid 1
+
+```tsx
+import { usePresence } from "@wardic/solid/v1"
+
+let el!: HTMLDivElement
+const isPresent = usePresence(() => el, (safeToRemove, custom) => {
+  el.animate({ opacity: [1, 0] }, 300).finished.then(safeToRemove)
+})
+<div ref={el} />
+```
+
+`usePresence(target, onLeave)`: `target` is the child's element, or an accessor of it. `onLeave(safeToRemove, custom)` is called as the child leaves, with the presence's `custom`. It returns whether the child is present, `false` from its leave on.
 
 ## Types
 

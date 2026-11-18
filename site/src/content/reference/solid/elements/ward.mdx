@@ -1,6 +1,6 @@
 ---
 title: Wards
-description: A ward puts Wardic's motion on an element of your own, and reads its values. createWard on Solid 1, ward() on Solid 2, and their Slim forms.
+description: A ward puts Wardic's motion on an element of your own, and reads its values. ward() on Solid 2, createWard on Solid 1, and their Slim forms.
 api: [createWard, ward, Ward, WardProps, WardStyle, WardUserProps, WardValue, WardValueOf, WardChecked, WardKey, AnimatedKey, WardRead, WardWithProps, WardOptions]
 ---
 
@@ -10,28 +10,8 @@ A ward is one element's motion: made from a config of [motion props](/reference/
 
 | | Slim (its Wardic instance's or its section's [Features](/guides/features)) | Complete (every Feature) |
 | --- | --- | --- |
-| Solid 1 | `w.createWard(config)`, `use:w` | `createWard(config)`, `use:wardic` |
 | Solid 2 | `w.ward(config, options?)` | `ward(config, options?)` |
-
-## Solid 1: createWard
-
-```tsx solid1
-import { w } from "~/lib/wardic.ts"
-
-function Card() {
-  const card = w.createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
-  return <article class="card" {...card()} />
-}
-```
-
-`config` is the motion props, or an accessor of them for a config that changes: `w.createWard(() => ({ animate: { x: open() ? 200 : 0 } }))`. Spread what the ward returns: `{...card()}`, or `{...card({ ref, style })}` to keep a `ref` and a `style` of your own.
-
-| Member | |
-| --- | --- |
-| `card(props?)` | The props to spread on the element: `ref`, `style` and its starting attributes. |
-| `card.value(key)` | An accessor of what the element shows for `key` now: `card.value("x")()`. |
-| `card.atom(key)` | The same as an `effect/reactivity` Atom. |
-| `card.Provider` | Hands the element's variants to the components under it, for a child rendered outside it in the markup. |
+| Solid 1 | `w.createWard(config)`, `use:w` | `createWard(config)`, `use:wardic` |
 
 ## Solid 2: ward()
 
@@ -55,6 +35,26 @@ Each key of `config` is a value, or an accessor of it: `w.ward({ animate: () => 
 | `card.settled()`, `card.tapped()`, `card.next(name)`, `card.each(name)`, `card.when(name)` | Its events: see [Ward events](/reference/solid/elements/ward-events). |
 
 `options.parent` makes a ward made outside the element's tree a variant child of another ward, as an element rendered under it would be.
+
+## Solid 1: createWard
+
+```tsx solid1
+import { w } from "~/lib/wardic.ts"
+
+function Card() {
+  const card = w.createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+  return <article class="card" {...card()} />
+}
+```
+
+`config` is the motion props, or an accessor of them for a config that changes: `w.createWard(() => ({ animate: { x: open() ? 200 : 0 } }))`. Spread what the ward returns: `{...card()}`, or `{...card({ ref, style })}` to keep a `ref` and a `style` of your own.
+
+| Member | |
+| --- | --- |
+| `card(props?)` | The props to spread on the element: `ref`, `style` and its starting attributes. |
+| `card.value(key)` | An accessor of what the element shows for `key` now: `card.value("x")()`. |
+| `card.atom(key)` | The same as an `effect/reactivity` Atom. |
+| `card.Provider` | Hands the element's variants to the components under it, for a child rendered outside it in the markup. |
 
 ## Coming from Motion
 

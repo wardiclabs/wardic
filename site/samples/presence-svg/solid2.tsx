@@ -1,4 +1,4 @@
-import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { createSignal, For } from "solid-js"
 

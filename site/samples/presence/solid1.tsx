@@ -1,4 +1,4 @@
-import { AnimatePresence, createWardic, domAnimation, layout } from "@wardic/solid"
+import { AnimatePresence, createWardic, domAnimation, layout } from "@wardic/solid/v1"
 import { createSignal, For } from "solid-js"
 
 // This page lays out: its own Wardic instance brings `layout`, so pages that don't never load it.

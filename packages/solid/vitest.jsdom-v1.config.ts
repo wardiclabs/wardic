@@ -15,12 +15,7 @@ export default defineConfig({
     conditions: ["browser", "development"],
     dedupe: ["solid-js", "effect"],
     // The sample's Wardic instance (#516), as an app's `~/lib/wardic.ts` is.
-    alias: [
-      { find: INSTANCE_IMPORT, replacement: instanceModule.solid1 },
-      // The sample still imports `@wardic/solid`, Solid 1's entry in the published 1.x the site documents:
-      // since 2.0 that's `@wardic/solid/v1` (#566), where #566's docs PR moves it, and this goes.
-      { find: /^@wardic\/solid$/, replacement: "@wardic/solid/v1" },
-    ],
+    alias: { [INSTANCE_IMPORT]: instanceModule.solid1 },
   },
   test: {
     name: "docs-jsdom-v1",

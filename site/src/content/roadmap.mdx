@@ -1,15 +1,17 @@
 ---
 title: Roadmap
-description: "What 1.0 is, and what comes after it, in order: size and speed, Foldkit, a performance viewer, a Timeline, Environments beyond the DOM, then Solid 2 by default."
+description: "What 1.0 and 1.1 brought, Solid 2 by default in @wardic/solid 2.0, and what comes next, in order: Foldkit, a performance viewer, a Timeline, then Environments beyond the DOM."
 ---
 
 # Roadmap
 
 What comes next, in the order it's planned. The order is the plan, and this page gives no dates. Each milestone and its issues are on GitHub, where you can follow them.
 
+The milestones number `@wardic/core`, `@wardic/dom` and `@wardic/test`, which version together. `@wardic/solid` versions on its own since its 2.0, depending on the exact `@wardic/core` and `@wardic/dom` it's built with.
+
 ## 1.0: Motion's API on Solid
 
-Wardic 1.0 gives Solid the components, props and hooks of Motion for React, on Solid 1 and on Solid 2. A release candidate comes first; from `1.0.0`, its stable entries follow semver: `@wardic/solid`'s root, for Solid 1, and `@wardic/dom`, `@wardic/core` and `@wardic/test`. The Solid 2 binding is `@wardic/solid/unstable/v2`, outside semver until Solid 2 is stable and 2.0 makes it the root. The Effect-typed parts, `@wardic/core`, `@wardic/dom`, `@wardic/test`, the provider's `env` and the binding entries whose pages say so, use Effect's own types, so they move to a new Effect major only in a Wardic major.
+Wardic 1.0 gives Solid the components, props and hooks of Motion for React, on Solid 1 and on Solid 2. From `1.0.0`, its stable entries follow semver: `@wardic/solid`'s root, Solid 1's binding until 2.0, and `@wardic/dom`, `@wardic/core` and `@wardic/test`. The Solid 2 binding was `@wardic/solid/unstable/v2`, outside semver until Solid 2 was stable; [`@wardic/solid` 2.0](#solid-2-by-default) made it the root. The Effect-typed parts, `@wardic/core`, `@wardic/dom`, `@wardic/test`, the provider's `env` and the binding entries whose pages say so, use Effect's own types, so they move to a new Effect major only in a Wardic major.
 
 Beyond Motion's API, 1.0 brings `createBatch`: hundreds or thousands of like elements, a grid's tiles or a chart's points, animated as one run, so changing all their targets costs about a twentieth of changing them one at a time ([#665](https://github.com/wardiclabs/wardic/issues/665), [Many elements at once](/guides/batches)).
 
@@ -23,6 +25,14 @@ Faster, and smaller only where it costs no speed. The size work 1.0 left (#518) 
 - **Wardic instances:** `createWardic(features)` returns the elements and hooks those Features allow, so the type checker knows what each element can do, and an element of another Feature's is an error that names it.
 
 [The 1.1 milestone](https://github.com/wardiclabs/wardic/milestone/2): [#240](https://github.com/wardiclabs/wardic/issues/240), [#516](https://github.com/wardiclabs/wardic/issues/516)
+
+## Solid 2 by default
+
+Solid 2 is stable, so `@wardic/solid` 2.0 makes its binding the root, under semver, its API as `@wardic/solid/unstable/v2` had it. Solid 1's binding moves to `@wardic/solid/v1`: a Solid 1 app changes its imports from `@wardic/solid` to `@wardic/solid/v1` (see [Start on Solid 1](/start/solid-1)). `/v1` is deprecated and frozen for features, and `@wardic/solid/unstable/v2` stays as a deprecated alias of the root; both go at Wardic's next major, the milestones' 2.0. These docs are one site for both bindings, Solid 2's first.
+
+Only `@wardic/solid` takes the major: `@wardic/core`, `@wardic/dom` and `@wardic/test` stay on 1.x, and the milestones below go on from 1.2.
+
+[The 2.0 milestone](https://github.com/wardiclabs/wardic/milestone/7): [#566](https://github.com/wardiclabs/wardic/issues/566)
 
 ## 1.2: Foldkit
 
@@ -52,12 +62,6 @@ Environments other than the browser's DOM:
 Layout animations there need the Projection system moved into core, behind a service each Environment provides.
 
 [The 1.5 milestone](https://github.com/wardiclabs/wardic/milestone/6): [#564](https://github.com/wardiclabs/wardic/issues/564), [#565](https://github.com/wardiclabs/wardic/issues/565), [#16](https://github.com/wardiclabs/wardic/issues/16)
-
-## 2.0: Solid 2 by default
-
-Once Solid 2 is stable, its binding becomes `@wardic/solid`'s root, and Solid 1's moves to `@wardic/solid/v1`; `@wardic/solid/unstable/v2` stays for a while, as an alias. That's a breaking change for Solid 1 apps, which the changelog and these docs will walk through. The docs then have a version for 1.x and one for 2.x.
-
-[The 2.0 milestone](https://github.com/wardiclabs/wardic/milestone/7): [#566](https://github.com/wardiclabs/wardic/issues/566)
 
 ## Not planned
 

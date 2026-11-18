@@ -1,7 +1,7 @@
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import { DomLive } from "@wardic/dom"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
-import { WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid/v1"
 import * as Layer from "effect/Layer"
 import type { JSX } from "solid-js"
 

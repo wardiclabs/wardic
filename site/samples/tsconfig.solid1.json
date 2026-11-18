@@ -19,10 +19,7 @@
       "solid-js/web": ["../../packages/solid/node_modules/solid-js-1/web/types/index.d.ts"],
       "solid-js/store": ["../../packages/solid/node_modules/solid-js-1/store/types/index.d.ts"],
       "solid-js/jsx-runtime": ["../../packages/solid/node_modules/solid-js-1/types/jsx.d.ts"],
-      "~/lib/wardic.ts": ["./solid1-wardic.ts"],
-      // A Solid 1 sample still imports `@wardic/solid`, Solid 1's entry in the published 1.x the site documents:
-      // since 2.0 that's `@wardic/solid/v1` (#566), where #566's docs PR moves them, and this goes.
-      "@wardic/solid": ["../../packages/solid/src/v1/index.tsx"]
+      "~/lib/wardic.ts": ["./solid1-wardic.ts"]
     }
   },
   "include": ["*/solid1.tsx"]

@@ -1,4 +1,4 @@
-import { stagger } from "@wardic/solid"
+import { stagger } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 import { createSignal, For } from "solid-js"
 

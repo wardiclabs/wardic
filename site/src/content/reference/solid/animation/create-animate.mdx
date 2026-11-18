@@ -9,7 +9,7 @@ api: [createAnimate, WardicAnimate, WardicAnimateOptions, WardicAnimationSubject
 Animates elements from code: returns a scope, given to an element's `ref`, and `animate`. It animates Wardic's elements and plain ones alike, for a moment no prop describes, such as a step in a sequence or a reply to a server.
 
 ```tsx
-import { createAnimate, stagger } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createAnimate, stagger } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const [scope, animate] = createAnimate()
 const reveal = () => animate("li", { opacity: [0, 1], y: [8, 0] }, { delay: stagger(0.05) })
@@ -53,7 +53,7 @@ On a Wardic element, the keys it animates stay where it leaves them until the el
 On Solid 2, `scope.settled()` is an async value: pending while any of its animations is in flight, then the last one that landed. `isPending(() => scope.settled())` reads "animating":
 
 ```tsx
-import { createAnimate } from "@wardic/solid/unstable/v2"
+import { createAnimate } from "@wardic/solid"
 import { isPending } from "solid-js"
 
 const [scope, animate] = createAnimate()

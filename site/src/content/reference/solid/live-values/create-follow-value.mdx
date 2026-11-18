@@ -9,7 +9,7 @@ api: [createFollowValue, FollowAccessor, FollowValueOptions]
 A value that follows another on a transition: from each change of its source, it animates there, then rests. For a spring alone, [`createSpring`](/reference/solid/live-values/create-spring) is the same.
 
 ```tsx
-import { createFollowValue } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createFollowValue } from "@wardic/solid" // or "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 
 const [x, setX] = createSignal(0)

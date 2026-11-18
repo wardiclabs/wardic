@@ -9,7 +9,7 @@ api: [createReducedMotion, createReducedMotionConfig]
 Wardic's animations honour reduced motion by themselves. These are for what isn't an animation: a video that shouldn't autoplay, a path left straight. See [Reduced motion](/guides/reduced-motion).
 
 ```tsx
-import { createReducedMotion, createReducedMotionConfig } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createReducedMotion, createReducedMotionConfig } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const prefers = createReducedMotion()
 <Show when={!prefers()} fallback={<img src={still} />}><video autoplay src={clip} /></Show>

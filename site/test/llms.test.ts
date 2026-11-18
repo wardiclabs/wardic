@@ -21,8 +21,8 @@ it("writes a CodeTabs as its sample's code, a block per binding, Solid 2's first
   const solid2 = readFileSync(join(SAMPLES, "enter", "solid2.tsx"), "utf8").trimEnd()
   const solid1 = readFileSync(join(SAMPLES, "enter", "solid1.tsx"), "utf8").trimEnd()
   expect(out).toContain(`Solid 2:\n\n\`\`\`tsx\n${solid2}\n\`\`\``)
-  expect(out).toContain(`Solid 1:\n\n\`\`\`tsx\n${solid1}\n\`\`\``)
-  expect(out.indexOf("Solid 2:")).toBeLessThan(out.indexOf("Solid 1:"))
+  expect(out).toContain(`Solid 1 (v1):\n\n\`\`\`tsx\n${solid1}\n\`\`\``)
+  expect(out.indexOf("Solid 2:")).toBeLessThan(out.indexOf("Solid 1 (v1):"))
 })
 
 it("writes an InstallTabs as its npm line, and a Demo as a pointer to the page", () => {

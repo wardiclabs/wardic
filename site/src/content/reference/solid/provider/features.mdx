@@ -9,7 +9,7 @@ api: [hover, press, focus, inView, pan, drag, layout, colors, scroll, domAnimati
 A `w.*` element animates its values with nothing else. Each thing it does beyond that is a Feature, given to a [Wardic instance](/reference/solid/elements/wardic-instance), `createWardic(features)`, or to a section, a [`WardicProvider`](/reference/solid/provider/wardic-provider) or a [`LazyWardic`](/reference/solid/provider/lazy-wardic), so a page ships only those it uses. A `wardic.*` element has every one.
 
 ```tsx
-import { createWardic, domAnimation, layout } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createWardic, domAnimation, layout } from "@wardic/solid" // or "@wardic/solid/v1"
 
 export const { w } = createWardic([domAnimation, layout])
 ```
