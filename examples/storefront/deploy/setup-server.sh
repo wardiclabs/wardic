@@ -52,7 +52,7 @@ chown deploy:deploy /home/deploy/wardic/examples/storefront/deploy/.env
 
 # A nightly restart: the store keeps each visitor's cart and settings in memory, unbounded.
 ( crontab -u deploy -l 2>/dev/null | grep -v storefront-nightly || true
-  echo "30 4 * * * cd /home/deploy/wardic/examples/storefront/deploy && docker compose restart solid1 solid2 next # storefront-nightly"
+  echo "30 4 * * * cd /home/deploy/wardic/examples/storefront/deploy && docker compose restart solid1 solid2 # storefront-nightly"
 ) | crontab -u deploy -
 
 echo "Set up for $DOMAIN. Check 'ssh deploy@<server>' works with your own key, then run lock-ssh.sh."
