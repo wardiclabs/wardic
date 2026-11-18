@@ -31,8 +31,8 @@ A press inside a pressable element presses both, as in Motion. `propagate={{ tap
 
 ## Hearing a gesture
 
-- **On Solid 1,** an element takes Motion's callbacks: `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onViewportEnter`, `onViewportLeave` and the drag and pan ones, each `(event, info)`, with `info.point` in the viewport's coordinates.
 - **On Solid 2,** the element's ward gives them: make one with `w.ward()`, give it to the element as `wardRef`, then `await button.next("tap")`, or run an effect over `button.when("tap")`.
+- **On Solid 1,** an element takes Motion's callbacks: `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onViewportEnter`, `onViewportLeave` and the drag and pan ones, each `(event, info)`, with `info.point` in the viewport's coordinates.
 
 ## The Features they need
 

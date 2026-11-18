@@ -38,17 +38,18 @@ log to `examples/layout-lab/logs/<timestamp>-<binding>-<scheduler mode>.json`
 (gitignored), with no size limit, unlike a paste. The button only exists under the
 dev servers. **Copy log JSON** still works anywhere.
 
-### On Solid 2
+### On Solid 1
 
-The same lab runs on the Solid 2 binding, `@wardic/solid/unstable/v2` (#209):
+`dev` runs the lab on Solid 2, with `@wardic/solid` (#209, the default since
+#566). The same lab runs on the Solid 1 binding, `@wardic/solid/v1`:
 
 ```sh
-direnv exec . bun run --filter='@wardic/example-layout-lab' dev:v2
+direnv exec . bun run --filter='@wardic/example-layout-lab' dev:v1
 ```
 
 It's one lab built two ways: the UI, probes and judging are one source, compiled
-by Solid 1 (`dev`, `vite.config.ts`) or by Solid 2 (`dev:v2`,
-`vite.v2.config.ts`, with `@wardic/solid`'s own Solid 2 compile). Each build
+by Solid 2 (`dev`, `vite.v2.config.ts`, with `@wardic/solid`'s own Solid 2
+compile) or by Solid 1 (`dev:v1`, `vite.config.ts`). Each build
 picks its scenarios and binding through `package.json`'s `imports`: `#scenarios`
 is `src/scenarios` or `src/scenarios-v2`, and `#binding` is `src/binding/solid1.ts`
 or `solid2.ts`, under the Solid 2 build's `solid2` condition. The shared UI keeps

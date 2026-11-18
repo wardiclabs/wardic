@@ -9,14 +9,14 @@ api: [createDrag, CreateDragOptions]
 The latest sample of a drag on an element, `null` before the first: where the pointer is, how far it has come, its velocity, and the gesture's phase. It moves nothing: it reports, for a drag that drives something else, such as a slider's value or a canvas. To drag the element itself, give it `drag`.
 
 ```tsx
-import { createDrag } from "@wardic/solid/unstable/v2"
+import { createDrag } from "@wardic/solid"
 
 const drag = createDrag({ axis: "x" })
 const value = () => (drag()?.offset.x ?? 0) / 2
 <div class="track" ref={drag} />
 ```
 
-On Solid 1, `createDrag(target, options?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On Solid 2, `createDrag(options?)` is a sensor, given to the element's `ref`. On a server it's `null`.
+On Solid 2, `createDrag(options?)` is a sensor, given to the element's `ref`. On Solid 1, `createDrag(target, options?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On a server it's `null`.
 
 ## A sample
 

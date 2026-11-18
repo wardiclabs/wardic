@@ -1,4 +1,4 @@
-import { arc } from "@wardic/solid"
+import { arc } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 

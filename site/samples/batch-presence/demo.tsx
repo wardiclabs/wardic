@@ -3,7 +3,7 @@
  * item six times, its kind kept) in a scroller, with the page's frame rate. The bigger pantry is the demo's
  * alone: the code tabs show the sample.
  */
-import { AnimatePresence, createBatch, stagger } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createBatch, stagger } from "@wardic/solid"
 import { createMemo, createSignal, For, onSettled, Show } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 import Pantry, { FILTERS, PRODUCE } from "./solid2.tsx"

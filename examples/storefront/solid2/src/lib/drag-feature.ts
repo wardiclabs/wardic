@@ -3,4 +3,4 @@
  * Rearrange. A module of its own, so the import names this module alone, and `drag`'s code is a chunk
  * the page fetches then, not part of what it loads with the route.
  */
-export { drag } from "@wardic/solid/unstable/v2"
+export { drag } from "@wardic/solid"

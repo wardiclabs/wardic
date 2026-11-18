@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Start-mode dev sandbox for the Solid 2 binding, @wardic/solid/unstable/v2 (#209): server rendering, hydration and Appear animations, on @solidjs/vite-plugin's start mode.",
+  "description": "Start-mode dev sandbox for the Solid 2 binding, @wardic/solid (#209): server rendering, hydration and Appear animations, on @solidjs/vite-plugin's start mode.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

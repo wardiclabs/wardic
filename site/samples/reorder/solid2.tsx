@@ -1,4 +1,4 @@
-import { Reorder } from "@wardic/solid/unstable/v2"
+import { Reorder } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
 
 /** A list to put in order: drag a row, or focus it and lift it with Space, then use the arrows. */

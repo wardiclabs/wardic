@@ -1,4 +1,4 @@
-import { LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 
 const PIECES = [

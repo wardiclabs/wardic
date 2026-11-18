@@ -33,7 +33,7 @@ interface Example {
   readonly bindings: ReadonlyArray<Binding>
 }
 
-const ENTRY: Record<Binding, string> = { solid1: "@wardic/solid", solid2: "@wardic/solid/unstable/v2" }
+const ENTRY: Record<Binding, string> = { solid1: "@wardic/solid/v1", solid2: "@wardic/solid" }
 const OTHER: Record<Binding, Binding> = { solid1: "solid2", solid2: "solid1" }
 
 /** The files under `dir` that `keep` keeps, at any depth. */
@@ -128,9 +128,6 @@ const optionsOf = (binding: Binding): ts.CompilerOptions => {
     "solid-js/store": [join(SOLID1, "store/types/index.d.ts")],
     "solid-js/jsx-runtime": [join(SOLID1, "types/jsx.d.ts")],
     [INSTANCE_IMPORT]: [instanceModule.solid1],
-    // A Solid 1 fence still imports `@wardic/solid`, Solid 1's entry in the published 1.x the site documents:
-    // since 2.0 that's `@wardic/solid/v1` (#566), where #566's docs PR moves them, and this goes.
-    "@wardic/solid": [join(REPO, "packages/solid/src/v1/index.tsx")],
   }
   return {
     jsx: ts.JsxEmit.Preserve,

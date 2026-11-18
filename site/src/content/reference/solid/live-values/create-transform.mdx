@@ -9,7 +9,7 @@ api: [createTransform, Live, LiveSource]
 A value mapped from another, which an element's `style` follows. See [Live values](/guides/live-values).
 
 ```tsx
-import { createTransform } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createTransform } from "@wardic/solid" // or "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 
 const [x, setX] = createSignal(0)
@@ -42,7 +42,7 @@ For several sources, a plain accessor does: `style={{ x: () => x() + offset() }}
 The source is a live value: a signal, a memo, another live value, or an `effect/reactivity` Atom. A ward's value, `card.read("x")` on Solid 2 or `card.value("x")` on Solid 1, is one too, for a value that follows what Wardic draws:
 
 ```tsx
-import { createTransform, createWardic, domAnimation, drag } from "@wardic/solid/unstable/v2"
+import { createTransform, createWardic, domAnimation, drag } from "@wardic/solid"
 
 // This page drags: its own Wardic instance has `drag` beside `domAnimation`.
 const { w } = createWardic([domAnimation, drag])

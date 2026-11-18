@@ -9,13 +9,13 @@ api: [createPress]
 Whether an element is pressed: `true` while a pointer is held down on it, or Enter or Space is held while it has focus, and `false` once it's released or the press is cancelled. To animate while it's pressed, give the element `whileTap`.
 
 ```tsx
-import { createPress } from "@wardic/solid/unstable/v2"
+import { createPress } from "@wardic/solid"
 
 const pressed = createPress()
 <button ref={pressed}>{pressed() ? "Holding" : "Press and hold"}</button>
 ```
 
-On Solid 1, `createPress(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On Solid 2, `createPress()` is a sensor, given to the element's `ref`.
+On Solid 2, `createPress()` is a sensor, given to the element's `ref`. On Solid 1, `createPress(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does.
 
 An element that takes no focus of itself, such as a `div`, is given `tabindex="0"`, so a keyboard can press it. On a server, and until the first press, it's `false`.
 

@@ -1,4 +1,4 @@
-import { createBatch, stagger } from "@wardic/solid"
+import { createBatch, stagger } from "@wardic/solid/v1"
 import { createSignal, For, onCleanup, onMount } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 

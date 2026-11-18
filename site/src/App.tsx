@@ -5,7 +5,7 @@
  */
 import "./styles/site.css"
 import { DomLive } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid"
 import { Loading } from "solid-js"
 import { Layout } from "~/components/Layout.tsx"
 import { Router } from "~/router.ts"

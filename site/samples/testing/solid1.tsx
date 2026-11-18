@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { WardicConfig, WardicProvider } from "@wardic/solid"
+import { WardicConfig, WardicProvider } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 import type { JSX } from "solid-js"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"

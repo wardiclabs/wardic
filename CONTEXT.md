@@ -537,7 +537,7 @@ The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, the
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
 
 **Ward**:
-One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the **Bundle**, `w.attributes(config)`, on any other element (ADR-0071).
+One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid 2's binding has two ways to put one on an element: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Solid 1's has three: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the **Bundle**, `w.attributes(config)`, on any other element (ADR-0071).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
 
 **Spine**:
@@ -589,7 +589,7 @@ A part of Wardic an element pays for only when it needs it (#511), the same on e
 _Avoid_: plugin, addon, module.
 
 **Slim element**:
-A **Wardic element** put on by one of `w`'s forms (#511; Motion's `m`): `w.*`, `w.create()`, and the ward forms, `w.createWard()` and `use:w` on Solid 1, `w.ward()` on Solid 2, and every Foldkit `w.*` element, with the Features its `Wardic.make` handle was given (ADR-0071). Its own code animates values (`animate`, `initial`, `exit`, variants, transitions), with the **Features** chosen above it (its `WardicProvider`'s and every `LazyWardic`'s between). Put on by a **Wardic instance**'s `w`, it also brings that instance's Features, wherever it renders, and takes only their props. A prop of a Feature it doesn't have does nothing.
+A **Wardic element** put on by one of `w`'s forms (#511; Motion's `m`): `w.*`, `w.create()`, and the ward forms, `w.ward()` on Solid 2, `w.createWard()` and `use:w` on Solid 1, and every Foldkit `w.*` element, with the Features its `Wardic.make` handle was given (ADR-0071). Its own code animates values (`animate`, `initial`, `exit`, variants, transitions), with the **Features** chosen above it (its `WardicProvider`'s and every `LazyWardic`'s between). Put on by a **Wardic instance**'s `w`, it also brings that instance's Features, wherever it renders, and takes only their props. A prop of a Feature it doesn't have does nothing.
 _Avoid_: m component, lite element.
 
 **Wardic instance**:

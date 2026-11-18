@@ -15,14 +15,14 @@ Wardic's elements take Motion's props: `initial`, `animate`, `exit` and `transit
 npm install @wardic/solid @wardic/dom effect
 ```
 
-`solid-js` is a peer: Solid 1 (`1.9`), or Solid 2's release candidate.
+`solid-js` and `@solidjs/web` are peers: Solid 2. On Solid 1, see below.
 
 ## Quick start
 
 ```tsx
 import { DomLive } from "@wardic/dom"
 import { createWardic, domAnimation, WardicProvider } from "@wardic/solid"
-import { render } from "solid-js/web"
+import { render } from "@solidjs/web"
 
 // Your app's Wardic instance, in a module of its own (src/lib/wardic.ts): hover, press, focus and in-view.
 const { w } = createWardic(domAnimation)
@@ -42,33 +42,32 @@ render(() => <App />, document.getElementById("app")!)
 
 An element's gestures, layout and the rest are **Features**, chosen on a Wardic instance: `domAnimation` is hover, press, focus and in-view. Its elements take those Features' props alone, so a prop of another is a type error that names it. A page that drags or lays out makes an instance of its own, `createWardic([domAnimation, drag])`, or loads a Feature when it's wanted, so each page ships only the animation code it uses.
 
-**On Solid 2,** import from `@wardic/solid/unstable/v2`: the same elements and animation props, built on Solid 2's reactivity, with Motion's callback props (`onTap`…) as a ward's events. It stays outside semver until Solid 2 itself is stable.
+**On Solid 1** (`1.9`), import from `@wardic/solid/v1`: the same elements and animation props, built on Solid 1's reactivity, with Motion's callback props (`onTap`…) where Solid 2 has a ward's events. It's deprecated and frozen for features, and goes at Wardic's next major. A Solid 1 app on `@wardic/solid` 1.x moves to 2.0 by changing its imports from `@wardic/solid` to `@wardic/solid/v1`.
 
 ## Coming from Motion
 
-Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, with the Features its Wardic instance gives, and `AnimatePresence`, `LayoutGroup`, `Reorder`, `stagger` and `domAnimation` / `domMax` are as they are. Motion's hooks become Solid's `create*` primitives: `useAnimate` is `createAnimate`, `useScroll` is `createScroll`, `useSpring` is `createSpring`, `useTransform` is `createTransform`, `useInView` is `createInView`. `MotionConfig` is `WardicConfig`, and `m` under `LazyMotion` is a Wardic instance's `w` (`createWardic`), or `LazyWardic` for a section. [The docs](https://wardic.dev) map every API, and say where Wardic differs.
+Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, with the Features its Wardic instance gives, and `AnimatePresence`, `LayoutGroup`, `Reorder`, `stagger` and `domAnimation` / `domMax` are as they are. Motion's hooks become Solid's `create*` primitives: `useAnimate` is `createAnimate`, `useScroll` is `createScroll`, `useSpring` is `createSpring`, `useTransform` is `createTransform`, `useInView` is `createInView`. `MotionConfig` is `WardicConfig`, and `m` under `LazyMotion` is a Wardic instance's `w` (`createWardic`), or `LazyWardic` for a section. Motion's callback props (`onTap`…) are a ward's events: `await card.next("tap")`. [The docs](https://wardic.dev) map every API, and say where Wardic differs.
 
 ## See it
 
 The storefront showcase is a made-up ceramics shop whose every feature is an example: the demo, why it's worth reaching for, and the code.
 
-- On Solid 1: https://solid1.wardic.dev
 - On Solid 2: https://solid2.wardic.dev
 
-Its source is in [`examples/storefront`](examples/storefront).
+Its source is in [`examples/storefront`](examples/storefront), with a Solid 1 version beside it.
 
 ## Packages
 
 | Package | What it is |
 | --- | --- |
-| [`@wardic/solid`](packages/solid) | The Solid binding: Solid 1 at the root, Solid 2 under `/unstable/v2`. |
+| [`@wardic/solid`](packages/solid) | The Solid binding: Solid 2 at the root, Solid 1 under `/v1`, deprecated. |
 | [`@wardic/dom`](packages/dom) | The browser environment it runs on. |
 | [`@wardic/core`](packages/core) | The engine, for building a binding or an environment of your own. |
 | [`@wardic/test`](packages/test) | Testing Layers: a clock that replays the frames you give it and input you push, with no browser. |
 
 ## Status
 
-`1.0.0`'s release candidates: Motion for React's API on both Solid bindings. Solid 1's binding follows semver from `1.0.0`; Solid 2's does once Solid 2 is stable, and becomes the root entry in `2.0`. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major. What comes next is on the [docs site](https://wardic.dev) and in the [milestones](https://github.com/wardiclabs/wardic/milestones).
+`@wardic/solid` 2.0: Motion for React's API on Solid 2 at the root, under semver, and on Solid 1 at `/v1`, deprecated. `@wardic/core`, `@wardic/dom` and `@wardic/test` are on 1.x, and version together; `@wardic/solid` versions on its own, on the exact `@wardic/core` and `@wardic/dom` it's built with. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major. What comes next is on the [docs site](https://wardic.dev) and in the [milestones](https://github.com/wardiclabs/wardic/milestones).
 
 ## Contributing
 

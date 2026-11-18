@@ -1,4 +1,4 @@
-import { AnimatePresence, createBatch, stagger } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createBatch, stagger } from "@wardic/solid"
 import { createMemo, createSignal, For } from "solid-js"
 
 type Series = "Teal" | "Blue" | "Purple"

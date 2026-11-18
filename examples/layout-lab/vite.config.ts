@@ -3,6 +3,8 @@ import { defineConfig } from "vite"
 import { saveLogPlugin } from "./vite.save-log.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
+// The lab on Solid 1 (`bun dev:v1`; `bun dev` is Solid 2's, vite.v2.config.ts, since #566).
+//
 // Client-only SPA: no SSR config. The @wardic/* packages ship TypeScript + Solid
 // JSX source, which Vite transpiles directly in the browser build.
 //

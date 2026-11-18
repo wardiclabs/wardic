@@ -13,12 +13,7 @@ export default function Home() {
         <div class="hero-badges">
           <p class="eyebrow">Wardic on</p>
           <span class="badge badge-binding">Solid 2</span>
-          <span class="badge badge-unstable">Unstable</span>
         </div>
-        <p class="unstable-note">
-          These examples run on <code>@wardic/solid/unstable/v2</code>, Wardic for Solid 2's release candidate (2.0.0-rc.18). Any release of either may
-          change it; once Solid 2.0 is stable, it becomes <code>@wardic/solid</code>.
-        </p>
         <h1>A small shop built to show what Wardic does.</h1>
         <p>Each example is a feature of the shop, with the code that makes it move and why it's worth reaching for.</p>
       </section>

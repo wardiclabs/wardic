@@ -16,7 +16,7 @@ import { fieldOfPages, pagesUnder } from "../plugins/page-front-matter.ts"
 /** The bindings a sample can be written for, in `CodeTabs`' order, with their labels. */
 const BINDINGS = [
   { file: "solid2.tsx", label: "Solid 2" },
-  { file: "solid1.tsx", label: "Solid 1" },
+  { file: "solid1.tsx", label: "Solid 1 (v1)" },
   { file: "motion.tsx", label: "Motion" },
 ] as const
 
@@ -124,7 +124,7 @@ export const writeLlms = async (site: string, client: string, origin: string): P
     "",
     `> ${descriptions["index"]}`,
     "",
-    "Install `@wardic/solid`, `@wardic/dom` and `effect`. On Solid 1, import from `@wardic/solid`; on Solid 2, from `@wardic/solid/unstable/v2`. Each link below is the page as Markdown; " +
+    "Install `@wardic/solid`, `@wardic/dom` and `effect`. On Solid 2, import from `@wardic/solid`; on Solid 1, from `@wardic/solid/v1`, deprecated. Each link below is the page as Markdown; " +
       `${origin}/llms-full.txt has every page in one file.`,
   ].join("\n")
   const list = sections.map((section) => `## ${section.title}\n\n${section.pages.map(linkOf).join("\n")}`).join("\n\n")

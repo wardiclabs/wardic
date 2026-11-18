@@ -150,8 +150,8 @@ const LabHeader = (): JSX.Element => {
         </p>
       </div>
       <div class="lab-scheduler">
-        {/* Which binding this build runs: `bun dev` (Solid 1) or `bun dev:v2` (Solid 2, #209 PR 5). */}
-        <span class="pill">{BINDING === "solid2" ? "Solid 2: @wardic/solid/unstable/v2" : "Solid 1: @wardic/solid"}</span>
+        {/* Which binding this build runs: `bun dev` (Solid 2, #209 PR 5) or `bun dev:v1` (Solid 1). */}
+        <span class="pill">{BINDING === "solid2" ? "Solid 2: @wardic/solid" : "Solid 1: @wardic/solid/v1"}</span>
         <span class={`pill scheduler-${mode}`}>
           {mode === "microtask" ? "scheduler: microtask (test-harness timing)" : "scheduler: default (real-app timing)"}
         </span>

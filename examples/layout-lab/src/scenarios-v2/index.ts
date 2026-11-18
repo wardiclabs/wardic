@@ -1,7 +1,7 @@
 /**
  * The scenarios on the Solid 2 binding (#209 PR 5): `#scenarios` under the `solid2` condition, as
- * `bun dev:v2` builds the lab. Solid 1's (`../scenarios/index.ts`) with the same ids, their Views
- * written for `@wardic/solid/unstable/v2` and Solid 2.
+ * `bun dev` builds the lab. Solid 1's (`../scenarios/index.ts`) with the same ids, their Views
+ * written for `@wardic/solid` and Solid 2.
  *
  * @module
  */

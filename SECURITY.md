@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The latest release of each `@wardic/*` package gets security fixes: `1.0.0`'s release candidates until `1.0.0` itself, then the latest `1.x`. Solid 2's binding (`@wardic/solid/unstable/v2`) is covered the same way, while it stays outside semver.
+The latest release of each `@wardic/*` package gets security fixes: the latest `1.x` of `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the latest `2.x` of `@wardic/solid`, both its bindings: Solid 2's at the root, and Solid 1's at `@wardic/solid/v1` until the major that removes it.
 
 ## Reporting a vulnerability
 

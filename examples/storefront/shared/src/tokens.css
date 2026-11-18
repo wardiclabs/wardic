@@ -20,9 +20,8 @@
   --accent-soft: #dbe6f1;
   --ok: #3b6630;
   --danger: #a8424c;
-  /* A warning, Nord's yellow: the Solid 2 binding's "Unstable" badge. */
+  /* A warning, Nord's yellow. */
   --warn: #8a6100;
-  --warn-soft: #f6e7c4;
   --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
   --glow: rgb(94 129 172 / 0.28);
   --shadow-s: 0 1px 2px rgb(46 52 64 / 0.06), 0 1px 1px rgb(46 52 64 / 0.04);
@@ -66,7 +65,6 @@
   --ok: #cfe0bf;
   --danger: #eba3aa;
   --warn: #ebcb8b;
-  --warn-soft: #4a4536;
   --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
   --glow: rgb(136 192 208 / 0.35);
   --shadow-s: 0 1px 2px rgb(0 0 0 / 0.3);
@@ -89,7 +87,6 @@
     --ok: #cfe0bf;
     --danger: #eba3aa;
     --warn: #ebcb8b;
-    --warn-soft: #4a4536;
     --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
     --glow: rgb(136 192 208 / 0.35);
     --shadow-s: 0 1px 2px rgb(0 0 0 / 0.3);

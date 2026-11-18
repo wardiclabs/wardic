@@ -9,7 +9,7 @@ api: [measureLayoutBox]
 Measures an element's box where the layout puts it. Its own `transform` is cleared for the read and put back, so an animation running on it doesn't move the reading: a card sliding across still measures where it'll land.
 
 ```tsx
-import { measureLayoutBox } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { measureLayoutBox } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const box = measureLayoutBox(card)
 console.log(box.top, box.left, box.width, box.height)

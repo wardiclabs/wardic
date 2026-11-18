@@ -27,7 +27,7 @@ The same card, in all three:
 | (none) | A Feature per gesture, `hover`, `press`, `focus`, `inView`, `pan` and `drag`, and `layout` and `colors` (every CSS colour space beyond hex, `rgb()`, `hsl()` and the colour names). |
 | `motion.create(Component)`, with `forwardMotionProps` or `type: "svg"` | `w.create(Component)`, with the same options. |
 | `isMotionComponent`, `unwrapMotionComponent`, `isValidMotionProp` | `isWardicComponent`, `unwrapWardicComponent`, `isValidWardicProp` |
-| (none) | A ward on your own element: on Solid 1, `w.createWard(config)` spread onto it, or the `use:w` directive; on Solid 2, `w.ward(config)`, spread or given to a `w.*` element as `wardRef`. |
+| (none) | A ward on your own element: on Solid 2, `w.ward(config)`, spread or given to a `w.*` element as `wardRef`; on Solid 1, `w.createWard(config)` spread onto it, or the `use:w` directive. |
 
 Motion's Features load for the whole page. Wardic's are a Wardic instance's, chosen in the module that makes it, or a section's, so a page ships only the Features its own elements use.
 
@@ -66,7 +66,7 @@ Motion's Features load for the whole page. Wardic's are a Wardic instance's, cho
 
 The props keep Motion's names and meanings: `initial`, `animate`, `exit`, `variants`, `custom`, `transition` and its per-value entries (`default`, `layout`), the `while*` props, `viewport`, `layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutDependency`, `layoutCrossfade`, `drag` and its options, `propagate`, `transformTemplate` and `onUpdate`. Keyframes, `times`, `ease`, `transitionEnd`, `delayChildren: stagger(…)`, `path: arc(…)` and `type: "inertia"` work as Motion's do.
 
-**Callbacks.** On Solid 1, an element takes Motion's callbacks (`onHoverStart`, `onTap`, `onDrag`, `onViewportEnter`, …), each called at its event with `(event, info)`, and `info.point` in the viewport's coordinates. On Solid 2, the element's ward gives each event: `await card.next("tap")`, or an effect over `card.when("hover")`.
+**Callbacks.** On Solid 2, the element's ward gives each of Motion's callbacks as an event: `await card.next("tap")`, or an effect over `card.when("hover")`. On Solid 1, an element takes the callbacks (`onHoverStart`, `onTap`, `onDrag`, `onViewportEnter`, …), each called at its event with `(event, info)`, and `info.point` in the viewport's coordinates.
 
 ## Where Wardic differs
 

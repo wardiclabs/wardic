@@ -1,4 +1,4 @@
-import { createSpring } from "@wardic/solid/unstable/v2"
+import { createSpring } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { createEffect, createSignal } from "solid-js"
 

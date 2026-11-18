@@ -46,7 +46,7 @@
  *
  * @module
  */
-import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, onCleanup, Show } from "solid-js"
 import type { ScenarioContext, ScenarioDef } from "../scenarios/types.ts"

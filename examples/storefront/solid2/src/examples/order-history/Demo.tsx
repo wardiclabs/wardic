@@ -1,7 +1,7 @@
 import { formatDay, formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Order, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid"
 import { useAnimateLayout, w } from "~/lib/wardic-layout.ts"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { orders, products } from "~/lib/store.ts"

@@ -1,5 +1,5 @@
 import { CheckFrames, DomLive, FrameLoopMetrics, WardicSpans } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid/v1"
 import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"

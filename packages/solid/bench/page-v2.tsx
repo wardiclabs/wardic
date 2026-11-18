@@ -1,6 +1,6 @@
 /**
  * `bench:solid --v2`'s page (#209): `page.tsx`'s `wardic` page on the Solid 2 binding,
- * `@wardic/solid/unstable/v2`, the same N `wardic.div`s and the same rounds, built with Solid 2's
+ * `@wardic/solid` (#566; `unstable/v2` before), the same N `wardic.div`s and the same rounds, built with Solid 2's
  * compile. The runner pairs it with `page.tsx` on the same head. `?kind=retained` (#318) and
  * `?kind=retained-reorder` (#379) are `page.tsx`'s, on this binding: wards with `whileHover` and
  * `whileTap`, and `Reorder.Item`s in one `Reorder.Group`, for the runner's heap readings.

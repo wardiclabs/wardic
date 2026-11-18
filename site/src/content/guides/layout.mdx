@@ -27,8 +27,8 @@ const sort = () => animateLayout(() => setItems(sorted(items())))
 
 Each time it measures every layout element, so the ones a change pushes aside move too. To hear when the animations it started have ended:
 
-- **On Solid 1,** `animateLayout` returns what `fn` returns, and calls `onSettled` in its options: `animateLayout(fn, { onSettled })`.
 - **On Solid 2,** it returns a promise, which resolves then: `await animateLayout(fn)`.
+- **On Solid 1,** `animateLayout` returns what `fn` returns, and calls `onSettled` in its options: `animateLayout(fn, { onSettled })`.
 
 ## Part of the change
 
@@ -52,8 +52,8 @@ A layout animation runs on `transition`'s `layout` entry, else the element's `tr
 
 The scroll of every scrolling element around it, the page's under `position: fixed`, and how far a `position: sticky` element has stuck are accounted for on their own, with no `layoutScroll` or `layoutRoot`: a page scroll never reads as a move.
 
-- **On Solid 1,** `onLayoutAnimationStart` and `onLayoutAnimationComplete` are called as one starts and lands.
 - **On Solid 2,** the element's ward gives `layoutStart` and `layoutComplete`: `await card.next("layoutComplete")`.
+- **On Solid 1,** `onLayoutAnimationStart` and `onLayoutAnimationComplete` are called as one starts and lands.
 
 ## The Feature
 

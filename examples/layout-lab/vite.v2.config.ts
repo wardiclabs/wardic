@@ -3,7 +3,7 @@ import { solid2 } from "../../packages/solid/vite.solid2.ts"
 import { saveLogPlugin } from "./vite.save-log.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
-// The lab on Solid 2 (`bun dev:v2`, #209 PR 5): the same page, its UI, probes and judging
+// The lab on Solid 2 (`bun dev`, #209 PR 5, the default since #566): the same page, its UI, probes and judging
 // compiled by Solid 2, and its scenarios the Solid 2 binding's (`src/scenarios-v2`).
 //
 // - `solid2()` is `@wardic/solid`'s own Solid 2 compile (`@solidjs/babel-plugin`, the repo being on

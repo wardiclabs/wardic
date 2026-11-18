@@ -1,8 +1,9 @@
 # Upgrade targets: Effect 4 and Solid 2
 
-> **Status (2026-11-12): both halves are done.** `effect` and `@effect/vitest` are on `4.1.4`
-> (§1). The Solid 2 build shipped as `@wardic/solid/unstable/v2` (ADR-0045), now on
-> `2.0.0-rc.21`; §2 below is the intent it started from, kept as written.
+> **Status (2026-11-18): both halves are done.** `effect` and `@effect/vitest` are on `4.1.4`
+> (§1). The Solid 2 build shipped as `@wardic/solid/unstable/v2` (ADR-0045), followed Solid 2 to
+> `2.0.1` stable, and is `@wardic/solid`'s root since 2.0 (#566); §2 below is the intent it started
+> from, kept as written.
 
 Wardic will:
 

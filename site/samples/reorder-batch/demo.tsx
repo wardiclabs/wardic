@@ -3,7 +3,7 @@
  * of rows, as a grid of tiles whose columns come from its width, or as rows of text, each as tall as its
  * text, its size read from the page (#714). Not a code tab: the tabs show the column alone.
  */
-import { Reorder } from "@wardic/solid/unstable/v2"
+import { Reorder } from "@wardic/solid"
 import { createSignal, For, Match, onSettled, Switch } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 

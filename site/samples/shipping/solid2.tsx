@@ -1,4 +1,4 @@
-import { LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { LazyWardic, w } from "@wardic/solid"
 import { createSignal, Show } from "solid-js"
 
 /** A ball that drags once you ask: the page fetches `drag` on the press, not with itself. */

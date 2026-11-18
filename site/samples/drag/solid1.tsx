@@ -1,4 +1,4 @@
-import { createWardic, domAnimation, drag } from "@wardic/solid"
+import { createWardic, domAnimation, drag } from "@wardic/solid/v1"
 
 // This page drags: its own Wardic instance brings `drag`, so pages that don't never load it.
 const { w } = createWardic([domAnimation, drag])

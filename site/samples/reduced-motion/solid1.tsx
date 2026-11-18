@@ -1,4 +1,4 @@
-import { createReducedMotion, WardicConfig } from "@wardic/solid"
+import { createReducedMotion, WardicConfig } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 import { createSignal, For } from "solid-js"
 

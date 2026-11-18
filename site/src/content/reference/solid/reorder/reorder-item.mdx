@@ -1,6 +1,6 @@
 ---
 title: Reorder items
-description: Makes an element of your own an item of a Reorder group. createReorderItem and use:reorderItem on Solid 1, reorderItem on Solid 2.
+description: Makes an element of your own an item of a Reorder group. reorderItem on Solid 2, createReorderItem and use:reorderItem on Solid 1.
 api: [createReorderItem, reorderItem, ReorderItem, ReorderItemConfig, ReorderItemWard, ReorderItemSpread, ReorderItemUserProps, ReorderItemDirectiveValue, AnyReorderItem]
 ---
 
@@ -10,10 +10,21 @@ A Reorder item makes an element of your own an item of a [Reorder group](/refere
 
 Its config is `value`, its value in the group's `values`, read once, then `layout`, `true` or `"position"`, and any motion prop but `drag` and `layoutId`, which the group sets. The element takes the drag defaults, with the group's axis's `touch-action`, which its `style` can override. It's a tab stop for the keyboard reorder, its `aria-describedby` the group's instructions.
 
+## Solid 2: reorderItem
+
+```tsx
+import { reorderItem } from "@wardic/solid"
+
+const row = reorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
+<li {...row}>{item.name}</li>
+```
+
+A ward, with a ward's [reads and events](/reference/solid/elements/ward#solid-2-ward): `row.read("y")`, `await row.next("dragEnd")`. Each key of its config is a value or an accessor of it, as a ward's. Your own `tabindex` and `aria-describedby` go in its config, not after the spread, where they'd replace the item's. Call it where you'd make a signal, in a `<For>` callback. Spread it on the element, give it to `ref`, or give it to `Reorder.Item` as `wardRef`.
+
 ## Solid 1: createReorderItem
 
 ```tsx
-import { createReorderItem } from "@wardic/solid"
+import { createReorderItem } from "@wardic/solid/v1"
 
 const row = createReorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
 <li {...row()}>{item.name}</li>
@@ -26,23 +37,12 @@ const row = createReorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
 The directive form, as `use:wardic` is a ward's:
 
 ```tsx
-import { reorderItem } from "@wardic/solid"
+import { reorderItem } from "@wardic/solid/v1"
 
 <li use:reorderItem={{ group: list, value: item, whileDrag: { scale: 1.05 } }}>{item.name}</li>
 ```
 
 In the browser only: its drag defaults and `touch-action` are set as it mounts, not in the server's markup, so a server-rendered item takes `createReorderItem` or `Reorder.Item`. Import `reorderItem` in the module that uses it, so the import isn't dropped as unused.
-
-## Solid 2: reorderItem
-
-```tsx
-import { reorderItem } from "@wardic/solid/unstable/v2"
-
-const row = reorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
-<li {...row}>{item.name}</li>
-```
-
-A ward, with a ward's [reads and events](/reference/solid/elements/ward#solid-2-ward): `row.read("y")`, `await row.next("dragEnd")`. Each key of its config is a value or an accessor of it, as a ward's. Your own `tabindex` and `aria-describedby` go in its config, not after the spread, where they'd replace the item's. Call it where you'd make a signal, in a `<For>` callback. Spread it on the element, give it to `ref`, or give it to `Reorder.Item` as `wardRef`.
 
 ## Coming from Motion
 

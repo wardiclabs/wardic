@@ -9,7 +9,7 @@ api: [createInstantTransition, InstantTransition]
 Returns `start(fn)`, which runs `fn` and makes what it changes land at once: its layout change, and every animation that starts until two frames after the call, each landing where it's going. For a change that shouldn't animate, such as a reset or a jump to another route.
 
 ```tsx
-import { createInstantTransition } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createInstantTransition } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const start = createInstantTransition()
 <button onClick={() => start(() => setOpen(all))}>Open all</button>

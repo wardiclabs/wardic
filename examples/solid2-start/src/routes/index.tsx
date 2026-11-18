@@ -2,7 +2,7 @@
 // and renders under SSR, and links to the hand checks.
 import corePackage from "@wardic/core/package.json"
 import { DomLive, VERSION as domVersion } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { wardic, WardicProvider } from "@wardic/solid"
 
 export default function Home() {
   return (
@@ -12,7 +12,7 @@ export default function Home() {
           Wardic on Solid 2
         </wardic.h1>
         <p>
-          The Solid 2 binding, <code>@wardic/solid/unstable/v2</code>, in <code>@solidjs/vite-plugin</code>'s start mode,
+          The Solid 2 binding, <code>@wardic/solid</code>, in <code>@solidjs/vite-plugin</code>'s start mode,
           rendered on the server and hydrated.
         </p>
         <p>

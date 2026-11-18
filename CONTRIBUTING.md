@@ -31,9 +31,9 @@ The repo runs every package from its source, with no build step: each package's 
 
 - **`packages/core`:** the engine, on [Effect](https://effect.website): springs, tweens, keyframes, variants, the projection geometry, and the services an environment provides.
 - **`packages/dom`:** the browser environment, as Effect Layers.
-- **`packages/solid`:** the Solid binding: Solid 1 at the root, Solid 2 under `src/unstable/v2`.
+- **`packages/solid`:** the Solid binding: Solid 2 at the root (`src/`, its tests in `test/`), Solid 1 under `src/v1` and `test/v1`, deprecated and frozen for features (#566). `src/unstable/v2` only re-exports the root.
 - **`packages/test`:** headless testing Layers.
-- **`examples/`:** the storefront showcase (each feature on Solid 1, Solid 2 and Foldkit) and the layout lab.
+- **`examples/`:** the storefront showcase (each feature on Solid 2, Solid 1 and Foldkit) and the layout lab.
 - **`docs/adr/`:** the decisions, with their reasons. **`CONTEXT.md`:** the project's vocabulary.
 
 ## The rules the code follows
@@ -67,14 +67,14 @@ As the change needs:
 - **One idea per commit.** A refactor that moves code and a change that alters it are separate commits, so each can be read on its own.
 - **A commit's subject names the packages it touches and the issue:** `solid: a drag starts when a lazily loaded drag arrives (#551)`, `core, dom: …`, `docs: …`. Its body says why, and what was measured.
 - **A PR's body says** which issue it closes, what changed, what it measured (size, timing) against `main`, and what ran.
-- **A PR that changes what a package ships adds a changeset** (its `src`, `package.json`, `README.md` or the `tsconfig` it builds with; its tests, benches and their configs need none): `bun run changeset`, picking the bump and writing the line its CHANGELOG gets, for a reader of the release notes. A change no release needs to mention (a comment, a test) takes `bun run changeset --empty`. CI checks it. The four packages are one group under [Changesets](https://github.com/changesets/changesets), so they always share a version.
+- **A PR that changes what a package ships adds a changeset** (its `src`, `package.json`, `README.md` or the `tsconfig` it builds with; its tests, benches and their configs need none): `bun run changeset`, picking the bump and writing the line its CHANGELOG gets, for a reader of the release notes. A change no release needs to mention (a comment, a test) takes `bun run changeset --empty`. CI checks it. `@wardic/core`, `@wardic/dom` and `@wardic/test` are one group under [Changesets](https://github.com/changesets/changesets), so they always share a version. `@wardic/solid` versions on its own (#566), and depends on the exact `@wardic/core` and `@wardic/dom` it's built with: a release of theirs gives it a patch release too.
 
 ## Releases
 
 A release goes out from GitHub Actions (`.github/workflows/release.yml`):
 
 1. **Merged changesets wait on `main`,** and the workflow keeps a "Version Packages" PR open: the next version, and each package's CHANGELOG.
-2. **Merging that PR publishes:** the workflow checks the packed packages (`bun run pack:check`), then publishes each new version to npm with provenance, through npm's trusted publishing, and tags it with a GitHub release.
+2. **Merging that PR publishes:** the workflow checks the packed packages (`bun run pack:check`), then publishes each new version to npm with provenance, through npm's trusted publishing, and tags it with a GitHub release. Each `@wardic/*` dependency a package publishes with is pinned to that package's version in the repo, which the workflow checks first.
 3. **A release candidate** (`1.0.0-rc.N`) comes from Changesets' pre mode (`bun run changeset pre enter rc`; `bun run changeset pre exit` ends it). Until a package has a stable version, its newest release candidate is `latest`, so a plain `npm install` gets it; after, a release candidate goes to `next`, and `latest` keeps the stable one.
 
 ## Licence

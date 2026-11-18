@@ -11,7 +11,7 @@ api: [fromAtom, streamToSignal]
 Effect's reactive values as Solid's, for reading Wardic's own or building on them.
 
 ```tsx
-import { fromAtom, streamToSignal, useWardicRuntime } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { fromAtom, streamToSignal, useWardicRuntime } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const visible = fromAtom(probe.visible, { serverValue: true })
 const point = streamToSignal(pointerMoves, { x: 0, y: 0 })

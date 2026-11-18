@@ -1,5 +1,5 @@
 import { LAGOON_ARTICLE } from "@wardic/example-storefront-shared/stories"
-import { createScroll, createTransform } from "@wardic/solid/unstable/v2"
+import { createScroll, createTransform } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { For } from "solid-js"
 

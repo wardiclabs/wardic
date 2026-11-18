@@ -9,7 +9,7 @@ api: [createAnimationFrame]
 Calls a function every frame while its owner lives, with the frame's time and delta in milliseconds: for what a frame draws itself, such as a canvas, a 3D scene or a value no target describes.
 
 ```tsx
-import { createAnimationFrame } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createAnimationFrame } from "@wardic/solid" // or "@wardic/solid/v1"
 
 let cube!: HTMLDivElement
 createAnimationFrame((time, delta) => {

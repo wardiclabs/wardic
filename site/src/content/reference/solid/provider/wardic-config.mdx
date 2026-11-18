@@ -9,7 +9,7 @@ api: [WardicConfig, WardicConfigProps, WardicReducedMotion, WardicSkipAnimations
 Settings for the Wardic elements under it, nested anywhere under a [`WardicProvider`](/reference/solid/provider/wardic-provider): Motion's `MotionConfig`. An inner one's settings replace an outer one's.
 
 ```tsx
-import { WardicConfig } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { WardicConfig } from "@wardic/solid" // or "@wardic/solid/v1"
 
 <WardicConfig transition={{ type: "spring", stiffness: 300, damping: 30 }} reducedMotion="always">
   <w.div animate={{ x: 100 }} />

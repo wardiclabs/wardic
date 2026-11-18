@@ -66,7 +66,7 @@
  *
  * @module
  */
-import { LayoutGroup, Reorder, type ReorderGroup, reorderGroup, reorderItem, wardic } from "@wardic/solid/unstable/v2"
+import { LayoutGroup, Reorder, type ReorderGroup, reorderGroup, reorderItem, wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, Match, onSettled, Show, Switch } from "solid-js"
 import type { Box, Point } from "../lab/drag-run.ts"

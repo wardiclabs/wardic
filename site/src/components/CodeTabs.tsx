@@ -18,7 +18,7 @@ const CODE = import.meta.glob<Highlighted>("../../samples/*/{solid2,solid1,motio
 /** The bindings a sample can be written for, in the tabs' order: the site's own first. */
 const BINDINGS = [
   { file: "solid2.tsx", label: "Solid 2" },
-  { file: "solid1.tsx", label: "Solid 1" },
+  { file: "solid1.tsx", label: "Solid 1 (v1)" },
   { file: "motion.tsx", label: "Motion" },
 ] as const
 

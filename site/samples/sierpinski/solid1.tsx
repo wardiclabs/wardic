@@ -1,4 +1,4 @@
-import { createBatch } from "@wardic/solid"
+import { createBatch } from "@wardic/solid/v1"
 import { createSignal, For, onCleanup, onMount } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 import { colorOf, DEPTH, HEIGHT, LEAVES, leafAt, WIDTH } from "./triangle.ts"

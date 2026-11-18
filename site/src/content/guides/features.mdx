@@ -64,7 +64,7 @@ It starts in the browser the first time one of the instance's elements or wards 
 
 ## For a section
 
-An instance's Features are named where its module is written. A section gives Features in the three cases that can't be: `<WardicProvider features>` to everything under it, and `<LazyWardic features>` to a part of the tree. The binding's own `w`, imported from `@wardic/solid`, has those of its section, its provider's and every `LazyWardic`'s between them; it takes every prop, and a prop whose Feature isn't there does nothing. An instance's elements have them too, beside their own.
+An instance's Features are named where its module is written. A section gives Features in the three cases that can't be: `<WardicProvider features>` to everything under it, and `<LazyWardic features>` to a part of the tree. The binding's own `w`, imported from `@wardic/solid` or `@wardic/solid/v1`, has those of its section, its provider's and every `LazyWardic`'s between them; it takes every prop, and a prop whose Feature isn't there does nothing. An instance's elements have them too, beside their own.
 
 - **A subtree you don't make:** a component library's elements are its own `w.*`, or the binding's; a `LazyWardic` around them gives them what they use.
 - **Features handed over at runtime:** in the [storefront](https://solid2.wardic.dev), moving a piece from Saved for later flies its photo into the cart, with the `layout` of the page it came from. The page hands it over, `arrive(piece, layout)`, and the cart's fly-in is a `LazyWardic` given it: the shell, on every page, never imports `layout` itself.
@@ -84,7 +84,7 @@ On the binding's `w`, the prop does nothing: `whileHover` without `hover` doesn'
 
 ## Every Feature at once
 
-`wardic.*` is the element with every Feature, whatever its section has, and so are `wardic.create` and the ward that isn't `w`'s: `createWard` on Solid 1, `ward()` on Solid 2. It's handy for trying something out, and heavy for a page. `strict` on a `WardicProvider` or a `LazyWardic` makes one throw in development, so none reaches a page by accident.
+`wardic.*` is the element with every Feature, whatever its section has, and so are `wardic.create` and the ward that isn't `w`'s: `ward()` on Solid 2, `createWard` on Solid 1. It's handy for trying something out, and heavy for a page. `strict` on a `WardicProvider` or a `LazyWardic` makes one throw in development, so none reaches a page by accident.
 
 ## What it saves
 

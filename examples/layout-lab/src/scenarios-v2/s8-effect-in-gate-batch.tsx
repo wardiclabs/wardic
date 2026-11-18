@@ -18,7 +18,7 @@
  *
  * @module
  */
-import { ward, wardic } from "@wardic/solid/unstable/v2"
+import { ward, wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createEffect, createSignal, For } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"

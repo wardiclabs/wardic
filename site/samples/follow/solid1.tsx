@@ -1,4 +1,4 @@
-import { createSpring } from "@wardic/solid"
+import { createSpring } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 

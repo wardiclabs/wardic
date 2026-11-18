@@ -9,10 +9,9 @@
 	file_server
 }
 
+# Solid 1's app is no longer deployed (#566): its address goes to Solid 2's, the same page.
 solid1.{$STOREFRONT_DOMAIN} {
-	# Its `vite preview` answers uncompressed (solid1/vite.config.ts): compressed here. It has no live feed.
-	encode zstd gzip
-	reverse_proxy solid1:4101
+	redir https://solid2.{$STOREFRONT_DOMAIN}{uri} permanent
 }
 
 solid2.{$STOREFRONT_DOMAIN} {

@@ -3,7 +3,7 @@
  * mark, as a mosaic or in lines (logo.ts). Each drawing is one change of the Batch's targets, as a
  * shuffle is. Not a code tab: the tabs show the bindings' files.
  */
-import { createBatch, stagger } from "@wardic/solid/unstable/v2"
+import { createBatch, stagger } from "@wardic/solid"
 import { createEffect, createSignal, For, isPending, onSettled } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 import { BOARD, gridAt, LINES, MOSAIC, TILE_COUNT } from "./logo.ts"

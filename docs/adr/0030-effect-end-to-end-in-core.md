@@ -448,4 +448,8 @@ ADR-0071's decision 6 (#561's round 6, Q22), built in #672's first PR.
 - **`Report` is core's,** as `@wardic/core/unstable/Report`: `failure`, `debugKept`, `debugOf`, `DebugLog`. It was dom's `internal/report.ts`; its `reportFailure` is exported as `failure`, the name `@wardic/dom/Report` gave it, so the spine's `Report.failure` needs only its import changed when it moves.
 - **Core's engine still doesn't report** (decision 4 above): the Frame loop hands each run's failure to its caller. The spine does, as a binding boundary, and it moves into core (#672), so the reporting it does comes with it.
 - **`@wardic/dom/Report` stays,** re-exporting core's: it's the Tier 2 face binding authors import (ADR-0041). dom's own modules import core's.
-- **Unstable:** public, with no semver promise; Wardic's own packages always match it, through the Changesets fixed group (ADR-0071, decision 5).
+- **Unstable:** public, with no semver promise; Wardic's own packages always match it, through the Changesets fixed group (ADR-0071, decision 5) (*Amended by* *Amendment (#566)*: through exact pins).
+
+## Amendment (#566, 2026-11-18): exact pins, not the fixed group
+
+The *Amendment (#672)*'s `Report` is unstable, and Wardic's own packages match it through exact pins, not through the Changesets fixed group alone, since `@wardic/solid` left the group at its 2.0: ADR-0071, *Amendment (#566)*.

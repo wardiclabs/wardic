@@ -13,7 +13,7 @@ bun dev      # http://localhost:3000
 bun run build && bun start   # production build + serve
 ```
 
-The home route imports a marker from `@wardic/core`, `@wardic/dom`, and `@wardic/solid`
+The home route imports a marker from `@wardic/core`, `@wardic/dom`, and `@wardic/solid/v1`
 to prove the workspace chain resolves and builds. Swap it for real demos as the engine
 and Solid binding gain features.
 

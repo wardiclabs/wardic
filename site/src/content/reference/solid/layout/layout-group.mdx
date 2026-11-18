@@ -9,7 +9,7 @@ api: [LayoutGroup]
 Puts an id before every `layoutId` made under it, so two copies of a component that uses a `layoutId` keep their own: under `<LayoutGroup id="tabs">`, `layoutId="underline"` is `tabs-underline`. See [One element, two places](/guides/layout#one-element-two-places).
 
 ```tsx
-import { LayoutGroup } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { LayoutGroup } from "@wardic/solid" // or "@wardic/solid/v1"
 
 <LayoutGroup id="settings">
   <Tabs />

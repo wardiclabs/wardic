@@ -14,7 +14,7 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid/unstable/v2"
+import { wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, onCleanup } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"

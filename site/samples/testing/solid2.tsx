@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { type JSX, render } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
-import { WardicConfig, WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicConfig, WardicProvider } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { createEffect } from "solid-js"
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest"

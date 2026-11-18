@@ -9,13 +9,13 @@ api: [w, W, WardicCreateOptions]
 The Slim element. `w.div`, `w.button`, `w.svg` and every other HTML and SVG tag are each a component that takes the element's own props and Wardic's [motion props](/reference/solid/elements/props).
 
 ```tsx
-import { w } from "@wardic/solid" // Solid 1
-import { w } from "@wardic/solid/unstable/v2" // Solid 2
+import { w } from "@wardic/solid" // Solid 2
+import { w } from "@wardic/solid/v1" // Solid 1
 
 <w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} whileHover={{ scale: 1.05 }} />
 ```
 
-It animates values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Gestures, drag, layout and the wider colour spaces are [Features](/guides/features). An app usually takes its `w` from a [Wardic instance](/reference/solid/elements/wardic-instance), `createWardic(features)`, whose elements bring those Features and take their props alone. The binding's own `w`, imported from `@wardic/solid`, has those its `WardicProvider` and any `LazyWardic` above it give, and a prop whose Feature isn't there does nothing, with a warning in development. A `strict` section allows either, where it throws for [`wardic`](/reference/solid/elements/wardic).
+It animates values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Gestures, drag, layout and the wider colour spaces are [Features](/guides/features). An app usually takes its `w` from a [Wardic instance](/reference/solid/elements/wardic-instance), `createWardic(features)`, whose elements bring those Features and take their props alone. The binding's own `w`, imported from `@wardic/solid` or `@wardic/solid/v1`, has those its `WardicProvider` and any `LazyWardic` above it give, and a prop whose Feature isn't there does nothing, with a warning in development. A `strict` section allows either, where it throws for [`wardic`](/reference/solid/elements/wardic).
 
 ## Its forms
 
@@ -23,9 +23,9 @@ It animates values with nothing else: `initial`, `animate`, `exit`, variants and
 | --- | --- |
 | `w.<tag>` | The element for that tag. |
 | `w.create(Component, options?)` | Your own component as a Wardic element. It must forward `ref` to its root element, and pass its other props there, `style` among them. |
+| `w.ward(config, options?)` | Solid 2: a [ward](/reference/solid/elements/ward) to spread on an element of your own, or to give a component's `wardRef`. |
 | `w.createWard(config)` | Solid 1: a [ward](/reference/solid/elements/ward) to spread on an element of your own. |
 | `use:w={config}` | Solid 1: the same, as a directive. It attaches in the browser only, so on a server-rendered page its element can flash. |
-| `w.ward(config, options?)` | Solid 2: a [ward](/reference/solid/elements/ward) to spread on an element of your own, or to give a component's `wardRef`. |
 
 ## w.create
 

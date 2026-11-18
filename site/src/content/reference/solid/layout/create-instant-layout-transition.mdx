@@ -9,7 +9,7 @@ api: [createInstantLayoutTransition]
 Returns `start(fn)`, which runs `fn` and makes the layout change it makes land at once: every layout element goes straight to its new box, and a running layout animation ends there too. The change's other animations run as ever.
 
 ```tsx
-import { createInstantLayoutTransition } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createInstantLayoutTransition } from "@wardic/solid" // or "@wardic/solid/v1"
 
 const start = createInstantLayoutTransition()
 const sortNow = () => start(() => setOrder(sorted()))

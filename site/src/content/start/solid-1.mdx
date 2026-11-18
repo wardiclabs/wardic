@@ -1,17 +1,30 @@
 ---
 title: Start on Solid 1
-description: Install Wardic in a Solid 1 app, add the provider, choose its Features, and animate your first element.
+description: "Wardic on Solid 1, from @wardic/solid/v1, deprecated: moving a Solid 1 app to @wardic/solid 2.0, then installing it in one."
 ---
 
 # Start on Solid 1
 
-Wardic's root entry, `@wardic/solid`, is its binding for Solid 1 (`1.9`), and it follows semver from `1.0.0`, its [Effect-typed parts](/roadmap#10-motions-api-on-solid) moving to a new Effect major only in a Wardic major. It works in a plain Solid app and in SolidStart, rendered on the server or not.
+Wardic's binding for Solid 1 (`1.9`) is `@wardic/solid/v1`, and it works in a plain Solid app and in SolidStart, rendered on the server or not. It's deprecated and frozen for features: it takes fixes, and goes at Wardic's next major. Solid 2's binding is the root, `@wardic/solid`: see [Start](/start/solid-2).
+
+## Moving to 2.0
+
+Until `@wardic/solid` 2.0, its root was Solid 1's binding. At 2.0 it's Solid 2's, and Solid 1's moved to `/v1`, its API as it was. A Solid 1 app moves with its imports alone:
+
+```diff
+-import { createWardic, domAnimation } from "@wardic/solid"
++import { createWardic, domAnimation } from "@wardic/solid/v1"
+```
+
+Every import from `@wardic/solid` changes, and nothing else. Every name `/v1` exports is marked `@deprecated`, so your editor strikes it through: that's the binding, not the name, and it works until the major that removes `/v1`. `@wardic/core`, `@wardic/dom` and `@wardic/test` stay on 1.x.
+
+Moving to Solid 2 itself is moving to the root: the same elements and animation props, built on Solid 2's reactivity, with Motion's callback props told as a ward's [events](/reference/solid/elements/ward-events). Where a reference page's Solid 2 and Solid 1 differ, it says how.
 
 ## Install
 
-<InstallTabs packages="@wardic/solid @wardic/dom effect solid-js" />
+<InstallTabs packages="@wardic/solid @wardic/dom effect solid-js@1" />
 
-`effect` and `solid-js` are peers: Wardic uses the copies your app has.
+`effect` and `solid-js` are peers: Wardic uses the copies your app has. `solid-js@1` keeps a new app on Solid 1, now that npm's `latest` is Solid 2.
 
 ## The provider
 
@@ -19,7 +32,7 @@ Every Wardic element sits under one `WardicProvider`. It takes the environment W
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid/v1"
 import { render } from "solid-js/web"
 
 render(
@@ -38,7 +51,7 @@ In SolidStart, put it in `app.tsx`, around the router's root, so every page shar
 import { Router } from "@solidjs/router"
 import { FileRoutes } from "@solidjs/start/router"
 import { DomLive } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid/v1"
 import { Suspense } from "solid-js"
 
 export default function App() {
@@ -62,12 +75,12 @@ What an element does beyond animating its values, a gesture, layout or a colour 
 
 ```tsx
 // src/lib/wardic.ts
-import { createWardic, domAnimation } from "@wardic/solid"
+import { createWardic, domAnimation } from "@wardic/solid/v1"
 
 export const { w } = createWardic(domAnimation)
 ```
 
-Import `w` from it, not from `@wardic/solid`. Its elements take those Features' props, and a prop of another is a type error that names it. These guides import it as `~/lib/wardic.ts`, SolidStart's alias for `src`; in a plain Vite app, import it by its path.
+Import `w` from it, not from `@wardic/solid/v1`. Its elements take those Features' props, and a prop of another is a type error that names it. These guides import it as `~/lib/wardic.ts`, SolidStart's alias for `src`; in a plain Vite app, import it by its path.
 
 ## Your first element
 
@@ -75,7 +88,7 @@ A `w.*` element takes Motion's props: it animates from `initial` to `animate`, a
 
 <Demo sample="enter" />
 
-<CodeTabs sample="enter" show="Solid 1" />
+<CodeTabs sample="enter" show="Solid 1 (v1)" />
 
 The same motion can go on an element of your own, with a ward: `w.createWard(config)` spread onto it, or the `use:w` directive.
 
@@ -94,7 +107,7 @@ A page that drags or lays out makes an instance of its own, in a module only its
 
 ```tsx
 // src/lib/wardic-drag.ts
-import { createWardic, domAnimation, drag } from "@wardic/solid"
+import { createWardic, domAnimation, drag } from "@wardic/solid/v1"
 
 export const { w } = createWardic([domAnimation, drag])
 ```

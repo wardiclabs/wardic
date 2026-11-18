@@ -1,4 +1,4 @@
-import { correctParentTransform, WardicConfig } from "@wardic/solid/unstable/v2"
+import { correctParentTransform, WardicConfig } from "@wardic/solid"
 import { w } from "~/lib/wardic-drag.ts"
 import { createSignal, For } from "solid-js"
 

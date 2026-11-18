@@ -1,7 +1,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { CATEGORIES, type Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic-layout.ts"
 import { createMemo, createSignal, For, Loading } from "solid-js"
 import { products } from "~/lib/store.ts"

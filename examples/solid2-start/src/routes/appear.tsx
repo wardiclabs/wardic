@@ -7,7 +7,7 @@
 // rules as a head patch (#245). The report (examples/hand-checks/src/appear-report.ts) judges each
 // element marked `data-appear-k` two seconds after hydration.
 import { DomLive } from "@wardic/dom"
-import { createBatch, Reorder, stagger, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createBatch, Reorder, stagger, wardic, WardicProvider } from "@wardic/solid"
 import { useLocation } from "@solidjs/router"
 import { type JSX, Loading } from "@solidjs/web"
 import { createMemo, createSignal, For, onSettled } from "solid-js"

@@ -4,7 +4,7 @@
  */
 import "@wardic/example-storefront-shared/styles.css"
 import { DomLive } from "@wardic/dom"
-import { WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { Loading } from "solid-js"
 import { Shell } from "~/components/Shell.tsx"

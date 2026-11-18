@@ -92,9 +92,6 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
         <div class="hero-badges">
           <p class="eyebrow">{area.title}</p>
           <span class="badge badge-binding">Solid 2</span>
-          <span class="badge badge-unstable" title="@wardic/solid/unstable/v2: Wardic for Solid 2's release candidate. Any release may change it.">
-            Unstable
-          </span>
         </div>
         <h1>{example.title}</h1>
         <p class="muted">{example.summary}</p>
