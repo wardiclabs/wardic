@@ -30,6 +30,17 @@ const foundBy = <E extends Element>(selector: string): E | undefined => {
   return found
 }
 
+/** Whether an element is an SVG root: a selector may find any element. */
+const isSvg = (element: Element): element is SVGSVGElement => Predicate.hasProperty(element, "viewBox")
+
+/** The SVG `given` names now, if it names one. */
+const svgOf = (given: ElementGiven<SVGSVGElement>): SVGSVGElement | undefined => {
+  const element = elementOf(given)
+  if (Predicate.isUndefined(element)) return undefined
+  if (isSvg(element)) return element
+  return undefined
+}
+
 /** A 2D linear map's coefficients: the inverse of an element's transform, as Motion's `getInverseMatrix`. */
 interface Linear {
   readonly a: number
@@ -52,15 +63,19 @@ const inverseOf = (element: Element): Linear | undefined => {
  * A `transformPagePoint` for a drag or a pan inside a parent with a CSS transform, rotated, scaled or
  * skewed: each pointer point is turned through the inverse of the parent's transform, read at each
  * point, so the element stays under the pointer at any zoom, and a parent that animates is followed.
- * The parent is an element, an accessor of a ref, or a selector. Motion's `correctParentTransform`.
+ * The parent is an element, an accessor of a ref, or a selector looked up in the document at each
+ * point. Motion's `correctParentTransform`.
  *
  * @example
+ * // On Solid: a ref's accessor.
  * let plan!: HTMLDivElement
  * <div ref={plan} style={{ transform: `scale(${zoom()})` }}>
  *   <WardicConfig transformPagePoint={correctParentTransform(() => plan)}>
  *     <w.div drag />
  *   </WardicConfig>
  * </div>
+ * // On Foldkit, which has no refs: a selector.
+ * w.div([w.Drag(), w.Config({ transformPagePoint: correctParentTransform("#plan") })])
  * @see https://wardic.dev/reference/solid/utilities/page-points
  */
 // #443. Points pass as they are while the parent is gone or has no transform.
@@ -82,22 +97,26 @@ export const correctParentTransform =
 /**
  * A `transformPagePoint` for a drag or a pan inside an SVG whose `viewBox` differs from the size it
  * renders at: each pointer point is scaled into the viewBox's units, so a dragged shape stays under
- * the pointer. The SVG is an element, an accessor of a ref, or a selector. Motion's `transformViewBoxPoint`.
+ * the pointer. The SVG is an element, an accessor of a ref, or a selector looked up in the document at
+ * each point; a selector that finds no SVG maps nothing. Motion's `transformViewBoxPoint`.
  *
  * @example
+ * // On Solid: a ref's accessor.
  * let svg!: SVGSVGElement
  * <WardicConfig transformPagePoint={transformViewBoxPoint(() => svg)}>
  *   <svg ref={svg} viewBox="0 0 100 100" width="500" height="500">
  *     <w.rect drag width="10" height="10" />
  *   </svg>
  * </WardicConfig>
+ * // On Foldkit: a selector.
+ * w.rect([w.Drag(), w.Config({ transformPagePoint: transformViewBoxPoint("#plan") })])
  * @see https://wardic.dev/reference/solid/utilities/page-points
  */
 // #443. Points pass as they are while the SVG is gone, has no viewBox, or renders at no size.
 export const transformViewBoxPoint =
   (svg: ElementGiven<SVGSVGElement>): WardConfig.WardicTransformPoint =>
   (point) => {
-    const element = elementOf(svg)
+    const element = svgOf(svg)
     if (Predicate.isUndefined(element)) return point
     const viewBox = element.viewBox.baseVal
     if (Predicate.isNullish(viewBox) || (viewBox.width === 0 && viewBox.height === 0)) return point

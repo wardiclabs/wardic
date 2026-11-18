@@ -88,6 +88,9 @@ export const saidTimes = (lines: ReadonlyArray<string>, text: string): number =>
 /** `el`'s inline opacity, as the gate writes it. */
 export const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
 
+/** The opacity the projection wrote on `el`, 1 where it wrote none: a Follower's factor, a Lead's own times its fade (Solid's `op`). */
+export const writtenOpacityOf = (el: HTMLElement): number => Number(el.style.opacity || "1")
+
 /** `el`'s computed opacity: what's painted, a CSS animation's included. */
 export const computedOpacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
 

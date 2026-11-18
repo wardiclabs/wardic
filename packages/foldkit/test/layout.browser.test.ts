@@ -2,7 +2,7 @@
 // to where a patch put it, measured by a pass after every patch that changed the DOM; a `w.LayoutId`
 // pair hands over across two views; a `w.LayoutGroup` keeps its ids apart; `w.LayoutDependency` asks for
 // a pass under the declared trigger; the layout callbacks reach `update` as Messages, the measure ones
-// as plain functions.
+// as plain functions; `w.LayoutCrossfade(false)` flies one element through a handover, its twin hidden (#795).
 import { DomLive } from "@wardic/dom"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { Features } from "@wardic/foldkit"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { leftOf, paintedReads, topOf, until } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded, embedKeyedList } from "./harness.ts"
+import { embed, type Embedded, embedKeyedList, writtenOpacityOf } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive, features: [Features.layout] })
 
@@ -339,9 +339,6 @@ describe("w.LayoutCrossfade (#442; #795)", () => {
     ])
   }
 
-  /** The opacity the projection wrote: a Follower's factor, a Lead's own times its fade. */
-  const op = (el: HTMLElement): number => Number(el.style.opacity || "1")
-
   it("beside a live twin, the new Lead flies from its twin's box at full opacity, the twin hidden from the first frame (LC1)", async () => {
     const held = embed<Twins, TwinsMessage, boolean>({ Model: Twins, Set: Schema.Boolean, init: { open: false }, update: openIt, view: twinsOf, toMessage: (open) => TwinsMessage.Open({ open }) })
     app = held
@@ -351,9 +348,10 @@ describe("w.LayoutCrossfade (#442; #795)", () => {
     held.send(true)
     await until(() => held.container.querySelector("#twin-b") !== null, 2000, "twin b renders")
     const b = held.container.querySelector<HTMLElement>("#twin-b")!
+    expect(leftOf(b) - leftOf(stage()), "from its twin's box").toBeLessThan(200)
     const frames: Array<{ readonly a: number; readonly b: number; readonly left: number }> = []
     await until(() => {
-      frames.push({ a: op(a()), b: op(b), left: leftOf(b) - leftOf(stage()) })
+      frames.push({ a: writtenOpacityOf(a()), b: writtenOpacityOf(b), left: leftOf(b) - leftOf(stage()) })
       return Math.abs(leftOf(b) - leftOf(stage()) - 300) < 1
     }, 3000, "twin b lands at 300")
     expect(frames.some((f) => f.left > 60 && f.left < 260), "it flew").toBe(true)

@@ -25,6 +25,8 @@
 //   once with the browser's own mouse.
 // - D12: `transformPagePoint` (Q9) on `w.Config` and on the Handle's `config`: the drag's points are
 //   mapped, so the element moves half as far, and so are the boxes a constraints container is measured against.
+// - D12b: `Wardic.correctParentTransform` given a selector (#795): inside a 2× parent the drag stays
+//   under the pointer, the selector looked up in the document at each point.
 // - D8: the controls' `stop()` ends the drag as a release would (`OnDragEnd`, `WhileDrag` off, the
 //   spring back to the origin); `cancel()` ends it where it is, with no `OnDragEnd` and no release.
 // - D9: `DragDirectionLock`: nothing before 10 px on one axis, then `OnDirectionLock` with that axis
