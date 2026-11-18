@@ -1,8 +1,9 @@
 /**
  * Point mappings for a provider's `transformPagePoint` (#443, Motion's `correctParentTransform` and
- * `transformViewBoxPoint`), for every DOM binding. Each takes its element as it is, or an accessor of
- * one (a ref's, set at mount), read at each point. Wardic's points are in the viewport's coordinates,
- * where Motion's are the page's, so neither adds the page's scroll.
+ * `transformViewBoxPoint`), for every DOM binding. Each takes its element as it is, an accessor of one
+ * (a ref's, set at mount), or a selector, for a binding with no refs (Foldkit's), read at each point.
+ * Wardic's points are in the viewport's coordinates, where Motion's are the page's, so neither adds the
+ * page's scroll.
  *
  * Unstable, for Wardic's own packages: public, with no semver promise.
  *
@@ -12,13 +13,21 @@
 import * as Predicate from "effect/Predicate"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
-/** An element given as it is, or an accessor of one. */
-export type ElementGiven<E extends Element> = E | (() => E | undefined)
+/** An element given as it is, an accessor of one, or a selector (#795), looked up in the document at each point. */
+export type ElementGiven<E extends Element> = E | (() => E | undefined) | string
 
-/** The element now: an accessor's, or the one given. */
+/** The element now: an accessor's, the first its selector finds, or the one given. */
 const elementOf = <E extends Element>(given: ElementGiven<E>): E | undefined => {
   if (Predicate.isFunction(given)) return given()
+  if (Predicate.isString(given)) return foundBy<E>(given)
   return given
+}
+
+/** The first element `selector` finds in the document, if any. */
+const foundBy = <E extends Element>(selector: string): E | undefined => {
+  const found = document.querySelector<E>(selector)
+  if (Predicate.isNull(found)) return undefined
+  return found
 }
 
 /** A 2D linear map's coefficients: the inverse of an element's transform, as Motion's `getInverseMatrix`. */
@@ -43,7 +52,7 @@ const inverseOf = (element: Element): Linear | undefined => {
  * A `transformPagePoint` for a drag or a pan inside a parent with a CSS transform, rotated, scaled or
  * skewed: each pointer point is turned through the inverse of the parent's transform, read at each
  * point, so the element stays under the pointer at any zoom, and a parent that animates is followed.
- * The parent is an element, or an accessor of a ref. Motion's `correctParentTransform`.
+ * The parent is an element, an accessor of a ref, or a selector. Motion's `correctParentTransform`.
  *
  * @example
  * let plan!: HTMLDivElement
@@ -73,7 +82,7 @@ export const correctParentTransform =
 /**
  * A `transformPagePoint` for a drag or a pan inside an SVG whose `viewBox` differs from the size it
  * renders at: each pointer point is scaled into the viewBox's units, so a dragged shape stays under
- * the pointer. The SVG is an element, or an accessor of a ref. Motion's `transformViewBoxPoint`.
+ * the pointer. The SVG is an element, an accessor of a ref, or a selector. Motion's `transformViewBoxPoint`.
  *
  * @example
  * let svg!: SVGSVGElement

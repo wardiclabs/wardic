@@ -431,6 +431,15 @@ describe("a w.* element's drag (#793, PR 2; ADR-0004)", () => {
     expect(translateOf(bounded.box).x, "clamped at the mapped room").toBeCloseTo(60, 0)
   })
 
+  it("D12b: Wardic.correctParentTransform given a selector: inside a 2× parent, the drag stays under the pointer", async () => {
+    const scaled = await pushedBox((w, h) =>
+      h.div([h.Id("plan"), h.Style({ position: "absolute", top: "100px", left: "100px", width: "300px", height: "200px", transform: "scale(2)", transformOrigin: "0 0" })], [
+        w.div([h.Id("box"), h.Style(BOX), w.Drag("x"), w.DragMomentum(false), w.Config({ transformPagePoint: Wardic.correctParentTransform("#plan") })], []),
+      ]))
+    await dragBy(scaled.pointer, 60)
+    expect(translateOf(scaled.box).x, "half as far in the plan's units: under the pointer at 2×").toBeCloseTo(30, 0)
+  })
+
   it("D8: stop() ends the drag as a release, cancel() where it is", async () => {
     const lifted = (controls: Ward.DragControls) => (w: W, h: HtmlBuilder<Message>): Html =>
       w.div(

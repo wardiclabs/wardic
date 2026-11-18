@@ -318,3 +318,46 @@ describe("the layout callbacks", () => {
     expect(calls.some((call) => call === `measure ${Math.round(stage + 200)} ${Math.round(stage)}`), `the move measured, with the box before it: ${calls}`).toBe(true)
   })
 })
+
+describe("w.LayoutCrossfade (#442; #795)", () => {
+  const Twins = Schema.Struct({ open: Schema.Boolean })
+  type Twins = typeof Twins.Type
+  const TwinsMessage = defineMessageUnion({ Open: { open: Schema.Boolean } })
+  type TwinsMessage = typeof TwinsMessage.Type
+  const openIt = (model: Twins, message: TwinsMessage) => TwinsMessage.match(message, { Open: ({ open }) => ({ model: { ...model, open } }) })
+  const FLY = { type: "tween", duration: 0.5 } as const
+
+  /** Twin `a` at 20, and, once open, twin `b` at 300 with `LayoutCrossfade(false)`: the handover onto `b` doesn't crossfade. */
+  const twinsOf = (model: Twins, h: HtmlBuilder<TwinsMessage>): Html => {
+    const w = wardic.html(h)
+    return h.div([h.Id("stage"), h.Style({ position: "relative", height: "100px" })], [
+      w.keyed("div")("a", [h.Id("twin-a"), w.LayoutId("lc"), w.Transition(FLY), h.Style({ ...ABS, left: "20px" })]),
+      ...Bool.match(model.open, {
+        onTrue: () => [w.keyed("div")("b", [h.Id("twin-b"), w.LayoutId("lc"), w.LayoutCrossfade(false), w.Transition(FLY), h.Style({ ...ABS, left: "300px" })])],
+        onFalse: () => [],
+      }),
+    ])
+  }
+
+  /** The opacity the projection wrote: a Follower's factor, a Lead's own times its fade. */
+  const op = (el: HTMLElement): number => Number(el.style.opacity || "1")
+
+  it("beside a live twin, the new Lead flies from its twin's box at full opacity, the twin hidden from the first frame (LC1)", async () => {
+    const held = embed<Twins, TwinsMessage, boolean>({ Model: Twins, Set: Schema.Boolean, init: { open: false }, update: openIt, view: twinsOf, toMessage: (open) => TwinsMessage.Open({ open }) })
+    app = held
+    const stage = (): HTMLElement => held.container.querySelector<HTMLElement>("#stage")!
+    const a = (): HTMLElement => held.container.querySelector<HTMLElement>("#twin-a")!
+    await until(() => held.container.querySelector("#twin-a") !== null && leftOf(a()) - leftOf(stage()) === 20, 2000, "twin a rests at 20")
+    held.send(true)
+    await until(() => held.container.querySelector("#twin-b") !== null, 2000, "twin b renders")
+    const b = held.container.querySelector<HTMLElement>("#twin-b")!
+    const frames: Array<{ readonly a: number; readonly b: number; readonly left: number }> = []
+    await until(() => {
+      frames.push({ a: op(a()), b: op(b), left: leftOf(b) - leftOf(stage()) })
+      return Math.abs(leftOf(b) - leftOf(stage()) - 300) < 1
+    }, 3000, "twin b lands at 300")
+    expect(frames.some((f) => f.left > 60 && f.left < 260), "it flew").toBe(true)
+    expect(Math.min(...frames.map((f) => f.b)), "the Lead at full opacity throughout").toBeGreaterThan(0.99)
+    expect(Math.max(...frames.map((f) => f.a)), "its twin hidden throughout").toBeLessThan(0.01)
+  })
+})
