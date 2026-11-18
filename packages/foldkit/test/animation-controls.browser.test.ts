@@ -24,29 +24,20 @@
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import * as Rec from "effect/Record"
-import * as Schema from "effect/Schema"
-import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
-import { defineMessageUnion } from "foldkit/message"
 import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as AnimationControls from "@wardic/foldkit/AnimationControls"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { raf, until } from "../../solid/test/browser-helpers.ts"
-import { BOX, boxOf, computedOpacityOf, type Embedded, embed, frames, logged, said, translateXOf, wait } from "./harness.ts"
+import { type ActionsMessage, BOX, boxOf, computedOpacityOf, doneOf, type Embedded, embedActions, frames, logged, said, translateXOf, wait } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive })
-type W = Wardic.Html<Message, never>
-
-const Model = Schema.Struct({ done: Schema.Array(Schema.String), on: Schema.Boolean })
-type Model = typeof Model.Type
-const Message = defineMessageUnion({ Do: { name: Schema.String }, Done: { name: Schema.String }, Toggle: {} })
-type Message = typeof Message.Type
+type W = Wardic.Html<ActionsMessage, never>
 
 /** A fixture's view: the Model's `on`, Foldkit's builder and the Handle's `w`. */
-type View = (on: boolean, h: HtmlBuilder<Message>, w: W) => Html
+type View = (on: boolean, h: HtmlBuilder<ActionsMessage>, w: W) => Html
 
 let app: Embedded<string> | undefined
 afterEach(() => {
@@ -54,33 +45,15 @@ afterEach(() => {
   app = undefined
 })
 
-/**
- * Embed `view` with `actions`, each an Effect a Command runs when the port names it (`send(name)`), its
- * landing listed under `#done`; `send("toggle")` flips the Model's `on`.
- */
+/** Embed `view` with `actions` on the Handle (the harness's `embedActions`), kept for the teardown. */
 const drive = (view: View, actions: Record<string, Effect.Effect<void>>): Embedded<string> => {
-  const commands = Rec.map(actions, (effect, name) => Command.define(`Do${name}`, { messages: [Message.Done], execute: effect.pipe(Effect.as(Message.Done({ name }))) }))
-  const held = embed<Model, Message, string>({
-    Model,
-    Set: Schema.String,
-    init: { done: [], on: false },
-    update: (model, message) =>
-      Message.match(message, {
-        Do: ({ name }) => ({ model, commands: [commands[name]!()] }),
-        Done: ({ name }) => ({ model: { ...model, done: [...model.done, name] } }),
-        Toggle: () => ({ model: { ...model, on: Bool.not(model.on) } }),
-      }),
-    view: (model, h) => h.div([h.Id("root")], [view(model.on, h, wardic.html(h)), h.ul([h.Id("done")], model.done.map((name) => h.li([], [name])))]),
-    toMessage: (name) => Bool.match(name === "toggle", { onTrue: () => Message.Toggle(), onFalse: () => Message.Do({ name }) }),
-  })
+  const held = embedActions((on, h) => view(on, h, wardic.html(h)), actions)
   app = held
   return held
 }
 
 const xOf = translateXOf
 const opacityOf = computedOpacityOf
-/** What the Commands have landed, in order. */
-const doneOf = (held: Embedded<string>): ReadonlyArray<string> => Array.from(held.container.querySelectorAll("#done li")).map((li) => li.textContent)
 
 /** A list's variants: its own opacity, its children staggered by 0.15 s. */
 const LIST: Ward.Config["variants"] = {
