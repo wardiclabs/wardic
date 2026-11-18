@@ -66,7 +66,16 @@ const commandOf = (): ReadonlyArray<string> => {
   return [vite, ...(dev ? [] : ["preview"]), "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
 }
 const command = commandOf()
+const answering = (): Promise<boolean> => fetch(base).then(() => true, () => false)
+// The smoke checks the server it starts: one already on the port (a preview of an older build, whose
+// page names assets a rebuild has replaced) would be taken for it. The Solid previews bind another
+// address; the Foldkit host binds every one, so its preview stops for the smoke (#826).
+if (deployed === undefined && (await answering())) throw new Error(`smoke: ${base} already answers; stop the server there, since the smoke checks the one it starts`)
 const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, PORT: String(config.port), HOST: "127.0.0.1" } }) : undefined
+let exited: number | null | undefined
+server?.on("exit", (code) => {
+  exited = code
+})
 /**
  * Every line the server has printed, read so its pipes never fill. The dev mode reads a server
  * render's diagnostics there; Vite's dev server also prints the browser's console, each message
@@ -85,12 +94,9 @@ process.on("exit", stop)
 
 const ready = async (): Promise<void> => {
   for (let i = 0; i < 60; i++) {
-    try {
-      await fetch(base)
-      return
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 500))
-    }
+    if (exited !== undefined) throw new Error(`smoke: the server exited with ${exited} before answering:\n${serverLines.join("\n")}`)
+    if (await answering()) return
+    await new Promise((resolve) => setTimeout(resolve, 500))
   }
   throw new Error(`smoke: ${base} never answered`)
 }
