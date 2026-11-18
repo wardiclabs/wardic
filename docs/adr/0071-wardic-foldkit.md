@@ -45,6 +45,7 @@
 
    - Rejected: an interim lift into `@wardic/dom`, moving 3,400 lines twice.
 5. **`unstable/` subpaths** (R3 Q2, R6 Q21): public, with no semver promise. ADR-0008 already allows the subpath. Wardic's own packages always match, through the Changesets fixed group, which `@wardic/foldkit` joins. Recorded as an *Amendment* to ADR-0069.
+   - *Amendment (#566, 2026-11-18):* they match through exact pins, `@wardic/solid` having left the group: see the *Amendment (#566)* below.
    - Rejected: Tier 2 modules, which would make nearly every Motion fix a semver-major of core; bundling core's internals into each binding.
 6. **`Report` moves into core** (R6 Q22). The engine still doesn't report; the spine does, as a binding boundary, through Effect's `ErrorReporter`. Recorded as an *Amendment* to ADR-0030.
 7. **The ports** (R7 Q29, Q30):
@@ -439,3 +440,7 @@ Slice 4 (#794: server rendering, Appear and hydration) was grilled 2026-11-17 (Q
 - **`correctParentTransform` and `transformViewBoxPoint`** (#443) were Solid's `page-point.ts`, Solid-free: moved to dom as `unstable/PagePoint` (a move commit), both Solid bindings re-exporting them, and Foldkit's root and `Wardic` too. Each takes its element as a selector beside an element or an accessor, looked up in the document at each point (not under the Provider element, as the binding's own selectors are: dom's module knows no provider), since a Foldkit view has no refs: the room example's plan is `correctParentTransform("#plan")`; a selector that finds no SVG maps nothing.
 - **`arc`** joins `stagger` at Foldkit's root (#791, Q13's rule: an app imports nothing from `@wardic/core` for the helpers Solid's root has), over core's `Arc.make`.
 - Seams: the layout test's LC1 (the Lead at full opacity, its twin hidden, through a handover with `LayoutCrossfade(false)`) and the drag test's D12b (a drag inside a 2× parent under the pointer with the selector form). Solid's PP1–PP9 hold on the moved code, its LC1–LC5 on the crossfade Foldkit now reaches, and dom's own `page-point` test pins the selector form at its seam: a missing selector and one that finds no SVG pass points through, a scaled parent's maps them.
+
+## Amendment (#566, 2026-11-18): exact pins, not the fixed group
+
+Decision 5 is amended: Wardic's own packages match through the versions each publishes with, not through the Changesets fixed group alone. `@wardic/solid` left the group at its 2.0 (ADR-0045, *Amendment (#566)*): `@wardic/core`, `@wardic/dom` and `@wardic/test` stay one group, which `@wardic/foldkit` joins. Every `@wardic/*` dependency is `workspace:*`, which `bun pack` writes as that package's exact version, and `publish-packages.ts` checks each against the package's own version in the repo before it publishes. So `@wardic/solid` runs the exact `@wardic/core` and `@wardic/dom` it was built with, and a release of theirs gives it a patch release, as a dependent. `@wardic/foldkit` reads `unstable/` subpaths as Solid's binding does, from the exact core and dom it's built with.

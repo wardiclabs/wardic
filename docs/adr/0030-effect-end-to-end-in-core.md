@@ -448,4 +448,8 @@ ADR-0071's decision 6 (#561's round 6, Q22), built in #672's first PR.
 - **`Report` is core's,** as `@wardic/core/unstable/Report`: `failure`, `debugKept`, `debugOf`, `DebugLog`. It was dom's `internal/report.ts`; its `reportFailure` is exported as `failure`, the name `@wardic/dom/Report` gave it, so the spine's `Report.failure` needs only its import changed when it moves.
 - **Core's engine still doesn't report** (decision 4 above): the Frame loop hands each run's failure to its caller. The spine does, as a binding boundary, and it moves into core (#672), so the reporting it does comes with it.
 - **`@wardic/dom/Report` stays,** re-exporting core's: it's the Tier 2 face binding authors import (ADR-0041). dom's own modules import core's.
-- **Unstable:** public, with no semver promise; Wardic's own packages always match it, through the Changesets fixed group (ADR-0071, decision 5).
+- **Unstable:** public, with no semver promise; Wardic's own packages always match it, through the Changesets fixed group (ADR-0071, decision 5); through exact pins since `@wardic/solid` left the group (*Amendment (#566)* below).
+
+## Amendment (#566, 2026-11-18): exact pins, not the fixed group
+
+The *Amendment (#672)*'s `Report` is unstable, and Wardic's own packages match through the versions each publishes with, not through the Changesets fixed group alone. `@wardic/solid` left the group at its 2.0 (ADR-0045, *Amendment (#566)*): `@wardic/core`, `@wardic/dom` and `@wardic/test` stay one group, which `@wardic/foldkit` joins. Every `@wardic/*` dependency is `workspace:*`, which `bun pack` writes as that package's exact version, and `publish-packages.ts` checks each against the package's own version in the repo before it publishes. So `@wardic/solid` runs the exact `@wardic/core` and `@wardic/dom` it was built with, and a release of theirs gives it a patch release, as a dependent.
