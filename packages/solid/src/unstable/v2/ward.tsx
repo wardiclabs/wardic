@@ -72,6 +72,7 @@ import {
   type Accessor,
   createEffect,
   createMemo,
+  createRoot,
   createSignal,
   createUniqueId,
   DEV,
@@ -851,6 +852,10 @@ const lifecycleFor = (share: WardShare | undefined, owner: Owner | null, want: (
   return new Lifecycle(owner, want)
 }
 const lifecycleOfShare = (share: WardShare): Lifecycle | undefined => share.lifecycle
+/** A root's own owner. */
+const ownerOfRoot = (): Owner | null => getOwner()
+/** Ends one thing an accessor mounted at its first call (#566). */
+const callRelease = (dispose: () => void): void => dispose()
 /** A mount's element. */
 const elementOfMount = (m: { readonly element: HTMLElement }): HTMLElement => m.element
 
@@ -937,6 +942,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its value reads (PR2-Q6): one context read.
   const { ownValues, measuredPairs, variableValues } = ElementSetup.valueReadsOf(useWardicValueReads())
   const owner = getOwner()
+  // What its accessors make at their first call (#566), made under an owner of the ward's own, here,
+  // disposed with the ward's: Solid 2.0 runs a ref callback in its creating pass's owner, the ward's
+  // own when it's spread in the component that made it, and refuses a memo or an effect made under
+  // that owner there. Under this one, an accessor first called in a ref makes them as in the body.
+  // Client-only, as every computation of the binding's: it takes no hydration id.
+  const firstCalls = createRoot(ownerOfRoot, CLIENT_ONLY)
   const reactivity = reactivityIn(owner)
   const registry = Spine.registryOf(runtime)
   // SSR/hydration-stable: the server ward makes the same one call.
@@ -1154,16 +1165,23 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // `next` follow that element. Followed through an Atom made at the first `read`, `atom` or drive.
   let driver: Driver | undefined
   let driven: Atom.Writable<Driver | undefined> | undefined
+  // What an accessor mounts at its first call (#566), ended by the ward's one cleanup below: that
+  // call can be in a ref, where Solid 2.0 refuses `onCleanup`.
+  let releases: Array<() => void> | undefined
+  const release = (dispose: () => void): void => {
+    if (Predicate.isUndefined(releases)) releases = []
+    releases.push(dispose)
+  }
   const drivenAtom = (): Atom.Writable<Driver | undefined> => {
     if (Predicate.isNotUndefined(driven)) return driven
     const atom = Atom.make<Driver | undefined>(driver)
-    runWithOwner(owner, () => onCleanup(registry().mount(atom)))
+    release(registry().mount(atom))
     driven = atom
     return atom
   }
 
   // A driving ward's are its given ward's (#349), whose `next` starts them on the element it drives.
-  const lifecycle = lifecycleFor(share, owner, () => {
+  const lifecycle = lifecycleFor(share, firstCalls, () => {
     watchLateGestures()
     UndefinedOr.map(mounted, startRecognizers)
     UndefinedOr.map(driver, (d) => d.wanted())
@@ -1315,11 +1333,13 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (justLeft.size === 0) queueMicrotask(forgetJustLeft)
     justLeft.add(left)
   }
-  // Its element's mount goes, and its lifecycle's waits are rejected (#257): one cleanup.
+  // Its element's mount goes, and its lifecycle's waits are rejected (#257): one cleanup, which ends
+  // what its accessors mounted at their first calls too (#566).
   // A driving ward's lifecycle is its given ward's, which outlives the element (#349).
   onCleanup(() => {
     unmount()
     if (Predicate.isUndefined(share)) lifecycle.dispose()
+    UndefinedOr.map(releases, (all) => Arr.forEach(all.splice(0), callRelease))
   })
 
   const mount = (el: HTMLElement): Mounted => {
@@ -1726,13 +1746,13 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Predicate.isNotUndefined(known)) return known
     const output = gate.valueOf(id, key)
     const following = drivenAtom()
-    const entry = runWithOwner(owner, (): ReadEntry => {
+    const entry = runWithOwner(firstCalls, (): ReadEntry => {
       const resting = createMemo(() => {
         withCallsOf()[0]()
         return ElementSetup.restingOf(key, start.initialValues, userStyle(), (raw) => live.read(raw))
       }, CLIENT_ONLY)
       const restingAtom = Atom.make<unknown>(untrack(resting))
-      onCleanup(registry().mount(restingAtom))
+      release(registry().mount(restingAtom))
       createEffect(
         resting,
         (value) => {
@@ -1743,7 +1763,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       const own = Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => get(restingAtom), onDefined: identity }))
       // Given to a component (#349): what the element it drives shows, while it's there.
       const atom = Atom.make((get) => UndefinedOr.match(get(following), { onUndefined: () => get(own), onDefined: (d) => get(d.readAtom(key)) }))
-      return { accessor: followAtom(registry(), atom), atom }
+      return { accessor: followAtom(registry(), atom, release), atom }
     })
     reads.set(key, entry)
     return entry
