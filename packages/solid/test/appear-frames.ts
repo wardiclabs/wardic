@@ -7,6 +7,8 @@ import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
+import * as DomInterpolators from "@wardic/dom/DomInterpolators"
+import * as Effect from "effect/Effect"
 import { expect } from "vitest"
 import { uncounted } from "./appear-reads.ts"
 
@@ -77,7 +79,8 @@ export const noteStarts = (page: Document | ShadowRoot, watched: ReadonlyArray<E
 export interface Recording {
   /** Where the watched elements' animations run: the document, or a shadow root holding their rules. */
   readonly page: Document | ShadowRoot
-  readonly watched: ReadonlyArray<Element>
+  /** The elements to read, asked at each frame: a hydration that rebuilds a subtree, or a render that adds an element, puts new ones under a key. */
+  readonly watched: () => ReadonlyArray<Element>
   /** How long to record, from the first frame. */
   readonly forMs: number
   /** Whether hydration has run, read as each frame is recorded. */
@@ -93,7 +96,7 @@ export interface Recording {
  * the next frame has started is skipped (#184's late post-paint reads): it would show that frame's values.
  */
 export const recordFrames = async (recording: Recording): Promise<ReadonlyArray<Recorded>> => {
-  const { page, watched, startOf } = recording
+  const { page, startOf } = recording
   const frames: Array<Recorded> = []
   const begun = performance.now()
   let frameCount = 0
@@ -108,6 +111,7 @@ export const recordFrames = async (recording: Recording): Promise<ReadonlyArray<
       const seen = frameCount
       setTimeout(() => {
         if (frameCount !== seen) return
+        const watched = recording.watched()
         const drawn: Record<string, Drawn> = {}
         noteStarts(page, watched, startOf)
         uncounted(() => {
@@ -123,6 +127,10 @@ export const recordFrames = async (recording: Recording): Promise<ReadonlyArray<
   counting = false
   return frames
 }
+
+/** A tween's machine, as the server samples it and the client runs it: `Machine.animateValues` on the DOM's interpolators. */
+export const tween = (from: Values.Values, to: Values.Values, options: Machine.AnimateOptions) =>
+  Effect.runSync(Effect.provide(Machine.animateValues(from, to, options), DomInterpolators.layer))
 
 /** The machine's values `seconds` in, as `Machine.startAt` draws them. */
 export const machineAt = (machine: Machine.Machine<Frame.Frame<Values.Values>>, seconds: number): Values.Values =>

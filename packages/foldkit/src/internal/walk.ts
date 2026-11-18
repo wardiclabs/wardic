@@ -26,8 +26,10 @@
  * On a client, the hydration render's walk samples the same way (PR 3, Q9 and Q10), with no explainer and
  * no CSS asked for: each element's slot is named in its style as the server named it, so the inline
  * `animation` the CSS plays through survives hydration for its Mount's Handoff (decision 6) rather than
- * being stripped as a value the client didn't reassert (P-C). No later render samples: the Mounts have
- * the animations by then, and a render that reorders the view can't hand one element another's.
+ * being stripped as a value the client didn't reassert (P-C). So does every render while a Handoff is
+ * still under way, which a render before an element's first commit would otherwise strip, cancelling
+ * the CSS before its ward took it over; once the last has released, no render samples (the Mounts have
+ * the animations), and a render that reorders the view can't hand one element another's.
  *
  * @module
  */
@@ -40,7 +42,7 @@ import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constFalse, identity } from "effect/Function"
+import { constFalse, constUndefined, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Str from "effect/String"
@@ -49,7 +51,7 @@ import { carriedBy } from "./delivery.ts"
 import { type Config, configOf, startingStyleFrom } from "./element.ts"
 import { holdsInitial } from "./presence.ts"
 import { reactivity } from "./reactivity.ts"
-import { registryOf, type State } from "./services.ts"
+import { appearsOn, registryOf, type State } from "./services.ts"
 import { configValueUnder } from "./tree.ts"
 import { IS_SERVER } from "@wardic/foldkit/internal/server"
 
@@ -111,14 +113,15 @@ const isChunk = (node: ViewNode | string): boolean => {
 /**
  * The render's Appear animations (ADR-0044, decisions 3 and 5; #794, Q3 and Q9): on a server, dom's, from
  * the Handle's `appear` and `nonce` and its config's reduced motion, none with `appear: false`; on a
- * client, the hydration render's alone, the same sampling without the explainer (the server said its
- * words) and without a nonce (no chunk is rendered), so each element's slot is named as the server named
- * it; none at any other render.
+ * client, while hydration's window is open (the hydration render, and the renders before the last
+ * Handoff has released), the same sampling without the explainer (the server said its words) and
+ * without a nonce (no chunk is rendered), so each element's slot is named as the server named it; none
+ * at any other render.
  */
 const appearOfRender = (state: State): AppearAnimations.ServerAppear | undefined => {
-  if (IS_SERVER) return AppearAnimations.serverAppearUnder(state.server.appear, WardicConfigValue.settingOf(state.rootConfig), state.server.nonce)
-  if (state.hydrating) return AppearAnimations.serverAppearUnder(state.server.appear !== false, WardicConfigValue.settingOf(state.rootConfig), undefined)
-  return undefined
+  const setting = WardicConfigValue.settingOf(state.rootConfig)
+  if (IS_SERVER) return AppearAnimations.serverAppearUnder(state.server.appear, setting, state.server.nonce)
+  return Bool.match(state.hydrating, { onTrue: () => AppearAnimations.serverAppearUnder(appearsOn(state.server), setting, undefined), onFalse: constUndefined })
 }
 
 /** The render's CSS: on a server, for the Provider element's chunk; "" on a client, whose rules the server rendered and `wardic.hydrate` moved into the head. */
@@ -128,24 +131,12 @@ const cssOf = (render: AppearAnimations.ServerAppear): string => {
 }
 
 /**
- * The hydration render's sampling ends with its build (Q10): the flag clears in a microtask, after the
- * whole view (a second Provider element in the same build samples too, as the server's did) and before
- * any later render, which Foldkit runs on a Message of its own.
- */
-const endHydration = (state: State): void => {
-  if (Bool.not(state.hydrating)) return
-  queueMicrotask(() => {
-    state.hydrating = false
-  })
-}
-
-/**
  * Walk the Provider element's subtree from `root`, the Provider element itself: each Wardic element
  * (one carrying a config) is read for it, and a Variant child's inherited Starting style, or a held
- * child's, is written into its node's style. On a server, and on a client at the hydration render, each
- * element enters the render's Appear animations, its `animation` written when it plays; what comes
- * back is their CSS on a server, "" for none and on a client, which the Provider element renders in
- * its chunk.
+ * child's, is written into its node's style. On a server, and on a client while hydration's window is
+ * open, each element enters the render's Appear animations, its `animation` written when it plays;
+ * what comes back is their CSS on a server, "" for none and on a client, which the Provider element
+ * renders in its chunk.
  */
 export const walkProvider = (root: ViewNode, state: State): string => {
   const registry = registryOf(state)
@@ -178,7 +169,6 @@ export const walkProvider = (root: ViewNode, state: State): string => {
     visitChildren(node, { provided, held: heldUnder(config, above.held), config: configValue }, path)
   }
   visit(root, { provided: undefined, held: false, config: state.rootConfig }, "")
-  endHydration(state)
   return UndefinedOr.match(appear, { onUndefined: () => "", onDefined: cssOf })
 }
 

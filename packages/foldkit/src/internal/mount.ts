@@ -65,10 +65,6 @@ const wardicPart =
           paused = view === "Paused"
           count()
         })))
-        // A Mount runs after the hydration render's patch (Foldkit fires them after it, children first):
-        // the flag a hydration render with no Provider element left set is cleared here, the fallback,
-        // so no later render names a slot (#794, Q10).
-        state.hydrating = false
         const on = yield* providerFor(state, element, provider)
         MutableRef.set(counted, Option.some(on))
         count()

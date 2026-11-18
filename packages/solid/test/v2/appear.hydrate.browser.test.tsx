@@ -43,9 +43,7 @@ import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
-import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
@@ -57,7 +55,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { countReads, uncounted } from "../appear-reads.ts"
 import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, R1, R2, setAppearEnv } from "./hydrate-fixtures.tsx"
 import "../browser-commands.ts"
-import { cleanups, type Drawn, drawnOf, followsMachine, freshHydration, machineAt, type Recorded, type Run, runServerRendered } from "./appear-hydrate-harness.ts"
+import { cleanups, type Drawn, drawnOf, followsMachine, freshHydration, machineAt, type Recorded, type Run, runServerRendered, tween } from "./appear-hydrate-harness.ts"
 
 const FILE = "./test/v2/hydrate-fixtures.tsx"
 
@@ -211,9 +209,6 @@ const runStreamed = async (
   })
   return { frames, startOf, host, hydratedStyle: {}, claimed: {}, landedAt }
 }
-
-const tween = (from: Values.Values, to: Values.Values, options: Machine.AnimateOptions) =>
-  Effect.runSync(Effect.provide(Machine.animateValues(from, to, options), DomInterpolators.layer))
 
 /** When a machine settles, stepped as the sampler steps it: 0, then 1/60 s at a time. */
 const settledAt = (machine: Machine.Machine<Frame.Frame<Values.Values>>): number => {

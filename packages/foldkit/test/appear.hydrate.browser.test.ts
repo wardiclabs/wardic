@@ -23,7 +23,12 @@
 //   (#245)*), so the move starts where it was, at its true size.
 // - H7: an element the first Model change adds after hydration names no slot (no dead declaration) and
 //   enters by the engine.
-// - H8: a reorder after hydration: the keyed items move with no slot named and nothing restarts (Q9).
+// - H8: a hydration render whose keyed list is in another order than the server's (a stale page):
+//   Foldkit rebuilds the list, and the fresh items enter from their start, none picking up where the
+//   server's node at its place had got (identities don't cross).
+// - H9: a reorder after hydration: the keyed items move with no slot named and nothing restarts (Q9).
+// - H10: a render before the engine's first commit, from an init Command that completes at once: the
+//   slot stays named while the Handoff is under way, so nothing snaps back to the Starting style.
 import * as Easing from "@wardic/core/Easing"
 import * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
@@ -38,7 +43,7 @@ import { IS_SERVER } from "@wardic/foldkit/internal/server"
 import { followsMachine, machineAt, type Recorded, recordFrames } from "../../solid/test/appear-frames.ts"
 import { until } from "../../solid/test/browser-helpers.ts"
 import { tagsOf } from "../../solid/test/markup.ts"
-import { ADDED, CARD, KEYED, LAYOUT, LIST, OFF, STILL } from "./hydrate-fixtures.ts"
+import { ADDED, CARD, EARLY, KEYED, LAYOUT, LIST, OFF, STALE, STILL } from "./hydrate-fixtures.ts"
 import { cleanups, runHydrated } from "./hydrate.ts"
 
 afterEach(async () => {
@@ -170,7 +175,8 @@ describe("Appear animations, server render to hydration, the Foldkit binding (#7
       click("add")()
       watching = (async () => {
         await until(() => document.querySelector("[data-k=late]") !== null, 2000, "the late element renders")
-        late = await recordFrames({ page: document, watched: [document.querySelector("[data-k=late]")!], forMs: 700, hydrated: () => true, startOf: {} })
+        const added = document.querySelector("[data-k=late]")!
+        late = await recordFrames({ page: document, watched: () => [added], forMs: 700, hydrated: () => true, startOf: {} })
       })()
     }
     const r = await runHydrated("ADDED", ADDED, { forMs: 2400, then: { afterMs: 1500, act: add } })
@@ -184,7 +190,22 @@ describe("Appear animations, server render to hydration, the Foldkit binding (#7
     expect(r.frames.at(-1)!.drawn.card!.x, "the card rests").toBeCloseTo(200, 1)
   })
 
-  it("H8: a reorder after hydration moves the keyed items with no slot named, and nothing restarts", async () => {
+  it("H8: a hydration render whose list order differs from the server's: the list is rebuilt, and the fresh items enter from their start", async () => {
+    const r = await runHydrated("STALE", STALE, { forMs: 2000 })
+    const items = [...r.host.querySelectorAll<HTMLElement>("#list > li")]
+    expect(items.map((li) => li.id), "the client's order").toEqual(["item-c", "item-b", "item-a"])
+    for (const li of items) expect(r.before.includes(li), `${li.id} is a fresh node`).toBe(false)
+    expect(r.warned.some((line) => line.includes("did not match")), "Foldkit's word on the mismatch").toBe(true)
+    const after = r.frames.filter((f) => f.hydrated)
+    expect(after.length).toBeGreaterThan(30)
+    for (const k of ["a", "b", "c"]) {
+      expect(after[0]!.drawn[k]!.opacity, `${k} enters afresh, not from where the server's node at its place had got`).toBeLessThan(0.3)
+      expect(after.at(-1)!.drawn[k]!.opacity, `${k} lands`).toBeCloseTo(1, 2)
+      expect(items.find((li) => li.dataset.k === k)!.style.getPropertyValue("animation"), `${k} handed off`).toBe("")
+    }
+  })
+
+  it("H9: a reorder after hydration moves the keyed items with no slot named, and nothing restarts", async () => {
     const r = await runHydrated("KEYED", KEYED, { forMs: 2200, then: { afterMs: 1400, act: click("reorder") } })
     const items = [...r.host.querySelectorAll<HTMLElement>("#list > li")]
     expect(items.map((li) => li.id), "reordered").toEqual(["item-c", "item-b", "item-a"])
@@ -201,5 +222,17 @@ describe("Appear animations, server render to hydration, the Foldkit binding (#7
         expect(f.drawn[k]!.css, `${k} restarted`).toBe(false)
       }
     }
+  })
+
+  it("H10: a render before the engine's first commit, from an init Command, keeps the slot named: no snap back", async () => {
+    const r = await runHydrated("EARLY", EARLY, { forMs: 1800 })
+    expect(r.host.querySelector("#ticks")!.textContent, "the Command's render happened").toBe("1")
+    expect(followsMachine(r, "card", cardAt), "frames after hydration").toBeGreaterThan(30)
+    let highest = -1
+    for (const frame of r.frames) {
+      expect(frame.drawn.card!.x, `x at ${frame.at}`).toBeGreaterThanOrEqual(highest - 0.6)
+      highest = Math.max(highest, frame.drawn.card!.x)
+    }
+    expect(r.host.querySelector<HTMLElement>("[data-k=card]")!.style.getPropertyValue("animation"), "handed off").toBe("")
   })
 })

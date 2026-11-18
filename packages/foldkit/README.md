@@ -49,6 +49,8 @@ What this binding does differently from `@wardic/solid`, for what Foldkit gives 
 - **Server rendering is for `makeApplication` programs**: Foldkit's `renderToString` and `Runtime.hydrate` take those alone; a `makeElement` program renders on the client.
 - **One `w.Provider()`, on the topmost `w.*` element**: Foldkit has no wrapper node, so the element carrying the Provider attribute is the root of the walk that writes the server's styles and samples its Appear animations (above).
 
+The rest is as `@wardic/solid` has it, an attribute for each prop.
+
 - Docs: https://wardic.dev
 - Source: https://github.com/wardiclabs/wardic/tree/main/packages/foldkit
 - Licence: MIT

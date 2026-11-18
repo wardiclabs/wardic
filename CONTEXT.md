@@ -483,6 +483,13 @@ _Avoid_: optimised appear, pre-hydration animation, server animation.
 **Handoff**:
 The engine taking over an **Appear animation** at mount: the element's run starts as far in as the CSS has got, read in the frame that draws its first Frame, and that frame's commit removes the CSS animation, with no paint between (ADR-0044). A **Batch**'s first change starts each member so, at its first step (#706). Motion's word for the same step.
 
+**Appear chunk**:
+The `<style>` carrying a render's **Appear animation** rules, put where the binding can: in the page's head on Solid, and in a **Late chunk** itself; first among the **Provider element**'s children on Foldkit, whose render has no head. The client moves it into the head before it hydrates, so the rules outlive the markup they came with (ADR-0044 *Amendment (#245)*; ADR-0071 *Amendment (#794)*).
+
+**Appear slot**:
+The custom property (`--wardic-a…`) an element's inline `animation` names, which the **Appear chunk**'s rules define: the join between an element and the **Appear animation** the server sampled for it. Its name is the sheet's count on Solid, and the element's index path under the **Provider element** on Foldkit, so the hydration render names the same slot. "Names no slot": plays no Appear animation. A Projection node's box is never a slot.
+_Avoid_: appear var, animation property.
+
 **Late chunk**:
 Server markup a streamed render sends after its shell: a `Suspense` boundary's content, once its data has resolved. A **Late chunk** brings its own **Appear animation** rules, which the client moves into the page's head before it hydrates the chunk, and its animations start when it lands, not at the page's first paint (#245, ADR-0044 *Amendment (#245)*).
 _Avoid_: resume, takeover, sync.

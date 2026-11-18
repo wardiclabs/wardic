@@ -9,7 +9,7 @@ import { expect } from "vitest"
 import { noteStarts, type Recorded, recordFrames } from "./appear-frames.ts"
 import "./browser-commands.ts"
 
-export { type Drawn, drawnOf, followsMachine, machineAt, type Recorded, TOL } from "./appear-frames.ts"
+export { type Drawn, drawnOf, followsMachine, machineAt, type Recorded, TOL, tween } from "./appear-frames.ts"
 
 export interface Run {
   readonly frames: ReadonlyArray<Recorded>
@@ -92,6 +92,6 @@ export const runServerRendered = async (
       for (const el of watched) hydratedStyle[(el as HTMLElement).dataset.k!] = (el as HTMLElement).style.transform
     }, options.hydrateAfter)
   }
-  const frames = await recordFrames({ page, watched, forMs: options.forMs, hydrated: () => hydrated, startOf })
+  const frames = await recordFrames({ page, watched: () => watched, forMs: options.forMs, hydrated: () => hydrated, startOf })
   return { frames, startOf, host, hydratedStyle }
 }

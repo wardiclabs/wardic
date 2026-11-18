@@ -7,7 +7,9 @@
 // `@foldkit/vite-plugin`'s Model preservation, absent here): the middle of a 1.2 s entrance. A production
 // page hydrates as soon as its script runs. Not a test file itself.
 import * as Bool from "effect/Boolean"
+import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Runtime from "foldkit/runtime"
 import { commands } from "vitest/browser"
 import { vi } from "vitest"
@@ -33,8 +35,9 @@ export interface Run {
   readonly root: HTMLElement
   /** Every element under the root before hydration, in document order. */
   readonly before: ReadonlyArray<Element>
+  /** Each frame's record of the `data-k` elements then on the page: a rebuilt or added one under its key. */
   readonly frames: ReadonlyArray<Recorded>
-  /** Each watched element's CSS animation's start, on the rAF timeline. */
+  /** Each watched element's CSS animation's start, on the rAF timeline, by key: the first element under it. */
   readonly startOf: Readonly<Record<string, number>>
   /** What `console.warn` said from the hydration's start until the run ended: Foldkit's mismatch word among them, if any. */
   readonly warned: ReadonlyArray<string>
@@ -50,9 +53,10 @@ const hydratedOf = (root: Element) => (): boolean => Bool.not(root.hasAttribute(
 
 /**
  * Server-render `name`'s program (`make` is the same export, for the client: a fresh fixture, its Handle
- * its own), put its markup on the page, hydrate it with its Handle, and record `forMs` of frames; `then`
- * acts after `afterMs`, as a test clicks once the entrance has landed. The program runs on for the page's
- * lifetime, idle once its host is removed: Foldkit's `hydrate` owns the page and gives nothing back.
+ * its own), put its markup on the page, hydrate it with its Handle (the fixture's client program where it
+ * has one), and record `forMs` of frames; `then` acts after `afterMs`, as a test clicks once the entrance
+ * has landed. The program runs on for the page's lifetime, idle once its host is removed: Foldkit's
+ * `hydrate` owns the page and gives nothing back.
  */
 export const runHydrated = async (name: string, make: Make, options: { readonly forMs: number; readonly then?: { readonly afterMs: number; readonly act: () => void } }): Promise<Run> => {
   const { html, error } = await commands.serverRenderProgram(FIXTURES_FILE, name, BUILD_ID)
@@ -63,7 +67,6 @@ export const runHydrated = async (name: string, make: Make, options: { readonly 
   const root = host.querySelector<HTMLElement>(`[${STAMP}]`)
   if (Predicate.isNull(root)) throw new Error(`server render of ${name} carries no stamped root: ${html.slice(0, 200)}`)
   const before = [...root.querySelectorAll("*")]
-  const watched = [...host.querySelectorAll("[data-k]")]
   const warned: Array<string> = []
   const warn = vi.spyOn(console, "warn").mockImplementation((...args: Array<unknown>) => {
     warned.push(args.map(String).join(" "))
@@ -80,9 +83,10 @@ export const runHydrated = async (name: string, make: Make, options: { readonly 
   }
   const startOf: Record<string, number> = {}
   const fixture = make()
+  const program = UndefinedOr.match(fixture.client, { onUndefined: () => fixture.program, onDefined: identity })
   // The page's only stamped root is this one (`container: null`, the stamp the handle): the last run's host has left.
-  fixture.handle.hydrate(Runtime.makeApplication({ ...fixture.program, container: null }), { buildId: BUILD_ID })
+  fixture.handle.hydrate(Runtime.makeApplication({ ...program, container: null }), { buildId: BUILD_ID })
   const hydrated = hydratedOf(root)
-  const frames = await recordFrames({ page: document, watched, forMs: options.forMs, hydrated, startOf })
+  const frames = await recordFrames({ page: document, watched: () => [...host.querySelectorAll("[data-k]")], forMs: options.forMs, hydrated, startOf })
   return { html, host, root, before, frames, startOf, warned, hydrated }
 }
