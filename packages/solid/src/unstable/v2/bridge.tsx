@@ -39,11 +39,13 @@ export const streamToSignal = <A,>(stream: Stream.Stream<A, never, WardicService
 /**
  * `atom` as an accessor carrying it: a signal set from `registry` at each change, unsubscribed when
  * the owner is disposed. Every Atom the binding hands to Solid goes through it (a ward's `read`, the
- * Live-value helpers, `fromAtom`). Call it where you'd make a signal.
+ * Live-value helpers, `fromAtom`). Call it where you'd make a signal. Its unsubscribe goes to
+ * `addCleanup`, the owner's `onCleanup` unless given: a ward's accessor first called in a ref, where
+ * Solid 2.0 refuses `onCleanup`, gives its own (#566).
  */
-export const followAtom = <A,>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>): Accessor<A> => {
+export const followAtom = <A,>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>, addCleanup: (cleanup: () => void) => void = onCleanup): Accessor<A> => {
   const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>)
-  onCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
+  addCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
   // eslint-disable-next-line solid/reactivity -- the accessor itself is returned, for its caller to read where it tracks
   return LiveStyle.carry(value, atom)
 }

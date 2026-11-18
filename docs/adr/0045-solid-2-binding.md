@@ -866,3 +866,21 @@ What it changes beside it:
 - **For apps:** a dozen fixes to hydration, `<Loading>` and `<Errored>`, optimistic lists and the keyed `<For>`.
 
 **Checked** (the research doc's *Checked* has the numbers): typecheck and lint; every suite, under #320's gate; the storefront's three apps and the Solid 2 app's dev smoke, every route; both start examples' routes and `/appear`'s hand check; the site's build; `pack:check`; the size gate; and `bench:core` and `bench:solid` against `main`, every gate passing on both bindings.
+
+## Note (#566, 2026-11-18): Solid 2.0.1
+
+Solid 2 is stable: `solid-js` 2.0.0 came out on 2026-11-17, and 2.0.1 the next day. Bumped per decision 9 as #566's first PR, ahead of the binding becoming `@wardic/solid`'s root, and released as a 1.1.x patch ([`docs/research/solid-2-0-1-upgrade.md`](../research/solid-2-0-1-upgrade.md)):
+- `solid-js` (`solid-js-2`), `@solidjs/web`, `@solidjs/babel-plugin` and `@solidjs/diagnostics` are pinned at 2.0.1 in dev, `@solidjs/signals` and `@solidjs/compiler` 2.0.1 beneath them; the peer floor is `^2.0.0`, which a prerelease doesn't satisfy;
+- the examples, the site and the pack-check fixture move to 2.0.1 too, `@solidjs/router` to 2.0.0 and `@solidjs/vite-plugin` to 3.0.1, each stable.
+
+What it changes in Wardic: a ref callback runs in its creating pass's owner (rc.22), where making a memo, an effect or a root throws in development when that owner is the current one, and `onCleanup` throws whatever the owner. A ward's accessors made at their first call (`read`, `atom`, `settled`, `tapped`) did both, under `runWithOwner(owner, …)`: the ref's own owner, for a ward spread in the component that made it. So did `createBatch`'s `settled()` and `createAnimate`'s `scope.settled()`, through their flights. Each now makes, in its maker's body, an owner of its own for its first calls (`firstCallOwnerHere`: a root, `CLIENT_ONLY`, so it takes no hydration id), and what a ward's accessors mount is ended by its one cleanup. `next` and `each` made nothing Solid and stay as they were; `when(name)` is a memo the caller makes, in a component's body. RA1–RA8 pin each first called in a ref (`ref-accessors.browser.test.tsx`), a read of its value in `untrack`, as Solid asks of any read there; RA6 a `wardic.div`'s own ward, whose lazy gesture watch stays on its owner, which the element's ref never runs in.
+
+What it changes beside it:
+- **The public API** is unchanged: `solid-js`'s types and its cheatsheet are byte-identical to rc.21's.
+- **A context provider** makes no owner of its own; hydration ids move alike on both sides.
+- **Scheduling and holds:** a computation runs after every computation that owns it, a queued child no longer runs before the owner that disposes it, and a user effect waits for the end of a hold. The binding's held-region, action and in-flight tests pass as they were.
+- **The reconciler** moves a node with `moveBefore()` where the browser has it, and no longer throws when user code moved a list node past its list's end: what presence's re-inserted leavers do.
+- **Production builds** compile `<Show>` to a ternary. The binding's source has none; an app's under `<AnimatePresence>` is checked by the storefront's production smoke.
+- **Size:** about 1.4 KB more gzipped of Solid's own code in every app that makes a ward; `s2-slim`'s budget rises to 118.0 (ADR-0067, *Note (#566)*).
+
+**Checked** (the research doc's *Checked* has the numbers): typecheck and lint; the node tier and Solid 2's browser and hydration projects, under #320's gate; the full browser tier, whose failures (real mouse drags, under the host's load, in Solid 1's and dom's projects too) pass alone; the storefront's Solid 2 app, built and in dev, every route; `solid2-start`'s routes with its hydration and Appear reports; a production build's `<Show>` under `<AnimatePresence>`, its exit played; the site's build; `pack:check`; the size gate; and `bench:solid` against `main`, every gate passing on both bindings (Solid 2's warm mount +3.0%, inside the gate), with `bench:core` passing on Bun and Chromium, Node too noisy on a loaded host.

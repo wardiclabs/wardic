@@ -7,10 +7,10 @@
  */
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createMemo, createSignal, getOwner, runWithOwner } from "solid-js"
-import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { type Accessor, createMemo, createSignal, runWithOwner } from "solid-js"
+import { CLIENT_ONLY, firstCallOwnerHere } from "./solid-reactivity.ts"
 
-/** Flights counted: each one's start and end, and the async value they make, read under its maker's owner. */
+/** Flights counted: each one's start and end, and the async value they make, made at its first read under an owner of its own. */
 export interface Flights<L> {
   readonly started: () => void
   /** One flight ended, with its landing, or `undefined` for one that ended without landing. */
@@ -18,9 +18,12 @@ export interface Flights<L> {
   readonly read: () => L | undefined
 }
 
-/** Flights made under the current owner: nothing Solid is made until the first read. */
+/**
+ * Flights made under the current owner: nothing but their owner is made until the first read, which can
+ * be in a ref (#566).
+ */
 export const flightsOf = <L>(): Flights<L> => {
-  const owner = getOwner()
+  const owner = firstCallOwnerHere()
   let flying = 0
   let last: L | undefined
   let setCount: ((count: number) => void) | undefined

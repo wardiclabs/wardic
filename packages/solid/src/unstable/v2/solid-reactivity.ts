@@ -15,7 +15,7 @@
  *
  * @module
  */
-import { createEffect, createRoot, createSignal, createTrackedEffect, type Owner, runWithOwner, untrack } from "solid-js"
+import { createEffect, createRoot, createSignal, createTrackedEffect, getOwner, type Owner, runWithOwner, untrack } from "solid-js"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /**
@@ -25,6 +25,17 @@ import type * as Reactivity from "@wardic/core/unstable/Reactivity"
  * ward is lean, ADR-0021), so the client's later ids would miss the server's markup.
  */
 export const CLIENT_ONLY = { transparent: true } as const
+
+/** A root's own owner. */
+const ownerOfRoot = (): Owner | null => getOwner()
+
+/**
+ * An owner for what's made at a first call (#566), under the current one and disposed with it: made in a
+ * maker's body, so a first call in a ref makes under it. Solid 2.0 runs a ref in its creating pass's
+ * owner, the maker's own when its handle is given in the component that made it, and refuses a memo
+ * or an effect made under that owner there. Client-only: it takes no hydration id.
+ */
+export const firstCallOwnerHere = (): Owner | null => createRoot(ownerOfRoot, CLIENT_ONLY)
 /** {@link CLIENT_ONLY}, deferred: an effect that skips its first run. */
 export const CLIENT_ONLY_DEFERRED = { transparent: true, defer: true } as const
 

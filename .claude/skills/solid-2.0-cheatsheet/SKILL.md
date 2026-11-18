@@ -3,7 +3,7 @@ name: solid-2.0-cheatsheet
 description: The complete Solid 2.0 API cheatsheet (solid-js 2.x, @solidjs/web). Use to look up the exact signature or form of a Solid 2.0 primitive, component, store setter, prop, attribute or SSR entry, and for the full list of 1.x APIs that no longer exist and their replacements.
 ---
 
-<!-- Copied from solid-js@2.0.0-rc.21 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from solid-js@2.0.1 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 <!-- Generated from CHEATSHEET.md by scripts/build-cheatsheet-skill.mjs. Edit CHEATSHEET.md, not this file. -->
 
@@ -770,5 +770,5 @@ If your training data is 1.x, these are the corrections. **Read this before gene
 
 ## See also
 
-- [`MIGRATION.md`](https://github.com/solidjs/solid/blob/next/documentation/solid-2.0/MIGRATION.md) — full migration guide.
-- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/next/documentation/solid-2.0) — deep-dive design docs by subsystem.
+- [`MIGRATION.md`](https://github.com/solidjs/solid/blob/main/documentation/solid-2.0/MIGRATION.md) — full migration guide.
+- [Solid 2.0 RFCs](https://github.com/solidjs/solid/tree/main/documentation/solid-2.0) — the design record by subsystem, frozen at 2.0.0.
