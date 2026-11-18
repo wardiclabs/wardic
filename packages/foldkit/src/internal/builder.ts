@@ -204,6 +204,7 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.LayoutDependency = (value: Ward.Config["layoutDependency"]) => attribute("layoutDependency", value)
   w.LayoutScroll = (value: Ward.Config["layoutScroll"] = true) => attribute("layoutScroll", value)
   w.LayoutRoot = (value: Ward.Config["layoutRoot"] = true) => attribute("layoutRoot", value)
+  w.LayoutCrossfade = (value: Ward.Config["layoutCrossfade"] = true) => attribute("layoutCrossfade", value)
   w.LayoutGroup = (options: Ward.LayoutGroupOptions = {}) => attribute("layoutGroup", options)
   w.OnLayoutAnimationStart = (handler: Ward.Handler<Message, void>) => attribute("layoutAnimationStart", handler)
   w.OnLayoutAnimationComplete = (handler: Ward.Handler<Message, void>) => attribute("layoutAnimationComplete", handler)

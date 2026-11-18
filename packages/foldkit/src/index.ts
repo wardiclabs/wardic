@@ -15,6 +15,6 @@ export * as DragControls from "./DragControls.ts"
 export * as AnimationControls from "./AnimationControls.ts"
 // Animation scopes (#433; #798): what a Command's selectors resolve under, and whose element's release stops its animations.
 export * as AnimationScope from "./AnimationScope.ts"
-// Core's Live values (ADR-0043) and the stagger helper, so an app imports nothing from `@wardic/core` (#791, Q13).
+// Core's Live values (ADR-0043) and the helpers Solid's root has, so an app imports nothing from `@wardic/core` or `@wardic/dom` (#791, Q13; #795).
 export * as LiveValue from "@wardic/core/LiveValue"
-export { stagger } from "./Wardic.ts"
+export { arc, correctParentTransform, stagger, transformViewBoxPoint } from "./Wardic.ts"

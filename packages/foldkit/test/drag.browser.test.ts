@@ -25,6 +25,8 @@
 //   once with the browser's own mouse.
 // - D12: `transformPagePoint` (Q9) on `w.Config` and on the Handle's `config`: the drag's points are
 //   mapped, so the element moves half as far, and so are the boxes a constraints container is measured against.
+// - D12b: `Wardic.correctParentTransform` given a selector (#795): inside a 2× parent the drag stays
+//   under the pointer, the selector looked up in the document at each point.
 // - D8: the controls' `stop()` ends the drag as a release would (`OnDragEnd`, `WhileDrag` off, the
 //   spring back to the origin); `cancel()` ends it where it is, with no `OnDragEnd` and no release.
 // - D9: `DragDirectionLock`: nothing before 10 px on one axis, then `OnDirectionLock` with that axis
@@ -429,6 +431,15 @@ describe("a w.* element's drag (#793, PR 2; ADR-0004)", () => {
     const bounded = await pushedBox((w, h) => framed(h, clamped(w, h, [w.DragConstraints("parent"), w.Config({ transformPagePoint: halved })])))
     await dragBy(bounded.pointer, 400)
     expect(translateOf(bounded.box).x, "clamped at the mapped room").toBeCloseTo(60, 0)
+  })
+
+  it("D12b: Wardic.correctParentTransform given a selector: inside a 2× parent, the drag stays under the pointer", async () => {
+    const scaled = await pushedBox((w, h) =>
+      h.div([h.Id("plan"), h.Style({ position: "absolute", top: "100px", left: "100px", width: "300px", height: "200px", transform: "scale(2)", transformOrigin: "0 0" })], [
+        w.div([h.Id("box"), h.Style(BOX), w.Drag("x"), w.DragMomentum(false), w.Config({ transformPagePoint: Wardic.correctParentTransform("#plan") })], []),
+      ]))
+    await dragBy(scaled.pointer, 60)
+    expect(translateOf(scaled.box).x, "half as far in the plan's units: under the pointer at 2×").toBeCloseTo(30, 0)
   })
 
   it("D8: stop() ends the drag as a release, cancel() where it is", async () => {

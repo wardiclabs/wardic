@@ -24,6 +24,7 @@
  *
  * @module
  */
+import * as Arc from "@wardic/core/Arc"
 import * as Stagger from "@wardic/core/Stagger"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as Feature from "@wardic/dom/unstable/Feature"
@@ -188,6 +189,13 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   LayoutScroll: Needs<F, "layout", (value?: Ward.Config["layoutScroll"]) => Ward.Attribute>
   /** A stable sub-root of the projection tree (ADR-0013; Motion's `layoutRoot`): the layout animations inside it anchor to it, and it never animates its own. */
   LayoutRoot: Needs<F, "layout", (value?: Ward.Config["layoutRoot"]) => Ward.Attribute>
+  // #442; #795. Motion's `layoutCrossfade`, read by the twin that becomes the Lead, as each handover begins.
+  /**
+   * Whether a `LayoutId` handover onto this element crossfades the two (Motion's `layoutCrossfade`):
+   * `false` hides the twin it takes over from as the handover starts, and it moves at its own opacity,
+   * one element flying rather than two blending.
+   */
+  LayoutCrossfade: Needs<F, "layout", (value?: Ward.Config["layoutCrossfade"]) => Ward.Attribute>
   /** A **Layout group** (#432; Motion's `LayoutGroup`): the namespace of the `LayoutId`s under the element, read once. */
   LayoutGroup: Needs<F, "layout", (options?: Ward.LayoutGroupOptions) => Ward.Attribute>
   /** Sent at the frame a layout animation's first step is painted (Motion's `onLayoutAnimationStart`). */
@@ -382,3 +390,21 @@ export type StaggerOptions = Stagger.Options
  * seconds between children, from `options.from`, after `options.startDelay`.
  */
 export const stagger = (duration = 0.1, options: StaggerOptions = {}): WardConfig.WardicStagger => Stagger.make(duration, options)
+
+/** `arc()`'s options (Motion's `ArcOptions`): `strength`, `peak`, `direction` and `rotate`, core's. */
+export type ArcOptions = Arc.Options
+
+// #438; #795. Solid's `arc`, so an app imports nothing from `@wardic/core` for it (#791, Q13).
+/**
+ * A curved path for a transition's `path` (Motion's `arc()`): `x` and `y` travel along a curve between
+ * where they start and their target, on `x`'s transition, in place of two straight lines. Make it once,
+ * at module scope: with no `direction`, it remembers which side of the screen it bulged to.
+ *
+ * @example
+ * const toss = arc({ strength: 0.4 })
+ * w.img([w.LayoutId("photo"), w.Transition({ layout: { type: "tween", duration: 0.6, path: toss } })])
+ */
+export const arc = (options: ArcOptions = {}): WardConfig.WardicPath => Arc.make(options)
+
+// #443; #795. dom's, for Solid's `correctParentTransform` and `transformViewBoxPoint` on Foldkit, which has no refs: an element is given as a selector.
+export { correctParentTransform, type ElementGiven, transformViewBoxPoint } from "@wardic/dom/unstable/PagePoint"
