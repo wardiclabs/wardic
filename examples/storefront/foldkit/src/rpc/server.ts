@@ -28,35 +28,35 @@ const cookiesOf = (headers: Headers.Headers): Readonly<Record<string, string>> =
 const VisitorLive = Layer.succeed(VisitorMiddleware, (effect, { headers }) => Effect.provideService(effect, Store.Visitor, visitorOf(cookiesOf(headers))))
 
 /**
- * `call` on the `Shop` for the request's visitor, the run links on its host. The server's `Shop` is the
- * store itself, so `StoreUnreachable`, the browser's transport failure, can't happen here: a defect.
+ * `call` on the `Shop` for the request's visitor. The server's `Shop` is the store itself, so
+ * `StoreUnreachable`, the browser's transport failure, can't happen here: a defect.
  */
-const served = <A>(headers: Headers.Headers, call: Effect.Effect<A, ShopError, Shop>): Effect.Effect<A, StoreFailure, Store.Visitor> =>
-  Effect.flatMap(Store.Visitor, (visitor) => Effect.provide(call, shopFor(visitor, Option.getOrUndefined(Headers.get(headers, "host"))))).pipe(Effect.catchTag("StoreUnreachable", (error) => Effect.die(error)))
+const served = <A>(call: Effect.Effect<A, ShopError, Shop>): Effect.Effect<A, StoreFailure, Store.Visitor> =>
+  Effect.flatMap(Store.Visitor, (visitor) => Effect.provide(call, shopFor(visitor))).pipe(Effect.catchTag("StoreUnreachable", (error) => Effect.die(error)))
 
 /** The feed on the `Shop` for the request's visitor; its failure, exceptional, a defect. */
-const servedStream = <A>(headers: Headers.Headers, feed: (shop: Shop["Service"]) => Stream.Stream<A, ShopError>): Stream.Stream<A, never, Store.Visitor> =>
-  Stream.orDie(Stream.unwrap(served(headers, Effect.map(Shop, feed))))
+const servedStream = <A>(feed: (shop: Shop["Service"]) => Stream.Stream<A, ShopError>): Stream.Stream<A, never, Store.Visitor> =>
+  Stream.orDie(Stream.unwrap(served(Effect.map(Shop, feed))))
 
 const Handlers = ShopRpcs.toLayer(
   ShopRpcs.of({
-    ListProducts: ({ category }, { headers }) => served(headers, Shop.use((shop) => shop.listProducts(category))),
-    GetProduct: ({ id }, { headers }) => served(headers, Shop.use((shop) => shop.getProduct(id))),
-    GetStock: ({ when }, { headers }) => served(headers, Shop.use((shop) => shop.getStock(when))),
-    GetCart: (_, { headers }) => served(headers, Shop.use((shop) => shop.getCart)),
-    AddToCart: ({ productId, quantity }, { headers }) => served(headers, Shop.use((shop) => shop.addToCart(productId, quantity))),
-    SetCartQuantity: ({ productId, quantity }, { headers }) => served(headers, Shop.use((shop) => shop.setCartQuantity(productId, quantity))),
-    GetOrders: (_, { headers }) => served(headers, Shop.use((shop) => shop.getOrders)),
-    GetWishlist: ({ scope }, { headers }) => served(headers, Shop.use((shop) => shop.getWishlist(scope))),
-    MoveWishlistItem: ({ scope, productId, after }, { headers }) => served(headers, Shop.use((shop) => shop.moveWishlistItem(scope, productId, after))),
-    ResetWishlist: ({ scope }, { headers }) => served(headers, Shop.use((shop) => shop.resetWishlist(scope))),
-    WishlistChanges: ({ scope }, { headers }) => servedStream(headers, (shop) => shop.wishlistChanges(scope)),
-    GetNotices: (_, { headers }) => served(headers, Shop.use((shop) => shop.getNotices)),
-    DismissNotice: ({ id }, { headers }) => served(headers, Shop.use((shop) => shop.dismissNotice(id))),
-    RestoreNotices: (_, { headers }) => served(headers, Shop.use((shop) => shop.restoreNotices)),
-    GetSettings: (_, { headers }) => served(headers, Shop.use((shop) => shop.getSettings)),
-    SetSettings: ({ settings }, { headers }) => served(headers, Shop.use((shop) => shop.setSettings(settings))),
-    Highlighted: ({ exampleId }, { headers }) => served(headers, Shop.use((shop) => shop.highlighted(exampleId))),
+    ListProducts: ({ category }) => served(Shop.use((shop) => shop.listProducts(category))),
+    GetProduct: ({ id }) => served(Shop.use((shop) => shop.getProduct(id))),
+    GetStock: ({ when }) => served(Shop.use((shop) => shop.getStock(when))),
+    GetCart: () => served(Shop.use((shop) => shop.getCart)),
+    AddToCart: ({ productId, quantity }) => served(Shop.use((shop) => shop.addToCart(productId, quantity))),
+    SetCartQuantity: ({ productId, quantity }) => served(Shop.use((shop) => shop.setCartQuantity(productId, quantity))),
+    GetOrders: () => served(Shop.use((shop) => shop.getOrders)),
+    GetWishlist: ({ scope }) => served(Shop.use((shop) => shop.getWishlist(scope))),
+    MoveWishlistItem: ({ scope, productId, after }) => served(Shop.use((shop) => shop.moveWishlistItem(scope, productId, after))),
+    ResetWishlist: ({ scope }) => served(Shop.use((shop) => shop.resetWishlist(scope))),
+    WishlistChanges: ({ scope }) => servedStream((shop) => shop.wishlistChanges(scope)),
+    GetNotices: () => served(Shop.use((shop) => shop.getNotices)),
+    DismissNotice: ({ id }) => served(Shop.use((shop) => shop.dismissNotice(id))),
+    RestoreNotices: () => served(Shop.use((shop) => shop.restoreNotices)),
+    GetSettings: () => served(Shop.use((shop) => shop.getSettings)),
+    SetSettings: ({ settings }) => served(Shop.use((shop) => shop.setSettings(settings))),
+    Highlighted: ({ exampleId }) => served(Shop.use((shop) => shop.highlighted(exampleId))),
   }),
 )
 

@@ -18,10 +18,6 @@ export type Theme = typeof Theme.Type
 export const THEME_COOKIE = "storefront-theme"
 export const REDUCE_MOTION_COOKIE = "storefront-reduce-motion"
 
-/** Which code the panel shows: this app's, or Motion's. */
-export const CodeTab = Schema.Literals(["own", "motion"])
-export type CodeTab = typeof CodeTab.Type
-
 /** The visitor's switches (#296 Q12), kept in cookies the server reads too. */
 export const Prefs = Schema.Struct({ theme: Theme, reduceMotion: Schema.Boolean })
 export type Prefs = typeof Prefs.Type
@@ -69,7 +65,6 @@ export const Model = Schema.Struct({
   systemReducedMotion: Schema.Boolean,
   page: PageState,
   code: Schema.NullOr(Code),
-  codeTab: CodeTab,
 })
 export type Model = typeof Model.Type
 
@@ -88,7 +83,6 @@ export const Message = defineMessageUnion({
   PageFailed: { id: Schema.String, reason: Schema.String },
   CodeLoaded: { id: Schema.String, code: Code },
   CodeFailed: { id: Schema.String, reason: Schema.String },
-  ShowCode: { tab: CodeTab },
   /** A page's own Message, wrapped: `id` names the page it's for, which may have left. */
   Page: { id: Schema.String, message: Schema.Unknown },
   Replay: {},

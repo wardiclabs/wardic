@@ -117,7 +117,7 @@ const entering = (model: Model, route: AppRoute): Return =>
     NotFound: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
     Example: ({ area, id }): Return => {
       if (Predicate.isUndefined(exampleById(id)) || Option.isNone(pageOf(id))) return { model: { ...model, route: AppRoute.NotFound({ path: `/${area}/${id}` }), page: NONE, code: null } }
-      return { model: { ...model, route, page: { _tag: "Loading", id }, code: null, codeTab: "own" }, commands: [LoadPage({ id }), LoadCode({ id })] }
+      return { model: { ...model, route, page: { _tag: "Loading", id }, code: null }, commands: [LoadPage({ id }), LoadCode({ id })] }
     },
   })
 
@@ -170,7 +170,6 @@ export const init = (flags: Flags, url: Url.Url): Return => {
     systemReducedMotion: false,
     page: NONE,
     code: flags.code,
-    codeTab: "own",
   }
   // On the client, after hydration: the theme onto the document, the system's setting read. The server runs no Command.
   const commands = [ApplyPrefs({ theme: flags.prefs.theme })]
@@ -229,7 +228,6 @@ export const update = (model: Model, message: Message): Return =>
       return { model: { ...model, code } }
     },
     CodeFailed: () => ({ model }),
-    ShowCode: ({ tab }) => ({ model: { ...model, codeTab: tab } }),
     Page: ({ id, message }) => pageMessage(model, id, message),
     Replay: () => {
       if (model.page._tag !== "Loaded") return { model }

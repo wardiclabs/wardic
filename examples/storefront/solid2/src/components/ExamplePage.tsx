@@ -24,20 +24,13 @@ export function Prose(props: { readonly text: string }) {
   )
 }
 
-/** The demo's code and Motion's, with what differs between them above (#366 Q2). */
-function CodePanel(props: { readonly id: string; readonly note: string | undefined }) {
+/** The demo's code, highlighted on the server. */
+function CodePanel(props: { readonly id: string }) {
   // A server component: the server function returns a template, and `dynamic` renders it here.
   const CodeFiles = dynamic(() => codeFiles(props.id))
   return (
     <section class="code" aria-labelledby="code-title">
       <h2 id="code-title">The code</h2>
-      <Show when={props.note}>
-        {(note) => (
-          <p class="motion-note">
-            <Prose text={note()} />
-          </p>
-        )}
-      </Show>
       <Loading fallback={<pre class="muted">Highlighting…</pre>}>
         <CodeFiles />
       </Loading>
@@ -135,7 +128,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
         </For>
         <Show when={example.tradeoffs}>{(tradeoffs) => <Tradeoffs gains={tradeoffs().gains} costs={tradeoffs().costs} />}</Show>
       </section>
-      <CodePanel id={props.id} note={example.motion?.note} />
+      <CodePanel id={props.id} />
     </main>
   )
 }

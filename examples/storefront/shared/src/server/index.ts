@@ -45,8 +45,8 @@ const RUNTIME = Symbol.for("@wardic/example-storefront/runtime")
 
 /**
  * The store, built once per server process, shared by every visitor of it. Kept on `globalThis`: a
- * bundler can load this module more than once in one process (Next.js gives its route handlers and
- * its pages copies of their own, #366), and each copy would otherwise build a store of its own.
+ * bundler can load this module more than once in one process (the Next.js app's route handlers and
+ * pages each had copies of their own, #366), and each copy would otherwise build a store of its own.
  */
 const runtimeOnce = (): ManagedRuntime.ManagedRuntime<Store, never> => {
   const holder = globalThis as { [RUNTIME]?: ManagedRuntime.ManagedRuntime<Store, never> }
