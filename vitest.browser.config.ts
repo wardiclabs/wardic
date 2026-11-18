@@ -29,6 +29,8 @@ export default defineConfig({
       "examples/layout-lab/vitest.browser-v2.config.ts",
       // The Foldkit binding, `@wardic/foldkit` (#791, ADR-0071): every one of its tests, Scene tests too, in Chromium.
       "packages/foldkit/vitest.browser.config.ts",
+      // The Foldkit binding's server render to hydration, Appear animations among them (#794).
+      "packages/foldkit/vitest.hydrate.config.ts",
     ],
   },
 })

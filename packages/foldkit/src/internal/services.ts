@@ -125,6 +125,17 @@ export interface State {
   render: ServerRender | undefined
   /** Development's words on the server, each said once a Handle. */
   readonly said: Set<string>
+  /**
+   * Whether a client render names each element's Appear slot (#794, Q9 and Q10): the hydration render,
+   * and every render after it while a Handoff is still under way, so hydration keeps the inline
+   * `animation` the CSS plays through and no render strips one before its ward has taken it over. Set
+   * by `wardic.hydrate` when the page carries the Appear chunk a server rendered; cleared once every
+   * Handoff the hydration patch's Mounts found has released (its first commit), or, with none found,
+   * after those Mounts ({@link hydrationMounted}).
+   */
+  hydrating: boolean
+  /** The Handoffs under way: hydrated elements whose Appear animation their ward hasn't yet taken over. */
+  pending: number
 }
 
 /** What a Handle renders a server's Appear animations with (ADR-0044; #794): `Wardic.make`'s `appear` and `nonce`. */
@@ -152,6 +163,45 @@ const NO_PROVIDER =
 const MANY_PROVIDERS =
   "wardic.appear: more than one w.Provider() in a server render: the Appear rules of one collide with another's, and a nested one's are dropped for the one above it. Give w.Provider() once, on the topmost w.* element."
 
+/** Whether a Handle's server render plays Appear animations: unless `Wardic.make({ appear: false })` (ADR-0044 decision 5). */
+export const appearsOn = (options: ServerOptions): boolean => options.appear !== false
+
+/**
+ * `wardic.hydrate`'s word (#794, Q10): whether the page carries an Appear chunk, so the hydration render
+ * names each element's slot ({@link State.hydrating}); no Handoff under way yet.
+ */
+export const hydrationStarts = (state: State, chunked: boolean): void => {
+  state.hydrating = chunked
+  state.pending = 0
+}
+
+/**
+ * A Mount's word while hydration's window is open (#794, Q10): `handoff`, whether its element's Appear
+ * animation was found to take over. One found is counted in until what's returned is called, at its
+ * first commit (the Handoff's release) or at its teardown, and the last one out closes the window. A
+ * microtask after the hydration patch's Mounts, which run in one task, closes it with none found. A
+ * render in the window names each slot as the hydration render did; the first after it names none.
+ */
+export const hydrationMounted = (state: State, handoff: boolean): (() => void) => {
+  if (Bool.not(state.hydrating)) return constVoid
+  if (handoff) state.pending++
+  queueMicrotask(() => closeUnlessPending(state))
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    if (Bool.not(handoff)) return
+    state.pending--
+    closeUnlessPending(state)
+  }
+}
+
+/** The window closed, unless a Handoff is still under way. */
+const closeUnlessPending = (state: State): void => {
+  if (state.pending > 0) return
+  state.hydrating = false
+}
+
 /** Note a `w.*` element's build on a server, in development ({@link ServerRender}): `provider` when it carries `w.Provider()`. None of the words under `appear: false`. */
 export const noteServerRender = (state: State, provider: boolean): void => {
   const render = UndefinedOr.match(state.render, {
@@ -161,7 +211,7 @@ export const noteServerRender = (state: State, provider: boolean): void => {
       state.render = opened
       queueMicrotask(() => {
         state.render = undefined
-        if (state.server.appear === false) return
+        if (Bool.not(appearsOn(state.server))) return
         if (opened.providers === 0) sayOnce(state, NO_PROVIDER)
         if (opened.providers > 1) sayOnce(state, MANY_PROVIDERS)
       })
@@ -212,6 +262,8 @@ export const makeState = (options: MakeOptions<Feature.InstanceFeaturesProp>): S
   server: { appear: options.appear, nonce: options.nonce },
   render: undefined,
   said: new Set(),
+  hydrating: false,
+  pending: 0,
 })
 
 /**

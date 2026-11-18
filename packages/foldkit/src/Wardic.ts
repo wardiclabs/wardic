@@ -36,6 +36,7 @@ import * as Predicate from "effect/Predicate"
 import type * as Ward from "./Ward.ts"
 import { type Attributes, builderOf } from "./internal/builder.ts"
 import { HANDLE, resourcesOf, type Wardic as WardicTag } from "./internal/commands.ts"
+import { hydrateOf } from "./internal/hydrate.ts"
 import { mountOf } from "./internal/mount.ts"
 import { makeState, remember, type State } from "./internal/services.ts"
 import { viewTransitionOf } from "./internal/view-transition.ts"
@@ -325,6 +326,14 @@ export interface Handle<F = never> {
    * unchanged, and where the document has no `startViewTransition` Wardic animates them itself.
    */
   readonly viewTransition: <Model, Message>(decide: FoldkitRuntime.ViewTransitionConfig<Model, Message>) => FoldkitRuntime.ViewTransitionConfig<Model, Message>
+  // ADR-0044; #794, Q10 and Q17. What Solid's `<WardicProvider>` does as it hydrates.
+  /**
+   * Foldkit's `Runtime.hydrate`, for a page its `experimental/server`'s `renderToString` rendered: the
+   * client entry calls this instead. It moves the **Appear animations**' rules the Provider element
+   * rendered into the head, and has the hydration render keep each element's running animation, which
+   * its mount takes over where the CSS has got (the **Handoff**); then Foldkit adopts the page.
+   */
+  readonly hydrate: typeof FoldkitRuntime.hydrate
 }
 
 /**
@@ -351,6 +360,7 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
     Reorder: mountOf<never>(state, { provider: undefined, user: undefined, presence: false, reorder: true }),
     resources: resourcesOf(() => handle),
     viewTransition: viewTransitionOf(state),
+    hydrate: hydrateOf(state),
   }
   remember(handle, state)
   return handle

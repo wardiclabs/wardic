@@ -20,6 +20,7 @@ import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
+import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
 import * as DragTransition from "@wardic/dom/unstable/DragTransition"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
@@ -47,7 +48,7 @@ import { reactivity, recheck } from "./reactivity.ts"
 import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
 import { groupDelivered, reorderItemOf } from "./reorder.ts"
-import { type Provider, reducedMotionUnder, type State } from "./services.ts"
+import { hydrationMounted, type Provider, reducedMotionUnder, type State } from "./services.ts"
 import { configValueOf, dropNode, layoutGroupOf, nodeOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
@@ -308,7 +309,28 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     const starting = Style.starting(tag, ElementSetup.drawnAtRest(start.initialValues, false, templateAtMount)).style
     if (Bool.or(Predicate.isNotUndefined(inherited), UndefinedOr.match(presence, { onUndefined: constFalse, onDefined: (p) => p.holds() }))) writeStartingStyle(element, starting)
     const startingKeys = Rec.keys(starting)
-    const sink: FlushGate.Sink = Spine.withOnUpdate({ target: element, beforeFirstCommit: () => switchToUserStyle(element, tag, startingKeys, config, registryNow) }, view.onUpdate, configNow)
+    // Its Appear animation, when it hydrates one the server rendered (ADR-0044 decision 6; #794, Q10):
+    // found by the slot its inline `animation` names, which the hydration render kept, taken over by its
+    // first Retarget that starts, as far in as the CSS has got, and removed in its first commit, the
+    // Handoff. Asked at every mount, a string read: an element a client render made names no slot. One
+    // found keeps hydration's window open until that commit, so no render in between strips the slot.
+    const handoff = Option.getOrUndefined(AppearAnimations.handoffOf(element))
+    const released = hydrationMounted(state, Predicate.isNotUndefined(handoff))
+    const sink: FlushGate.Sink = ElementSetup.releasingAppear(
+      Spine.withOnUpdate(
+        {
+          target: element,
+          beforeFirstCommit: () => {
+            switchToUserStyle(element, tag, startingKeys, config, registryNow)
+            released()
+          },
+        },
+        view.onUpdate,
+        configNow,
+      ),
+      handoff,
+      element,
+    )
     const unregister = provider.gate.register(id, sink, ElementSetup.registeredValuesOf(templateAtMount))
     // The user's style now, for its Base values (ADR-0022): the config's, as the view last delivered it.
     const styleNow = (): object | string | undefined => config.style
@@ -384,7 +406,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       projected: false,
       dragAxis: DragDefaults.dragAxisOf(view, { dragAxis: UndefinedOr.map(MutableRef.get(item), (joined) => joined.dragAxis) }),
       drag: undefined,
-      handoff: undefined,
+      handoff,
       // Motion's onAnimationStart / onAnimationComplete (decision 23), as Messages through `dispatch`.
       animation: Spine.animationCallbacks(provider.runtime, id),
       diagnostics: devDiagnostics(),
@@ -565,6 +587,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     startsDrag.check()
     retarget()
     return () => {
+      released()
       unwatch()
       unfollowText()
       unfollowTemplate()
