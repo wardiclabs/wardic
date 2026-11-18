@@ -22,7 +22,6 @@ import * as Scope from "effect/Scope"
 import * as Bool from "effect/Boolean"
 import { constFalse, constUndefined, identity } from "effect/Function"
 import * as Latch from "effect/Latch"
-import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { batch, createContext, DEV, onCleanup, onMount, untrack, useContext } from "solid-js"
@@ -147,10 +146,7 @@ export function WardicProvider(props: {
     // and once the render is done the head's `<style>` gets every rule and timing (`useAssets`,
     // injected before `</head>`). A render with no `</head>` drops it, and its elements keep their
     // Starting style, as they would without it.
-    const appear = Bool.match(props.appear === false, {
-      onTrue: constUndefined,
-      onFalse: () => AppearAnimations.serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), AppearAnimations.explainerOf(props.appear), props.nonce),
-    })
+    const appear = AppearAnimations.serverAppearUnder(props.appear, props.reducedMotion, props.nonce)
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
     const value = serverContext(props.env, WAITING_ENV_FIX, appear, () => untrack(() => props.reducedMotion))
     onCleanup(() => void value.features.dispose())

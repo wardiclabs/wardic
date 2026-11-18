@@ -44,6 +44,7 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
+import type { MakeOptions } from "../Wardic.ts"
 import { reactivity } from "./reactivity.ts"
 import { rootConfigValueOf } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
@@ -118,21 +119,63 @@ export interface State {
   live: Provider | undefined
   /** Whether a build is in flight: an `env` that waits as it builds has the elements after the first await the `Deferred`. */
   building: boolean
-  /** A server render's Appear animations (#794, Q3, Q13): `Wardic.make({ appear, nonce })`, read by the walk at the provider element's build. */
+  /** A server render's Appear animations (#794, Q3, Q13): `Wardic.make({ appear, nonce })`, read by the walk at the Provider element's build. */
   readonly server: ServerOptions
-  /**
-   * On a server, in development (#794, Q4): the render under way, opened by its first `w.*` element and
-   * closed by a microtask after the view's build, when a render with no provider element gets one word.
-   */
-  render: { provider: boolean } | undefined
-  /** Whether that word has been said: once a Handle. */
-  warnedNoProvider: boolean
+  /** On a server, in development (#794, Q4): the render under way, or none between renders. */
+  render: ServerRender | undefined
+  /** Development's words on the server, each said once a Handle. */
+  readonly said: Set<string>
 }
 
 /** What a Handle renders a server's Appear animations with (ADR-0044; #794): `Wardic.make`'s `appear` and `nonce`. */
 export interface ServerOptions {
   readonly appear: boolean | "explain" | undefined
   readonly nonce: string | undefined
+}
+
+/**
+ * A server render under way, in development (#794, Q4): opened by its first `w.*` element and closed by
+ * a microtask after the view's build (one synchronous call, the Provider element built last), when it
+ * gets its word with no Provider element, or with more than one. One a tick: two views built in one
+ * synchronous run share it.
+ */
+export interface ServerRender {
+  /** Its Provider elements, counted as they build. */
+  providers: number
+}
+
+/** Development's word on a server render with no Provider element (#794, Q4): the Starting style alone, no Appear animation. */
+const NO_PROVIDER =
+  "wardic.appear: a w.* element rendered on a server with no w.Provider() above it keeps its Starting style until the script runs: its Appear animation needs the Provider element, which renders the rules. Put w.Provider() on the topmost w.* element."
+
+/** Development's word on more than one Provider element in a server render: their Appear rules collide, and a nested one's are dropped for the one above (the client reports and ignores a second). */
+const MANY_PROVIDERS =
+  "wardic.appear: more than one w.Provider() in a server render: the Appear rules of one collide with another's, and a nested one's are dropped for the one above it. Give w.Provider() once, on the topmost w.* element."
+
+/** Note a `w.*` element's build on a server, in development ({@link ServerRender}): `provider` when it carries `w.Provider()`. None of the words under `appear: false`. */
+export const noteServerRender = (state: State, provider: boolean): void => {
+  const render = UndefinedOr.match(state.render, {
+    onDefined: identity,
+    onUndefined: () => {
+      const opened: ServerRender = { providers: 0 }
+      state.render = opened
+      queueMicrotask(() => {
+        state.render = undefined
+        if (state.server.appear === false) return
+        if (opened.providers === 0) sayOnce(state, NO_PROVIDER)
+        if (opened.providers > 1) sayOnce(state, MANY_PROVIDERS)
+      })
+      return opened
+    },
+  })
+  if (provider) render.providers++
+}
+
+/** `message` said once a Handle, with Effect's logger: a server builds no runtime from the app's `env` (dom's `explainerOf` says its words so too). */
+const sayOnce = (state: State, message: string): void => {
+  if (state.said.has(message)) return
+  state.said.add(message)
+  Effect.runSync(Effect.logWarning(message))
 }
 
 // Module state (#460, Q7): each Handle's state, held weakly by the Handle, for the Commands' Effects.
@@ -157,18 +200,18 @@ export const registryOf =
     UndefinedOr.match(state.live, { onUndefined: LiveStyle.serverRegistryOf, onDefined: (provider) => provider.atoms })
 
 /** A Handle's state: no provider yet. */
-export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined, layout: LayoutOptions, server: ServerOptions): State => ({
-  env,
-  instance: UndefinedOr.map(features, InstanceFeatures.instanceFeaturesOf),
-  rootConfig: rootConfigValueOf(config),
-  layout,
+export const makeState = (options: MakeOptions<Feature.InstanceFeaturesProp>): State => ({
+  env: options.env,
+  instance: UndefinedOr.map(options.features, InstanceFeatures.instanceFeaturesOf),
+  rootConfig: rootConfigValueOf(options.config),
+  layout: { trigger: options.layoutTrigger, attributes: options.layoutAttributes },
   transitioning: false,
   deferred: Deferred.makeUnsafe<Provider>(),
   live: undefined,
   building: false,
-  server,
+  server: { appear: options.appear, nonce: options.nonce },
   render: undefined,
-  warnedNoProvider: false,
+  said: new Set(),
 })
 
 /**

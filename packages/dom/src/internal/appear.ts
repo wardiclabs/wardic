@@ -894,7 +894,8 @@ export interface Sheet {
   /**
    * A slot for the next element: named by the sheet's count, or by `name` under `--wardic-a` when the
    * binding names it (a Foldkit render names each by its element's path, the same on the server and the
-   * hydration render, #794).
+   * hydration render, #794). A Batch's slot (`batch`) stays on the count, in the same namespace: a
+   * binding naming slots keeps its names apart from the count's digits, or asks for no Batch rule.
    */
   readonly slot: (name?: string | undefined) => Slot
   /**

@@ -72,7 +72,7 @@ import { arc, createWard, stagger, wardic, WardicConfig, WardicProvider, type Wa
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
-import { delayOf, propertyOf, said, timing } from "./appear-markup.ts"
+import { delayOf, headCss, propertyOf, said, timing } from "./appear-markup.ts"
 import { tagsOf } from "./ssr-helpers.ts"
 import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as Option from "effect/Option"
@@ -91,9 +91,6 @@ const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "ex
       </body>
     </html>
   ))
-
-/** The head's Appear style, or "". */
-const headCss = (html: string): string => /<style data-wardic-appear[^>]*>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? ""
 
 const rise = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 } } as const
 

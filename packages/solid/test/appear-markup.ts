@@ -1,6 +1,12 @@
 // Appear animations read back from server markup, for both bindings' server tests (#48, #794): Solid-free.
 import { vi } from "vitest"
 
+/** The text of the first `<style>` in `html` carrying `attribute` (a prefix matches: `data-wardic-appear` finds the head's and a chunk's alike), or "". */
+export const styleCss = (html: string, attribute: string): string => new RegExp(`<style ${attribute}[^>]*>([\\s\\S]*?)</style>`).exec(html)?.[1] ?? ""
+
+/** The head's Appear style, or "". */
+export const headCss = (html: string): string => styleCss(html, "data-wardic-appear")
+
 /** The custom property an element's inline `animation` names (`var(--wardic-aN)`, or a path under `--wardic-a`), or "". */
 export const propertyOf = (animation: string | undefined): string => /var\((--wardic-a[\w-]*)\)/.exec(animation ?? "")?.[1] ?? ""
 

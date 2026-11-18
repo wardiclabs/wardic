@@ -378,6 +378,20 @@ export const explainerOf = (appear: boolean | "explain" | undefined): ((message:
   return (message) => Effect.runSync(Effect.logWarning(message))
 }
 
+/** Why an element's own `animation` in its style rules its Appear animation out (decision 4): the one CSS animation it has would be taken. What each binding's veto says. */
+export const OWN_ANIMATION = "its own style sets an animation"
+
+/**
+ * A render's Appear animations from a provider's settings (decisions 3 and 5): none with `appear:
+ * false`; else {@link serverAppear} under `reducedMotion`, the user's preference with none set, the
+ * explainer `appear` asks for (#585) and the `nonce` (#618). Each binding's provider makes its own
+ * through it, Foldkit's walk too (#794).
+ */
+export const serverAppearUnder = (appear: boolean | "explain" | undefined, reducedMotion: ReducedMotion.Config | undefined, nonce: string | undefined): ServerAppear | undefined => {
+  if (appear === false) return undefined
+  return serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: (): ReducedMotion.Config => "user", onDefined: identity }), explainerOf(appear), nonce)
+}
+
 /** An element as the provider's explanation names it (#585): its tag and the keys its mount animates. */
 const nameOf = (entry: Entry): string => {
   const element = UndefinedOr.match(entry.tag, { onUndefined: () => "an element", onDefined: (tag) => `<${tag}>` })

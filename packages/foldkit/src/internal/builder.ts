@@ -11,7 +11,6 @@
 import * as Appear from "@wardic/dom/Appear"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -25,7 +24,7 @@ import * as Ward from "../Ward.ts"
 import { propertyOf } from "./delivery.ts"
 import { type Config, startingStyleOf, stringified } from "./element.ts"
 import { mountOf } from "./mount.ts"
-import { registryOf, type State } from "./services.ts"
+import { noteServerRender, registryOf, type State } from "./services.ts"
 import { type ViewNode, walkProvider } from "./walk.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 import { IS_SERVER } from "@wardic/foldkit/internal/server"
@@ -126,59 +125,33 @@ const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: str
 /** Foldkit's element function, as `h.div` and a `h.keyed(tag)(key, …)` share it. */
 type Make = (attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Ward.Child>) => Html
 
-/** A `w.*` element: folded, rendered through Foldkit's `make`, and stamped. The provider element walks its subtree once built (#794, Q7). */
+/** A `w.*` element: folded, rendered through Foldkit's `make`, and stamped. The Provider element walks its subtree once built (#794, Q7). */
 const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Ward.Child> | undefined): Html => {
   const folded = fold(attributes)
   if (DEV && Predicate.isNotUndefined(folded.config.text) && Predicate.isNotUndefined(children) && children.length > 0) throw new Error(TEXT_WITH_CHILDREN)
   const node = brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
-  if (IS_SERVER && DEV) noteServerElement(state, Predicate.isNotUndefined(folded.provider))
-  // The provider element's subtree exists by now, children before their parent: each Variant child's
+  if (IS_SERVER && DEV) noteServerRender(state, Predicate.isNotUndefined(folded.provider))
+  // The Provider element's subtree exists by now, children before their parent: each Variant child's
   // inherited Starting style goes into its node, for the server's HTML and the hydration render alike,
-  // and on a server each element's Appear animation, whose rules the provider element renders (PR 2).
+  // and on a server each element's Appear animation, whose rules the Provider element renders (PR 2).
   // Foldkit's node type isn't an export: the walk reads it by its shape, through `unknown`.
   if (Bool.and(Predicate.isNotUndefined(folded.provider), Predicate.isNotNull(node))) {
-    const css = walkProvider(node as unknown as ViewNode, state)
-    if (css !== "") prependChunk(h, node as unknown as ViewNode, css, state.server.nonce)
+    const view = node as unknown as ViewNode
+    const css = walkProvider(view, state)
+    if (Str.isNonEmpty(css)) prependChunk(h, view, css, state.server.nonce)
   }
   return node
 }
 
 /**
  * The chunk `<style>` with the render's Appear rules (ADR-0044 *Amendment (#245)*; #794, Q4), put first
- * among the provider element's children: Foldkit serialises a `<style>`'s text verbatim, and the
+ * among the Provider element's children: Foldkit serialises a `<style>`'s text verbatim, and the
  * client moves the chunk into the head before it hydrates (PR 3). With a `nonce`, it carries it.
  */
 const prependChunk = <Message>(h: HtmlBuilder<Message>, node: ViewNode, css: string, nonce: string | undefined): void => {
   const attributes = [h.Attribute(Appear.CHUNK_ATTRIBUTE, ""), ...UndefinedOr.match(nonce, { onUndefined: () => [], onDefined: (value) => [h.Attribute("nonce", value)] })]
   const chunk = h.style(attributes, [css]) as unknown as ViewNode
   node.children = Arr.prepend(UndefinedOr.match(node.children, { onUndefined: (): ReadonlyArray<ViewNode | string> => [], onDefined: identity }), chunk)
-}
-
-/** Development's word on a server render with no provider element (#794, Q4): the Starting style alone, no Appear animation. */
-const NO_PROVIDER =
-  "wardic.appear: a w.* element rendered on a server with no w.Provider() above it keeps its Starting style until the script runs: its Appear animation needs the provider element, which renders the rules. Put w.Provider() on the topmost w.* element."
-
-/**
- * On a server, in development (#794, Q4): the render under way, opened by its first `w.*` element and
- * closed by a microtask after the view's build (one synchronous call, the provider element built last),
- * when a render with no provider element gets its word, once a Handle; none with `appear: false`.
- */
-const noteServerElement = (state: State, provider: boolean): void => {
-  const render = UndefinedOr.match(state.render, {
-    onDefined: identity,
-    onUndefined: () => {
-      const opened = { provider: false }
-      state.render = opened
-      queueMicrotask(() => {
-        state.render = undefined
-        if (Bool.or(opened.provider, Bool.or(state.warnedNoProvider, state.server.appear === false))) return
-        state.warnedNoProvider = true
-        Effect.runSync(Effect.logWarning(NO_PROVIDER))
-      })
-      return opened
-    },
-  })
-  render.provider = Bool.or(render.provider, provider)
 }
 
 /** Whether `key` names one of `h`'s element factories: a lowercase name, a function, and neither `keyed` nor `submodel`. */

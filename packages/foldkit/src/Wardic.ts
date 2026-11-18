@@ -62,13 +62,15 @@ export interface MakeOptions<F> {
   readonly layoutTrigger?: "patch" | "declared" | undefined
   /** Attributes the observer watches beside `class` and `hidden` (decision 30): those the app's CSS lays out by. */
   readonly layoutAttributes?: ReadonlyArray<string> | undefined
+  // ADR-0044; #794, Q3; "explain": #585. Solid's `<WardicProvider appear>`.
   /**
-   * **Appear animations** on a server (ADR-0044; #794, Q3): on by default, under `w.Provider()`, whose
-   * element renders their rules; `false` renders none; `"explain"` says, at Warning, why each element
-   * that doesn't play waits for the JavaScript (#585). Solid's `<WardicProvider appear>`.
+   * **Appear animations** on a server: on by default, under `w.Provider()`, whose element renders their
+   * rules; `false` renders none; `"explain"` says, at Warning, why each element that doesn't play waits
+   * for the JavaScript.
    */
   readonly appear?: boolean | "explain" | undefined
-  /** The nonce the page's Content Security Policy gives inline styles (#618; #794, Q13): the rules' `<style>` carries it. Solid's `<WardicProvider nonce>`. */
+  // #618; #794, Q13. Solid's `<WardicProvider nonce>`.
+  /** The nonce the page's Content Security Policy gives inline styles: the rules' `<style>` carries it. */
   readonly nonce?: string | undefined
 }
 
@@ -131,7 +133,8 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
   Custom: (value: Ward.Config["custom"]) => Ward.Attribute
   /** `false` keeps the element out of its ancestor's variants (Motion's `inherit`). */
   Inherit: (value: Ward.Config["inherit"]) => Ward.Attribute
-  /** `false` keeps the element's mount animation off a server render's **Appear animations** (ADR-0044; #794, Q3): it starts when the script runs. */
+  // ADR-0044; #794, Q3: dom's `appear` key, Motion's `appear` prop.
+  /** `false` keeps the element's mount animation off a server render's **Appear animations**: it starts when the script runs. */
   Appear: (value: Ward.Config["appear"]) => Ward.Attribute
   /** The subtree's settings (Motion's `MotionConfig`), this element's included, over the nearest ancestor's and the Handle's. */
   Config: (options: Ward.ConfigOptions) => Ward.Attribute
@@ -329,7 +332,7 @@ export interface Handle<F = never> {
  * `w.Provider()` for it while the first's element is mounted is reported and ignored.
  */
 export const make = <const F extends Feature.InstanceFeaturesProp = never>(options: MakeOptions<F>): Handle<F> => {
-  const state: State = makeState(options.env, options.features, options.config, { trigger: options.layoutTrigger, attributes: options.layoutAttributes }, { appear: options.appear, nonce: options.nonce })
+  const state: State = makeState(options)
   // Made once per `h` (decision 18): as `===`-stable as `h` is, for `createLazy`.
   const builders = new WeakMap<object, object>()
   const html = <Message>(h: FoldkitHtml.HtmlBuilder<Message>): Html<Message, F> => {

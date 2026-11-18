@@ -28,7 +28,8 @@ import * as Appear from "@wardic/dom/Appear"
 import { AnimatePresence, createBatch, Reorder, stagger, wardic, WardicConfig, WardicProvider } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
+import { said } from "./appear-markup.ts"
 import { tagsOf } from "./ssr-helpers.ts"
 
 /** A whole document with a head, as SolidStart renders it, and `ui` under a provider. */
@@ -57,26 +58,6 @@ const slotOf = (css: string, property: string): { readonly normal: string; reado
   const [plain, media = ""] = css.split("@media (prefers-reduced-motion: reduce)")
   const value = (text: string | undefined) => new RegExp(`${property}:([^;}]*)`).exec(text ?? "")?.[1] ?? ""
   return { normal: value(plain), reduced: value(media) }
-}
-
-/** The provider's explanations logged while `render` runs (#585): each `wardic.appear:` line, from its start. */
-const said = (render: () => string): ReadonlyArray<string> => {
-  const lines: Array<string> = []
-  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
-    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
-      lines.push(args.map(String).join(" "))
-    }),
-  )
-  try {
-    render()
-  } finally {
-    for (const spy of spies) spy.mockRestore()
-  }
-  return lines.flatMap((line) => {
-    const at = line.indexOf("wardic.appear:")
-    if (at === -1) return []
-    return [line.slice(at).trim()]
-  })
 }
 
 const grid = () =>
@@ -123,7 +104,7 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
     expect(css).toContain(`@keyframes ${reducedName}{`)
   })
 
-  it("BS2: opt-in: without appear, its start alone and nothing said; the off switches play nothing; explain says why", () => {
+  it("BS2: opt-in: without appear, its start alone and nothing said; the off switches play nothing; explain says why", async () => {
     const three = (tiles: { readonly at: (i: number, props?: { readonly style?: JSX.CSSProperties }) => object }) => (
       <>
         <div data-k="0" {...tiles.at(0)} />
@@ -146,7 +127,7 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
     expect(styleOf(vetoed, "1").animation).toBe("spin 1s infinite")
     expect(styleOf(vetoed, "2").animation).toMatch(/^var\(--wardic-a\d+\) 0\.1s$/)
 
-    const lines = said(() =>
+    const lines = await said(() =>
       page(
         () => (
           <>
@@ -164,7 +145,7 @@ describe("a Batch's members' Appear animations on a server (#706)", () => {
       "wardic.appear: a Batch (x) waits for the JavaScript: no member moves from its start",
     ])
     // Without "explain", nothing is said.
-    expect(said(() => page(() => three(grid())))).toEqual([])
+    expect(await said(() => page(() => three(grid())))).toEqual([])
   })
 
   it("BS3: never, one rule; always, the reduced one, its positional keys at their targets; skipped, 0 s and no stagger", () => {

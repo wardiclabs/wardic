@@ -2,7 +2,7 @@
 // `renderToString` runs the view alone, no Mount, so what the HTML carries is what the view's build
 // renders. Each fixture renders a program statically (no build id) and reads the HTML back through
 // Solid's markup reader, shared by both bindings' server tiers (`./ssr.ts`): the Starting style, apart
-// from the `animation` an element's Appear animation adds under a provider element (PR 2).
+// from the `animation` an element's Appear animation adds under a Provider element (PR 2).
 //
 // - S0: the package's `server` condition: `IS_SERVER` reads true under Node, as on a server.
 // - S1: a `w.*` element's Starting style in the HTML: `Initial` projected over `Style`, the transform

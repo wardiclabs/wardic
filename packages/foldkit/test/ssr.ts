@@ -37,5 +37,5 @@ export const tagOf = (html: string, id: string): Tag | undefined => Option.getOr
 /** The parsed inline style of the element with `id` in `html` (empty with no `style` attribute), or none without the element. */
 export const styleOf = (html: string, id: string): Readonly<Record<string, string>> | undefined => UndefinedOr.map(tagOf(html, id), (tag) => tag.style)
 
-/** The element's Starting style: its inline style without the `animation` its Appear animation adds under a provider element (#794, PR 2). */
+/** The element's Starting style: its inline style without the `animation` its Appear animation adds under a Provider element (#794, PR 2). */
 export const startingOf = (html: string, id: string): Readonly<Record<string, string>> | undefined => UndefinedOr.map(styleOf(html, id), (style) => Rec.remove(style, "animation"))

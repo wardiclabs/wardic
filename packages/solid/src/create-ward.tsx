@@ -1214,7 +1214,7 @@ const serverWard = (config: WardConfig.WardConfig | Accessor<WardConfig.WardConf
       const parts = LiveStyle.split(userProps.style, ownValues)
       // A style with its own `animation` keeps it: the element's Appear animation would take its place.
       const ownAnimation = AppearAnimations.setsAnimation(parts.css)
-      if (ownAnimation) appear.veto("its own style sets an animation")
+      if (ownAnimation) appear.veto(AppearAnimations.OWN_ANIMATION)
       return {
         ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
         style: pipe(

@@ -130,7 +130,7 @@ export const configValueOf = (element: Element, root: WardicConfigValue.WardicCo
 /**
  * The `WardicConfigValue` of an element whose `w.Config` is `own()`, under `parent`'s (ADR-0062): each
  * setting read when an animation starts, so a change moves nothing by itself. What {@link configValueOf}
- * keeps for a mounted element, and the walk at a provider element's build carries down a server render
+ * keeps for a mounted element, and the walk at a Provider element's build carries down a server render
  * (#794, PR 2).
  */
 export const configValueUnder = (own: () => Ward.ConfigOptions | undefined, parent: WardicConfigValue.WardicConfigValue | undefined): WardicConfigValue.WardicConfigValue => ({
