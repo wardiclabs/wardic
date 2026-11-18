@@ -32,7 +32,7 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid/unstable/v2"
+import { wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, onSettled } from "solid-js"
 import { Checkbox, CONTROLS_STYLE, NOTE_STYLE } from "../scenarios/controls.tsx"

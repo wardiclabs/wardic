@@ -191,14 +191,14 @@ export interface FlashCounts {
  */
 export type EffectScheduler = "setTimeout-fallback" | "setImmediate"
 
-/** Which Solid binding the page runs: `@wardic/solid` on Solid 1, or `@wardic/solid/unstable/v2` on Solid 2 (#209 PR 5). */
+/** Which Solid binding the page runs: `@wardic/solid` on Solid 2, or `@wardic/solid/v1` on Solid 1 (#209 PR 5, #566). */
 export type LabBinding = "solid1" | "solid2"
 
 /** The copy-log payload: environment metadata plus every kept run and drag run. */
 export interface LabLog {
   /** When the log was produced (ISO 8601). */
   readonly createdAt: string
-  /** Which binding the page runs (`bun dev` or `bun dev:v2`). */
+  /** Which binding the page runs (`bun dev`, Solid 2, or `bun dev:v1`, Solid 1). */
   readonly binding: LabBinding
   readonly userAgent: string
   readonly devicePixelRatio: number

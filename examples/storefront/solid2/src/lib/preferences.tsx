@@ -4,7 +4,7 @@
  * (`sessionStorage`), read once the page has settled, so the server's markup and hydration agree.
  */
 import type { JSX } from "@solidjs/web"
-import { createReducedMotion } from "@wardic/solid/unstable/v2"
+import { createReducedMotion } from "@wardic/solid"
 import { type Accessor, createContext, createSignal, onSettled, useContext } from "solid-js"
 
 export type Theme = "system" | "light" | "dark"

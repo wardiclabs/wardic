@@ -1,5 +1,5 @@
 /**
- * The lab's binding on Solid 1 (`bun dev`): what the shared UI and entry take from the Solid
+ * The lab's binding on Solid 1 (`bun dev:v1`): what the shared UI and entry take from the Solid
  * binding and Solid's web layer, imported as `#binding` (`package.json`'s `imports`). The Solid 2
  * build resolves `#binding` to `solid2.ts` instead (#209 PR 5).
  *

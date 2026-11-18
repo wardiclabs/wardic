@@ -5,7 +5,7 @@
  * render can never read another's, as module-level signals could.
  */
 import type { JSX } from "@solidjs/web"
-import type { Feature } from "@wardic/solid/unstable/v2"
+import type { Feature } from "@wardic/solid"
 import { type Accessor, createContext, createSignal, useContext } from "solid-js"
 
 /** A piece arriving at the cart: its photo. */

@@ -17,7 +17,7 @@ import {
   wardic,
   WardicProvider,
   type WardicTransition,
-} from "@wardic/solid/unstable/v2"
+} from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, onSettled, Show } from "solid-js"
 

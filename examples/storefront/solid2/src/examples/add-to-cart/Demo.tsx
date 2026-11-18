@@ -1,7 +1,7 @@
 import { revalidate } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic-layout.ts"
 import { action, createEffect, createMemo, createOptimistic, createSignal, Loading, Match, Show, Switch } from "solid-js"
 import { cart, product } from "~/lib/store.ts"

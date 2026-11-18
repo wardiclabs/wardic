@@ -26,7 +26,7 @@
  *
  * @module
  */
-import { useAnimateLayout, ward, wardic } from "@wardic/solid/unstable/v2"
+import { useAnimateLayout, ward, wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"

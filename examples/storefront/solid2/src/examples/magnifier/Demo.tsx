@@ -1,5 +1,5 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
-import { createSpring, createTransform, type WardPointInfo } from "@wardic/solid/unstable/v2"
+import { createSpring, createTransform, type WardPointInfo } from "@wardic/solid"
 import { w } from "~/lib/wardic-pan.ts"
 import { createEffect, createSignal, untrack } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"

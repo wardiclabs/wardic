@@ -84,7 +84,7 @@
  *
  * @module
  */
-import { AnimatePresence, ward, wardic, type WardicValues } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, ward, wardic, type WardicValues } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, createStore, For, onCleanup, Show } from "solid-js"
 import type { BoardRunKind } from "../lab/base-values-board.ts"

@@ -1,5 +1,5 @@
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic-drag-layout.ts"
 import { revalidate } from "@solidjs/router"
 import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"

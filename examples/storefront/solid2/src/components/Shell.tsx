@@ -115,9 +115,6 @@ export function Shell(props: { readonly children: JSX.Element }) {
             Wardic Northlight
             <span class="badges">
               <span class="badge badge-binding">Solid 2</span>
-              <span class="badge badge-unstable" title="@wardic/solid/unstable/v2: Wardic for Solid 2's release candidate. Any release may change it.">
-                Unstable
-              </span>
             </span>
           </a>
           <nav class="site-nav" aria-label="Main">

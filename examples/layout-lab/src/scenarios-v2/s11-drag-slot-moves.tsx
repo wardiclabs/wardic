@@ -24,7 +24,7 @@
  *
  * @module
  */
-import { LayoutGroup, wardic } from "@wardic/solid/unstable/v2"
+import { LayoutGroup, wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, onSettled } from "solid-js"
 import { Checkbox, CONTROLS_STYLE, NOTE_STYLE, type Option, Select } from "../scenarios/controls.tsx"

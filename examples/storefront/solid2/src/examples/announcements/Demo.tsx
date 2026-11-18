@@ -1,4 +1,4 @@
-import { AnimatePresence, createAnimationFrame, createCycle, createPageInView } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createAnimationFrame, createCycle, createPageInView } from "@wardic/solid"
 import { w } from "~/lib/wardic.ts"
 import { createSignal, Show } from "solid-js"
 

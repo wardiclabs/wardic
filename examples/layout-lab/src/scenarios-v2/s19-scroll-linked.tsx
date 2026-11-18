@@ -35,7 +35,7 @@
  *
  * @module
  */
-import { createScroll, createTime, createTransform, createVelocity, wardic } from "@wardic/solid/unstable/v2"
+import { createScroll, createTime, createTransform, createVelocity, wardic } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, onCleanup } from "solid-js"
 import { frameNumber } from "../lab/frame-counter.ts"

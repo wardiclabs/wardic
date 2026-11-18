@@ -1,6 +1,6 @@
 # @wardic/example-solid2-start
 
-A sandbox for the Solid 2 binding, `@wardic/solid/unstable/v2` (#209), in
+A sandbox for the Solid 2 binding, `@wardic/solid` (#209), in
 [`@solidjs/vite-plugin`](https://v2.solidjs.com)'s start mode: streaming server rendering,
 hydration, and Appear animations, with the Solid 1 example's hand checks
 (`examples/solid-start-basic`) on the same pages.
