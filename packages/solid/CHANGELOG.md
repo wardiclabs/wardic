@@ -1,5 +1,25 @@
 # @wardic/solid
 
+## 1.1.3
+
+### Patch Changes
+
+- 42f868d: The gesture callbacks are `@wardic/dom`'s gesture teller, and the drag track's config its builder; no change in behaviour (#793).
+- 608e434: The gesture callbacks read the wanted-gesture predicates and a Wardic instance's Features from `@wardic/dom`; no change in behaviour (#793).
+- 6db0705: The Reorder items' input, their drag axis and the keyboard reorder's settings and attributes come from `@wardic/dom`; no change in behaviour (#793).
+- 5adf533: The Solid 2 binding (`@wardic/solid/unstable/v2`) on Solid's stable 2.0.1 (#566): its peers are `solid-js` `^1.9.13 || ^2.0.0` and `@solidjs/web` `^2.0.0`, and a ward's `read`, `atom`, `settled` and `tapped` work when first called inside a ref, which Solid 2.0 made an owned scope.
+- 8169171: Both bindings read an element's Animation controls through core's `controlsOf`; nothing rendered changes (#798).
+- f830165: Both providers make a server render's Appear state through dom's `serverAppearUnder`, and both server wards say dom's `OWN_ANIMATION` veto; nothing rendered changes (#794).
+- Updated dependencies [8169171]
+- Updated dependencies [b5b7a04]
+- Updated dependencies [de02b9d]
+- Updated dependencies [fcb08e3]
+- Updated dependencies [42f868d]
+- Updated dependencies [608e434]
+- Updated dependencies [6db0705]
+  - @wardic/core@1.1.3
+  - @wardic/dom@1.1.3
+
 ## 1.1.2
 
 ### Patch Changes
