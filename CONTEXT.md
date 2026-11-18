@@ -189,7 +189,7 @@ An animation started by a call rather than declared (#433, Motion's `useAnimate`
 _Avoid_: imperative layer (it isn't an entry in the **Override stack**), manual animation.
 
 **Animation scope**:
-The element an **Imperative animation**'s selectors are looked up in, and the owner of the animations started from it (#433, Motion's `useAnimate` scope): its component's cleanup stops them.
+The element an **Imperative animation**'s selectors are looked up in, and the owner of the animations started from it (#433, Motion's `useAnimate` scope): its owner's end stops them where they are, a component's cleanup on Solid, the element's release on Foldkit (#798).
 _Avoid_: animation context, root.
 
 **Playback controls**:

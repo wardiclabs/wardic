@@ -762,7 +762,8 @@ export const serverAnimate: WardicAnimate = () => finishedControls()
 // --- Sequences (#433's PR 2) ------------------------------------------------------------------
 
 /** Whether `animate` was given a sequence (Motion's `isSequence`): a list with a Segment in it. */
-const isSequence = (given: unknown): given is WardicAnimationSequence =>
+/** Whether `given` is a sequence rather than a subject (#433): a list with a Segment, itself a list, in it; a list of elements has none. A binding whose `animate` is its own tells the forms apart by it (#798). */
+export const isSequence = (given: unknown): given is WardicAnimationSequence =>
   Bool.match(Arr.isArray(given), { onTrue: () => Arr.some(given as ReadonlyArray<unknown>, Arr.isArray), onFalse: () => false })
 
 /** A function Segment's value (Motion's motion value): its own subject, its callback told each frame. */
