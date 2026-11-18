@@ -56,8 +56,8 @@ const GATE = 1.01
  * the Frame loop's burst and dom's runner holding their fibers themselves, 94.6 and 116.0 with the Imperative
  * track `imperative.ts`'s, 94.5 and 115.9 with a Batch member's hold all `member-hold.ts`'s. #672's
  * PR 2 raised them by what it measured (Q23): 95.2 and 116.5, the Environment's three ports' plumbing and
- * the helpers out of the spine (ADR-0067, *Note (#672)*). #566 raised Solid 2's by what Solid 2.0.1 measured
- * over rc.21, every Wardic app's Solid code but the Batch's: 118.0 (ADR-0067, *Note (#566)*).
+ * the helpers out of the spine (ADR-0067, *Note (#672)*). #566 raised Solid 2's to 118.0 for Solid 2.0.1, whose own
+ * code grew 1.5 KB in every app that makes a ward (ADR-0067, *Note (#566)*).
  */
 const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0 }
 

@@ -508,6 +508,8 @@ TS 7's default parallel check read +14% on Solid 2: adding the prototype's four 
 
 #566's first PR moves the Solid 2 binding from `2.0.0-rc.21` to Solid's stable `2.0.1` (ADR-0045, *Note (#566)*). As #672's ports did, a budget the change crosses rises by exactly what's measured.
 
-- **Measured** (`bun run size`, both sides built with Solid 2.0.1, against CI's run of `main` on rc.21, 285d949): `s2-slim` 116.1 → 117.6 KB gzipped against its 116.5 budget, now 118.0, keeping `main`'s 0.4 KB of room. Wardic's own change is +0.1% (a ward's owner for its accessors' first calls, ADR-0045 *Note (#566)*); the rest is Solid's.
+- **Measured,** in two parts:
+  - **Solid's:** `s2-slim` is 116.1 KB gzipped in CI's run of `main` (285d949, rc.21) and 117.6 in this branch's `bun run size` (2.0.1), against its 116.5 budget, now 118.0, keeping `main`'s 0.4 KB of room.
+  - **Wardic's:** `bun run size` builds both its sides with the working tree's Solid, so its gate sees Wardic's own change alone: +0.1% (a ward's owner for its accessors' first calls, ADR-0045 *Note (#566)*).
 - **What it is:** Solid's own code in every Solid 2 app that makes a ward, the size split's `solid-js` 61.7 → 65.3 KB minified in `s2-slim`, +1.3 to +1.5 KB gzipped from `s2-complete` to `s2-routes`. Solid's bare app (`s2-plain`) shrinks, 23.6 → 23.3 KB minified, as 2.0.1's notes say of an app that imports no lanes, guesses or projections; `s2-batch`, which makes no ward, doesn't move. *Inferred*, not split by module: it's the code a ward's imports reach (its async reads, `isPending` and `latest`, among them), which 2.0's hold and lane fixes grew.
 - **Not in it:** Solid 1's apps, unchanged (`s1-slim` 95.1 of 95.2).
