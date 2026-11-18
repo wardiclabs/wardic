@@ -1,18 +1,20 @@
 /** The showcase's gallery (#296 Q3): each area, with its examples this app has. */
-import { AREAS, type Example, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
+import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { CARD, TAG } from "@wardic/example-storefront-shared/micro"
+import * as Bool from "effect/Boolean"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { wardic } from "~/lib/wardic.ts"
 import type { Message } from "~/model.ts"
+import { summaryOf, titleOf } from "~/views/words.ts"
 
-/** An example's title and summary on Foldkit: its own where it has them. */
-export const titleOf = (example: Example): string => example.foldkit?.title ?? example.title
-export const summaryOf = (example: Example): string => example.foldkit?.summary ?? example.summary
+/** Whether this app has an area's examples yet. */
+const hasPages = (area: (typeof AREAS)[number]): boolean => examplesIn(area.id, "foldkit").length > 0
 
 export const gallery = (h: HtmlBuilder<Message>): Html => {
   const w = wardic.html(h)
-  const ready = AREAS.filter((area) => examplesIn(area.id, "foldkit").length > 0)
-  const next = AREAS.filter((area) => examplesIn(area.id, "foldkit").length === 0)
+  // The areas this app has, and the ones still to come.
+  const ready = AREAS.filter(hasPages)
+  const next = AREAS.filter((area) => Bool.not(hasPages(area)))
   return h.main([h.Class("page")], [
     h.section([h.Class("hero")], [
       h.p([h.Class("eyebrow")], ["Wardic on Foldkit"]),

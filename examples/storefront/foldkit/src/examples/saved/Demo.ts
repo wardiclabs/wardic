@@ -9,6 +9,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
 import { arrivalId } from "~/lib/arrivals.ts"
+import { problemLine } from "~/lib/view.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { arriving, cartChanged, definePage, type PageEnv, recalled } from "~/page.ts"
 import { Shop } from "~/shop.ts"
@@ -59,7 +60,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
     // popLayout: a leaving row steps out of the list at once, and the rows below close the gap while it goes.
     w.ul([h.Class("saved-list"), w.Presence({ mode: "popLayout" })], model.saved.map((piece) => savedRow(h, piece))),
     ...(model.saved.length === 0 ? [h.p([h.Class("saved-empty muted")], ["Nothing saved for later. ", h.button([h.Class("button quiet"), h.OnClick(Message.SaveAgain())], ["Save them again"])])] : []),
-    ...(model.failure === null ? [] : [h.p([h.Class("error-line"), h.Role("alert")], [model.failure])]),
+    ...problemLine(h, model.failure),
   ])
 })
 

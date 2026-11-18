@@ -5,6 +5,7 @@ import * as Schema from "effect/Schema"
 import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
+import { problemLine } from "~/lib/view.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 import { Shop, StockWhen } from "~/shop.ts"
@@ -69,7 +70,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
         ]),
       ),
     ),
-    ...(model.problem === null ? [] : [h.p([h.Class("error-line"), h.Role("alert")], [model.problem])]),
+    ...problemLine(h, model.problem),
   ])
 })
 

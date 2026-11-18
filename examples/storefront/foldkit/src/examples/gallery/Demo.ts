@@ -50,7 +50,7 @@ const view = defineView<Model, Message, PageEnv>((model, env, h) => {
   // rule for positional values, a leaving photo would jump aside at once and fade there.) The
   // system's setting, or the header's switch.
   const way = model.direction * Number(!env.reduceMotion)
-  const piece = PIECES[model.at] ?? PIECES[0]!
+  const piece = PIECES[model.at]
   const image = photoOf(piece.id)
   return h.div([h.Class("gallery")], [
     h.div(

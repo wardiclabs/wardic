@@ -5,22 +5,24 @@
  */
 import { AREAS, type Example, exampleById } from "@wardic/example-storefront-shared/examples"
 import { BACK } from "@wardic/example-storefront-shared/micro"
-import * as Bool from "effect/Boolean"
+import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { wardic } from "~/lib/wardic.ts"
 import { Message, type Model } from "~/model.ts"
 import type { PageEnv } from "~/page.ts"
 import { pageOf } from "~/pages.ts"
 import type { Highlighted } from "~/shop.ts"
-import { summaryOf, titleOf } from "~/views/gallery.ts"
+import { summaryOf, titleOf } from "~/views/words.ts"
 import { prose } from "~/views/prose.ts"
 
 const codeFile = (h: HtmlBuilder<Message>, file: Highlighted): Html => h.div([h.Class("code-file")], [h.header([], [file.path]), h.div([h.InnerHTML(file.html)])])
 
 /** The demo's code and, where the Next.js app has it, Motion's beside it in a tab (#366 Q2), with what differs between them above. */
 const codePanel = (model: Model, h: HtmlBuilder<Message>, example: Example): Html => {
-  const notes = [example.foldkit?.note, example.motion?.note].filter((note): note is string => note !== undefined)
+  const notes = Arr.filter([example.foldkit?.note, example.motion?.note], Predicate.isString)
   const code = model.code
   return h.section([h.Class("code"), h.AriaLabelledBy("code-title")], [
     h.h2([h.Id("code-title")], ["The code"]),
@@ -94,7 +96,7 @@ export const examplePage = (model: Model, h: HtmlBuilder<Message>, id: string, e
     h.section([h.Class("why")], [
       h.h2([], ["Why"]),
       ...example.why.map((paragraph) => h.p([], prose(h, paragraph))),
-      ...Bool.match(example.tradeoffs === undefined, { onTrue: () => [], onFalse: () => [tradeoffs(h, example.tradeoffs!.gains, example.tradeoffs!.costs)] }),
+      ...UndefinedOr.match(example.tradeoffs, { onUndefined: () => [], onDefined: ({ gains, costs }) => [tradeoffs(h, gains, costs)] }),
     ]),
     codePanel(model, h, example),
   ])

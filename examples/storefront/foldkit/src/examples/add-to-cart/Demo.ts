@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema"
 import * as Command from "foldkit/command"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
+import { problemLine } from "~/lib/view.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { cartChanged, definePage, type PageEnv } from "~/page.ts"
 import { Shop } from "~/shop.ts"
@@ -61,9 +62,10 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
         // The button's width follows its label: layout animates the change, and the label,
         // Layout("position"), travels with it instead of stretching.
         w.button([h.Class("button accent buy"), w.Layout(), h.Disabled(model.adding), h.OnClick(Message.Buy())], [w.span([w.Layout("position")], [labelOf(model)])]),
-        w.span([w.Presence()], model.added ? [w.keyed("a")("view-cart", [h.Class("view-cart"), h.Href("/layout/cart-drawer"), w.Initial(viewCart.initial), w.Animate(viewCart.animate), w.Exit(viewCart.exit)], ["View cart →"])] : []),
+        // display: contents: the presence's span is no flex item, so the row's gap doesn't count it.
+        w.span([w.Presence(), h.Style({ display: "contents" })], model.added ? [w.keyed("a")("view-cart", [h.Class("view-cart"), h.Href("/layout/cart-drawer"), w.Initial(viewCart.initial), w.Animate(viewCart.animate), w.Exit(viewCart.exit)], ["View cart →"])] : []),
       ]),
-      ...(model.problem === null ? [] : [h.p([h.Class("error-line"), h.Role("alert")], [model.problem])]),
+      ...problemLine(h, model.problem),
     ]),
   ])
 })

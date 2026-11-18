@@ -25,7 +25,7 @@ const MOTION_SRC = "../../next/src/"
 const filesIn = (sources: Readonly<Record<string, string>>, src: string, folder: string): Effect.Effect<ReadonlyArray<Highlighted>> =>
   Effect.forEach(
     inShowingOrder(Object.keys(sources).filter((key) => key.startsWith(`${src}${folder}/`))),
-    (key) => Effect.promise(() => codeToHtml(sources[key] ?? "", highlightOptions(key))).pipe(Effect.map((html) => ({ path: key.slice(src.length), html }))),
+    (key) => Effect.promise(() => codeToHtml(sources[key], highlightOptions(key))).pipe(Effect.map((html) => ({ path: key.slice(src.length), html }))),
   )
 
 /**

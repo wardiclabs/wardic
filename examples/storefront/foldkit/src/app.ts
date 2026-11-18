@@ -19,17 +19,19 @@ import * as Url from "foldkit/url"
 import type * as Update from "foldkit/update"
 import { exampleById } from "@wardic/example-storefront-shared/examples"
 import { Settings } from "@wardic/example-storefront-shared/server"
+import * as Match from "effect/Match"
 import { wardic } from "~/lib/wardic.ts"
-import { type Arrival, type Flags, Message, type Model, type PageState, Prefs, type Theme } from "~/model.ts"
-import type { PageEnv, PageOut, PageServices } from "~/page.ts"
+import { type Arrival, type Flags, Message, type Model, type PageState, Prefs, REDUCE_MOTION_COOKIE, Theme, THEME_COOKIE } from "~/model.ts"
+import type { AnyPage, PageEnv, PageOut, PageServices } from "~/page.ts"
 import { pageOf, PAGES } from "~/pages.ts"
 import { AppRoute, urlToRoute } from "~/routes.ts"
-import { Shop, type ShopError } from "~/shop.ts"
+import { Shop } from "~/shop.ts"
 import { ShopClient } from "~/shop/client.ts"
-import { textOf } from "~/shop/text.ts"
+import { asked } from "~/shop/text.ts"
 import { examplePage, notFound } from "~/views/example-page.ts"
 import { gallery } from "~/views/gallery.ts"
 import { shell } from "~/views/shell.ts"
+import { titleOf } from "~/views/words.ts"
 
 type Return = Update.Return<Model, Message, PageServices>
 
@@ -55,14 +57,14 @@ const SavePrefs = Command.define("SavePrefs", {
   messages: [Message.PrefsSaved],
   execute: ({ prefs }) =>
     Effect.sync(() => {
-      document.cookie = cookie("storefront-theme", prefs.theme)
-      document.cookie = cookie("storefront-reduce-motion", String(prefs.reduceMotion))
+      document.cookie = cookie(THEME_COOKIE, prefs.theme)
+      document.cookie = cookie(REDUCE_MOTION_COOKIE, String(prefs.reduceMotion))
       applyTheme(prefs.theme)
     }).pipe(Effect.as(Message.PrefsSaved())),
 })
 /** At init, on the client: the theme the Flags carried onto the document, and the system's reduced-motion setting read. */
 const ApplyPrefs = Command.define("ApplyPrefs", {
-  args: { theme: Schema.Literals(["system", "light", "dark"]) },
+  args: { theme: Theme },
   messages: [Message.SystemMotion],
   execute: ({ theme }) =>
     Effect.sync(() => {
@@ -74,9 +76,10 @@ const SaveSettings = Command.define("SaveSettings", {
   args: { settings: Settings },
   messages: [Message.SettingsSaved, Message.SettingsFailed],
   execute: ({ settings }) =>
-    Shop.use((shop) => shop.setSettings(settings)).pipe(
-      Effect.map((saved) => Message.SettingsSaved({ settings: saved })),
-      Effect.catch((error) => Effect.succeed(Message.SettingsFailed({ reason: textOf(error) }))),
+    asked(
+      Shop.use((shop) => shop.setSettings(settings)),
+      (saved) => Message.SettingsSaved({ settings: saved }),
+      (reason) => Message.SettingsFailed({ reason }),
     ),
 })
 /** A page's first-paint data, for a page reached by a link; a later navigation interrupts it. */
@@ -88,9 +91,10 @@ const LoadPage = Command.define("LoadPage", {
     Option.match(pageOf(id), {
       onNone: () => Effect.succeed(Message.PageFailed({ id, reason: `No page for "${id}".` })),
       onSome: (page) =>
-        page.load.pipe(
-          Effect.map((data) => Message.PageLoaded({ id, data })),
-          Effect.catch((error: ShopError) => Effect.succeed(Message.PageFailed({ id, reason: textOf(error) }))),
+        asked(
+          page.load,
+          (data) => Message.PageLoaded({ id, data }),
+          (reason) => Message.PageFailed({ id, reason }),
         ),
     }),
 })
@@ -99,40 +103,48 @@ const LoadCode = Command.define("LoadCode", {
   messages: [Message.CodeLoaded, Message.CodeFailed],
   interrupt: true,
   execute: ({ id }) =>
-    Shop.use((shop) => shop.highlighted(id)).pipe(
-      Effect.map((code) => Message.CodeLoaded({ id, code })),
-      Effect.catch((error) => Effect.succeed(Message.CodeFailed({ id, reason: textOf(error) }))),
+    asked(
+      Shop.use((shop) => shop.highlighted(id)),
+      (code) => Message.CodeLoaded({ id, code }),
+      (reason) => Message.CodeFailed({ id, reason }),
     ),
 })
 
 /** The page under `route`, from the Flags where they carry it; else loading, with its Commands. */
 const entering = (model: Model, route: AppRoute): Return =>
-  AppRoute.match<Return>(route, {
-    Home: () => ({ model: { ...model, route, page: NONE, code: null } }),
-    NotFound: () => ({ model: { ...model, route, page: NONE, code: null } }),
-    Example: ({ area, id }) => {
+  AppRoute.match(route, {
+    Home: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
+    NotFound: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
+    Example: ({ area, id }): Return => {
       if (Predicate.isUndefined(exampleById(id)) || Option.isNone(pageOf(id))) return { model: { ...model, route: AppRoute.NotFound({ path: `/${area}/${id}` }), page: NONE, code: null } }
       return { model: { ...model, route, page: { _tag: "Loading", id }, code: null, codeTab: "own" }, commands: [LoadPage({ id }), LoadCode({ id })] }
     },
   })
 
-/** Whether motion is reduced for a page: the system's setting, or the header's switch (#388). */
-const envOf = (model: Model): PageEnv => ({ reduceMotion: Bool.or(model.prefs.reduceMotion, model.systemReducedMotion) })
+/** What the app gives a page: whether motion is reduced, by the system or the header's switch (#388), and the visitor's name. */
+const envOf = (model: Model): PageEnv => ({ reduceMotion: Bool.or(model.prefs.reduceMotion, model.systemReducedMotion), visitorName: model.visitorName })
 
-/** What a page told the app, applied. */
-const told = (model: Model, out: PageOut): Model => {
-  if (out._tag === "CartChanged") return { ...model, cart: out.cart }
-  if (out._tag === "Arriving") return { ...model, arrivals: [...model.arrivals.filter((one) => one.id !== out.id), { id: out.id, src: out.src }] }
-  return { ...model, arrivals: model.arrivals.filter((one) => one.id !== out.id) }
+/** What a page told the app, applied: the cart, or a piece's twin in the cart button, arriving or recalled. */
+const told = (model: Model, out: PageOut): Model =>
+  Match.value(out).pipe(
+    Match.tag("CartChanged", ({ cart }) => ({ ...model, cart })),
+    Match.tag("Arriving", ({ id, src }) => ({ ...model, arrivals: [...model.arrivals.filter((one) => one.id !== id), { id, src }] })),
+    Match.tag("Recalled", ({ id }) => ({ ...model, arrivals: model.arrivals.filter((one) => one.id !== id) })),
+    Match.exhaustive,
+  )
+
+/** The page under the route, loaded, when it's `id`'s, with its definition. */
+const loadedPage = (model: Model, id: string): Option.Option<{ readonly page: Extract<PageState, { readonly _tag: "Loaded" }>; readonly definition: AnyPage }> => {
+  const page = model.page
+  if (page._tag !== "Loaded" || page.id !== id) return Option.none()
+  return Option.map(pageOf(id), (definition) => ({ page, definition }))
 }
 
 /** A page's own Message, for the page under the route, if it's still the one it was sent to. */
-const pageMessage = (model: Model, id: string, message: unknown): Return => {
-  const page = model.page
-  if (page._tag !== "Loaded" || page.id !== id) return { model }
-  return Option.match(pageOf(id), {
+const pageMessage = (model: Model, id: string, message: unknown): Return =>
+  Option.match(loadedPage(model, id), {
     onNone: () => ({ model }),
-    onSome: (definition) => {
+    onSome: ({ page, definition }) => {
       if (!Schema.is(definition.Message)(message)) return { model }
       const next = definition.update(page.model, message, envOf(model))
       const withPage: Model = { ...model, page: { ...page, model: next.model } }
@@ -142,7 +154,6 @@ const pageMessage = (model: Model, id: string, message: unknown): Return => {
       }
     },
   })
-}
 
 export const init = (flags: Flags, url: Url.Url): Return => {
   const route = urlToRoute(url)
@@ -221,21 +232,20 @@ export const update = (model: Model, message: Message): Return =>
     ShowCode: ({ tab }) => ({ model: { ...model, codeTab: tab } }),
     Page: ({ id, message }) => pageMessage(model, id, message),
     Replay: () => {
-      const page = model.page
-      if (page._tag !== "Loaded") return { model }
-      return Option.match(pageOf(page.id), {
+      if (model.page._tag !== "Loaded") return { model }
+      return Option.match(loadedPage(model, model.page.id), {
         onNone: () => ({ model }),
-        onSome: (definition) => ({ model: { ...model, page: { ...page, model: definition.init(page.data), run: page.run + 1 }, arrivals: [] } }),
+        onSome: ({ page, definition }) => ({ model: { ...model, page: { ...page, model: definition.init(page.data), run: page.run + 1 }, arrivals: [] } }),
       })
     },
     Landed: ({ id }) => ({ model: { ...model, arrivals: model.arrivals.filter((one: Arrival) => one.id !== id) } }),
   })
 
 /** The page's title: the example's, or the shop's. */
-const titleOf = (model: Model): string => {
+const documentTitleOf = (model: Model): string => {
   if (model.route._tag === "Example") {
     const example = exampleById(model.route.id)
-    if (example !== undefined) return `${example.foldkit?.title ?? example.title} · Wardic Northlight`
+    if (example !== undefined) return `${titleOf(example)} · Wardic Northlight`
   }
   return "Wardic Northlight · Foldkit"
 }
@@ -247,20 +257,21 @@ const content = (model: Model, h: HtmlBuilder<Message>) =>
     NotFound: () => notFound(h),
   })
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({ title: titleOf(model), body: shell(model, h, content(model, h)) })
+export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({ title: documentTitleOf(model), body: shell(model, h, content(model, h)) })
 
 /** Each page's subscriptions, live while its page is the one under the route. */
-export const subscriptions = Subscription.aggregate<Model, Message, PageServices>()(
-  ...PAGES.filter((page) => page.subscriptions !== undefined).map((page) =>
-    Subscription.lift(page.subscriptions!)<Model, Message>({
-      read: (model) => {
-        if (model.page._tag === "Loaded" && model.page.id === page.id) return Option.some(model.page.model)
-        return Option.none()
-      },
+const lifted = (page: AnyPage) => {
+  const own = page.subscriptions
+  if (own === undefined) return []
+  return [
+    Subscription.lift(own)<Model, Message>({
+      read: (model) => Option.map(loadedPage(model, page.id), (loaded) => loaded.page.model),
       toParentMessage: (message) => Message.Page({ id: page.id, message }),
     }),
-  ),
-)
+  ]
+}
+
+export const subscriptions = Subscription.aggregate<Model, Message, PageServices>()(...PAGES.flatMap(lifted))
 
 export const routing = { onUrlRequest: (request: Navigation.UrlRequest) => Message.RequestedUrl({ request }), onUrlChange: (url: Url.Url) => Message.ChangedUrl({ url }) }
 

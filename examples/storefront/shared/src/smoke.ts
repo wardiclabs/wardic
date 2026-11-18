@@ -10,8 +10,8 @@
  * - its demo moves, then settles: the example's `watch` element changes its computed opacity or
  *   transform after load (after a click on its `interact` element, for a demo that waits for the
  *   visitor), then holds still for 15 frames, within 5 s;
- * - in a Solid app: the code's Motion tab shows Motion's files in place of the demo's, and links to
- *   it running (#366).
+ * - in a Solid app, or the Foldkit app: the code's Motion tab shows Motion's files in place of the
+ *   demo's, and links to it running (#366).
  *
  * And that every example has its Motion version, in the Next.js app (#366 Q9).
  *
@@ -215,10 +215,12 @@ const sampleFrames = (page: Page, selector: string, ms: number): Promise<Readonl
   )
 
 /**
- * A live feed's request: Solid 2's `live()`, under `/_server/live/`, or the Motion app's server-sent
- * events (`/api/wishlist`). It stays open for as long as the page shows it.
+ * A live feed's request: Solid 2's `live()`, under `/_server/live/`, the Motion app's server-sent
+ * events (`/api/wishlist`), or the Foldkit app's streaming rpc (an `/api/rpc` post naming
+ * `WishlistChanges`). It stays open for as long as the page shows it.
  */
-const isFeed = (request: Request): boolean => request.url().includes("/_server/live/") || request.url().includes("/api/wishlist")
+const isFeed = (request: Request): boolean =>
+  request.url().includes("/_server/live/") || request.url().includes("/api/wishlist") || (request.url().includes("/api/rpc") && (request.postData() ?? "").includes('"tag":"WishlistChanges"'))
 
 /**
  * Waits for `page` to have loaded and its network to go quiet: no request open for half a second.
@@ -278,7 +280,7 @@ interface Result {
 }
 
 /**
- * The code's tabs on a Solid app's page (#366 Q2), for an example the Next.js app has: the Motion tab
+ * The code's tabs on a Solid or Foldkit page (#366 Q2), for an example the Next.js app has: the Motion tab
  * shows Motion's files in place of the demo's, and its link goes to the example in the Next.js app.
  */
 const checkTabs = async (page: Page, route: string, problems: Array<string>): Promise<void> => {

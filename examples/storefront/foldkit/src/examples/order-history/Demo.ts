@@ -22,6 +22,7 @@ const reveal = {
 const SORTS = { newest: "Newest first", oldest: "Oldest first", total: "Highest total" } as const
 const Sort = Schema.Literals(["newest", "oldest", "total"])
 type Sort = typeof Sort.Type
+const SORT_KEYS: ReadonlyArray<Sort> = ["newest", "oldest", "total"]
 
 /** `orders` in `sort`'s order: they come newest first. */
 const sortedBy = (orders: ReadonlyArray<Order>, sort: Sort): ReadonlyArray<Order> => {
@@ -60,7 +61,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
       h.h2([], ["Your orders"]),
       h.label([h.Class("sort")], [
         h.span([], ["Sort"]),
-        h.select([h.OnChange((value) => Message.SortBy({ sort: value as Sort }))], (Object.keys(SORTS) as ReadonlyArray<Sort>).map((key) => h.option([h.Value(key), h.Selected(model.sort === key)], [SORTS[key]]))),
+        h.select([h.OnChange((value) => Message.SortBy({ sort: Schema.is(Sort)(value) ? value : model.sort }))], SORT_KEYS.map((key) => h.option([h.Value(key), h.Selected(model.sort === key)], [SORTS[key]]))),
       ]),
     ]),
     // A scrolling panel: Wardic measures each row where it's drawn, however far the panel has
@@ -87,7 +88,7 @@ export default definePage({
   Data,
   Model,
   Message,
-  load: Effect.all({ orders: Shop.use((shop) => shop.getOrders), products: Shop.use((shop) => shop.listProducts(undefined)) }),
+  load: Effect.all({ orders: Shop.use((shop) => shop.getOrders), products: Shop.use((shop) => shop.listProducts(null)) }),
   init: ({ orders, products }): Model => ({ orders, products, open: null, sort: "newest" }),
   update: (model, message) =>
     Message.match(message, {

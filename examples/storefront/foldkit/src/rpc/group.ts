@@ -2,12 +2,12 @@
  * The store's wire (#795, Q5 and Q23): one Effect RPC group over the store's calls, typed by the
  * shared model's Schemas, which the server answers at `/api/rpc` (`server.ts`) and the browser's
  * `Shop` calls (`../shop/client.ts`). Every rpc runs for the visitor the cookie names, which the
- * middleware provides.
+ * middleware provides. The wishlist's feed streams (Q25).
  */
 import * as Schema from "effect/Schema"
 import { Rpc, RpcGroup, RpcMiddleware } from "effect/rpc"
-import { Cart, Category, Notice, Order, Product, Settings, Visitor, Wishlist, WishlistScope } from "@wardic/example-storefront-shared/server"
-import { Code, StockWhen, StoreFailure } from "~/shop.ts"
+import { Cart, Category, Notice, Order, Product, Settings, Visitor, WishlistScope } from "@wardic/example-storefront-shared/server"
+import { Code, Listing, StockWhen, StoreFailure } from "~/shop.ts"
 
 /** Gives each rpc its `Visitor`, from the request's cookie; a request without one is a new visitor's. */
 export class VisitorMiddleware extends RpcMiddleware.Service<VisitorMiddleware, { provides: Visitor }>()("@wardic/example-storefront-foldkit/VisitorMiddleware") {}
@@ -20,9 +20,10 @@ export const ShopRpcs = RpcGroup.make(
   Rpc.make("AddToCart", { payload: { productId: Schema.String, quantity: Schema.Number }, success: Cart, error: StoreFailure }),
   Rpc.make("SetCartQuantity", { payload: { productId: Schema.String, quantity: Schema.Number }, success: Cart, error: StoreFailure }),
   Rpc.make("GetOrders", { success: Schema.Array(Order), error: StoreFailure }),
-  Rpc.make("GetWishlist", { payload: { scope: WishlistScope }, success: Wishlist, error: StoreFailure }),
-  Rpc.make("MoveWishlistItem", { payload: { scope: WishlistScope, productId: Schema.String, after: Schema.NullOr(Schema.String) }, success: Wishlist, error: StoreFailure }),
-  Rpc.make("ResetWishlist", { payload: { scope: WishlistScope }, success: Wishlist, error: StoreFailure }),
+  Rpc.make("GetWishlist", { payload: { scope: WishlistScope }, success: Listing, error: StoreFailure }),
+  Rpc.make("MoveWishlistItem", { payload: { scope: WishlistScope, productId: Schema.String, after: Schema.NullOr(Schema.String) }, success: Listing, error: StoreFailure }),
+  Rpc.make("ResetWishlist", { payload: { scope: WishlistScope }, success: Listing, error: StoreFailure }),
+  Rpc.make("WishlistChanges", { payload: { scope: WishlistScope }, success: Listing, error: StoreFailure, stream: true }),
   Rpc.make("GetNotices", { success: Schema.Array(Notice), error: StoreFailure }),
   Rpc.make("DismissNotice", { payload: { id: Schema.String }, success: Schema.Array(Notice), error: StoreFailure }),
   Rpc.make("RestoreNotices", { success: Schema.Array(Notice), error: StoreFailure }),

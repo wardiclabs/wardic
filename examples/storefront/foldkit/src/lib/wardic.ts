@@ -7,6 +7,3 @@ import { DomLive } from "@wardic/dom"
 import { Features, Wardic } from "@wardic/foldkit"
 
 export const wardic = Wardic.make({ env: DomLive, features: [Features.domMax, Features.presence] })
-
-/** The builder's type, for a view's signature. */
-export type W<Message> = Wardic.Html<Message, readonly [typeof Features.domMax, typeof Features.presence]>

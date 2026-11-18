@@ -1,64 +1,67 @@
 /**
- * The rpc server (#795, Q5 and Q22): the group's handlers over the store, the visitor from the
- * request's cookie, answered as one web handler the server entry calls for `/api/rpc`. Built once,
- * at module scope, as `HttpRouter.toWebHandler` asks.
+ * The rpc server (#795, Q5 and Q22): the group's handlers, each the `Shop`'s call for the visitor the
+ * request's cookie names (the middleware provides the visitor; `shop/live.ts` knows the store),
+ * answered as one web handler the server entry calls for `/api/rpc`. Built once, at module scope,
+ * as `HttpRouter.toWebHandler` asks.
  */
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import * as Predicate from "effect/Predicate"
 import * as Record from "effect/Record"
+import * as Stream from "effect/Stream"
 import { Cookies, Headers, HttpRouter } from "effect/http"
 import { RpcSerialization, RpcServer } from "effect/rpc"
 import * as Store from "@wardic/example-storefront-shared/server"
-import { highlightedCode } from "~/highlight.ts"
 import { ShopRpcs, VisitorMiddleware } from "~/rpc/group.ts"
+import { Shop, type ShopError, type StoreFailure } from "~/shop.ts"
+import { shopFor } from "~/shop/live.ts"
 
 /** The cookie that names a visitor, set by the page's render. */
 export const VISITOR_COOKIE = "storefront-visitor"
 
-/** The visitor a `Cookie` header names, or a new one for a request without the cookie. */
-export const visitorOf = (cookieHeader: string | undefined): Store.VisitorInfo => {
-  const known = Option.flatMap(Option.fromUndefinedOr(cookieHeader), (header) => Record.get(Cookies.parseHeader(header), VISITOR_COOKIE))
-  return Store.visitorFromId(Option.getOrElse(known, () => crypto.randomUUID()))
-}
+/** The visitor `cookies` name, or a new one for a request without the cookie. */
+export const visitorOf = (cookies: Readonly<Record<string, string>>): Store.VisitorInfo => Store.visitorFromId(Option.getOrElse(Record.get(cookies, VISITOR_COOKIE), () => crypto.randomUUID()))
 
-/** The store's wire failure, from a handler: the store's own, as it is. */
-const VisitorLive = Layer.succeed(VisitorMiddleware, (effect, { headers }) => Effect.provideService(effect, Store.Visitor, visitorOf(Option.getOrUndefined(Headers.get(headers, "cookie")))))
+/** The cookies a request's headers carry, parsed. */
+const cookiesOf = (headers: Headers.Headers): Readonly<Record<string, string>> => Cookies.parseHeader(Option.getOrElse(Headers.get(headers, "cookie"), () => ""))
 
-/** `null` on the wire, as the store's optional argument. */
-const optional = <A>(value: A | null): A | undefined => {
-  if (Predicate.isNull(value)) return undefined
-  return value
-}
+const VisitorLive = Layer.succeed(VisitorMiddleware, (effect, { headers }) => Effect.provideService(effect, Store.Visitor, visitorOf(cookiesOf(headers))))
+
+/**
+ * `call` on the `Shop` for the request's visitor, the run links on its host. The server's `Shop` is the
+ * store itself, so `StoreUnreachable`, the browser's transport failure, can't happen here: a defect.
+ */
+const served = <A>(headers: Headers.Headers, call: Effect.Effect<A, ShopError, Shop>): Effect.Effect<A, StoreFailure, Store.Visitor> =>
+  Effect.flatMap(Store.Visitor, (visitor) => Effect.provide(call, shopFor(visitor, Option.getOrUndefined(Headers.get(headers, "host"))))).pipe(Effect.catchTag("StoreUnreachable", (error) => Effect.die(error)))
+
+/** The feed on the `Shop` for the request's visitor; its failure, exceptional, a defect. */
+const servedStream = <A>(headers: Headers.Headers, feed: (shop: Shop["Service"]) => Stream.Stream<A, ShopError>): Stream.Stream<A, never, Store.Visitor> =>
+  Stream.orDie(Stream.unwrap(served(headers, Effect.map(Shop, feed))))
 
 const Handlers = ShopRpcs.toLayer(
-  Effect.gen(function* () {
-    const context = yield* Store.storeContext
-    return ShopRpcs.of({
-      ListProducts: ({ category }) => Effect.provide(Store.listProducts(optional(category)), context),
-      GetProduct: ({ id }) => Effect.provide(Store.getProduct(id), context),
-      GetStock: ({ when }) => Effect.provide(Store.getStock(when), context),
-      GetCart: () => Effect.provide(Store.getCart, context),
-      AddToCart: ({ productId, quantity }) => Effect.provide(Store.addToCart(productId, quantity), context),
-      SetCartQuantity: ({ productId, quantity }) => Effect.provide(Store.setCartQuantity(productId, quantity), context),
-      GetOrders: () => Effect.provide(Store.getOrders, context),
-      GetWishlist: ({ scope }) => Effect.provide(Store.getWishlist(scope), context),
-      MoveWishlistItem: ({ scope, productId, after }) => Effect.provide(Store.moveWishlistItem(scope, productId, after), context),
-      ResetWishlist: ({ scope }) => Effect.provide(Store.resetWishlist(scope), context),
-      GetNotices: () => Effect.provide(Store.getNotices, context),
-      DismissNotice: ({ id }) => Effect.provide(Store.dismissNotice(id), context),
-      RestoreNotices: () => Effect.provide(Store.restoreNotices, context),
-      GetSettings: () => Effect.provide(Store.getSettings, context),
-      SetSettings: ({ settings }) => Effect.provide(Store.setSettings(settings), context),
-      // The run link names the host this request came to, as the Solid apps' pages do.
-      Highlighted: ({ exampleId }, { headers }) => highlightedCode(exampleId, Option.getOrUndefined(Headers.get(headers, "host"))),
-    })
+  ShopRpcs.of({
+    ListProducts: ({ category }, { headers }) => served(headers, Shop.use((shop) => shop.listProducts(category))),
+    GetProduct: ({ id }, { headers }) => served(headers, Shop.use((shop) => shop.getProduct(id))),
+    GetStock: ({ when }, { headers }) => served(headers, Shop.use((shop) => shop.getStock(when))),
+    GetCart: (_, { headers }) => served(headers, Shop.use((shop) => shop.getCart)),
+    AddToCart: ({ productId, quantity }, { headers }) => served(headers, Shop.use((shop) => shop.addToCart(productId, quantity))),
+    SetCartQuantity: ({ productId, quantity }, { headers }) => served(headers, Shop.use((shop) => shop.setCartQuantity(productId, quantity))),
+    GetOrders: (_, { headers }) => served(headers, Shop.use((shop) => shop.getOrders)),
+    GetWishlist: ({ scope }, { headers }) => served(headers, Shop.use((shop) => shop.getWishlist(scope))),
+    MoveWishlistItem: ({ scope, productId, after }, { headers }) => served(headers, Shop.use((shop) => shop.moveWishlistItem(scope, productId, after))),
+    ResetWishlist: ({ scope }, { headers }) => served(headers, Shop.use((shop) => shop.resetWishlist(scope))),
+    WishlistChanges: ({ scope }, { headers }) => servedStream(headers, (shop) => shop.wishlistChanges(scope)),
+    GetNotices: (_, { headers }) => served(headers, Shop.use((shop) => shop.getNotices)),
+    DismissNotice: ({ id }, { headers }) => served(headers, Shop.use((shop) => shop.dismissNotice(id))),
+    RestoreNotices: (_, { headers }) => served(headers, Shop.use((shop) => shop.restoreNotices)),
+    GetSettings: (_, { headers }) => served(headers, Shop.use((shop) => shop.getSettings)),
+    SetSettings: ({ settings }, { headers }) => served(headers, Shop.use((shop) => shop.setSettings(settings))),
+    Highlighted: ({ exampleId }, { headers }) => served(headers, Shop.use((shop) => shop.highlighted(exampleId))),
   }),
 )
 
 const Route = RpcServer.layerHttp({ group: ShopRpcs, path: "/api/rpc", protocol: "http" }).pipe(Layer.provide([Handlers, VisitorLive, RpcSerialization.layerNdjson]))
 
-/** The rpc endpoint as a web handler: what `renderPage` answers `/api/rpc` with. */
 // The client posts to `/api/rpc/`, its base URL joined with an empty path: the route takes both.
+/** The rpc endpoint as a web handler: what `renderPage` answers `/api/rpc` with. */
 export const rpc = HttpRouter.toWebHandler(Route, { disableLogger: true, routerConfig: { ignoreTrailingSlash: true } })

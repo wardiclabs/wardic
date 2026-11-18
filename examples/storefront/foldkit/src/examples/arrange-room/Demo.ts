@@ -22,7 +22,7 @@ type Message = typeof Message.Type
 
 // correctParentTransform turns each pointer point back through the plan's zoom, so a piece stays
 // under the pointer at any zoom, and its constraints are measured in the plan's pixels. A Foldkit view
-// has no refs: the plan is named by its selector.
+// has no refs: the plan is named by its selector, and each piece carries the mapping in its `w.Config`.
 const throughPlan = correctParentTransform("#room-plan")
 
 const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
@@ -34,8 +34,8 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
       h.output([], [`${Math.round(model.zoom * 100)}%`]),
     ]),
     h.div([h.Class("room-frame")], [
-      w.div(
-        [h.Id("room-plan"), h.Class("room-plan"), h.Style({ transform: `scale(${model.zoom})` }), w.Config({ transformPagePoint: throughPlan })],
+      h.div(
+        [h.Id("room-plan"), h.Class("room-plan"), h.Style({ transform: `scale(${model.zoom})` })],
         PIECES.map((piece) =>
           w.keyed("div")(piece.id, [
             h.Class("room-piece"),
@@ -45,6 +45,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
             w.DragElastic(0.1),
             w.DragMomentum(false),
             w.WhileDrag({ scale: 1.05 }),
+            w.Config({ transformPagePoint: throughPlan }),
             h.Style({ left: `${piece.x}px`, top: `${piece.y}px`, width: `${piece.width}px`, height: `${piece.height}px` }),
           ], [piece.name]),
         ),

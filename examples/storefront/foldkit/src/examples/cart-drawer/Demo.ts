@@ -8,6 +8,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
 import { escapeEntry } from "~/lib/keys.ts"
+import { problemLine } from "~/lib/view.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { cartChanged, definePage, type PageEnv } from "~/page.ts"
 import { Shop } from "~/shop.ts"
@@ -65,10 +66,10 @@ const linesOf = (model: Model): ReadonlyArray<CartLine> =>
 
 const productOf = (model: Model, id: string): Product | undefined => model.products.find((product) => product.id === id)
 
-const cartLine = (model: Model, h: HtmlBuilder<Message>, id: string): Html => {
+const cartLine = (model: Model, lines: ReadonlyArray<CartLine>, h: HtmlBuilder<Message>, id: string): Html => {
   const w = wardic.html(h)
   const product = productOf(model, id)
-  const quantity = quantityIn(linesOf(model), id)
+  const quantity = quantityIn(lines, id)
   return w.keyed("li")(id, [h.Class("cart-line"), w.Layout(), w.Initial(line.initial), w.Animate(line.animate), w.Exit(line.exit)], product === undefined ? [] : [
     h.img([h.Src(photoOf(id).small), h.Width("56"), h.Height("56"), h.Alt("")]),
     h.div([h.Class("cart-line-text")], [h.strong([], [product.name]), h.span([h.Class("muted")], [formatPrice(product.price)])]),
@@ -102,7 +103,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
               h.div([h.Class("drawer-body")], [
                 // Each line is a layout element: when one goes, popLayout takes it out of the flow
                 // at once, and the lines below slide up into its place while it fades.
-                w.ul([h.Class("cart-lines"), w.Presence({ mode: "popLayout", initial: false })], ids.map((id) => cartLine(model, h, id))),
+                w.ul([h.Class("cart-lines"), w.Presence({ mode: "popLayout", initial: false })], ids.map((id) => cartLine(model, lines, h, id))),
                 w.div([w.Presence({ initial: false })], ids.length === 0 ? [w.keyed("p")("empty", [h.Class("cart-empty"), w.Initial(fade.initial), w.Animate(fade.animate), w.Exit(fade.exit)], ["Your cart is empty."])] : []),
                 // The suggestions sit under the lines and slide down as lines arrive: Layout("position"),
                 // as their block only travels. One added to the cart leaves, and the rest close up.
@@ -126,7 +127,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
                         ),
                       ]),
                     ]),
-                ...(model.problem === null ? [] : [h.p([h.Class("error-line"), h.Role("alert")], [model.problem])]),
+                ...problemLine(h, model.problem),
               ]),
               h.footer([h.Class("drawer-foot")], [h.span([], ["Subtotal"]), h.strong([], [formatPrice(subtotal)]), h.button([h.Class("button accent"), h.Disabled(ids.length === 0)], ["Check out"])]),
             ]),
@@ -146,7 +147,7 @@ export default definePage({
   Data,
   Model,
   Message,
-  load: Effect.all({ cart: Shop.use((shop) => shop.getCart), products: Shop.use((shop) => shop.listProducts(undefined)) }),
+  load: Effect.all({ cart: Shop.use((shop) => shop.getCart), products: Shop.use((shop) => shop.listProducts(null)) }),
   init: ({ cart, products }): Model => ({ cart, products, open: false, pending: [], next: 1, problem: null }),
   update: (model, message) =>
     Message.match(message, {

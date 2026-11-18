@@ -66,7 +66,8 @@ const runtime = runtimeOnce()
  */
 export const storeContext: Effect.Effect<Context.Context<Store>> = runtime.contextEffect
 
-/** What a visitor reads when a call fails: one source of the words for every wire (#795, Q24). */
+// #795, Q24: one source of the words for every wire; the Foldkit app's Commands read it.
+/** What a visitor reads when a call fails. */
 export const messageOf: (error: StoreError) => string = Match.type<StoreError>().pipe(
   Match.tag("SimulatedFailure", () => "The store didn't answer: you asked the next request to fail."),
   Match.tag("UnknownProduct", (error) => `There's no product "${error.id}".`),

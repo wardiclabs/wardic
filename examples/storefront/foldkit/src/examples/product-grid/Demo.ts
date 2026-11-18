@@ -59,7 +59,7 @@ export default definePage({
   Data,
   Model,
   Message,
-  load: Effect.map(Shop.use((shop) => shop.listProducts(undefined)), (products) => ({ products })),
+  load: Effect.map(Shop.use((shop) => shop.listProducts(null)), (products) => ({ products })),
   init: ({ products }): Model => ({ products, hovered: null }),
   update: (model, message) =>
     Message.match(message, {

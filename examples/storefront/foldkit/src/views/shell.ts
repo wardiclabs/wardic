@@ -1,13 +1,14 @@
 /**
  * The shop's frame (#296; #795): its header, with the visitor's switches, the store's and the cart,
- * and its footer, around the page. The root is the app's `w.Provider()` element, whose `w.Config`
- * follows the Reduce motion switch.
+ * and its footer, around the page. The root carries the Provider attribute, and a `w.Config` that
+ * follows the Reduce motion switch; its `data-theme` is what the server copies onto `<html>`.
  */
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
 import * as Bool from "effect/Boolean"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { arc } from "@wardic/foldkit"
 import { arrivalId } from "~/lib/arrivals.ts"
+import { problemLine } from "~/lib/view.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { Message, type Model, type Theme } from "~/model.ts"
 
@@ -42,7 +43,7 @@ const storeSettings = (model: Model, h: HtmlBuilder<Message>): Html => {
             h.input([h.Type("checkbox"), h.Checked(failNext), h.OnClick(Message.SaveSettings({ settings: { delay, failNext: Bool.not(failNext) } }))]),
             h.span([], ["Fail the next request"]),
           ]),
-          ...(model.settingsProblem === null ? [] : [h.p([h.Class("error-line"), h.Role("alert")], [model.settingsProblem])]),
+          ...problemLine(h, model.settingsProblem),
         ]),
       ],
     }),
@@ -87,11 +88,11 @@ const cartButton = (model: Model, h: HtmlBuilder<Message>): Html => {
 export const shell = (model: Model, h: HtmlBuilder<Message>, content: Html): Html => {
   const w = wardic.html(h)
   const theme = model.prefs.theme
-  return w.div([h.Id("app"), w.Provider(), w.Config({ reducedMotion: reducedOf(model) })], [
+  return w.div([h.Id("app"), h.DataAttribute("theme", theme), w.Provider(), w.Config({ reducedMotion: reducedOf(model) })], [
     h.header([h.Class("site-header")], [
       h.div([h.Class("page")], [
         h.a([h.Class("brand"), h.Href("/")], ["Wardic Northlight", h.span([h.Class("badges")], [h.span([h.Class("badge badge-binding")], ["Foldkit"])])]),
-        h.nav([h.Class("site-nav"), h.AriaLabel("Main")], [h.a([h.Href("/")], ["Examples"])]),
+        h.nav([h.Class("site-nav"), h.AriaLabel("Main")], [h.a([h.Href("/"), ...(model.route._tag === "Home" ? [h.AriaCurrent("page")] : [])], ["Examples"])]),
         h.div([h.Class("header-tools")], [
           h.label([h.Class("switch")], [
             h.input([h.Type("checkbox"), h.Checked(model.prefs.reduceMotion), h.OnClick(Message.SetReduceMotion({ on: Bool.not(model.prefs.reduceMotion) }))]),

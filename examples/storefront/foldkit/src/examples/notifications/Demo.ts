@@ -7,6 +7,7 @@ import * as Command from "foldkit/command"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { defineView } from "foldkit/submodel"
+import { problemLine } from "~/lib/view.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 import { Shop } from "~/shop.ts"
@@ -31,13 +32,14 @@ const UNDO_MS = 4000
 
 const Data = Schema.Struct({ notices: Schema.Array(Notice) })
 // Where each thrown card is, and which offer an undo; put back by an undo or a failure.
-const Model = Schema.Struct({ notices: Schema.Array(Notice), sides: Schema.Record(Schema.String, Side), undoable: Schema.Array(Schema.String), problem: Schema.NullOr(Schema.String) })
+// `throws` counts each card's throws: an undo window elapsing for an earlier throw, put back meanwhile, dismisses nothing.
+const Model = Schema.Struct({ notices: Schema.Array(Notice), sides: Schema.Record(Schema.String, Side), undoable: Schema.Array(Schema.String), throws: Schema.Record(Schema.String, Schema.Number), problem: Schema.NullOr(Schema.String) })
 type Model = typeof Model.Type
 const Message = defineMessageUnion({
   Released: { id: Schema.String, offsetX: Schema.Number, velocityX: Schema.Number },
   Landed: { id: Schema.String, at: Schema.String },
   PutBack: { id: Schema.String },
-  Elapsed: { id: Schema.String },
+  Elapsed: { id: Schema.String, throw: Schema.Number },
   Dismissed: { notices: Schema.Array(Notice) },
   Refused: { id: Schema.String, reason: Schema.String },
   Restore: {},
@@ -47,7 +49,7 @@ const Message = defineMessageUnion({
 type Message = typeof Message.Type
 
 /** The undo window, per card: once it has elapsed, the request goes, unless the card was put back. */
-const UndoWindow = Command.define("NoticeUndoWindow", { args: { id: Schema.String }, messages: [Message.Elapsed], execute: ({ id }) => Effect.sleep(UNDO_MS).pipe(Effect.as(Message.Elapsed({ id }))) })
+const UndoWindow = Command.define("NoticeUndoWindow", { args: { id: Schema.String, throw: Schema.Number }, messages: [Message.Elapsed], execute: ({ id, throw: n }) => Effect.sleep(UNDO_MS).pipe(Effect.as(Message.Elapsed({ id, throw: n }))) })
 const Dismiss = Command.define("NoticeDismiss", {
   args: { id: Schema.String },
   messages: [Message.Dismissed, Message.Refused],
@@ -98,7 +100,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
     // A row that goes leaves the list at once, and the rows below close the gap.
     w.ul([h.Class("notice-list"), w.Presence({ mode: "popLayout", initial: false })], model.notices.map((notice) => noticeRow(model, h, notice))),
     ...(model.notices.length === 0 ? [h.p([h.Class("muted notices-empty")], ["You're all caught up."])] : []),
-    ...(model.problem === null ? [] : [h.p([h.Class("error-line"), h.Role("alert")], [model.problem])]),
+    ...problemLine(h, model.problem),
   ])
 })
 
@@ -114,7 +116,7 @@ export default definePage({
   Model,
   Message,
   load: Effect.map(Shop.use((shop) => shop.getNotices), (notices) => ({ notices })),
-  init: ({ notices }): Model => ({ notices, sides: {}, undoable: [], problem: null }),
+  init: ({ notices }): Model => ({ notices, sides: {}, undoable: [], throws: {}, problem: null }),
   update: (model, message) =>
     Message.match(message, {
       Released: ({ id, offsetX, velocityX }) => {
@@ -124,16 +126,17 @@ export default definePage({
       },
       Landed: ({ id, at }) => {
         if (model.sides[id] !== at) return { model }
-        return { model: { ...model, undoable: [...model.undoable.filter((one) => one !== id), id] }, commands: [UndoWindow({ id })] }
+        const nth = (model.throws[id] ?? 0) + 1
+        return { model: { ...model, undoable: [...model.undoable.filter((one) => one !== id), id], throws: { ...model.throws, [id]: nth } }, commands: [UndoWindow({ id, throw: nth })] }
       },
       PutBack: ({ id }) => ({ model: putBack(model, id) }),
-      // Elapsed with the card still off to the side and not put back: dismissed for good.
-      Elapsed: ({ id }) => {
-        if (!model.undoable.includes(id)) return { model }
+      // Elapsed for the card's latest throw, still off to the side and not put back: dismissed for good.
+      Elapsed: ({ id, throw: nth }) => {
+        if (!model.undoable.includes(id) || model.throws[id] !== nth) return { model }
         return { model, commands: [Dismiss({ id })] }
       },
       Dismissed: ({ notices }) => ({ model: { ...model, notices } }),
-      Refused: ({ id, reason }) => ({ model: { ...putBack(model, id), problem: "Couldn't dismiss it. It's back." + ` (${reason})` } }),
+      Refused: ({ id }) => ({ model: { ...putBack(model, id), problem: "Couldn't dismiss it. It's back." } }),
       Restore: () => ({ model: { ...model, problem: null }, commands: [Restore()] }),
       Restored: ({ notices }) => ({ model: { ...model, notices, sides: {}, undoable: [] } }),
       Failed: ({ reason }) => ({ model: { ...model, problem: reason } }),

@@ -28,9 +28,10 @@ export const cartChanged = (cart: Cart): PageOut => ({ _tag: "CartChanged", cart
 export const arriving = (id: string, src: string): PageOut => ({ _tag: "Arriving", id, src })
 export const recalled = (id: string): PageOut => ({ _tag: "Recalled", id })
 
-/** What the app gives a page at each update and render: whether motion is reduced, by the system or the header's switch (#388). */
+/** What the app gives a page at each update and render: whether motion is reduced, by the system or the header's switch (#388), and the visitor's name. */
 export interface PageEnv {
   readonly reduceMotion: boolean
+  readonly visitorName: string
 }
 
 /** What a page's Commands may reach: the store, and Wardic's service (`Wardic.animateLayout`, `Wardic.animate`). */
