@@ -1,13 +1,11 @@
 /**
  * An example's page (#296 Q3): the live demo, a line on what reduced motion does to it, why it's
- * worth reaching for, then its code, highlighted on the server, beside Motion's version in a tab
- * (#366). The demo is the example's page module, a submodel keyed by its run, so Replay mounts it afresh.
+ * worth reaching for, then its code, highlighted on the server. The demo is the example's page
+ * module, a submodel keyed by its run, so Replay mounts it afresh.
  */
 import { AREAS, type Example, exampleById } from "@wardic/example-storefront-shared/examples"
 import { BACK } from "@wardic/example-storefront-shared/micro"
-import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
-import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { wardic } from "~/lib/wardic.ts"
@@ -20,27 +18,13 @@ import { prose } from "~/views/prose.ts"
 
 const codeFile = (h: HtmlBuilder<Message>, file: Highlighted): Html => h.div([h.Class("code-file")], [h.header([], [file.path]), h.div([h.InnerHTML(file.html)])])
 
-/** The demo's code and, where the Next.js app has it, Motion's beside it in a tab (#366 Q2), with what differs between them above. */
+/** The demo's code, this app's files for the example, with what differs on Foldkit above (the registry's note). */
 const codePanel = (model: Model, h: HtmlBuilder<Message>, example: Example): Html => {
-  const notes = Arr.filter([example.foldkit?.note, example.motion?.note], Predicate.isString)
   const code = model.code
   return h.section([h.Class("code"), h.AriaLabelledBy("code-title")], [
     h.h2([h.Id("code-title")], ["The code"]),
-    ...notes.map((note) => h.p([h.Class("motion-note")], prose(h, note))),
-    ...(code === null
-      ? [h.pre([h.Class("muted")], ["Highlighting…"])]
-      : code.motion.length === 0
-        ? code.own.map((file) => codeFile(h, file))
-        : [
-            h.div([h.Class("code-tabs"), h.Role("radiogroup"), h.AriaLabel("The code in")], [
-              h.input([h.Type("radio"), h.Class("code-tab-solid"), h.Name("code"), h.Id("code-solid"), h.Checked(model.codeTab === "own"), h.OnClick(Message.ShowCode({ tab: "own" }))]),
-              h.label([h.For("code-solid")], ["Foldkit"]),
-              h.input([h.Type("radio"), h.Class("code-tab-motion"), h.Name("code"), h.Id("code-motion"), h.Checked(model.codeTab === "motion"), h.OnClick(Message.ShowCode({ tab: "motion" }))]),
-              h.label([h.For("code-motion")], ["Motion · Next.js"]),
-            ]),
-            h.div([h.Class("code-pane code-pane-solid")], code.own.map((file) => codeFile(h, file))),
-            h.div([h.Class("code-pane code-pane-motion")], [...code.motion.map((file) => codeFile(h, file)), h.a([h.Class("code-run"), h.Href(code.run)], ["Run Motion's version →"])]),
-          ]),
+    ...UndefinedOr.match(example.foldkit, { onUndefined: () => [], onDefined: ({ note }) => [h.p([h.Class("code-note")], prose(h, note))] }),
+    ...(code === null ? [h.pre([h.Class("muted")], ["Highlighting…"])] : code.own.map((file) => codeFile(h, file))),
   ])
 }
 

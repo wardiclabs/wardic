@@ -1,5 +1,5 @@
 /**
- * The showcase's examples (#296): each one a feature of the shop, with the words both apps show
+ * The showcase's examples (#296): each one a feature of the shop, with the words every app shows
  * around its demo. An app routes each to `/<area>/<id>` and supplies the demo; the gallery lists
  * them by area. The smoke runner (`smoke.ts`) opens each route in each app's production build.
  */
@@ -35,13 +35,6 @@ export interface Example {
   /** The props and helpers it shows, for the gallery's card. */
   readonly uses: ReadonlyArray<string>
   /**
-   * Motion's version (#366), where there's something to say about it: what differs from Wardic's,
-   * shown above the code in every app; and, where this example's `title` or `summary` doesn't hold
-   * for Motion, Motion's own, for its page and its card in the Next.js app (a title naming the
-   * component library Wardic's is built on, #387). Its code is that app's `src/examples/<id>/`.
-   */
-  readonly motion?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
-  /**
    * The Foldkit app's words (#795), where the Foldkit form differs: what differs from the Solid apps'
    * (Commands and Messages where Solid has actions and signals), shown above the code on its page alone;
    * and, where this example's `title` or `summary` doesn't hold on Foldkit, its own. Its code is that
@@ -54,7 +47,7 @@ export interface Example {
    */
   readonly tradeoffs?: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> } | undefined
   /**
-   * The apps that have it, where not all four: a pattern only one binding shows (Solid 2's
+   * The apps that have it, where not all three: a pattern only one binding shows (Solid 2's
    * `<Loading>` in a page, #479). Their galleries list it and the smoke test opens it there; the
    * others don't route it.
    */
@@ -77,7 +70,7 @@ export interface Example {
 }
 
 /** The apps of an example whose Foldkit page comes with the storefront's second PR (#795). */
-const NOT_YET_ON_FOLDKIT: ReadonlyArray<AppId> = ["solid1", "solid2", "next"]
+const NOT_YET_ON_FOLDKIT: ReadonlyArray<AppId> = ["solid1", "solid2"]
 
 export const EXAMPLES: ReadonlyArray<Example> = [
   {
@@ -92,9 +85,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The cards fade in, still one after another, but don't rise: movement is dropped, opacity stays. Under the pointer they don't lift and their photos don't grow.",
     uses: ["variants", "staggerChildren", "initial", "animate", "whileHover"],
-    motion: {
-      note: "Motion starts the entrance once React has hydrated the grid, where Wardic starts it as the grid streams in, from the CSS it writes into it.",
-    },
     watch: ".product-card",
   },
   {
@@ -110,9 +100,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The bars are at their level at once, Wardic's reduced motion snapping their scale, and each label shows its count straight away.",
     uses: ["animate from async data", "<Loading> (Solid\u00a02)", "settled() and isPending (Solid\u00a02)", "onAnimationComplete (Solid\u00a01)"],
-    motion: {
-      note: "Motion has no async values. Its version reads the count as React does: the page's server component starts the read, and the bars' client component waits for it with `use(promise)` under `<Suspense>`. A switch is a transition, with a promise kept for each `when`, as `use` needs the same one each render. Each bar's \"filling…\" is state set from `onAnimationStart` and `onAnimationComplete`, as on Solid 1; Solid 2 reads both from what it already has, the memo's pending count and the ward's `settled()`. And Motion starts each fill once React has hydrated the rows, where Wardic starts it as they stream in, from the CSS it writes into them.",
-    },
     interact: ".stock .segmented button:nth-child(2)",
     watch: ".stock-row:first-child .meter-fill",
   },
@@ -175,9 +162,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The button changes width at once, and \"View cart\" fades in without sliding.",
     uses: ["layout", "layout=\"position\"", "AnimatePresence"],
-    motion: {
-      note: "React 19's `useOptimistic` is Solid 2's `createOptimistic`: \"Adding…\" shows at once inside the transition, and goes when it ends, the store answered or not (Solid 1 reads the router's `useSubmission`). The write is a server action that calls `refresh()`, which renders the page's server components again: the piece is read again along with the cart, where Solid revalidates the cart's query alone.",
-    },
     interact: ".buy",
     watch: ".buy",
   },
@@ -210,9 +194,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The drawer appears in place and the lines close up at once; the fades stay.",
     uses: ["layout", "AnimatePresence mode=\"popLayout\"", "optimistic updates"],
-    motion: {
-      note: "React 19's `useOptimistic` lays the changes on their way over the store's lines, as Solid 2's optimistic store does (Solid 1 reads the router's pending submissions). Motion's version needs a `LayoutGroup` around the drawer's body: when \"Your cart is empty\" goes at the end of its fade, nothing there renders again, and Motion measures a layout element as it renders, so the suggestions would jump up into its space; Wardic sees their box change, and glides them. And a change is a server action that calls `refresh()`, which reads the cart again with everything else on the page.",
-    },
     interact: [".open-cart", ".suggestion"],
     // The line that suggestion adds: the cart may hold lines from the pages before.
     watch: ".cart-line:last-child",
@@ -230,9 +211,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "Orders re-sort, open and close at once; their pieces still fade.",
     uses: ["layout", "layout=\"position\"", "useAnimateLayout", "a scrolling container"],
-    motion: {
-      note: "Motion measures every layout element each time React renders it, so a re-sort needs nothing but the new order. Solid doesn't render a list again to move its rows, so Wardic is told about a change that moves elements without resizing any: wrap it in `animateLayout`, whose promise settles once they've all landed. Motion tells each row's layout animation starting and ending, so its list counts the rows on their way to know when it's done. And Motion needs `layoutScroll` on the scrolling panel, or a row opened lower down moves by however far the panel has scrolled; Wardic finds the scrolling containers itself.",
-    },
     interact: ".order:nth-child(2) .order-summary",
     watch: ".order:nth-child(2)",
   },
@@ -249,9 +227,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The card still follows your finger; a throw sends it off at once, and the rows below move up at once.",
     uses: ["drag=\"x\"", "dragSnapToOrigin", "AnimatePresence mode=\"popLayout\"", "next(\"settled\") in an action (Solid\u00a02)", "w.ward() given to wardRef (Solid\u00a02)"],
-    motion: {
-      note: "Motion has no `next(\"settled\")`. Its card says the throw has landed through `onAnimationComplete`, by the variant's name, which offers \"Undo\" and starts a timer; the request goes when the timer ends, as a server action that refreshes the page, and the row leaves with the list read again. Undo, or a refusal, clears the timer and flies the card back. On Solid 2 the throw, its landing, the undo window and the request are one `action`. The throw takes over from `dragSnapToOrigin`'s spring back in both.",
-    },
     interact: ['drag:.notice-row[data-id="shipped"] .notice:220:0'],
     watch: '.notice-row[data-id="shipped"] .notice',
   },
@@ -268,10 +243,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The piece you hold still follows your hand; the others move to their new places at once, and so does the drop.",
     uses: ["Reorder.Group", "Reorder.Item", "live() and the group's holds (Solid\u00a02)", "a group given to groupRef (Solid\u00a02)"],
-    motion: {
-      note: "Motion's `Reorder.Group` tells each step of a drag (`onReorder`), not its start or end, so its list holds the piece in your hand from each item's `onDragStart` to its `onDragEnd`, and saves from `onDragEnd` when the order changed. Wardic's group tells `holdStart`, `onReorderEnd` (once a gesture, only when the order changed) and `holdEnd`, for a keyboard lift too: Motion's `Reorder` has no keys. And Next.js has no live server function: Motion's list is shared through a route handler that streams the store's changes as server-sent events, which the page reads with an `EventSource`, where Solid 2 has `live()`. Solid 1's list is the visitor's own.",
-      summary: "Drag a piece up or down and the others make way; let go and the new order is saved. The list is shared, and other people's moves glide in live.",
-    },
     interact: ['drag:.wish[data-id="moon-vase"]:0:130'],
     watch: '.wish[data-id="tulip-bowl"]',
   },
@@ -287,9 +258,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "Nothing changes: a piece follows your pointer, and nothing moves by itself.",
     uses: ["transformPagePoint", "correctParentTransform", "drag", "dragConstraints"],
-    motion: {
-      note: "Motion's `correctParentTransform` takes a React ref to the plan; Wardic's takes the element, or an accessor of it.",
-    },
     interact: ['drag:.room-piece[data-id="sofa"]:80:40'],
     watch: '.room-piece[data-id="sofa"]',
   },
@@ -323,9 +291,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The photos cross-fade in place. The demo gives the slide no distance under reduced motion (the system's setting through `createReducedMotion`, or the header's switch): left to Wardic's rule, which snaps a positional value to its target, a leaving photo would jump aside at once and fade there.",
     uses: ["AnimatePresence custom", "variants as functions", "custom", "exit", "drag=\"x\"", "dragConstraints", "dragElastic", "createReducedMotion"],
-    motion: {
-      note: "Motion changes the photo by giving it a new `key`: React unmounts the old element, which `AnimatePresence` keeps for its exit, and mounts a new one. Solid has no keys on elements: `<Show when={…} keyed>` makes a new photo each time the piece shown changes, and the presence takes the old one out the same way. The swipe is the same test on the drag's release, from the photo's `onDragEnd` (Solid 1's too); Solid 2 gives each photo in turn one ward that holds the drag, and hears its releases through `when(\"dragEnd\")`.",
-    },
     interact: ".gallery-next",
     watch: ".gallery-photo",
   },
@@ -358,9 +323,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "Nothing flies: a row moved to the cart or removed fades, and the rows below move up at once.",
     uses: ["layoutId", "layoutCrossfade", "arc()", "AnimatePresence mode=\"popLayout\"", "exit", "createOptimisticStore (Solid 2)"],
-    motion: {
-      note: "Motion's flight is the same `layoutId` pair, and React 19's `useOptimistic` is Solid 2's `createOptimisticStore`: the row leaves inside a transition and comes back if the store refuses it. The header's twin needs the pieces in flight shared with the page: a small store outside React, read with `useSyncExternalStore`, where Wardic's apps share a signal. React keeps a leaving row rendered until its exit ends, so its photo is still there when the twin mounts, and Solid 2's optimistic list keeps the row too; `layoutCrossfade={false}` on both photos hides the one taken over from, in Motion's and in Wardic's, so one photo flies at full opacity. Solid 1 has disposed of the row by then, so Wardic flies the twin from where the photo was, and it looks the same.",
-    },
     interact: ".saved-row:first-child .button.accent",
     watch: ".saved-row:nth-child(2)",
   },
@@ -378,9 +340,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The pages fade from one to the other; the photo doesn't fly and the next piece doesn't slide.",
     uses: ["AnimatePresence mode=\"popLayout\"", "layoutId", "arc()", "propagate={{ tap: false }}", "exit", "Solid Router", "<Show keyed>"],
-    motion: {
-      note: "Motion keys the page on the route's segment (`useSelectedLayoutSegment`), as React reuses an element of the same type, and wraps it in a \"frozen router\": the layout's `LayoutRouterContext`, an internal of Next's, kept as it was when the page mounted, so a leaving page still renders its own route while it exits. Wardic's pages need neither: a navigation gives the outlet new nodes, and the old ones leave with what they showed. Another piece is another segment for Motion, so the whole page goes and comes back, where Wardic keeps the page and keys its content. Next's `<Link scroll={false}>` is Solid Router's `noScroll`.",
-    },
     interact: ".catalogue-card",
     watch: ".catalogue-hero .photo",
   },
@@ -414,9 +373,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The lens doesn't glide: it's where the pointer is. A live value is yours, so Wardic's reduced motion leaves it alone; the demo `jump`s its springs to the pointer instead.",
     uses: ["createSpring", "createTransform", "live values in style", "whileHover", "whileTap", "when(\"hover\"), when(\"pan\") (Solid\u00a02)"],
-    motion: {
-      note: "Motion's `useSpring` and `useTransform` are `createSpring` and `createTransform`, made in the component's body. Motion joins the two values into one `background-position` with `useMotionTemplate`; Wardic has no template helper, so each maps to a custom property, and the stylesheet joins them. Motion's version hears the pointer through the photo's `onPointerMove` and `onPointerDown`, a finger's too, where Solid 2 hears it through the photo's ward: `when(\"hover\")`, and `when(\"pressStart\")` and `when(\"pan\")` for a finger.",
-    },
     interact: ".magnifier-photo",
     watch: ".lens",
   },
@@ -432,9 +388,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "Nothing changes: the bar is where the scroll is, not an animation of its own.",
     uses: ["createScroll", "createTransform", "scaleX in style"],
-    motion: {
-      note: "Motion's `useScroll` and `useTransform` are `createScroll` and `createTransform`, made in the component's body, and the panel is a ref. Motion renders a motion value as text, `<motion.span>{label}</motion.span>`, so React doesn't render the component again as the minutes change; Solid reads them in the markup, and only that text changes.",
-    },
     interact: "scroll:.reading-panel:600",
     watch: ".reading-bar",
   },
@@ -481,9 +434,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The cards don't tilt, and the light is where the pointer is, without the spring. It still comes on and goes off.",
     uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover", "when(\"hover\") (Solid\u00a02)"],
-    motion: {
-      note: "Motion's version hears the pointer through the card's `onPointerMove`, skipping a finger by its `pointerType`, and eases it back with `onHoverEnd`. Solid 2 hears it through the card's ward, `when(\"hover\")` with the point and the card, and `when(\"hoverEnd\")`; Solid 1 through `onHoverStart` and `onHoverEnd` and the element's `pointermove`. The springs and transforms are the same, and the light's place is a custom property in both, though Motion's `style` type doesn't name custom properties: its version casts.",
-    },
     interact: "drag:.spot-grid li:first-child .spot-card:60:40",
     watch: ".spot-grid li:first-child .spot-card",
   },
@@ -499,9 +449,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The messages fade without sliding; the bar still fills, as time passes, not as an animation of its own.",
     uses: ["createCycle", "createAnimationFrame", "createPageInView", "AnimatePresence mode=\"wait\"", "scaleX in style"],
-    motion: {
-      note: "Motion's `useCycle`, `useAnimationFrame` and `usePageInView` are `createCycle`, `createAnimationFrame` and `createPageInView`. Motion's bar is a motion value set each frame, so React doesn't render the strip again as it fills; Solid's is a signal, and only the bar's `scaleX` changes. Motion's frame callback is a new one each render, and its hook subscribes it again; Solid's runs once and reads the signals as they are.",
-    },
     watch: ".announcement-message",
   },
   {
@@ -517,10 +464,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The photo and lines still fade in one after another, but nothing rises or settles. Before the JavaScript, the page's CSS follows your system's reduced-motion setting; the header's switch counts once the JavaScript has run.",
     uses: ["initial", "animate", "variants", "staggerChildren", "server-rendered CSS"],
-    motion: {
-      note: "The code is the same; what the server sends isn't. Motion renders each element at its `initial` on the server, and starts the entrance once React has hydrated the page: until the JavaScript has loaded, the banner is blank, and with no JavaScript it stays that way. Try the links on Motion's page: held back 2 s, its banner starts at 2 s. Motion's nearest is its optimised appear animations (`startOptimizedAppearAnimation`), made for Framer's sites, which need an inline script of your own to start them, and do nothing without JavaScript.",
-      summary: "The season's banner, rendered on the server: Motion starts its entrance once React has hydrated the page, so it waits for the JavaScript, and never plays without it.",
-    },
     watch: ".season-copy h2",
   },
   {
@@ -536,10 +479,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The guide and the shade fade in and out; the guide doesn't rise.",
     uses: ["w.create(Component)", "Kobalte's Dialog, forceMount", "AnimatePresence", "exit"],
-    motion: {
-      title: "A size guide in Radix's dialog",
-      note: "Motion's version is Radix's `Dialog`, whose API Kobalte follows. Radix renders into Motion's elements through `asChild`, with each part `forceMount`ed inside Motion's `<AnimatePresence>`. Kobalte's parts take the motion props through `w.create`, and its `forceMount` is on the dialog itself.",
-    },
     interact: ".size-guide-button",
     watch: ".size-guide",
   },
@@ -556,10 +495,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The list fades in and out without growing, and the pieces move to their places at once.",
     uses: ["w.create(Component)", "Kobalte's Select, forceMount", "transform-origin from the library", "layout", "animateLayout"],
-    motion: {
-      title: "Sort the shop with Radix's select",
-      note: "Motion's version is Radix's `Select`, its list placed against the button (`position=\"popper\"`) and growing from `--radix-select-content-transform-origin`. Its content takes Motion's element through `asChild`, `forceMount`ed inside `<AnimatePresence>`. Motion measures its `layout` cards as React renders them, so the re-sort needs no `animateLayout`.",
-    },
     interact: ".select-trigger",
     watch: ".select-list",
   },
@@ -576,10 +511,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The underline moves to its tab at once, and the panels still fade in.",
     uses: ["layoutId inside a library's parts", "Kobalte's Tabs", "w.create(Component)"],
-    motion: {
-      title: "A piece's details in Radix's tabs",
-      note: "Motion's version is Radix's `Tabs`, with the same underline: a `motion.span` with a `layoutId`, inside the selected trigger. Radix's panel takes Motion's element through `asChild`.",
-    },
     interact: ".details-tabs .tab:nth-child(2)",
     watch: ".details-tabs .tab-indicator",
     allowDiagnostics: {
@@ -612,11 +543,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     },
     reducedMotion: "Nothing changes: once `drag` has arrived, a piece follows your pointer, and nothing moves by itself.",
     uses: ["LazyWardic", "features={() => import(…)}", "drag", "dragConstraints"],
-    motion: {
-      title: "Rearrange the room, its drag already loaded",
-      summary: "Press Rearrange, then drag the pieces about. Motion's Features load for the whole page, so drag came with it.",
-      note: "Motion's Features load for the whole page: `LazyMotion`'s `loadFeatures` writes into one page-wide set, and its `layout` comes only in `domMax`, with `drag`. This app's shell needs `layoutId` for the cart's fly-in, so every page here has `drag` already, and the room drags before Rearrange is pressed. Wardic's are chosen per page: the Solid apps' pages that drag import an instance with `drag`, and this room fetches it only on the press.",
-    },
     interact: [".rearrange", 'drag:.room-plan[data-drag="arrived"] .room-piece[data-id="sofa"]:80:40'],
     watch: '.room-piece[data-id="sofa"]',
   },

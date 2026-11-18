@@ -54,7 +54,6 @@ The storefront showcase is a made-up ceramics shop whose every feature is an exa
 
 - On Solid 1: https://solid1.wardic.dev
 - On Solid 2: https://solid2.wardic.dev
-- The same examples in Motion for React, to compare: https://motion.wardic.dev
 
 Its source is in [`examples/storefront`](examples/storefront).
 

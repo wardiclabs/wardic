@@ -33,7 +33,7 @@ The repo runs every package from its source, with no build step: each package's 
 - **`packages/dom`:** the browser environment, as Effect Layers.
 - **`packages/solid`:** the Solid binding: Solid 1 at the root, Solid 2 under `src/unstable/v2`.
 - **`packages/test`:** headless testing Layers.
-- **`examples/`:** the storefront showcase (each feature on Solid 1, Solid 2, and Motion for comparison) and the layout lab.
+- **`examples/`:** the storefront showcase (each feature on Solid 1, Solid 2 and Foldkit) and the layout lab.
 - **`docs/adr/`:** the decisions, with their reasons. **`CONTEXT.md`:** the project's vocabulary.
 
 ## The rules the code follows

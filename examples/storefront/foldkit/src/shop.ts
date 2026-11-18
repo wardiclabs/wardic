@@ -34,8 +34,8 @@ export type Listing = typeof Listing.Type
 export const Highlighted = Schema.Struct({ path: Schema.String, html: Schema.String })
 export type Highlighted = typeof Highlighted.Type
 
-/** An example's code panel: this app's files, `Demo.ts` first; Motion's; and where Motion's runs. */
-export const Code = Schema.Struct({ own: Schema.Array(Highlighted), motion: Schema.Array(Highlighted), run: Schema.String })
+/** An example's code panel: this app's files for it, `Demo.ts` first. */
+export const Code = Schema.Struct({ own: Schema.Array(Highlighted) })
 export type Code = typeof Code.Type
 
 /** A shop call's Effect: the store's answer, or a failure a visitor can read. */

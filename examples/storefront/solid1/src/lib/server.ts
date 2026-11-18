@@ -6,12 +6,9 @@
  * message a person can read.
  */
 import { getCookie, setCookie } from "@solidjs/start/http"
-import { APPS, appUrl } from "@wardic/example-storefront-shared/apps"
-import { highlightOptions, inShowingOrder } from "@wardic/example-storefront-shared/code"
-import { exampleById, routeOf } from "@wardic/example-storefront-shared/examples"
+import { highlightOptions } from "@wardic/example-storefront-shared/code"
 import * as Store from "@wardic/example-storefront-shared/server"
 import { codeToHtml } from "shiki"
-import { getRequestEvent } from "solid-js/web"
 
 const COOKIE = "storefront-visitor"
 
@@ -87,10 +84,6 @@ export async function setSettings(settings: Store.Settings) {
 /** Each demo's source, read here on the server, so the browser never downloads it to show it. */
 const SOURCES = import.meta.glob<string>("../examples/*/Demo.tsx", { query: "?raw", import: "default", eager: true })
 
-/** Each example's Motion version (#366): every file in its folder in the Next.js app, read here too. */
-const MOTION = import.meta.glob<string>("../../../next/src/examples/*/*.{ts,tsx}", { query: "?raw", import: "default", eager: true })
-const MOTION_SRC = "../../../next/src/"
-
 /** A file, highlighted for both themes: HTML the code panel shows as it is. */
 export interface Highlighted {
   readonly path: string
@@ -99,19 +92,9 @@ export interface Highlighted {
 
 const highlight = async (path: string, source: string): Promise<Highlighted> => ({ path, html: await codeToHtml(source, highlightOptions(path)) })
 
-/**
- * An example's code: its demo; Motion's version, every file in its folder in the Next.js app, its
- * `Demo.tsx` first (none until the app has it); and where that runs, on the host this page was
- * asked for.
- */
-export async function highlightedCode(exampleId: string) {
+/** An example's code: its demo, highlighted. */
+export async function highlightedCode(exampleId: string): Promise<Highlighted> {
   const source = SOURCES[`../examples/${exampleId}/Demo.tsx`]
-  const example = exampleById(exampleId)
-  if (source === undefined || example === undefined) throw new Error(`No demo for "${exampleId}"`)
-  const keys = inShowingOrder(Object.keys(MOTION).filter((key) => key.startsWith(`${MOTION_SRC}examples/${exampleId}/`)))
-  return {
-    solid: await highlight(`examples/${exampleId}/Demo.tsx`, source),
-    motion: await Promise.all(keys.map((key) => highlight(key.slice(MOTION_SRC.length), MOTION[key] as string))),
-    run: appUrl(APPS.next, routeOf(example), getRequestEvent()?.request.headers.get("host"), process.env),
-  }
+  if (source === undefined) throw new Error(`No demo for "${exampleId}"`)
+  return highlight(`examples/${exampleId}/Demo.tsx`, source)
 }

@@ -1,7 +1,6 @@
 /**
  * An example's page (#296 Q3): the live demo, a line on what reduced motion does to it, why it's
- * worth reaching for, then its code, highlighted on the server, beside Motion's version where the
- * Next.js app has it (#366).
+ * worth reaching for, then its code, highlighted on the server.
  */
 import { A, createAsync } from "@solidjs/router"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
@@ -38,44 +37,14 @@ function CodeFile(props: { readonly file: Highlighted }) {
   )
 }
 
-/**
- * The demo's code and, where the Next.js app has it, Motion's beside it in a tab (#366 Q2), with
- * what differs between them above.
- */
-function CodePanel(props: { readonly id: string; readonly note: string | undefined }) {
+/** The demo's code, highlighted on the server. */
+function CodePanel(props: { readonly id: string }) {
   const code = createAsync(() => highlighted(props.id))
   return (
     <section class="code" aria-labelledby="code-title">
       <h2 id="code-title">The code</h2>
-      <Show when={props.note}>
-        {(note) => (
-          <p class="motion-note">
-            <Prose text={note()} />
-          </p>
-        )}
-      </Show>
       <Suspense fallback={<pre class="muted">Highlighting…</pre>}>
-        <Show when={code()}>
-          {(code) => (
-            <Show when={code().motion.length > 0} fallback={<CodeFile file={code().solid} />}>
-              <div class="code-tabs" role="radiogroup" aria-label="The code in">
-                <input type="radio" class="code-tab-solid" name="code" id="code-solid" checked />
-                <label for="code-solid">Solid 1</label>
-                <input type="radio" class="code-tab-motion" name="code" id="code-motion" />
-                <label for="code-motion">Motion · Next.js</label>
-              </div>
-              <div class="code-pane code-pane-solid">
-                <CodeFile file={code().solid} />
-              </div>
-              <div class="code-pane code-pane-motion">
-                <For each={code().motion}>{(file) => <CodeFile file={file} />}</For>
-                <a class="code-run" href={code().run}>
-                  Run Motion's version →
-                </a>
-              </div>
-            </Show>
-          )}
-        </Show>
+        <Show when={code()}>{(code) => <CodeFile file={code()} />}</Show>
       </Suspense>
     </section>
   )
@@ -164,7 +133,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
         </For>
         <Show when={example.tradeoffs}>{(tradeoffs) => <Tradeoffs gains={tradeoffs().gains} costs={tradeoffs().costs} />}</Show>
       </section>
-      <CodePanel id={props.id} note={example.motion?.note} />
+      <CodePanel id={props.id} />
     </main>
   )
 }

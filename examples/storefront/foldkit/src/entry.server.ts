@@ -39,7 +39,7 @@ const prefsOf = (cookies: Readonly<Record<string, string>>): Prefs => ({
 })
 
 /** The Flags for `url`: the header's, and the route's page's data and code, each `null` where the store didn't answer, for the client to load again. */
-const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs, host: string | undefined): Effect.Effect<Flags> =>
+const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs): Effect.Effect<Flags> =>
   Effect.gen(function* () {
     const shop = yield* Shop
     const settings = yield* Effect.orElseSucceed(shop.getSettings, () => DEFAULT_SETTINGS)
@@ -55,7 +55,7 @@ const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs, host: string
       onSome: ({ id }) => Effect.orElseSucceed(shop.highlighted(id), () => null),
     })
     return { prefs, visitorName: visitor.name, settings, cart, page, code }
-  }).pipe(Effect.provide(shopFor(visitor, host)))
+  }).pipe(Effect.provide(shopFor(visitor)))
 
 const HEADERS = { "cache-control": "private, no-store", vary: "cookie" } as const
 
@@ -68,9 +68,8 @@ export const renderPage = async (request: Request): Promise<Server.EntryResult> 
   if (request.method === "OPTIONS") return Server.Responded(new Response(null, { status: 204, headers: { allow: Server.HOST_METHOD_ANSWERS.allow } }))
   const cookies = Cookies.parseHeader(request.headers.get("cookie") ?? "")
   const visitor = visitorOf(cookies)
-  const host = request.headers.get("host") ?? undefined
   const parsed = Option.getOrThrowWith(Url.fromString(request.url), () => new Error(`Not a URL: ${request.url}`))
-  const flags = await Effect.runPromise(flagsFor(parsed, visitor, prefsOf(cookies), host))
+  const flags = await Effect.runPromise(flagsFor(parsed, visitor, prefsOf(cookies)))
   const rendered = await Effect.runPromise(Server.renderToString({ Flags, routing, init, view }, { url: request.url, flags }))
   const headers: Record<string, string> = { ...HEADERS }
   // A first request: the visitor's cookie, so their cart lasts between requests.

@@ -36,20 +36,10 @@ export interface Photo {
   readonly height: number
 }
 
-/**
- * An imported image's URL. Vite imports one as its URL; Next.js (#366) as an object holding it, with
- * its size.
- */
-type Asset = string | { readonly src: string }
-
-const urlOf = (asset: Asset): string => {
-  if (typeof asset === "string") return asset
-  return asset.src
-}
-
-const photoFrom = (small: Asset, large: Asset, width: number, height: number): Photo => ({
-  small: urlOf(small),
-  large: urlOf(large),
+/** A photo from its two imported images, each its URL, as Vite imports one. */
+const photoFrom = (small: string, large: string, width: number, height: number): Photo => ({
+  small: small,
+  large: large,
   width,
   height,
 })

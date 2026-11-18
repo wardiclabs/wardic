@@ -20,8 +20,8 @@ const optional = <A>(value: A | null): A | undefined => {
 /** A wishlist as the wire carries it: its last move `null` before the first. */
 const listingOf = (wishlist: Store.Wishlist): Listing => ({ items: wishlist.items, lastMove: wishlist.lastMove ?? null, version: wishlist.version })
 
-/** A `Shop` for `visitor`, the code panel's run links on `host`. */
-export const shopFor = (visitor: Store.VisitorInfo, host: string | undefined): Layer.Layer<Shop> =>
+/** A `Shop` for `visitor`. */
+export const shopFor = (visitor: Store.VisitorInfo): Layer.Layer<Shop> =>
   Layer.effect(
     Shop,
     Effect.gen(function* () {
@@ -46,7 +46,7 @@ export const shopFor = (visitor: Store.VisitorInfo, host: string | undefined): L
         restoreNotices: run(Store.restoreNotices),
         getSettings: run(Store.getSettings),
         setSettings: (settings) => run(Store.setSettings(settings)),
-        highlighted: (exampleId) => highlightedCode(exampleId, host),
+        highlighted: (exampleId) => highlightedCode(exampleId),
       })
     }),
   )
