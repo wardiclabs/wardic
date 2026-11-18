@@ -32,7 +32,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Equal from "effect/Equal"
-import { constUndefined, constVoid, identity } from "effect/Function"
+import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -86,10 +86,13 @@ const devDiagnostics = (): Spine.SpineDiagnostics | undefined => {
  * projected together, so a transform key of each joins one `transform` (#791, Q7); a Live value at
  * what it reads through `registry` now; its Transform template under the renderer's key (#443). What
  * `w.*` and the bundle render in their one `h.Style`, stringified for Foldkit's style module. A Variant
- * child's inherited `initial` isn't known here (the builder-time walk is slice 4's): its Mount writes it.
+ * child's inherited `initial` comes with `inherited`, the context its ancestor provides, and a child a
+ * `w.Presence({ initial: false })` holds at its `Animate` with `held` (#134): the walk at the
+ * `w.Provider()` element's build gives both (#794, Q7), and its Mount writes them for an element with
+ * no provider element above.
  */
-export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry): Style.Style => {
-  const start = Spine.startOf(config, undefined, false, reactivity.untrack)
+export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue, held = false): Style.Style => {
+  const start = Spine.startOf(config, inherited, held, reactivity.untrack)
   return Style.starting(tag, ElementSetup.drawnAtRest({ ...(liveValuesOf(config.style, registry) as Values.Values), ...start.initialValues }, false, config.transformTemplate)).style
 }
 
@@ -297,9 +300,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.
     const templateAtMount = config.transformTemplate
     // The keys its Starting style set, switched to the user's in its first commit. A Variant child's
-    // inherited Starting style wasn't rendered by the view: written now, inside the patch (P2).
+    // inherited Starting style wasn't rendered by the view: written now, inside the patch (P2). So is a
+    // child of a `w.Presence({ initial: false })`: the view rendered it at its `Animate` (the walk at a
+    // provider element's build, #794), where only the presence's first render starts it there (#134).
     const starting = Style.starting(tag, ElementSetup.drawnAtRest(start.initialValues, false, templateAtMount)).style
-    if (Predicate.isNotUndefined(inherited)) writeStartingStyle(element, starting)
+    if (Bool.or(Predicate.isNotUndefined(inherited), UndefinedOr.match(presence, { onUndefined: constFalse, onDefined: (p) => p.holds() }))) writeStartingStyle(element, starting)
     const startingKeys = Rec.keys(starting)
     const sink: FlushGate.Sink = Spine.withOnUpdate({ target: element, beforeFirstCommit: () => switchToUserStyle(element, tag, startingKeys, config, registryNow) }, view.onUpdate, configNow)
     const unregister = provider.gate.register(id, sink, ElementSetup.registeredValuesOf(templateAtMount))

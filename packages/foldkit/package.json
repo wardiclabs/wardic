@@ -50,6 +50,26 @@
       "types": "./dist/internal/dev.production.d.ts",
       "default": "./dist/internal/dev.production.js"
     },
+    "./internal/server": {
+      "node": {
+        "@wardic/source": "./src/internal/server.node.ts",
+        "types": "./dist/internal/server.node.d.ts",
+        "default": "./dist/internal/server.node.js"
+      },
+      "worker": {
+        "@wardic/source": "./src/internal/server.node.ts",
+        "types": "./dist/internal/server.node.d.ts",
+        "default": "./dist/internal/server.node.js"
+      },
+      "deno": {
+        "@wardic/source": "./src/internal/server.node.ts",
+        "types": "./dist/internal/server.node.d.ts",
+        "default": "./dist/internal/server.node.js"
+      },
+      "@wardic/source": "./src/internal/server.ts",
+      "types": "./dist/internal/server.d.ts",
+      "default": "./dist/internal/server.js"
+    },
     "./internal/*": null,
     "./*": {
       "@wardic/source": "./src/*.ts",

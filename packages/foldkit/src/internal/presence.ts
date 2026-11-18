@@ -16,7 +16,7 @@ import type * as PresenceController from "@wardic/dom/unstable/PresenceControlle
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constTrue, constVoid, identity } from "effect/Function"
+import { constFalse, constTrue, constVoid, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -51,6 +51,8 @@ export interface Presence {
   readonly enroll: (element: Element, begin: () => () => void) => () => void
   /** The presence element's own Mount runs it: the observer, the first delivery, the Messages; returns the release. */
   readonly mount: (paused: () => boolean, offer: (message: unknown) => void) => () => void
+  /** Whether it is a `w.Presence({ initial: false })` ({@link holdsInitial}), as its options stand now. */
+  readonly holds: () => boolean
 }
 
 // Module state (#460, Q7): each presence element's presence, held weakly by the element.
@@ -64,6 +66,13 @@ const LATE = "wardic: w.Presence was added to an element already mounted, whose 
 
 /** No options: `w.Presence()`. */
 const NO_OPTIONS: Ward.PresenceOptions<unknown> = {}
+
+/**
+ * Whether a `w.Presence` with `options` holds the children of its first render at their `Animate`
+ * (`initial: false`, #134): what the walk at a provider element's build writes for them (#794), and what
+ * their Mounts start them at while that render is the presence's first (dom's `blocksInitial`).
+ */
+export const holdsInitial = (options: Ward.PresenceOptions<unknown> | undefined): boolean => UndefinedOr.match(options, { onUndefined: constFalse, onDefined: (given) => given.initial === false })
 
 /** Whether a node is an element: what a presence's children and leavers are (text is never one). */
 const isElement = (node: unknown): node is Element => node instanceof Element
@@ -286,6 +295,7 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
 
   return {
     context: controller.context,
+    holds: () => holdsInitial(optionsNow()),
     enroll: (child, begin) => {
       const entry: Pending = { element: child, begin, release: undefined, cancel: undefined, gone: false }
       pending.push(entry)

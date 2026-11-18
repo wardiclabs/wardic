@@ -45,6 +45,8 @@ export default defineConfig({
       "packages/solid/vitest.ssr.config.ts",
       // The Solid 2 binding's server renders, `@wardic/solid/unstable/v2` (#209).
       "packages/solid/vitest.ssr-v2.config.ts",
+      // The Foldkit binding's server renders, Foldkit's `renderToString` in Node (#794).
+      "packages/foldkit/vitest.ssr.config.ts",
       // The docs' testing guide, its samples run in jsdom as a reader's tests would (#558).
       "packages/solid/vitest.jsdom.config.ts",
       "packages/solid/vitest.jsdom-v2.config.ts",
