@@ -3,7 +3,7 @@
   // probes and judging, and the Solid 2 binding's scenarios (src/scenarios-v2), against Solid 2.
   // `#binding` and `#scenarios` resolve under the `solid2` condition, as vite.v2.config.ts builds
   // them; `solid-js` and `@solidjs/web` map to packages/solid's Solid 2 for every importer, as
-  // packages/solid/tsconfig.v2.json does.
+  // @wardic/solid's own typecheck once did (#566).
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsxImportSource": "@solidjs/web",

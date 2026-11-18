@@ -17,7 +17,7 @@
     "skipLibCheck": true,
     "types": ["vite/client", "node", "@solidjs/vite-plugin/virtual-modules"],
     // @wardic/solid's source imports `solid-js`, which from packages/solid is Solid 1 (its own binding's
-    // peer): map every importer's to this app's Solid 2, as packages/solid/tsconfig.v2.json does.
+    // peer): map every importer's to this app's Solid 2, as @wardic/solid's own typecheck once did (#566).
     "paths": { "solid-js": ["./node_modules/solid-js/types/index.d.ts"] }
   },
   "include": ["src", "file-routes.d.ts"]

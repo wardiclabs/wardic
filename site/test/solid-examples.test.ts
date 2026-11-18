@@ -1,6 +1,6 @@
 // The Solid bindings' examples typecheck (#618, D8), as core's and dom's do (examples.test.ts): each tsx
-// fence and `@example` in @wardic/solid's doc comments, Solid 1's (EX5) and Solid 2's, under
-// `unstable/v2` (EX6), and each tsx fence on the site's own pages (EX7), compiled under its binding's JSX
+// fence and `@example` in @wardic/solid's doc comments, Solid 1's under `v1` (EX5) and Solid 2's (EX6, #566),
+// and each tsx fence on the site's own pages (EX7), compiled under its binding's JSX
 // setup, so an example that names an API wrongly or gives it the wrong props fails here.
 //
 // A site fence that names its binding (```tsx solid1, ```tsx solid2) or imports one binding is that
@@ -72,7 +72,7 @@ const siteExamples = (): ReadonlyArray<Example> =>
 
 /** The examples in `binding`'s doc comments: each fence, and each `@example` with none. */
 const bindingExamples = (binding: Binding): ReadonlyArray<Example> =>
-  filesUnder(join(REPO, "packages/solid/src"), (path) => /\.tsx?$/.test(path) && path.includes("/unstable/v2/") === (binding === "solid2")).flatMap((file) => {
+  filesUnder(join(REPO, "packages/solid/src"), (path) => /\.tsx?$/.test(path) && path.includes("/v1/") === (binding === "solid1")).flatMap((file) => {
     const text = readFileSync(file, "utf8")
     return [...text.matchAll(/\/\*\*([\s\S]*?)\*\//g)].flatMap((comment) => {
       const body = comment[1]!
@@ -128,6 +128,9 @@ const optionsOf = (binding: Binding): ts.CompilerOptions => {
     "solid-js/store": [join(SOLID1, "store/types/index.d.ts")],
     "solid-js/jsx-runtime": [join(SOLID1, "types/jsx.d.ts")],
     [INSTANCE_IMPORT]: [instanceModule.solid1],
+    // A Solid 1 fence still imports `@wardic/solid`, Solid 1's entry in the published 1.x the site documents:
+    // since 2.0 that's `@wardic/solid/v1` (#566), where #566's docs PR moves them, and this goes.
+    "@wardic/solid": [join(REPO, "packages/solid/src/v1/index.tsx")],
   }
   return {
     jsx: ts.JsxEmit.Preserve,
@@ -236,13 +239,15 @@ const problemsIn = (examples: ReadonlyArray<Example>): ReadonlyArray<string> =>
 describe("the Solid bindings' examples (#618)", () => {
   it("EX5: every example in Solid 1's doc comments typechecks", { timeout: 120_000 }, () => {
     const examples = bindingExamples("solid1")
-    expect(examples.length, "Solid 1's examples, found").toBeGreaterThan(50)
+    // 48 since 2.0, when the modules both bindings share counted as Solid 2's (#566).
+    expect(examples.length, "Solid 1's examples, found").toBeGreaterThan(40)
     expect(problemsIn(examples)).toEqual([])
   })
 
   it("EX6: every example in Solid 2's doc comments typechecks", { timeout: 120_000 }, () => {
     const examples = bindingExamples("solid2")
-    expect(examples.length, "Solid 2's examples, found").toBeGreaterThan(40)
+    // 63 since 2.0, the shared modules' among them (#566).
+    expect(examples.length, "Solid 2's examples, found").toBeGreaterThan(55)
     expect(problemsIn(examples)).toEqual([])
   })
 

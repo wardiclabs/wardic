@@ -1,7 +1,7 @@
 import { createAsync, useAction, useSubmission } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic-layout.ts"
 import { createSignal, Match, onCleanup, Show, Suspense, Switch } from "solid-js"
 import { addToCart, product } from "~/lib/store.ts"

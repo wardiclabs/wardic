@@ -6,7 +6,7 @@
 // (examples/hand-checks/src/appear-report.ts) judges each element marked `data-appear-k` two seconds after hydration:
 // a Batch's members (#706) among them.
 import { DomLive } from "@wardic/dom"
-import { createBatch, Reorder, stagger, wardic, WardicProvider } from "@wardic/solid"
+import { createBatch, Reorder, stagger, wardic, WardicProvider } from "@wardic/solid/v1"
 import { createAsync, useLocation } from "@solidjs/router"
 import { createSignal, For, type JSX, onMount, Suspense } from "solid-js"
 

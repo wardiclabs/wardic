@@ -22,7 +22,7 @@
  *
  * @module
  */
-import { wardic } from "@wardic/solid"
+import { wardic } from "@wardic/solid/v1"
 import { createSignal, type JSX, onCleanup, Show } from "solid-js"
 import type { ScenarioDef } from "./types.ts"
 

@@ -3,7 +3,7 @@
  * `reducedMotion` so anyone can see the reduced version of every demo. Kept for the visit
  * (`sessionStorage`), read after hydration so the server's markup and the first client render agree.
  */
-import { createReducedMotion } from "@wardic/solid"
+import { createReducedMotion } from "@wardic/solid/v1"
 import { type Accessor, createContext, createSignal, type JSX, onMount, useContext } from "solid-js"
 
 export type Theme = "system" | "light" | "dark"

@@ -4,7 +4,7 @@
  * section's, not a Wardic instance's (#516): the shell never imports `layout`, the page that moves a
  * piece does, and its elements are the binding's own `w`, which has the Features its section gives.
  */
-import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid/v1"
 import { For, Show } from "solid-js"
 import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
 

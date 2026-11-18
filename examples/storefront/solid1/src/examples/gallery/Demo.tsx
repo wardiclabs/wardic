@@ -1,6 +1,6 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic-drag.ts"
 import { createSignal, For, Show } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"

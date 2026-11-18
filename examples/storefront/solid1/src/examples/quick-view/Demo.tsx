@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid/v1"
 import { w } from "~/lib/wardic-layout.ts"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 

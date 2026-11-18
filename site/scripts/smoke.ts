@@ -26,7 +26,7 @@ import { spawn } from "node:child_process"
 import { readdirSync } from "node:fs"
 import { join, relative } from "node:path"
 import { chromium, type ConsoleMessage, type Page } from "playwright"
-import { codeOf, gated, reports } from "../../packages/solid/test/v2/gate-filter.ts"
+import { codeOf, gated, reports } from "../../packages/solid/test/gate-filter.ts"
 
 const SITE = join(import.meta.dirname, "..")
 const PORT = 3119

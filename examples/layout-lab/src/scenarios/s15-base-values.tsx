@@ -73,7 +73,7 @@
  *
  * @module
  */
-import { AnimatePresence, wardic, type WardicValues } from "@wardic/solid"
+import { AnimatePresence, wardic, type WardicValues } from "@wardic/solid/v1"
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js"
 import type { BoardRunKind } from "../lab/base-values-board.ts"
 import type { ScenarioContext, ScenarioDef } from "./types.ts"
