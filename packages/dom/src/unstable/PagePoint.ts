@@ -1,11 +1,14 @@
 /**
- * Point mappings for `WardicConfig`'s `transformPagePoint` (#443, Motion's `correctParentTransform`
- * and `transformViewBoxPoint`), Solid-free, for both bindings. Each takes its element as it is, or an
- * accessor of one (a ref's, set at mount), read at each point. Wardic's points are in the viewport's
- * coordinates, where Motion's are the page's, so neither adds the page's scroll.
+ * Point mappings for a provider's `transformPagePoint` (#443, Motion's `correctParentTransform` and
+ * `transformViewBoxPoint`), for every DOM binding. Each takes its element as it is, or an accessor of
+ * one (a ref's, set at mount), read at each point. Wardic's points are in the viewport's coordinates,
+ * where Motion's are the page's, so neither adds the page's scroll.
+ *
+ * Unstable, for Wardic's own packages: public, with no semver promise.
  *
  * @module
  */
+// Unstable: ADR-0071, decision 5. #795: solid's `page-point.ts`, moved to dom for the Foldkit binding (its storefront's room example).
 import * as Predicate from "effect/Predicate"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
