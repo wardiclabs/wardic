@@ -47,7 +47,7 @@ export { domMax } from "@wardic/dom/unstable/features/DomMax"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "@wardic/dom/unstable/Instant"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
-export { correctParentTransform, transformViewBoxPoint } from "./page-point.ts"
+export { correctParentTransform, transformViewBoxPoint } from "@wardic/dom/unstable/PagePoint"
 export type { WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
 export type { AnimateLayout } from "./provider.tsx"
 

@@ -1,7 +1,8 @@
 /**
  * The showcase's smoke test (#296 Q6, #366 Q9): `bun ../shared/src/smoke.ts <app>` from an app's
  * directory, after its build. It serves the production build (`vite preview` for the Solid apps,
- * `next start` for Motion's), opens the gallery and each example's route in Chromium, and checks,
+ * `next start` for Motion's, the Node host for Foldkit's), opens the gallery and each example's route
+ * in Chromium, and checks,
  * for each:
  *
  * - it answers 200, with nothing logged as an error or a warning, no uncaught error, and no
@@ -9,8 +10,8 @@
  * - its demo moves, then settles: the example's `watch` element changes its computed opacity or
  *   transform after load (after a click on its `interact` element, for a demo that waits for the
  *   visitor), then holds still for 15 frames, within 5 s;
- * - in a Solid app: the code's Motion tab shows Motion's files in place of the demo's, and links to
- *   it running (#366).
+ * - in a Solid app, or the Foldkit app: the code's Motion tab shows Motion's files in place of the
+ *   demo's, and links to it running (#366).
  *
  * And that every example has its Motion version, in the Next.js app (#366 Q9).
  *
@@ -42,7 +43,7 @@ import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 
 const app = process.argv[2] ?? ""
-if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or next, not "${app}"`)
+if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2, next or foldkit, not "${app}"`)
 /** The dev mode (#460, Q9): the Solid 2 app's dev server, failing on its coded diagnostics. */
 const dev = process.argv.includes("--dev")
 if (dev && app !== "solid2") throw new Error("smoke: --dev is the Solid 2 app's, whose dev build reports coded diagnostics")
@@ -74,14 +75,17 @@ const completeness: Result = {
 
 /**
  * The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's
- * older one), or Next.js; with `--dev`, its Vite dev server.
+ * older one), Next.js, or the Foldkit app's Node host (`server.ts`, `@foldkit/node`, #795); with
+ * `--dev`, its Vite dev server.
  */
 const vite = join(process.cwd(), "node_modules", ".bin", "vite")
-const command: ReadonlyArray<string> =
-  app === "next"
-    ? [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
-    : [vite, ...(dev ? [] : ["preview"]), "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
-const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } }) : undefined
+const commandOf = (): ReadonlyArray<string> => {
+  if (app === "next") return [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
+  if (app === "foldkit") return ["node", "server.ts"]
+  return [vite, ...(dev ? [] : ["preview"]), "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
+}
+const command = commandOf()
+const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", PORT: String(config.port), HOST: "127.0.0.1" } }) : undefined
 /**
  * Every line the server has printed, read so its pipes never fill. The dev mode reads a server
  * render's diagnostics there; Vite's dev server also prints the browser's console, each message
@@ -211,10 +215,12 @@ const sampleFrames = (page: Page, selector: string, ms: number): Promise<Readonl
   )
 
 /**
- * A live feed's request: Solid 2's `live()`, under `/_server/live/`, or the Motion app's server-sent
- * events (`/api/wishlist`). It stays open for as long as the page shows it.
+ * A live feed's request: Solid 2's `live()`, under `/_server/live/`, the Motion app's server-sent
+ * events (`/api/wishlist`), or the Foldkit app's streaming rpc (an `/api/rpc` post naming
+ * `WishlistChanges`). It stays open for as long as the page shows it.
  */
-const isFeed = (request: Request): boolean => request.url().includes("/_server/live/") || request.url().includes("/api/wishlist")
+const isFeed = (request: Request): boolean =>
+  request.url().includes("/_server/live/") || request.url().includes("/api/wishlist") || (request.url().includes("/api/rpc") && (request.postData() ?? "").includes('"tag":"WishlistChanges"'))
 
 /**
  * Waits for `page` to have loaded and its network to go quiet: no request open for half a second.
@@ -274,7 +280,7 @@ interface Result {
 }
 
 /**
- * The code's tabs on a Solid app's page (#366 Q2), for an example the Next.js app has: the Motion tab
+ * The code's tabs on a Solid or Foldkit page (#366 Q2), for an example the Next.js app has: the Motion tab
  * shows Motion's files in place of the demo's, and its link goes to the example in the Next.js app.
  */
 const checkTabs = async (page: Page, route: string, problems: Array<string>): Promise<void> => {

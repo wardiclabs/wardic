@@ -132,7 +132,7 @@ export {
   correctParentTransform,
   /** @deprecated Solid 1's binding, deprecated and frozen: it goes at Wardic's next major. Solid 2's is `@wardic/solid` (#566). */
   transformViewBoxPoint,
-} from "../page-point.ts"
+} from "@wardic/dom/unstable/PagePoint"
 export type {
   /** @deprecated Solid 1's binding, deprecated and frozen: it goes at Wardic's next major. Solid 2's is `@wardic/solid` (#566). */
   AnimateLayout,
