@@ -1,12 +1,12 @@
 /**
- * The storefront's three apps (#366): Solid 1, Solid 2, and Motion on Next.js. An example's page
- * links to the same example in the others. Each serves on its own port; a page links to the others
- * on the host its visitor used, so the links work wherever the three run together, unless an
- * environment variable names an app's base URL (`STOREFRONT_SOLID1_URL`, `STOREFRONT_SOLID2_URL`,
- * `STOREFRONT_NEXT_URL`).
+ * The storefront's four apps (#366, #795): Solid 1, Solid 2, Motion on Next.js, and Foldkit. An
+ * example's page links to the same example in the others. Each serves on its own port; a page links
+ * to the others on the host its visitor used, so the links work wherever the four run together,
+ * unless an environment variable names an app's base URL (`STOREFRONT_SOLID1_URL`,
+ * `STOREFRONT_SOLID2_URL`, `STOREFRONT_NEXT_URL`, `STOREFRONT_FOLDKIT_URL`).
  */
 
-export type AppId = "solid1" | "solid2" | "next"
+export type AppId = "solid1" | "solid2" | "next" | "foldkit"
 
 export interface App {
   readonly id: AppId
@@ -22,6 +22,7 @@ export const APPS: Readonly<Record<AppId, App>> = {
   solid1: { id: "solid1", label: "Solid 1", port: 4101, env: "STOREFRONT_SOLID1_URL" },
   solid2: { id: "solid2", label: "Solid 2", port: 4102, env: "STOREFRONT_SOLID2_URL" },
   next: { id: "next", label: "Motion · Next.js", port: 4103, env: "STOREFRONT_NEXT_URL" },
+  foldkit: { id: "foldkit", label: "Foldkit", port: 4104, env: "STOREFRONT_FOLDKIT_URL" },
 }
 
 /**

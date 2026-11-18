@@ -42,12 +42,19 @@ export interface Example {
    */
   readonly motion?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
   /**
+   * The Foldkit app's words (#795), where the Foldkit form differs: what differs from the Solid apps'
+   * (Commands and Messages where Solid has actions and signals), shown above the code on its page alone;
+   * and, where this example's `title` or `summary` doesn't hold on Foldkit, its own. Its code is that
+   * app's `src/examples/<id>/`.
+   */
+  readonly foldkit?: { readonly note?: string | undefined; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
+  /**
    * What the pattern gains and what it costs, where it's a trade (#526 Q6): two short lists, shown
    * under "Why" in every app.
    */
   readonly tradeoffs?: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> } | undefined
   /**
-   * The apps that have it, where not all three: a pattern only one binding shows (Solid 2's
+   * The apps that have it, where not all four: a pattern only one binding shows (Solid 2's
    * `<Loading>` in a page, #479). Their galleries list it and the smoke test opens it there; the
    * others don't route it.
    */
@@ -340,6 +347,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "catalogue",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "transitions",
     title: "From the catalogue to a piece's own page",
     summary: "Open a piece and its photo flies from the catalogue into its own page; go back and it flies home. The two are routes, so the browser's back and forward do the same.",
@@ -375,6 +384,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "magnifier",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "live",
     title: "A closer look at the glaze",
     summary: "Hover over the vase and a lens follows your pointer, gliding after it and settling where you stop.",
@@ -394,6 +405,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "reading-progress",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "live",
     title: "A reading bar for the studio's story",
     summary: "Scroll through how the Lagoon glaze is made, and a bar along the top fills as you read, the minutes left beside it.",
@@ -411,6 +424,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "parallax",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "live",
     title: "A lookbook with depth",
     summary: "Scroll the lookbook and each collection's photo drifts slower than its banner and its words faster, as if they sat at different depths.",
@@ -426,6 +441,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "reveals",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "live",
     title: "The studio's story, revealed as you read",
     summary: "Each chapter of the studio's story rises into place as it scrolls into view, its photo first and its words after.",
@@ -439,6 +456,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "spotlight",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "live",
     title: "Cards that catch the light",
     summary: "Move over a piece and its card tilts toward your pointer, with a soft light under it that follows.",
@@ -457,6 +476,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "announcements",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "live",
     title: "Announcements that take turns",
     summary: "The strip above the shop shows one message at a time, a bar filling under it, and holds while you read it or look away.",
@@ -473,6 +494,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "before-hydration",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "server",
     title: "A banner that arrives before the JavaScript",
     summary: "The season's banner plays its entrance from the first paint, whether the JavaScript is late or never comes.",
@@ -491,6 +514,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "size-guide",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "library",
     title: "A size guide in Kobalte's dialog",
     summary: "Open the size guide: the shop dims and the guide rises in. Escape, a click outside or ✕ takes it away as smoothly.",
@@ -510,6 +535,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "sort-by",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "library",
     title: "Sort the shop with Kobalte's select",
     summary: "Pick an order: the list grows out of its button, and the pieces slide to their new places.",
@@ -529,6 +556,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "details-tabs",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "library",
     title: "A piece's details in Kobalte's tabs",
     summary: "Switch between a piece's size, material and care: the underline slides to the tab, whether you click or use the arrow keys.",
@@ -552,6 +581,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "rearrange",
+    // Its Foldkit page comes with the storefront's second PR (#795).
+    apps: ["solid1", "solid2", "next"],
     area: "shipping",
     title: "Rearrange the room: drag loads when you ask",
     summary: "The room's pieces stay put until you press Rearrange. Only then does the page fetch Wardic's drag, and the card says how long it took to arrive.",

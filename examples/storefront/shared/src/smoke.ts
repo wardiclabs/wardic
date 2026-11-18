@@ -1,7 +1,8 @@
 /**
  * The showcase's smoke test (#296 Q6, #366 Q9): `bun ../shared/src/smoke.ts <app>` from an app's
  * directory, after its build. It serves the production build (`vite preview` for the Solid apps,
- * `next start` for Motion's), opens the gallery and each example's route in Chromium, and checks,
+ * `next start` for Motion's, the Node host for Foldkit's), opens the gallery and each example's route
+ * in Chromium, and checks,
  * for each:
  *
  * - it answers 200, with nothing logged as an error or a warning, no uncaught error, and no
@@ -42,7 +43,7 @@ import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 
 const app = process.argv[2] ?? ""
-if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or next, not "${app}"`)
+if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2, next or foldkit, not "${app}"`)
 /** The dev mode (#460, Q9): the Solid 2 app's dev server, failing on its coded diagnostics. */
 const dev = process.argv.includes("--dev")
 if (dev && app !== "solid2") throw new Error("smoke: --dev is the Solid 2 app's, whose dev build reports coded diagnostics")
@@ -74,14 +75,17 @@ const completeness: Result = {
 
 /**
  * The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's
- * older one), or Next.js; with `--dev`, its Vite dev server.
+ * older one), Next.js, or the Foldkit app's Node host (`server.ts`, `@foldkit/node`, #795); with
+ * `--dev`, its Vite dev server.
  */
 const vite = join(process.cwd(), "node_modules", ".bin", "vite")
-const command: ReadonlyArray<string> =
-  app === "next"
-    ? [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
-    : [vite, ...(dev ? [] : ["preview"]), "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
-const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } }) : undefined
+const commandOf = (): ReadonlyArray<string> => {
+  if (app === "next") return [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
+  if (app === "foldkit") return ["node", "server.ts"]
+  return [vite, ...(dev ? [] : ["preview"]), "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
+}
+const command = commandOf()
+const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", PORT: String(config.port), HOST: "127.0.0.1" } }) : undefined
 /**
  * Every line the server has printed, read so its pipes never fill. The dev mode reads a server
  * render's diagnostics there; Vite's dev server also prints the browser's console, each message
