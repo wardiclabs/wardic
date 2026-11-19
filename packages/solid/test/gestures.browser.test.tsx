@@ -139,9 +139,10 @@ describe("a ward's gestures on Solid 2", () => {
     let a!: HTMLElement
     let b!: HTMLElement
     const Box = () => {
-      // Clear of the page's one mouse, parked at (5, 5) for every browser file: under it, the second
-      // element is hovered for real.
-      const card = ward({ animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, style: { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } })
+      // The box takes no real pointer (#822): under the page's one real mouse, which the files run
+      // beside this one move and leave where their drags end, the second element was hovered for
+      // real and never settled at `animate`. The dispatched events reach it regardless.
+      const card = ward({ animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, style: { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px", "pointer-events": "none" } })
       return (
         <Show when={second()} fallback={<div {...card} ref={[card, (n: HTMLElement) => (a = n)]} />}>
           <div {...card} ref={[card, (n: HTMLElement) => (b = n)]} />

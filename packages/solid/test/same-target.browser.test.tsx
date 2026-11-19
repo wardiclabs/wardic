@@ -14,11 +14,17 @@ import { type Ward, ward, type WardConfig, WardicProvider, type WardicTransition
 import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
+import "./browser-commands.ts"
 import { raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+// The box takes no real pointer (#822): these tests drive hover with their own events, and the page's
+// one real mouse, which the files run beside this one move and leave where their drags end, can sit
+// over the box as it mounts. A real hover then landed before `next("settled")` was asked, and the
+// dispatched enters had nothing left to turn on (STV1, 2 s misses under load and on CI). Dispatched
+// events reach the box regardless: `pointer-events` is hit-testing's.
+const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px", "pointer-events": "none" } as const
 const FAST: WardicTransition = { type: "tween", duration: 0.1 }
 const SLOW: WardicTransition = { type: "tween", duration: 1, ease: "linear" }
 
@@ -78,6 +84,20 @@ describe("a change that resolves the same target on Solid 2 (#470)", () => {
     const off = card.next("settled")
     el().dispatchEvent(new PointerEvent("pointerleave", pointer))
     expect((await off).gestures.hover, "and its end's").toBe(false)
+  })
+
+  it("STV1b: under the page's real mouse, the dispatched hover still lands (#822)", async () => {
+    const { card, el } = mountCard({ initial: false, animate: { opacity: 0.2 }, whileHover: { opacity: 0.2 }, transition: FAST, style: BOX })
+    // The page's one real mouse over the card, as a file that moved it can leave it (#822): a real
+    // hover before `next("settled")` is asked would leave the dispatches below nothing to turn on.
+    await commands.realMouse("move", 140, 140)
+    try {
+      await frames(3)
+      const on = await retrying(card.next("settled"), el, "pointerenter")
+      expect(on.gestures.hover, "the hover's landing").toBe(true)
+    } finally {
+      await commands.realMouse("move", 5, 5)
+    }
   })
 
   it("STV2: an orchestrating ward's whileHover name lands as the name", async () => {
