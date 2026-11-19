@@ -11,7 +11,7 @@
 import * as Appear from "@wardic/dom/Appear"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { identity } from "effect/Function"
+import { constFalse, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -24,7 +24,7 @@ import * as Ward from "../Ward.ts"
 import { propertyOf } from "./delivery.ts"
 import { type Config, startingStyleOf, stringified } from "./element.ts"
 import { mountOf } from "./mount.ts"
-import { noteServerRender, registryOf, type State } from "./services.ts"
+import { noteServerRender, registryOf, snapshotPopLayouts, type State } from "./services.ts"
 import type { AnimationScope } from "./scope.ts"
 import { type ViewNode, walkProvider } from "./walk.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
@@ -32,6 +32,9 @@ import { IS_SERVER } from "@wardic/foldkit/internal/server"
 
 /** The one identity every `w.*` element is stamped with (#791, Q8). */
 const IDENTITY = "@wardic/foldkit"
+
+/** Whether a `w.Presence` is a `popLayout` one. */
+const isPopLayout = (presence: Ward.PresenceOptions<unknown> | undefined): boolean => UndefinedOr.match(presence, { onUndefined: constFalse, onDefined: (options) => options.mode === "popLayout" })
 
 /** What a `w.*` element takes: Foldkit's attributes and Wardic's. */
 export type Attributes<Message> = ReadonlyArray<Attribute<Message> | ChildAttribute | Ward.Attribute>
@@ -130,6 +133,8 @@ type Make = (attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, child
 const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Ward.Child> | undefined): Html => {
   const folded = fold(attributes)
   if (DEV && Predicate.isNotUndefined(folded.config.text) && Predicate.isNotUndefined(children) && children.length > 0) throw new Error(TEXT_WITH_CHILDREN)
+  // A `popLayout` presence rendering (#840): every live one's children measured now, before this render's patch moves a leaver.
+  if (Bool.not(IS_SERVER) && isPopLayout(folded.config.presence)) snapshotPopLayouts(state)
   const node = brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
   if (IS_SERVER && DEV) noteServerRender(state, Predicate.isNotUndefined(folded.provider))
   // The Provider element's subtree exists by now, children before their parent: each Variant child's

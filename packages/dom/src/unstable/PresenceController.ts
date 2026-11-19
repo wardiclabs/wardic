@@ -359,14 +359,23 @@ const pxOf = (value: string): number => {
   return px
 }
 
+/** `el`'s gaps now, as its kind reads them (below): `undefined` for an element that isn't popped. */
+const gapsNowOf = (el: Element): EdgeGaps | undefined => {
+  if (isHTMLElement(el)) return htmlGapsOf(el)
+  if (isSvgRoot(el)) return svgGapsOf(el)
+  return undefined
+}
+
 /**
  * Where `el` is now, to pop it (#277): `undefined` for one that isn't popped: an SVG element inside an
  * `<svg>`, which runs its exit in place (#702), as Motion's, and one with no size of its own. An outermost
- * `<svg>` is popped (#744), beyond Motion's.
+ * `<svg>` is popped (#744), beyond Motion's. With `ahead`, a binding's snapshot of its gaps from before
+ * its framework's change (#840), the box is at those, not at the gaps the change has left it with.
  */
-const popBoxOf = (el: Element, anchors: PopAnchors): PopBox | undefined => {
-  if (isHTMLElement(el)) return pinBoxOf(el, anchors, htmlGapsOf)
-  if (isSvgRoot(el)) return pinBoxOf(el, anchors, svgGapsOf)
+const popBoxOf = (el: Element, anchors: PopAnchors, ahead: EdgeGaps | undefined): PopBox | undefined => {
+  const gapsOf = (measured: Element): EdgeGaps | undefined => UndefinedOr.match(ahead, { onUndefined: () => gapsNowOf(measured), onDefined: identity })
+  if (isHTMLElement(el)) return pinBoxOf(el, anchors, gapsOf)
+  if (isSvgRoot(el)) return pinBoxOf(el, anchors, gapsOf)
   return undefined
 }
 
@@ -650,6 +659,14 @@ export interface PresenceController {
    */
   readonly shown: (resolved: unknown) => unknown
   /**
+   * `children` measured where they are now, for the next change's leavers (#840): a binding whose
+   * change reaches it after its framework's patch (Foldkit's, from a `MutationObserver`) calls it as
+   * its view renders, before the patch, and `shown` then pins a `popLayout` leaver at the box measured
+   * here, not where the patch has pushed it. One change's: `shown` clears it. A binding that resolves
+   * a change before its framework applies it (Solid's) needs none.
+   */
+  readonly snapshot: (children: ReadonlyArray<Element>) => void
+  /**
    * `propagate` (#277's PR 5c): every child present leaves, as if the change took them all, and
    * `done` is called once none is left (at once with none).
    */
@@ -775,6 +792,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // and kept until it's gone. Whether this change popped one, so the projection is told.
   const pops = new Map<Element, PopBox>()
   let popped = false
+  // A binding's snapshot of its children's gaps from before its framework's change (#840): what this
+  // change's leavers are pinned at, where the change has moved them by the time the binding sees it.
+  const ahead = new Map<Element, EdgeGaps>()
   // Whether this change moved a leaver from an earlier one to its place (#675), so the projection is
   // told: a twin leaver crossfading in the flow is drawn on its Lead from where it now is.
   let moved = false
@@ -1262,16 +1282,26 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    */
   const measureLeavers = (resolved: unknown): void => {
     const kept = new Set(elementsOf(resolved))
-    // Its anchors now (#442).
-    const anchors: PopAnchors = {
-      x: UndefinedOr.match(UndefinedOr.map(options.anchorX, (read) => read()), { onUndefined: (): PopAnchors["x"] => "left", onDefined: identity }),
-      y: UndefinedOr.match(UndefinedOr.map(options.anchorY, (read) => read()), { onUndefined: (): PopAnchors["y"] => "top", onDefined: identity }),
-    }
+    const anchors = anchorsNow()
     Arr.forEach(previous, (placed) => {
       if (kept.has(placed.el)) return
       if (Bool.not(retains(placed.el))) return
-      UndefinedOr.map(popBoxOf(placed.el, anchors), (box) => pops.set(placed.el, box))
+      UndefinedOr.map(popBoxOf(placed.el, anchors, ahead.get(placed.el)), (box) => pops.set(placed.el, box))
     })
+    // A snapshot is one change's: the next measures afresh unless taken again.
+    ahead.clear()
+  }
+
+  /** Its anchors now (#442). */
+  const anchorsNow = (): PopAnchors => ({
+    x: UndefinedOr.match(UndefinedOr.map(options.anchorX, (read) => read()), { onUndefined: (): PopAnchors["x"] => "left", onDefined: identity }),
+    y: UndefinedOr.match(UndefinedOr.map(options.anchorY, (read) => read()), { onUndefined: (): PopAnchors["y"] => "top", onDefined: identity }),
+  })
+
+  /** `children` measured where they are now (#840), for the next change's leavers ({@link PresenceController.snapshot}). */
+  const snapshot = (children: ReadonlyArray<Element>): void => {
+    ahead.clear()
+    Arr.forEach(children, (el) => UndefinedOr.map(gapsNowOf(el), (gaps) => ahead.set(el, gaps)))
   }
 
   /** Put a retained child back where it was, if a framework took it out. */
@@ -1694,6 +1724,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   return {
     context: ctx,
     shown,
+    snapshot,
     leaveAll,
     anchor: () => anchor,
     mounted: () => {

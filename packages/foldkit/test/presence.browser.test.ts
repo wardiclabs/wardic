@@ -12,9 +12,9 @@ import { defineMessageUnion } from "foldkit/message"
 import { afterEach, describe, expect, it } from "vitest"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
-import { Features } from "@wardic/foldkit"
+import { arc, Features } from "@wardic/foldkit"
 import { until } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded } from "./harness.ts"
+import { boxOf, embed, type Embedded, frames } from "./harness.ts"
 
 const Model = Schema.Struct({ items: Schema.Array(Schema.String), exited: Schema.Number })
 type Model = typeof Model.Type
@@ -186,6 +186,22 @@ describe("w.Presence", () => {
     await until(() => orderOf(held) === "acd", 2000, "b gone once its exit ends")
   })
 
+  it("mode popLayout: a child swapped for another in one patch is pinned where it was, not where the enterer pushed it (#840)", async () => {
+    const held = embedList(["a", "b", "c"], { presence: { mode: "popLayout" } })
+    app = held
+    await until(() => orderOf(held) === "abc", 2000, "the list renders")
+    const aTop = itemOf(held, "a")!.getBoundingClientRect().top
+    const bTop = itemOf(held, "b")!.getBoundingClientRect().top
+    // x in a's place: Foldkit has put x in by the time the presence sees a taken out, so a measured then
+    // sits a line lower than it was. A page swapped under popLayout is this change (the storefront's catalogue).
+    held.send(["x", "b", "c"])
+    await until(() => itemOf(held, "a")?.style.position === "absolute", 2000, "a is popped")
+    expect(itemOf(held, "a")!.getBoundingClientRect().top, "a pinned where it was, over x").toBeCloseTo(aTop, 0)
+    expect(itemOf(held, "x")!.getBoundingClientRect().top, "x in a's place").toBeCloseTo(aTop, 0)
+    expect(itemOf(held, "b")!.getBoundingClientRect().top, "b where it was").toBeCloseTo(bTop, 0)
+    await until(() => orderOf(held) === "xbc", 2000, "a gone once its exit ends")
+  })
+
   it("sends onExitComplete as a Message once every leaver has animated out and been removed", async () => {
     const held = embedList(["a", "b", "c", "d"], { presence: { onExitComplete: Message.Exited() } })
     app = held
@@ -196,6 +212,63 @@ describe("w.Presence", () => {
     expect(exited()).toBe("0")
     await until(() => orderOf(held) === "ad", 2000, "both gone")
     await until(() => exited() === "1", 2000, "told once, after the last")
+  })
+})
+
+describe("w.Presence({ mode: \"popLayout\" }) across a page swap, a layoutId between the pages (#840)", () => {
+  const PageName = Schema.Literals(["list", "item"])
+  const Page = Schema.Struct({ page: PageName })
+  type Page = typeof Page.Type
+  const PageMessage = defineMessageUnion({ Show: { page: PageName } })
+  type PageMessage = typeof PageMessage.Type
+  const laid = Wardic.make({ env: DomLive, features: [Features.layout, Features.presence] })
+  // The photo's flight, the catalogue's: along an arc, whose start is set as the handover begins and not moved by the pass that follows.
+  const FLIGHT = { layout: { type: "tween", duration: 0.6, ease: "linear", path: arc({ strength: 0.25 }) } } as const
+
+  /**
+   * Two pages under one popLayout presence: the list with a small card, and the item, taller, with the
+   * card's twin as its hero at its top, keyed under a presence of its own (the storefront's catalogue,
+   * whose "Next piece" slides the content). That inner presence starts the hero at its own mount, in the
+   * patch's task, before the outer presence's observer is told.
+   */
+  const pages = (model: Page, h: HtmlBuilder<PageMessage>): Html => {
+    const w = laid.html(h)
+    return w.div([h.Id("pages"), w.Presence({ mode: "popLayout" }), h.Style({ position: "relative", width: "300px" })], [
+      Bool.match(model.page === "list", {
+        onTrue: () =>
+          w.keyed("section")("list", [h.Id("list"), w.Initial({ opacity: 1 }), w.Exit({ opacity: 0 }), w.Transition({ duration: 0.4, ease: "linear" })], [
+            w.div([h.Id("card"), w.LayoutId("photo"), w.Transition(FLIGHT), h.Style({ width: "40px", height: "40px", background: "teal" })]),
+          ]),
+        onFalse: () =>
+          w.keyed("article")("item", [h.Id("item"), w.Initial({ opacity: 1 }), w.Exit({ opacity: 0 }), h.Style({ height: "240px" })], [
+            w.div([w.Presence({ mode: "popLayout", initial: false })], [
+              w.keyed("div")("content", [h.Id("content")], [
+                w.div([h.Id("hero"), w.LayoutId("photo"), w.Transition(FLIGHT), h.Style({ width: "160px", height: "160px", background: "teal" })]),
+              ]),
+            ]),
+          ]),
+      }),
+    ])
+  }
+
+  it("the hero starts at the card's box and the list is pinned where it was, as the item enters above it", async () => {
+    const held = embed<Page, PageMessage, Page["page"]>({ Model: Page, Set: PageName, init: { page: "list" }, update: (model, message) => PageMessage.match(message, { Show: ({ page }) => ({ model: { ...model, page } }) }), view: pages, toMessage: (page) => PageMessage.Show({ page }) })
+    app = held
+    const card = await boxOf(held, "card")
+    await frames(2)
+    const from = card.getBoundingClientRect()
+    // The item goes in before the list in the DOM: the list, 240 px lower until it's pinned, is where a
+    // measurement after the patch finds the card. The hero registering in its Mount measures its twin then.
+    held.send("item")
+    await until(() => held.container.querySelector("#hero") !== null, 2000, "the item enters")
+    await frames(2)
+    const hero = held.container.querySelector<HTMLElement>("#hero")!
+    const early = hero.getBoundingClientRect()
+    expect(Math.abs(early.top - from.top), "it starts at the card's box, not where the item pushed the list").toBeLessThan(30)
+    expect(early.width, "the card's size, not the hero's 160").toBeLessThan(100)
+    expect(held.container.querySelector<HTMLElement>("#list")!.getBoundingClientRect().top, "the list pinned where it was").toBeCloseTo(from.top, 0)
+    await until(() => Math.abs(hero.getBoundingClientRect().width - 160) < 0.5, 3000, "landed on its own box")
+    await until(() => held.container.querySelector("#list") === null, 3000, "the list gone once its exit ends")
   })
 })
 

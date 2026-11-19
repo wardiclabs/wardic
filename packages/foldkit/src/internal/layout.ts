@@ -93,9 +93,14 @@ const observe = (provider: Provider, state: State, projection: ProjectionSystem.
       }
     }
     if (Arr.every(records, isQuietChange)) return
-    // The pass's first step paints in the patch's frame (decision 32; #792, Q7), unless replay has a view (decision 34).
-    hintFrameUnless(provider.loop, provider.paused)
-    projection.notify()
+    // A microtask on (#840): the presences' observers, made after this one, are told after it, and the
+    // pass would measure a `popLayout` leaver where the patch pushed it, before its presence pins it; a
+    // microtask later they have delivered, and the pass is still in the patch's task.
+    queueMicrotask(() => {
+      // The pass's first step paints in the patch's frame (decision 32; #792, Q7), unless replay has a view (decision 34).
+      hintFrameUnless(provider.loop, provider.paused)
+      projection.notify()
+    })
   })
   const root = UndefinedOr.match(provider.root, { onUndefined: (): Node => document.body, onDefined: identity })
   observer.observe(root, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: [...WATCHED, ...UndefinedOr.match(state.layout.attributes, { onUndefined: (): ReadonlyArray<string> => [], onDefined: identity })] })
