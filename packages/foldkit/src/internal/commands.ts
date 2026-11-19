@@ -13,6 +13,7 @@ import * as ScrollSource from "@wardic/core/ScrollSource"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Imperative from "@wardic/dom/unstable/Imperative"
+import * as DomPointer from "@wardic/dom/unstable/PointerValues"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
@@ -337,3 +338,22 @@ export const scroll: (options?: ScrollOptions) => Effect.Effect<LiveValue.Scroll
   yield* Effect.addFinalizer(() => Effect.sync(left))
   return yield* Effect.provideContext(LiveValue.scroll(options), Context.add(provider.context, ScrollSource.ScrollSource, source))
 })
+
+/** What `pointer` takes: the pointer types that count, a mouse and a pen unless given. */
+export type PointerOptions = DomPointer.Options
+
+/** What `pointer` gives: the pointer's place in the element's pixels, its progress across the element's box, the box's size, and whether it's inside, each an Atom. */
+export type PointerValues = DomPointer.PointerValues
+
+/**
+ * The pointer over an element as **Live values**: where it is in the element's pixels, from the box's
+ * top left; its progress across the box, from 0 to 1 each way; the box's size; and whether it's
+ * inside, each an Atom a view binds, set within the pointer's own events (`pointerenter`,
+ * `pointermove`, `pointerdown`, `pointerleave`). A leave keeps the place: what returns to rest with
+ * it is a derived Atom over `inside`. Its listeners are held while the caller's Scope lives, as a
+ * Live value made under `provide` is. A mouse and a pen count unless `types` says; a finger never
+ * hovers. Plain pointer events, not the hover gesture: no Feature to name, nothing to fail.
+ */
+// #833 (found as #795's storefront was reviewed): dom's `PointerValues` under `provide`, where the spotlight
+// and the magnifier each listened and did the arithmetic themselves.
+export const pointer = (element: Element, options?: PointerOptions): Effect.Effect<PointerValues, never, Wardic | Scope.Scope> => provide(DomPointer.pointer(element, options))
