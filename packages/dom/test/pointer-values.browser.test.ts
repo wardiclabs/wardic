@@ -1,6 +1,6 @@
 // dom's `PointerValues` (#833): the pointer over an element as Live values, at its own seam.
 //
-// - PV1: a mouse's move sets the place, the progress and `inside` within the event's dispatch.
+// - PV1: a mouse's move sets the place, the progress, the box's size and `inside` within the event's dispatch.
 // - PV2: a leave turns `inside` off and keeps the place; a finger's move counts only when asked.
 // - PV3: the Scope's close takes the listeners off: a move after it sets nothing.
 import { expect, layer } from "@effect/vitest"
@@ -8,7 +8,13 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
+import { afterEach } from "vitest"
 import { pointer } from "@wardic/dom/unstable/PointerValues"
+
+// A failed case leaves its pad: the body is reset for the next.
+afterEach(() => {
+  document.body.innerHTML = ""
+})
 
 /** A 200 × 100 pad at (100, 100). */
 const pad = (): { readonly element: HTMLElement; readonly remove: () => void } => {
@@ -24,7 +30,7 @@ const dispatch = (element: Element, type: string, clientX: number, clientY: numb
 }
 
 layer(AtomRegistry.layer)("PointerValues (#833)", (it) => {
-  it.effect("PV1: a mouse's move sets the place, the progress and inside within the dispatch", () =>
+  it.effect("PV1: a mouse's move sets the place, the progress, the box's size and inside within the dispatch", () =>
     Effect.gen(function* () {
       const scene = pad()
       const registry = yield* AtomRegistry.AtomRegistry
@@ -38,6 +44,8 @@ layer(AtomRegistry.layer)("PointerValues (#833)", (it) => {
       expect(registry.get(values.x)).toBe(50)
       expect(registry.get(values.y)).toBe(25)
       expect(registry.get(values.yProgress)).toBe(0.25)
+      expect(registry.get(values.width)).toBe(200)
+      expect(registry.get(values.height)).toBe(100)
       expect(registry.get(values.inside)).toBe(true)
       stop()
       yield* Scope.close(scope, Exit.void)

@@ -317,10 +317,10 @@ describe("Live values", () => {
           Effect.gen(function* () {
             const registry = yield* AtomRegistry.AtomRegistry
             // By the pad's own id: the Command can't close over `held`, whose `update` closes over the Command.
-            const values = yield* Wardic.pointer(Option.getOrThrow(Option.fromNullishOr(document.querySelector("#pad"))))
+            const values = yield* Wardic.pointer(Option.getOrThrow(Option.fromNullOr(document.querySelector("#pad"))))
             const stops = [registry.subscribe(values.xProgress, (at) => registry.set(across, at), { immediate: true }), registry.subscribe(values.inside, (is) => registry.set(inside, is), { immediate: true })]
             yield* Effect.addFinalizer(() => Effect.sync(() => stops.forEach((stop) => stop())))
-            yield* Effect.repeat(Effect.sleep("20 millis"), { until: () => registry.get(across) >= 0.25 && Bool.not(registry.get(inside)) })
+            yield* Effect.repeat(Effect.sleep("20 millis"), { until: () => registry.get(across) >= 0.25 && registry.get(inside) === false })
             return Message.Done()
           }),
         ),
@@ -352,11 +352,12 @@ describe("Live values", () => {
       pad.dispatchEvent(new PointerEvent(type, { clientX: box.left + box.width * fraction, clientY: box.top + box.height / 2, pointerType, bubbles: true }))
     }
     held.send(true)
-    // Two frames: the Message's patch has run and the Command has its listeners on the pad before the pointer moves.
-    await frames(2)
-    at("pointermove", 0.25, "mouse")
-    await until(() => bar.style.transform.includes("scaleX(0.25)"), 3000, "the bar follows the mouse to a quarter across")
-    expect(insideEl.textContent).toBe("true")
+    // The mouse moves at each poll until the bar follows: the Command's listeners go on the pad after the Message's patch, at no fixed frame.
+    await until(() => {
+      at("pointermove", 0.25, "mouse")
+      return bar.style.transform.includes("scaleX(0.25)")
+    }, 3000, "the bar follows the mouse to a quarter across")
+    await until(() => insideEl.textContent === "true", 1000, "the text says the pointer is inside")
     // A finger's move: not among the default types, so nothing moves.
     at("pointermove", 0.75, "touch")
     await frames(2)
