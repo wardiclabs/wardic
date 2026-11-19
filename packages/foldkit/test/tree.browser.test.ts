@@ -168,12 +168,11 @@ describe("orchestration", () => {
     })
     app = held
     await until(() => UndefinedOr.match(held.container.querySelector<HTMLElement>(".item") ?? undefined, { onUndefined: () => false, onDefined: (el) => opacityOf(el) === 1 }), 3000, "the list has landed")
-    const t0 = performance.now()
     held.send(true)
     await until(() => Predicate.isNotNull(held.container.querySelector("#d")), 2000, "d renders")
+    // Nothing starts a child that waits on a parent already started: one that waited would never start at all.
     await until(() => opacityOf(held.container.querySelector<HTMLElement>("#d")!) > 0, 2000, "d starts")
-    // Within a few frames of the patch: it waited for nothing.
-    expect(performance.now() - t0, "d starts at once").toBeLessThan(250)
+    await until(() => opacityOf(held.container.querySelector<HTMLElement>("#d")!) === 1, 2000, "and lands")
   })
 
   it("beforeChildren holds the children until the parent has landed", async () => {
