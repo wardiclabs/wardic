@@ -4,14 +4,13 @@ import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import * as Effect from "effect/Effect"
 import * as Atom from "effect/reactivity/Atom"
-import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import { defineView } from "foldkit/submodel"
-import { LiveValue } from "@wardic/foldkit"
-import { feed, listen, onWardic, perKey } from "~/lib/live.ts"
+import { LiveValue, Wardic } from "@wardic/foldkit"
+import { feed, onWardic, perKey } from "~/lib/live.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 
@@ -27,19 +26,15 @@ const lighting = {
 } as const
 
 // ADR-0071, decision 16: Atoms at module scope, one set a card.
-/** A card's Live values. */
+/** A card's Live values, what the view binds: the tilt, and where the light sits, custom properties the stylesheet's radial gradient reads. The card's Mount feeds them. */
 interface CardValues {
-  /** Where the pointer is over the card, from -1 to 1 across and down: 0, 0 at its centre. The card's Mount writes them. */
-  readonly across: Atom.Writable<number>
-  readonly down: Atom.Writable<number>
-  /** What the view binds: the tilt, and where the light sits, custom properties the stylesheet's radial gradient reads. */
   readonly rotateX: Atom.Writable<number>
   readonly rotateY: Atom.Writable<number>
   readonly lightX: Atom.Writable<string>
   readonly lightY: Atom.Writable<string>
 }
 
-const cardValues = (): CardValues => ({ across: Atom.make(0), down: Atom.make(0), rotateX: Atom.make(0), rotateY: Atom.make(0), lightX: Atom.make("50%"), lightY: Atom.make("50%") })
+const cardValues = (): CardValues => ({ rotateX: Atom.make(0), rotateY: Atom.make(0), lightX: Atom.make("50%"), lightY: Atom.make("50%") })
 const CARDS = perKey(SHELF.map((product) => product.id), cardValues)
 
 const Data = Schema.Struct({})
@@ -49,11 +44,11 @@ const Message = defineMessageUnion({ Lit: {} })
 type Message = typeof Message.Type
 
 /**
- * A card's Mount: two springs follow the pointer's place over it, so the card eases toward the pointer
- * and back to rest when it leaves; the tilt and the light's place are read from the springs, and the
- * view's Atoms follow them. A mouse over the card moves them at each `pointermove`, and `pointerleave`
- * sends them home; touch never hovers, so a finger moves nothing. Under reduced motion the card
- * doesn't tilt, and the light is where the pointer is: the springs jump.
+ * A card's Mount: the pointer over the card as Live values (`Wardic.pointer`), a mouse's or a pen's,
+ * the default, since a finger never hovers. Its place, from -1 to 1 across and down with 0 at the centre, and the centre
+ * once it has left, is what two springs follow, so the card eases toward the pointer and back to
+ * rest; the tilt and the light's place are read from the springs, and the view's Atoms follow them.
+ * Under reduced motion the card doesn't tilt, and the light is where the pointer is: the springs jump.
  */
 const Tilt = Mount.define("SpotlightTilt", {
   args: { id: Schema.String, reduced: Schema.Boolean },
@@ -62,10 +57,16 @@ const Tilt = Mount.define("SpotlightTilt", {
     onWardic(
       Effect.gen(function* () {
         const values = CARDS[id]
-        const registry = yield* AtomRegistry.AtomRegistry
         const skipped = () => reduced
-        const springAcross = yield* LiveValue.spring(values.across, { stiffness: 260, damping: 22 }, skipped)
-        const springDown = yield* LiveValue.spring(values.down, { stiffness: 260, damping: 22 }, skipped)
+        const { xProgress, yProgress, inside } = yield* Wardic.pointer(element)
+        // The pointer's progress across the card, as a place from -1 to 1 about its centre: a leave keeps the place, so the centre once it has left is read here.
+        const centred = (progress: Atom.Atom<number>): Atom.Atom<number> =>
+          Atom.make((get) => {
+            if (get(inside)) return get(progress) * 2 - 1
+            return 0
+          })
+        const springAcross = yield* LiveValue.spring(centred(xProgress), { stiffness: 260, damping: 22 }, skipped)
+        const springDown = yield* LiveValue.spring(centred(yProgress), { stiffness: 260, damping: 22 }, skipped)
         const tilt = (degrees: number) => (at: number) => {
           if (reduced) return 0
           return at * degrees
@@ -74,17 +75,6 @@ const Tilt = Mount.define("SpotlightTilt", {
         yield* feed(Atom.map(springDown, tilt(-TILT)), values.rotateX)
         yield* feed(yield* LiveValue.transform(springAcross, [-1, 1], ["0%", "100%"]), values.lightX)
         yield* feed(yield* LiveValue.transform(springDown, [-1, 1], ["0%", "100%"]), values.lightY)
-        yield* listen(element, "pointermove", (event) => {
-          if (event.pointerType !== "mouse") return
-          // The point in the viewport, as a place on the card: -1 to 1 across and down.
-          const box = element.getBoundingClientRect()
-          registry.set(values.across, ((event.clientX - box.left) / box.width) * 2 - 1)
-          registry.set(values.down, ((event.clientY - box.top) / box.height) * 2 - 1)
-        })
-        yield* listen(element, "pointerleave", () => {
-          registry.set(values.across, 0)
-          registry.set(values.down, 0)
-        })
         return Message.Lit()
       }),
     ),
