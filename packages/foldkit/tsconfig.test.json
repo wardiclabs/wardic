@@ -1,5 +1,5 @@
 {
-  "// note": "Test-only typecheck: includes test/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`. Its root is the repo's: the tests import the Solid binding's browser helpers (packages/solid/test).",
+  "// note": "Test-only typecheck: includes test/ and bench/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`. Its root is the repo's: the tests import the Solid binding's browser helpers (packages/solid/test), and the bench its paired-rep pieces (packages/solid/bench, #795).",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -7,5 +7,5 @@
     "composite": false,
     "rootDir": "../.."
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "bench", "../solid/babel-modules.d.ts"]
 }

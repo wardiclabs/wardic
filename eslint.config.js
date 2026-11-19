@@ -308,7 +308,7 @@ export default defineConfig([
   },
   {
     // The pipeable API's subpaths, for every package's code but core's source (which has its own block).
-    files: ["packages/{dom,solid,test,foldkit}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
+    files: ["packages/{dom,solid,test,foldkit}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid,foldkit}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     // solid's code carries eslint-plugin-solid's `solid/reactivity` directives. The plugin is
     // registered for every package's code, as the same object its `v2-strict` config registers (so the
