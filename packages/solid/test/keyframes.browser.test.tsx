@@ -13,11 +13,10 @@ import { DomLive } from "@wardic/dom"
 import { type Ward, ward, type WardConfig, WardicProvider } from "@wardic/solid"
 import { createSignal, flush, isPending } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf } from "./browser-helpers.ts"
+import { CLEAR, raf } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, width: "40px", height: "40px" } as const
 const LINEAR = { type: "tween", ease: "linear", duration: 0.3 } as const
 
 const frames = async (n: number): Promise<void> => {

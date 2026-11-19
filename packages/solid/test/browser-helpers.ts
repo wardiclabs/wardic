@@ -16,6 +16,17 @@ export const widthOf = (el: Element): number => el.getBoundingClientRect().width
 export const opacityOf = (el: HTMLElement): number => Number(el.style.opacity || "0")
 
 /**
+ * Where a browser test's box goes to take no real pointer (#822): 120 px in from the page's corner,
+ * and out of hit-testing. The drag files park the page's one mouse at (5, 5) of their iframe, but it
+ * isn't always there: the files run in parallel iframes of one page, `realMouse` leaves the mouse where
+ * a drag ends, and a box that mounts under it takes a real hover from the browser, which STV1's and
+ * GE5's misses reproduced (a hover landed before the test's read; a second element hovered for real).
+ * Dispatched events reach the box regardless: `pointer-events` is hit-testing's. Spread it into a
+ * box's style; a test of real input makes its own.
+ */
+export const CLEAR = { "margin-top": "120px", "margin-left": "120px", "pointer-events": "none" } as const
+
+/**
  * Resolve in a task after the next frame has painted — where a click lands. A test
  * that triggers right after `await raf()` instead runs inside that rAF callback's
  * microtask, mid-frame, so the gate's pass can land in the frame being rendered.

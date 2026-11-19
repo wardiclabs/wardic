@@ -22,15 +22,12 @@ import { createWard, wardic, WardicProvider, type WardicAnimationDefinition, typ
 import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { afterEach, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { CLEAR, raf, until } from "../browser-helpers.ts"
 
 afterEach(cleanup)
 
 const TWEEN: WardicTransition = { type: "tween", duration: 0.12 }
 const SPRING: WardicTransition = { type: "spring", stiffness: 700, damping: 50 }
-// Clear of the page's one mouse, parked at (5, 5) for every browser file: under it, Chrome's own
-// hover could start a whileHover layer and interrupt the animation a test waits on.
-const CLEAR = { "margin-top": "120px", "margin-left": "120px" } as const
 const BOX = { width: "40px", height: "40px", background: "teal", ...CLEAR } as const
 
 const opacityOf = (el: HTMLElement | undefined): number => Number(el?.style.opacity)

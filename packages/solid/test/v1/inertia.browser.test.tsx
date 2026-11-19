@@ -15,7 +15,7 @@ import { createAnimate, type WardicAnimate, type WardicAnimationDefinition, ward
 import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { CLEAR, raf, until } from "../browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -25,8 +25,7 @@ const frames = async (n: number): Promise<void> => {
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { display: "block", width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, display: "block", width: "40px", height: "40px" } as const
 
 /** Render `ui` inside a provider; `q` finds a `data-k`. */
 const mount = (ui: () => JSX.Element) => {

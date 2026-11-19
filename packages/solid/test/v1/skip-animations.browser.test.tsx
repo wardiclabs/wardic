@@ -31,7 +31,7 @@ import {
 import * as Bool from "effect/Boolean"
 import { createSignal, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { CLEAR, raf, until } from "../browser-helpers.ts"
 import { add, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(async () => {
@@ -48,8 +48,7 @@ const xOf = (el: Element): number => matrixOf(el).m41
 const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
 
 const SLOW: WardicTransition = { type: "tween", duration: 2, ease: "linear" }
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { display: "block", width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, display: "block", width: "40px", height: "40px" } as const
 
 /** Render `ui` inside a provider; `q` finds a `data-k`. */
 const mount = (ui: () => JSX.Element) => {

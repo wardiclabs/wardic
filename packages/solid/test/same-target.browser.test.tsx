@@ -3,6 +3,8 @@
 // animates. Solid 1's are ST1–ST9.
 //
 // - STV1: a hover whose values are already drawn lands: `next("settled")` resolves, on and off.
+// - STV1b: the page's real mouse over the card, as a parallel file can leave it: the dispatched hover
+//   still lands (#822).
 // - STV2: an orchestrating ward's `whileHover` name, with no values of its own, lands as the name.
 // - STV3: a hover on a ward whose recognizer runs for `next("hoverStart")` alone, and a `transition`
 //   change, land nothing.
@@ -13,18 +15,13 @@ import { DomLive } from "@wardic/dom"
 import { type Ward, ward, type WardConfig, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
-import { raf, until } from "./browser-helpers.ts"
+import { CLEAR, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
-// The box takes no real pointer (#822): these tests drive hover with their own events, and the page's
-// one real mouse, which the files run beside this one move and leave where their drags end, can sit
-// over the box as it mounts. A real hover then landed before `next("settled")` was asked, and the
-// dispatched enters had nothing left to turn on (STV1, 2 s misses under load and on CI). Dispatched
-// events reach the box regardless: `pointer-events` is hit-testing's.
-const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px", "pointer-events": "none" } as const
+const BOX = { ...CLEAR, width: "40px", height: "40px" } as const
 const FAST: WardicTransition = { type: "tween", duration: 0.1 }
 const SLOW: WardicTransition = { type: "tween", duration: 1, ease: "linear" }
 
@@ -35,6 +32,15 @@ const frames = async (n: number): Promise<void> => {
 const xOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
 
 const pointer = { pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true } as const
+
+// STV1b moves the page's real mouse: parked back at (5, 5) after it, as the drag files park theirs,
+// in a hook of its own so a park that fails is reported beside the test's own result.
+let movedMouse = false
+afterEach(async () => {
+  if (!movedMouse) return
+  movedMouse = false
+  await commands.realMouse("move", 5, 5)
+})
 
 /** Mount a `div` spread with a ward made from `config` in a component under the provider; the ward and its element. */
 const mountCard = (config: WardConfig): { readonly card: Ward; readonly el: () => HTMLElement } => {
@@ -90,14 +96,14 @@ describe("a change that resolves the same target on Solid 2 (#470)", () => {
     const { card, el } = mountCard({ initial: false, animate: { opacity: 0.2 }, whileHover: { opacity: 0.2 }, transition: FAST, style: BOX })
     // The page's one real mouse over the card, as a file that moved it can leave it (#822): a real
     // hover before `next("settled")` is asked would leave the dispatches below nothing to turn on.
+    movedMouse = true
     await commands.realMouse("move", 140, 140)
-    try {
-      await frames(3)
-      const on = await retrying(card.next("settled"), el, "pointerenter")
-      expect(on.gestures.hover, "the hover's landing").toBe(true)
-    } finally {
-      await commands.realMouse("move", 5, 5)
-    }
+    await frames(3)
+    const { left, right, top, bottom } = el().getBoundingClientRect()
+    expect(left < 140 && 140 < right && top < 140 && 140 < bottom, "the mouse is over the card").toBe(true)
+    expect(document.elementFromPoint(140, 140), "hit-testing passes the card by").not.toBe(el())
+    const on = await retrying(card.next("settled"), el, "pointerenter")
+    expect(on.gestures.hover, "the hover's landing").toBe(true)
   })
 
   it("STV2: an orchestrating ward's whileHover name lands as the name", async () => {

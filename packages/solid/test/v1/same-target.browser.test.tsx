@@ -24,7 +24,7 @@ import { type WardicAnimationDefinition, wardic, WardicProvider, type WardicTran
 import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { CLEAR, raf, until } from "../browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -39,8 +39,7 @@ const opacityOf = (el: HTMLElement): number => Number(getComputedStyle(el).opaci
 
 const FAST: WardicTransition = { type: "tween", duration: 0.1 }
 const SLOW: WardicTransition = { type: "tween", duration: 1, ease: "linear" }
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { display: "block", width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, display: "block", width: "40px", height: "40px" } as const
 
 /** Render `ui` inside a provider; `q` finds a `data-k`. */
 const mount = (ui: () => JSX.Element) => {

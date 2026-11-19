@@ -14,11 +14,10 @@ import { type Ward, ward, type WardConfig, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, isPending } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf } from "./browser-helpers.ts"
+import { CLEAR, raf } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, width: "40px", height: "40px" } as const
 
 const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()

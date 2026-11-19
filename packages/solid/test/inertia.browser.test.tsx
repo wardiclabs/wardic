@@ -7,11 +7,10 @@ import { DomLive } from "@wardic/dom"
 import { ward, WardicProvider, type WardicTransition } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf } from "./browser-helpers.ts"
+import { CLEAR, raf } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX: JSX.CSSProperties = { display: "block", width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" }
+const BOX: JSX.CSSProperties = { ...CLEAR, display: "block", width: "40px", height: "40px" }
 const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
 
 describe("type: inertia on Solid 2 (#435)", () => {
