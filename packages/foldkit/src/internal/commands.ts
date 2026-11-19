@@ -8,7 +8,8 @@
  *
  * @module
  */
-import type * as ScrollSource from "@wardic/core/ScrollSource"
+import * as LiveValue from "@wardic/core/LiveValue"
+import * as ScrollSource from "@wardic/core/ScrollSource"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Imperative from "@wardic/dom/unstable/Imperative"
@@ -30,7 +31,7 @@ import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { hintFrameUnless } from "./delivery.ts"
 import { type Layout, layoutOf } from "./layout.ts"
 import { type AnimationScope, watchOf } from "./scope.ts"
-import { joined, providerFor, type Provider, reducedMotionUnder, type State, stateOf } from "./services.ts"
+import { featureIn, joined, providerFor, type Provider, reducedMotionUnder, type State, stateOf } from "./services.ts"
 
 /** The mark of a Handle, as the `Wardic` service carries it: what its Effects reach the Handle's state through. */
 export const HANDLE: unique symbol = Symbol.for("@wardic/foldkit/Handle")
@@ -295,26 +296,44 @@ const running = (held: Member, under: Element | undefined, scope: AnimationScope
   })
 
 /**
- * The services the Handle's Features give an Effect under {@link provide}, beside the Provider's own:
- * the `scroll` Feature's `ScrollSource`, which `LiveValue.scroll` asks for (#795).
+ * `effect` run on the Provider's services (ADR-0071, the grill's Q23): how a Command makes a derived
+ * Live value (`LiveValue.spring`, `follow`, `velocity`, `scroll`). The Scope is the caller's: a
+ * `ManagedResource`'s `acquire`, whose Scope Foldkit closes when its Model condition drops, or an
+ * `Effect.scoped` that ends with the Command. The Provider is held while that Scope lives.
  */
-export type FeatureServices = ScrollSource.ScrollSource
-
-/**
- * `effect` run on the Provider's services (ADR-0071, the grill's Q23), and its Features' (#795): how a
- * Command makes a derived Live value (`LiveValue.spring`, `follow`, `velocity`, `scroll`). The Scope
- * is the caller's: a `ManagedResource`'s `acquire`, whose Scope Foldkit closes when its Model condition
- * drops, or an `Effect.scoped` that ends with the Command. The Provider is held while that Scope
- * lives. `LiveValue.scroll` asks for the `scroll` Feature's service: give the Handle `Features.scroll`,
- * or the Effect dies on the service it's missing.
- */
-export const provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, Exclude<R, Feature.ProviderServices | FeatureServices> | Wardic | Scope.Scope> = Effect.fnUntraced(
+export const provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, Exclude<R, Feature.ProviderServices> | Wardic | Scope.Scope> = Effect.fnUntraced(
   function* <A, E, R>(effect: Effect.Effect<A, E, R>) {
     const { provider, left } = yield* member()
     yield* Effect.addFinalizer(() => Effect.sync(left))
-    // The Features' services beside the Provider's: what the Handle's Features have built, as Solid's
-    // `createScroll` reads the `ScrollSource` from the Features its provider brought.
-    const services = Context.merge(provider.context, provider.features.services()) as Context.Context<Feature.ProviderServices | FeatureServices>
-    return yield* Effect.provideContext(effect, services)
+    return yield* Effect.provideContext(effect, provider.context)
   },
 )
+
+/** `scroll` found no scroll to read: the Handle wasn't given `Features.scroll`, or a load of it hasn't arrived. */
+export class ScrollFailed extends Data.TaggedError("ScrollFailed")<{
+  readonly reason: "no-scroll-feature"
+}> {}
+
+/** What `scroll` takes: Motion's `useScroll` options, the `container` and `target` as elements. */
+export type ScrollOptions = ScrollSource.Options
+
+/**
+ * A container's scroll as **Live values** (Motion's `useScroll`): how far it's scrolled on each axis,
+ * and the progress through its range, or through the offsets a `target` passes, each an Atom a view
+ * binds, set within the scroll's own event. Its listeners are held while the caller's Scope lives, as
+ * a Live value made under `provide` is. Fails with {@link ScrollFailed} when the Handle has no `scroll`
+ * Feature: name it, `Wardic.make({ env, features: [Features.scroll] })`.
+ */
+// #795 (the storefront's part 2): core's `LiveValue.scroll` on the `scroll` Feature's `ScrollSource`, which
+// Solid's `createScroll` brings by itself and a Foldkit Handle names; typed as `animateLayout` is without
+// its Feature (decision 13), not Effect's own missing-service defect.
+export const scroll: (options?: ScrollOptions) => Effect.Effect<LiveValue.ScrollValues, ScrollFailed, Wardic | Scope.Scope> = Effect.fnUntraced(function* (options?: ScrollOptions) {
+  const { provider, left } = yield* member()
+  const source = featureIn(provider, ScrollSource.ScrollSource)
+  if (Predicate.isUndefined(source)) {
+    left()
+    return yield* Effect.fail(new ScrollFailed({ reason: "no-scroll-feature" }))
+  }
+  yield* Effect.addFinalizer(() => Effect.sync(left))
+  return yield* Effect.provideContext(LiveValue.scroll(options), Context.add(provider.context, ScrollSource.ScrollSource, source))
+})

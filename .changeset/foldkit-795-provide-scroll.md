@@ -2,4 +2,4 @@
 "@wardic/foldkit": patch
 ---
 
-`Wardic.provide` gives an Effect the Handle's Features' services beside the Provider's own, and `Features.scroll` is exported: a Handle given it makes a container's scroll as Live values with `LiveValue.scroll` under `Wardic.provide`, which asked for the scroll Feature's service it couldn't reach (#795).
+`Wardic.scroll(options)`: a container's scroll as Live values (Motion's `useScroll`), on the Handle's `scroll` Feature, now exported as `Features.scroll`; without the Feature it fails with `ScrollFailed`. Core's `LiveValue.scroll` under `Wardic.provide` had no way to that Feature's service (#795).

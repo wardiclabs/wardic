@@ -28,7 +28,7 @@ export { inView } from "@wardic/dom/unstable/features/InView"
 export { pan } from "@wardic/dom/unstable/features/Pan"
 export { drag } from "@wardic/dom/unstable/features/Drag"
 // #795 (the storefront's part 2): a container's scroll as Live values, which Solid's `createScroll` brings
-// by itself; a Foldkit app names it here, and `LiveValue.scroll` under `Wardic.provide` finds it.
+// by itself; a Foldkit app names it here, and `Wardic.scroll` reads on it.
 export { scroll } from "@wardic/dom/unstable/features/Scroll"
 export { domAnimation } from "@wardic/dom/unstable/features/DomAnimation"
 export { domMax } from "@wardic/dom/unstable/features/DomMax"

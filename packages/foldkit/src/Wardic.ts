@@ -43,7 +43,7 @@ import { mountOf } from "./internal/mount.ts"
 import { makeState, remember, type State } from "./internal/services.ts"
 import { viewTransitionOf } from "./internal/view-transition.ts"
 
-export { animate, animateLayout, type AnimateLayoutOptions, type AnimateOptions, AnimationFailed, type AnimationEnd, type FeatureServices, LayoutFailed, provide, type Sequence, type SequenceOptions, Wardic } from "./internal/commands.ts"
+export { animate, animateLayout, type AnimateLayoutOptions, type AnimateOptions, AnimationFailed, type AnimationEnd, LayoutFailed, provide, scroll, ScrollFailed, type ScrollOptions, type Sequence, type SequenceOptions, Wardic } from "./internal/commands.ts"
 
 /** What {@link make} takes. */
 export interface MakeOptions<F> {
