@@ -42,11 +42,10 @@ import { createSignal, For } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
-import { raf, until } from "./browser-helpers.ts"
+import { CLEAR, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "60px", height: "60px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, width: "60px", height: "60px" } as const
 
 /** Dispatch a mouse pointer event of `type` on `at`, at the viewport point (x, y). */
 const pointer = (at: EventTarget, type: string, x: number, y: number, buttons = 0): void => {

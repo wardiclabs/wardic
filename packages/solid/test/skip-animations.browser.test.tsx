@@ -21,12 +21,11 @@ import {
 } from "@wardic/solid"
 import { createSignal, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf, until } from "./browser-helpers.ts"
+import { CLEAR, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const SLOW: WardicTransition = { type: "tween", duration: 2, ease: "linear" }
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX: JSX.CSSProperties = { display: "block", width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" }
+const BOX: JSX.CSSProperties = { ...CLEAR, display: "block", width: "40px", height: "40px" }
 const byId = (id: string): HTMLElement => document.getElementById(id) as HTMLElement
 const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
 const frames = async (n: number): Promise<void> => {

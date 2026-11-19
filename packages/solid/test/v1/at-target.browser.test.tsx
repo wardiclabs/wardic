@@ -27,13 +27,12 @@ import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, type WardicAnimationDefinition, WardicProvider } from "@wardic/solid/v1"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { CLEAR, raf, until } from "../browser-helpers.ts"
 import { resetScene, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
 
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "40px", height: "40px", background: "teal", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, width: "40px", height: "40px", background: "teal" } as const
 const SLOW = { type: "tween", duration: 1 } as const
 
 const frames = async (n: number): Promise<void> => {

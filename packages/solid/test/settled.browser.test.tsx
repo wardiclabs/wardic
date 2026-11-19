@@ -32,12 +32,11 @@ import { createSignal, flush, For, isPending, Loading, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
-import { raf, until } from "./browser-helpers.ts"
+import { CLEAR, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const TWEEN = { type: "tween", duration: 0.15 } as const
-// Clear of the page's one mouse, parked at (5, 5) for every browser file.
-const BOX = { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } as const
+const BOX = { ...CLEAR, width: "40px", height: "40px" } as const
 
 const opacity = (el: Element | null | undefined): number => Number((el as HTMLElement).style.opacity)
 

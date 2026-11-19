@@ -17,7 +17,7 @@ import * as Layer from "effect/Layer"
 import * as Tracer from "effect/Tracer"
 import { createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf, until } from "./browser-helpers.ts"
+import { CLEAR, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const mouse = { pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true } as const
@@ -139,9 +139,8 @@ describe("a ward's gestures on Solid 2", () => {
     let a!: HTMLElement
     let b!: HTMLElement
     const Box = () => {
-      // Clear of the page's one mouse, parked at (5, 5) for every browser file: under it, the second
-      // element is hovered for real.
-      const card = ward({ animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, style: { width: "40px", height: "40px", "margin-top": "120px", "margin-left": "120px" } })
+      // Clear of real input (`CLEAR`, #822): under the page's mouse, the second element hovered for real.
+      const card = ward({ animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, style: { ...CLEAR, width: "40px", height: "40px" } })
       return (
         <Show when={second()} fallback={<div {...card} ref={[card, (n: HTMLElement) => (a = n)]} />}>
           <div {...card} ref={[card, (n: HTMLElement) => (b = n)]} />
