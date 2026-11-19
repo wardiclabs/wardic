@@ -3,7 +3,7 @@
  * and `/transitions/catalogue/<piece>`, the app's own (`routes.ts`), the piece reaching the page as
  * its env. A navigation renders the other page's root under the presence, so the one that was there
  * leaves on its own; `popLayout` takes it out of the flow where it was, so the next is in place at
- * once and a shared `layoutId` flies between them.
+ * once and a shared `w.LayoutId` flies between them.
  */
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
@@ -81,7 +81,7 @@ const labelOf = (status: Status | undefined): string => {
   return LABEL[status.kind]
 }
 
-/** The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other. */
+/** The card's photo and the piece's hero: one `w.LayoutId`, so it flies from one page to the other. */
 const photo = (h: HtmlBuilder<Message>, piece: Product, sizes: string): Html => {
   const w = wardic.html(h)
   const image = photoOf(piece.id)

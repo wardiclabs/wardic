@@ -37,7 +37,9 @@ export interface Example {
   /**
    * The Foldkit app's words (#795), where the Foldkit form differs: what differs from the Solid apps'
    * (Commands and Messages where Solid has actions and signals), shown above the code on its page alone;
-   * and, where this example's `title`, `summary`, `uses` or `tradeoffs` don't hold on Foldkit, its own.
+   * and, where this example's `title`, `summary`, `uses`, `why`, `reducedMotion` or `tradeoffs` don't
+   * hold on Foldkit, its own (#846: a `why` that explains the pattern in Solid's or Motion's terms gets
+   * one in Foldkit's). The note alone may name the Solid form it differs from.
    * Its code is that app's `src/examples/<id>/`.
    */
   readonly foldkit?:
@@ -46,6 +48,8 @@ export interface Example {
         readonly title?: string | undefined
         readonly summary?: string | undefined
         readonly uses?: ReadonlyArray<string> | undefined
+        readonly why?: ReadonlyArray<string> | undefined
+        readonly reducedMotion?: string | undefined
         readonly tradeoffs?: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> } | undefined
       }
     | undefined
@@ -80,7 +84,10 @@ export interface Example {
 export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "product-grid",
-    foldkit: { note: "On Foldkit the card's hover is a Message: `w.OnHoverStart` and `w.OnHoverEnd` tell `update` which card is under the pointer, and the photo's `w.Animate` reads it from the Model." },
+    foldkit: {
+      note: "On Foldkit the card's hover is a Message: `w.OnHoverStart` and `w.OnHoverEnd` tell `update` which card is under the pointer, and the photo's `w.Animate` reads it from the Model.",
+      uses: ["Variants", "staggerChildren", "Initial", "Animate", "WhileHover", "OnHoverStart / OnHoverEnd as Messages"],
+    },
     area: "entrances",
     title: "The product grid",
     summary: "The shop's grid fades and rises in, one card after another.",
@@ -94,7 +101,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "stock",
-    foldkit: { note: "On Foldkit the switch is a Command that asks the store (`Shop.getStock`), the bars kept until it answers, and each bar's `w.OnAnimationStart` and `w.OnAnimationComplete` send Messages that set its label." },
+    foldkit: {
+      note: "Where the Solid apps read the count as an async memo or under `<Suspense>`, the switch here is a Command that asks the store, the bars kept until it answers.",
+      uses: ["Animate from the Model", "a Command over the store", "OnAnimationStart / OnAnimationComplete as Messages", "Transition"],
+      why: [
+        "A meter that fills to its level says more than a number alone, and one that waits for the real count before it fills never shows a guess. Switch to after the next delivery and each bar grows from where it was, so you see what the delivery brings.",
+        "The count comes through a Command that asks the store (`Shop.getStock`); its answer is a Message that sets each piece's level in the Model, and the bars keep their last level until it lands, so a switch to after the delivery grows each from where it is. Each bar's `w.Animate` reads its level from the Model, from `w.Initial({ scaleX: 0 })` the first time.",
+        "The label beside each bar reads the bar itself: `w.OnAnimationStart` and `w.OnAnimationComplete` send Messages, so the Model knows a bar is filling (\"filling…\") and when it has landed, with no clock of its own. Try the header's delay to watch the wait.",
+      ],
+    },
     area: "entrances",
     title: "Stock that fills in as it arrives",
     summary: "Each piece's stock meter fills in once the store's count arrives, and says when it has settled. Switch to after the delivery and they fill up from where they are.",
@@ -110,7 +125,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "product-detail",
-    foldkit: { note: "On Foldkit a presence keeps its own children: the fixed frame is one, with `w.Presence({ propagate: true })` of its own, so the detail view inside runs its exit while the frame waits; Escape is a Subscription on the window's keydowns." },
+    foldkit: {
+      note: "On Foldkit a presence keeps its own children: the fixed frame is one, with `w.Presence({ propagate: true })` of its own, so the detail view inside runs its exit while the frame waits; Escape is a Subscription on the window's keydowns.",
+      uses: ["LayoutId", "Layout(\"position\")", "Presence", "Presence({ propagate: true })"],
+      why: [
+        "A detail view that pops up from nowhere breaks the thread: the eye has to find the product again. When the card itself grows into the view, its photo, name and price travelling to their new places, there's no doubt which piece you opened, and closing it puts it back where it came from.",
+        "Each part has a twin: the card in the grid and the detail view share a `w.LayoutId`, and so do their photos, names and prices. When one leaves and the other arrives in the same patch, Wardic animates from one's box to the other's. The names and prices are `w.Layout(\"position\")`, so their text changes size at once and only travels, rather than stretching.",
+        "The view sits in a `position: fixed` frame, over a page you may have scrolled. Wardic measures each twin where it's drawn, so the card opens from where you see it, and closes back there, with nothing to mark on the frame.",
+      ],
+    },
     area: "layout",
     title: "A product opens into its detail view",
     summary: "Tap a piece and its card grows into the full view, photo, name and price carried across.",
@@ -126,7 +149,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "browse",
-    foldkit: { note: "On Foldkit the filter and the view live in the Model; the list is a keyed `w.ul` under `w.Presence({ mode: \"popLayout\", initial: false })`." },
+    foldkit: {
+      note: "On Foldkit the filter and the view live in the Model; the list is a keyed `w.ul` under `w.Presence({ mode: \"popLayout\", initial: false })`.",
+      uses: ["Layout", "Layout(\"position\")", "Presence({ mode: \"popLayout\" })"],
+      why: [
+        "When a filter takes products away and the rest jump to fill the gaps, it's hard to tell what changed. When the ones leaving fade where they were and the rest slide into their new places, the eye can follow each product to where it ends up.",
+        "Each product is a `w.Layout()` element, a keyed child of a `w.Presence({ mode: \"popLayout\" })` list. One the filter takes out is popped out of the flow at once, so the products after it start sliding into its space while it fades.",
+        "Switching between grid and list changes every card's size, and each card sees its own change and animates from where it was. The photos resize with plain `w.Layout()`, their corners kept round as they scale; the text is `w.Layout(\"position\")`, so it travels without stretching.",
+      ],
+    },
     area: "layout",
     title: "Filter the shop, switch the view",
     summary: "Pick a category and the products that stay slide together; switch to a list and every card reshapes into a row.",
@@ -142,7 +173,14 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "product-tabs",
-    foldkit: { note: "On Foldkit the panel is a keyed child of the `w.Presence({ mode: \"wait\" })` panel element: a new tab is a new child, so the last leaves before it enters." },
+    foldkit: {
+      note: "On Foldkit the panel is a keyed child of the `w.Presence({ mode: \"wait\" })` panel element: a new tab is a new child, so the last leaves before it enters.",
+      uses: ["LayoutId", "Presence({ mode: \"wait\" })"],
+      why: [
+        "An underline that blinks from one tab to the next tells you the tab changed. One that slides there also tells you which way you went, and the tabs read as one control rather than three buttons.",
+        "There's one indicator, drawn inside whichever tab is selected. Each tab renders it only while it's selected, all with the same `w.LayoutId`, so when the selection changes it leaves one tab and arrives in the next, and Wardic animates it from the old tab's box to the new one's. The panels are keyed children of a `w.Presence({ mode: \"wait\" })` element: a new tab is a new child, and the old one fades out before the new one fades in.",
+      ],
+    },
     area: "layout",
     title: "Tabs on a product page",
     summary: "Switch between a piece's description, details and delivery, and the underline slides to the tab you chose.",
@@ -157,7 +195,14 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "add-to-cart",
-    foldkit: { note: "On Foldkit the add is a Command over the store, its answer a Message that tells the app the cart changed (an OutMessage), and the three-second reset a Command's sleep, interrupted by the next add." },
+    foldkit: {
+      note: "On Foldkit the add is a Command over the store, its answer a Message that tells the app the cart changed (an OutMessage), and the three-second reset a Command's sleep, interrupted by the next add.",
+      uses: ["Layout", "Layout(\"position\")", "Presence", "a Command over the store"],
+      why: [
+        "A button that works out of sight leaves people pressing it twice. \"Adding…\" while the request is out, then \"Added ✓\" with a link to the cart, answers the question before it's asked. But a label that changes length changes the button's width, and a button that snaps between widths looks broken.",
+        "The button is a `w.Layout()` element, so its width animates whenever its label changes it. The label inside is `w.Layout(\"position\")`: it travels to its new place in the button without stretching as the button scales. \"View cart\" enters beside it, a keyed child under `w.Presence()`. The add is a Command over the store, and each state in between is a Message's; set a longer delay, or a failure, in the store's settings (⚙) to see them.",
+      ],
+    },
     area: "layout",
     title: "Add to cart, and see it's done",
     summary: "The button says what it's doing, adding then added, and makes room for a way to the cart.",
@@ -172,7 +217,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "delivery-faq",
-    foldkit: { note: "On Foldkit Open all and Close all land at once through `w.Config({ skipAnimations })` on the list for the patch that opens them, turned off by a Command two frames later; Solid's `createInstantTransition` has no Foldkit form." },
+    foldkit: {
+      note: "Solid's `createInstantTransition` has no Foldkit form: Open all and Close all land at once through `w.Config({ skipAnimations })` for the patch that opens them, turned off by a Command 40 ms later.",
+      uses: ["Layout", "Layout(\"position\")", "scale correction", "Config({ skipAnimations })"],
+      why: [
+        "When an answer appears all at once, everything below it jumps, and the reader loses their place. When its card grows and the questions below slide down, the page stays readable while it changes.",
+        "Each card is a `w.Layout()` element. Opening one changes its height, and Wardic animates the change as a scale, correcting the card's rounded corners and shadow so they look the same all the way. The question is `w.Layout(\"position\")`, so its text travels rather than stretching, and the answer fades in once there's room for it.",
+        "Open all and Close all change every card in one click, which is too much to watch move. They land at once: `w.Config({ skipAnimations: true })` on the list for the patch that opens them, turned off by a Command 40 ms later, so every card takes its new size at once, and the answers and chevrons their end, while a single question still animates.",
+      ],
+    },
     area: "layout",
     title: "Questions that open in place",
     summary: "Open an answer, and its card grows to fit while the questions below slide down to make room. Open all, or close all, and they change at once.",
@@ -188,7 +241,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "cart-drawer",
-    foldkit: { note: "On Foldkit the optimistic lines are the Model's own: each change on its way to the store is laid over the server's cart until the store answers, by token." },
+    foldkit: {
+      note: "On Foldkit the optimistic lines are the Model's own: each change on its way to the store is laid over the server's cart until the store answers, by token.",
+      uses: ["Layout", "Presence({ mode: \"popLayout\" })", "optimistic lines in the Model"],
+      why: [
+        "A cart where nothing moves until the server answers feels broken on a slow connection; one where lines jump into gaps feels careless. When a removed line fades while the rest close up, and a new one slides in at the bottom, the cart reads as one list changing, and it does so the moment you tap.",
+        "Each line is a `w.Layout()` element, a keyed child of a `w.Presence({ mode: \"popLayout\" })` list, so one that's removed leaves the flow at once and the lines below slide up while it fades. The suggestions under the list are `w.Layout(\"position\")`, and slide down as lines arrive. The lines on screen are the store's cart with the changes still on their way laid over it, the Model's own, so they animate on the tap, not when the store answers: each change goes to the store as a Command with a token, and the store's answer, or its refusal, takes that change out of the overlay.",
+        "The drawer is `position: fixed`, over a page you may have scrolled. Wardic measures every line where it's drawn, so nothing needs marking for that.",
+      ],
+    },
     area: "layout",
     title: "A cart drawer that keeps up",
     summary: "Change a quantity or remove a piece, and the lines below close up at once, before the store has answered.",
@@ -205,7 +266,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "order-history",
-    foldkit: { note: "On Foldkit the re-sort returns `Wardic.animateLayout()` as a Command with the Model change, where Solid wraps the change in `useAnimateLayout`." },
+    foldkit: {
+      note: "On Foldkit the re-sort returns `Wardic.animateLayout()` as a Command with the Model change, where Solid wraps the change in `useAnimateLayout`.",
+      uses: ["Layout", "Layout(\"position\")", "Wardic.animateLayout as a Command", "a scrolling container"],
+      why: [
+        "A list that re-sorts in a blink leaves you hunting for the order you were looking at. When each one glides to its new place, your eye stays on it. And a panel that scrolls inside a page that scrolls too is where layout animations usually go wrong: measure a row before the panel scrolled and after, and the scroll itself looks like movement.",
+        "Each order is a `w.Layout()` element. A re-sort moves the orders without resizing any, and nothing else tells them they've moved, so `update` returns `Wardic.animateLayout()` as a Command beside the Model change: every layout element animates from where it was at the patch. Opening an order changes its height, which it sees itself, so only the rows below it move; its summary is `w.Layout(\"position\")`, so the text travels without stretching.",
+        "Wardic takes the scroll of every scrolling element around a layout element out of what it measures, so a row's box is the same however far the panel has scrolled, with nothing to mark on the panel.",
+      ],
+    },
     area: "layout",
     title: "Order history in a scrolling panel",
     summary: "Sort your orders and each one glides to its new place; open one and only the orders below it make room.",
@@ -221,7 +290,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "notifications",
-    foldkit: { note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot." },
+    foldkit: {
+      note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot.",
+      uses: ["Drag(\"x\")", "DragSnapToOrigin", "Presence({ mode: \"popLayout\" })", "OnDragEnd / OnAnimationComplete as Messages", "a Command's sleep"],
+      why: [
+        "A swipe should feel like brushing a card off the table: it follows your finger sideways, and if you let go gently it springs back. Throw it, far enough or fast enough, and it keeps going the way you threw it, at the speed you threw it. Each card is draggable on x only, snapping back to where it was unless the release counts as a throw.",
+        "A dismissal you can't take back is unkind, so the request waits. The card flies off, \"Dismissed · Undo\" takes its place for four seconds, and only then is the store told. An undo, or a store that refuses, brings the card back the way it went.",
+        "When the store has it, the row leaves the list at once and the rows below glide up into the gap: the list is a `w.Presence({ mode: \"popLayout\" })` element, and each row a `w.Layout()` child. Each card is `w.Drag(\"x\")` with `w.DragSnapToOrigin()`. Its release is a Message from `w.OnDragEnd`, carrying how far and how fast, which `update` judges as a throw or not; its landing is one from `w.OnAnimationComplete`; and the undo window is a Command's sleep that ends in a Message.",
+      ],
+    },
     area: "gestures",
     title: "Notifications you swipe away",
     summary: "Throw a notification aside and it flies off; for four seconds you can undo it, then it's gone and the rest close the gap.",
@@ -237,7 +314,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "wishlist",
-    foldkit: { note: "On Foldkit the list is shared too: a Subscription on the page reads the store's feed as a streaming rpc into Messages, and `w.ReorderGroup` tells each hold's start and end and each reorder as Messages, the order my hands have made living in the Model until the feed has my drop.", summary: "Drag a piece up or down and the others make way; let go and the new order is saved. The list is shared, and other people's moves glide in live." },
+    foldkit: {
+      note: "Where Solid 2 follows the feed with `live()` and the group's holds through `list.when(name)`, a Subscription reads the store's feed into Messages, and `w.ReorderGroup` tells each hold and reorder as a Message.", summary: "Drag a piece up or down and the others make way; let go and the new order is saved. The list is shared, and other people's moves glide in live.",
+      uses: ["ReorderGroup", "ReorderItem", "the group's holds and reorders as Messages", "a Subscription on the store's feed"],
+      why: [
+        "Rearranging a list should feel like moving things on a table: the piece follows your hand, the others slide out of its way, and when you let go it settles into the gap. Each piece is a `w.ReorderItem` in a `w.ReorderGroup`. The group changes the order as the piece you hold passes its neighbours, and every other piece animates to its new place.",
+        "The order is saved when you let go, once per drag, as \"put it after this one\": the store applies that to its order as it is then, so it means the same whatever else changed meanwhile.",
+        "The list is shared by every visitor. The page arrives with the order as it was when the server rendered it, then a Subscription follows the store's feed, a streaming rpc read into Messages, which sends the order again each time anyone moves a piece. Other people's moves glide into place while you watch. While you hold a piece, dragged or lifted with the keys, theirs move around it, but yours stays in your hand, and your drop shows at once while it's saved. The group tells each hold's start and end, and each reorder, as Messages, and the order your hands have made lives in the Model until the feed has your drop.",
+      ],
+    },
     area: "gestures",
     title: "A wishlist you rearrange by hand",
     summary: "Drag a piece up or down and the others make way; let go and the new order is saved. On Solid 2 the list is shared, and other people's moves glide in live.",
@@ -253,7 +338,14 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "arrange-room",
-    foldkit: { note: "On Foldkit the plan is named by its selector, `correctParentTransform(\"#room-plan\")`, since a view has no refs; `w.Config` on the plan gives every piece the mapping." },
+    foldkit: {
+      note: "On Foldkit the plan is named by its selector, `correctParentTransform(\"#room-plan\")`, since a view has no refs; `w.Config` on the plan gives every piece the mapping.",
+      uses: ["transformPagePoint", "correctParentTransform", "Drag", "DragConstraints"],
+      why: [
+        "A plan you can zoom is drawn with a CSS transform, so the pointer moves in the page's pixels while a piece moves in the plan's: at 140% a piece would run ahead of your pointer, and at 60% lag behind it. Each piece carries a `w.Config` whose `transformPagePoint` is `correctParentTransform(\"#room-plan\")`, the plan named by its selector, which turns each point of a drag back through the plan's zoom, so a piece stays under your pointer at any zoom.",
+        "Each piece's `w.DragConstraints(\"parent\")` is the plan itself. Its box is measured through the same mapping, so a piece stops at the room's walls, whatever the zoom.",
+      ],
+    },
     area: "gestures",
     title: "Arrange a room, at any zoom",
     summary: "Zoom the floor plan in or out, then drag the sofa, the table and the lamp about: each stays under your pointer, and inside the room.",
@@ -268,7 +360,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "toasts",
-    foldkit: { note: "On Foldkit each toast's stay is a Command's sleep ending in a Message, and the add a Command over the store that tells the app the cart changed." },
+    foldkit: {
+      note: "On Foldkit each toast's stay is a Command's sleep ending in a Message, and the add a Command over the store that tells the app the cart changed.",
+      uses: ["Presence({ mode: \"popLayout\" })", "anchorX / anchorY", "Layout", "Exit"],
+      why: [
+        "A toast is news that shouldn't stay: it arrives, says its piece and goes. With a few on screen, the stack is a list that changes at both ends, new toasts arriving at the bottom while older ones time out above them. If the gap a toast leaves snaps shut, the one you were reading jumps.",
+        "The stack is a `w.Presence({ mode: \"popLayout\" })` element, and each toast a `w.Layout()` child. As a toast leaves, the presence takes it out of the stack's flow at once, held where it was while its exit plays, so the others close the gap as it fades, not after it has gone. The stack sits in its corner, so a leaving toast is pinned by its bottom right (`anchorX: \"right\", anchorY: \"bottom\"`): if the stack resizes while it goes, it stays in the corner. A fourth toast pushes the oldest out the same way.",
+        "Each \"Add to cart\" calls the store, so the header's count goes up too. Set the store to fail the next request (⚙ in the header) to see a toast for a failure.",
+      ],
+    },
     area: "presence",
     title: "\"Added to cart\", in toasts that make room",
     summary: "Each piece you add says so in a toast; when one goes, the others close the gap.",
@@ -284,7 +384,17 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "gallery",
-    foldkit: { note: "On Foldkit the direction and the swipe are Messages, the keyboard an `h.OnKeyDown` on the stage; reduced motion reaches the view through the page's inputs, from the system's setting or the header's switch." },
+    foldkit: {
+      note: "On Foldkit the direction and the swipe are Messages, the keyboard an `h.OnKeyDown` on the stage; reduced motion reaches the view from the page's environment, the system's setting or the header's switch.",
+      uses: ["Presence({ custom })", "Variants as functions", "Custom", "Exit", "Drag(\"x\")", "DragConstraints", "DragElastic", "reduced motion from the page's environment"],
+      why: [
+        "A gallery says which way you went by where the photos go: forward, the next one comes in from the right and the last one leaves to the left; back, the other way round. The direction belongs to the change, not to either photo.",
+        "Both photos read it from variants that are functions: `enter` and `exit` take the direction and say where to start or end. The new photo resolves `enter` with its own `w.Custom`. The leaving photo can't: it has already left, and gets no new attributes. It resolves `exit` with the presence's `custom`, `w.Presence({ custom })`, read as it leaves, so it's always the latest.",
+        "Swipe the photo, or use the arrows, the thumbnails, or the left and right arrow keys once the photo has focus.",
+        "A swipe is a drag across, held at the centre (`w.DragConstraints` of 0 each way) but followed all the way (`w.DragElastic(1)`). At the release, `w.OnDragEnd` sends a Message with how far and how fast, and `update` judges whether it was a swipe, distance times speed, as Motion's slideshow judges one. A swipe steps, and its photo goes on out the way it was thrown: the exit's `x` takes over from the drag's spring back. Anything softer springs back to the centre.",
+      ],
+      reducedMotion: "The photos cross-fade in place. The demo gives the slide no distance under reduced motion (the system's setting or the header's switch, from the page's environment): left to Wardic's rule, which snaps a positional value to its target, a leaving photo would jump aside at once and fade there.",
+    },
     area: "presence",
     title: "A photo gallery that slides the way you go",
     summary: "Swipe or step through the collection's photos: each comes in from the side you're heading to, and the last one leaves by the other.",
@@ -301,7 +411,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "quick-view",
-    foldkit: { note: "On Foldkit a presence keeps its own children: the fixed frame is one, with `w.Presence({ propagate: true })` of its own, so the dialog inside runs its exit while the frame waits, and its pairings' presence propagates again." },
+    foldkit: {
+      note: "On Foldkit a presence keeps its own children: the fixed frame is one, with `w.Presence({ propagate: true })` of its own, so the dialog inside runs its exit while the frame waits, and its pairings' presence propagates again.",
+      uses: ["Presence({ propagate: true })", "a presence inside a presence", "Exit", "Layout"],
+    },
     area: "presence",
     title: "A quick view whose list leaves before it",
     summary: "Open a piece in a quick view and dismiss the suggestions you don't want. Close it, and what's left of the list goes first.",
@@ -317,7 +430,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "saved",
-    foldkit: { note: "On Foldkit the row's leaving and the twin's arrival are one update: the page tells the app `Arriving` (an OutMessage) and the header renders the twin under its own presence, `w.LayoutCrossfade(false)` on both; a refusal tells `Recalled`." },
+    foldkit: {
+      note: "On Foldkit the row's leaving and the twin's arrival are one update: the page tells the app `Arriving` (an OutMessage) and the header renders the twin under its own presence, `w.LayoutCrossfade(false)` on both; a refusal tells `Recalled`.",
+      uses: ["LayoutId", "LayoutCrossfade", "arc()", "Presence({ mode: \"popLayout\" })", "Exit", "optimistic rows in the Model"],
+      why: [
+        "Moving something from one list to another is clearer when you see it go. A piece moved to the cart should travel into the cart, and a piece removed should just fade.",
+        "The row's photo and a small photo in the header's cart button share a `w.LayoutId`. On \"Move to cart\", the row leaves and its twin appears in the button in the same update: the page tells the app `Arriving`, and the header renders the twin under its own presence. Wardic measures the two and flies the photo from the row into the button, shrinking it as it goes, tossed in along an arc, `arc()` as the layout transition's `path`, rather than in a straight line. Both photos have `w.LayoutCrossfade(false)`, so one photo flies, into the cart and back out if the store refuses: the one it takes over from is hidden, rather than the two crossfading. Once it lands (`w.OnLayoutAnimationComplete`), the twin shrinks away into the icon with its own `w.Exit`. Removed, the row only fades. The list is in `popLayout` mode, so the rows below close the gap while it goes.",
+        "The move doesn't wait for the store: the row leaves the Model at once, before its Command reaches the store. If the store refuses, a `Refused` Message puts the row back where it was, and the page tells the app `Recalled`, so the header lets the twin go and the photo flies back out of the cart. Quick clicks don't trip over each other, and a row already on its way ignores another. Try the header's settings: a delay, or fail the next request.",
+      ],
+    },
     area: "presence",
     title: "Saved for later, moved to the cart",
     summary: "Move a saved piece to your cart and its photo flies into the cart; remove one and it fades. The rest close up behind it.",
@@ -334,8 +455,14 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "catalogue",
     foldkit: {
-      note: "On Foldkit the catalogue and each piece are two routes of the app's own parser, under one page the app keeps while the route stays on the example: the list and the piece are keyed roots under `w.Presence({ mode: \"popLayout\" })`, so the one that leaves goes by itself, and \"Next piece\" keys the piece's content under a presence of its own. A card's \"Add\" is a Command over the store, what it shows meanwhile a Message's, and its press stays its own with `w.Propagate({ tap: false })`.",
-      uses: ["w.Presence({ mode: \"popLayout\" })", "LayoutId", "arc()", "Propagate({ tap: false })", "Exit", "a Piece route under the example", "keyed content"],
+      note: "Where the Solid apps route with Solid Router under one layout, the catalogue and each piece are two routes of the app's own parser, under one page the app keeps while the route stays on the example; a card's \"Add\" is a Command over the store.",
+      uses: ["Presence({ mode: \"popLayout\" })", "LayoutId", "arc()", "Propagate({ tap: false })", "Exit", "a Piece route under the example", "keyed content"],
+      why: [
+        "A product page that replaces the list in a cut loses the visitor's place: which photo did they open? If the photo they picked grows into the page's hero, and shrinks back into its card when they return, the two pages read as one place seen closer.",
+        "The catalogue and each piece are two routes of the app's own parser, under one page the app keeps while the route stays on the example, and that page puts `w.Presence({ mode: \"popLayout\" })` around them. Each page's root is a keyed `w.*` element with a `w.Exit`. A navigation renders the new root in the old one's place, so the old page leaves by itself. `popLayout` takes the leaving page out of the flow where it was, so the new one is in place at once, and the photo, the same `w.LayoutId` on the card and on the hero, flies between them, bowing a little along an `arc()`.",
+        "Each card squeezes a little as it's pressed, and its \"Add\" puts the piece in the cart through a Command over the store, what it shows meanwhile a Message's. The button's press is its own, `w.Propagate({ tap: false })`, so pressing it doesn't squeeze the card, and the same goes for a key. The button sits beside the card's link rather than inside it: `Propagate` keeps the card's press out, and the link's click would still open the piece.",
+        "\"Next piece\" stays on the same route with another id, which keeps the page's root: the piece's content is keyed on the id, in a presence of its own, so it slides on while the page stays. A route that stays on the example keeps the page's scroll, as the demo sits partway down a longer page; the app's other navigations scroll to the top. Across a whole app you'd keep that scroll to the top: the photo flies from where the card was seen, and the leaving page stays where it was as it fades (#480).",
+      ],
     },
     area: "transitions",
     title: "From the catalogue to a piece's own page",
@@ -372,6 +499,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     foldkit: {
       note: "On Foldkit the lens's values are Atoms at module scope, bound in `w.Style`: its `x` and `y`, and the custom properties the stylesheet reads. A Mount on the photo reads the pointer over it as Live values, `Wardic.pointer`, a finger's too, and springs its place, with no Message per move, on the Handle's services through `Wardic.provide`. Reduced motion is an argument of the Mount, and the photo is keyed by it, so a switch mounts it afresh with its springs skipped.",
       uses: ["Wardic.pointer", "LiveValue.spring in a Mount", "Atom.map", "Atoms in w.Style", "WhileHover", "WhileTap", "Wardic.provide"],
+      why: [
+        "A product photo hides what makes a glazed piece worth buying: where its colours run into each other. A magnifier lets you look closer without leaving the page. A lens glued to the pointer jitters with every twitch of the hand; on a spring, it glides after the pointer and settles where you stop.",
+        "The pointer's place over the photo is two Live values the photo's Mount reads from `Wardic.pointer`, a finger's too. `LiveValue.spring` follows each with a spring on the frame loop, idle while it rests, and feeds it into an Atom at module scope that the lens binds in `w.Style` as its `x` and `y`: Live values, which Wardic writes each frame, with no Message per move. `Atom.map` maps the same Atoms to where the photo inside the lens sits, as two custom properties the stylesheet's `background-position` reads, so the lens always shows what's under its centre.",
+        "The lens grows in under hover or a press: the photo names a variant, and the lens, a Variant child, follows it.",
+        "`Wardic.pointer(element, { types: [\"mouse\", \"pen\", \"touch\"] })`, in the photo's Mount, gives the pointer's place in the photo's pixels and the box's drawn size, set within the pointer's own events, on the Handle's services through `Wardic.provide`.",
+      ],
     },
     area: "live",
     title: "A closer look at the glaze",
@@ -390,8 +523,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "reading-progress",
     foldkit: {
-      note: "On Foldkit the panel's Mount asks `Wardic.scroll({ container })` for the panel's progress, on the Handle's `Features.scroll`, and feeds an Atom at module scope that the bar binds in `w.Style`; the minutes left are `Atom.map` of the same progress, bound in `w.Text`.",
+      note: "Where the Solid apps call `createScroll` in the component, the panel's Mount asks `Wardic.scroll({ container })` and feeds an Atom at module scope that the bar binds.",
       uses: ["Wardic.scroll", "Features.scroll", "Atom.map", "scaleX in w.Style", "w.Text"],
+      why: [
+        "A long read is easier to start when you can see how long it is, and easier to finish when you can see how far you've come. A bar that fills as you scroll says both at a glance, and the minutes left say it in words.",
+        "`Wardic.scroll({ container })`, in the panel's Mount, gives the panel's scroll as Live values: how far it's scrolled, and the progress through its range, from 0 to 1, set within the scroll's own event. It feeds an Atom at module scope that the bar binds in `w.Style` as its `scaleX`, drawn from its left edge, so the bar follows the scroll frame by frame. `Atom.map` maps the same progress to the minutes left, bound in `w.Text`. Leave out `container`, and it's the page's scroll. The Handle names `Features.scroll` for it.",
+      ],
     },
     area: "live",
     title: "A reading bar for the studio's story",
@@ -410,6 +547,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     foldkit: {
       note: "On Foldkit each banner's Mount asks `Wardic.scroll` for the banner's own progress, with the `target` and `offset`, and feeds two Atoms that its photo's and its words' `w.Style` bind. The banner is keyed by the reduced-motion setting, an argument of its Mount, so a switch mounts it afresh with its drift at 0.",
       uses: ["Wardic.scroll with target and offset", "Atom.map", "y in w.Style"],
+      why: [
+        "A lookbook is for browsing, and depth makes it feel like a place: as you move, near things pass faster than far ones. Each banner's photo moves a little slower than the banner, and its words a little faster, so the photo reads as behind and the words in front.",
+        "Each banner's Mount asks `Wardic.scroll` for the banner's own progress through the panel: with a `target` and Motion's `offset`, `[\"start end\", \"end start\"]`, it's 0 as the banner's top comes in at the bottom and 1 as its bottom leaves at the top. `Atom.map` maps that to a few dozen pixels of `y` for the photo and for the words, one each way, two Atoms their `w.Style` binds.",
+        "A parallax is motion of your own, so reduced motion is yours to apply: Wardic snaps the animations it runs, and a Live value follows what moves it. The demo's transforms give 0 under it.",
+      ],
     },
     area: "live",
     title: "A lookbook with depth",
@@ -429,6 +571,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     foldkit: {
       note: "On Foldkit each chapter takes `w.WhileInView(\"shown\")` and `w.Viewport({ root: \"#story-panel\", once: true, amount: 0.35 })`, the root a selector, since a view has no refs.",
       uses: ["WhileInView", "Viewport: root, amount, once", "Variants", "staggerChildren"],
+      why: [
+        "Content that arrives as you reach it rewards the scroll: each chapter comes as you get to it rather than all at once at the top, and the eye lands on it as it moves.",
+        "Each chapter takes `w.WhileInView(\"shown\")`, a variant it names while it's in view, with `w.Viewport` saying what in view means here: a third of it showing (`amount`) in the story's panel (`root`, named by a selector), and `once`, so scrolling back up doesn't hide it again. Its photo and words are Variant children, staggered by the chapter's transition.",
+      ],
     },
     area: "live",
     title: "The studio's story, revealed as you read",
@@ -446,6 +592,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     foldkit: {
       note: "On Foldkit each card's Mount reads the pointer over it as Live values, `Wardic.pointer`, a mouse's or a pen's, and two springs follow its place, centred and sent home once it has left (a derived Atom over `inside`); `LiveValue.transform` maps the springs to where the light sits, and the card's `w.Style` binds the tilt and the light's custom properties. The hover's variant is the card's own, `w.WhileHover`. Touch never hovers, so on a phone the cards stay still.",
       uses: ["Wardic.pointer", "LiveValue.spring in a Mount", "LiveValue.transform", "a derived Atom over inside", "custom properties in w.Style and variants", "WhileHover"],
+      why: [
+        "A card that answers the pointer feels like an object: tilting toward where you point, with a light where your pointer is, it invites a closer look without a single extra control.",
+        "The pointer's place over the card is Live values its Mount reads from `Wardic.pointer`, a mouse's or a pen's: its progress across the box, centred to run from -1 to 1 each way, and sent home once it has left, a derived Atom over `inside`. Two `LiveValue.spring`s follow it, so the card eases toward the pointer and back to rest when it leaves. `Atom.map` maps the springs to `rotateX` and `rotateY` in the card's `w.Style`, and `LiveValue.transform` to where its light sits, as custom properties the stylesheet's radial gradient reads. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
+        "The hover is the card's own, `w.WhileHover(\"lit\")`, which lights it; the tilt and the light's place follow the pointer each frame, with no Message per move.",
+      ],
     },
     area: "live",
     title: "Cards that catch the light",
@@ -463,8 +614,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "announcements",
     foldkit: {
-      note: "On Foldkit the clock is a Mount on each bar that is a Stream (`Mount.defineStream`): `LiveValue.eachFrame` adds the frame's delta to the bar's Atom, bound in `w.Style`, and sends `Next` when the message's time is up. The Mount hears the pointer resting on the strip itself, and holds, as Pause does; a frame loop stands still while the tab is in the background. Each message is a keyed child under `w.Presence({ mode: \"wait\" })`.",
+      note: "Where the Solid apps run one frame loop and one cycle for the component's life, each bar here carries its own clock, a Mount that is a Stream; Pause is a Command that sets the switch the clock reads.",
       uses: ["Mount.defineStream", "LiveValue.eachFrame", "w.Presence({ mode: \"wait\" })", "scaleX in w.Style"],
+      why: [
+        "A strip of news above a shop has more to say than fits, and a visitor reads one line at a time. Taking turns shows each in full, and the bar under it says when the next comes. It holds while the pointer rests on it, and Pause stops it for good, so nobody loses a message halfway through reading it.",
+        "The index of the message showing lives in the Model, the messages a constant beside it: `Next` steps to the following one, the first after the last, and each message is a new keyed child of `w.Presence({ mode: \"wait\" })`, so the last fades out before the next fades in. Each message's bar carries its clock, a Mount that is a Stream (`Mount.defineStream`). `LiveValue.eachFrame` runs every frame with the frame's `delta`, which adds up to the message's four seconds and fills the bar, an Atom bound in its `w.Style` as `scaleX`, and sends `Next` when the time is up. The time stands still while the tab is in the background, so a visitor coming back finds the message they left, not the one after; while the pointer rests on the strip; and under Pause, a Command that flips a switch the clock reads each frame.",
+      ],
     },
     area: "live",
     title: "Announcements that take turns",
@@ -482,6 +637,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     foldkit: {
       note: "On Foldkit the status line's Mount is the JavaScript's arrival: a Mount runs on the client alone, once its element is on the page, so the server renders the line without it, from the page's `?hydrate=`. The links carry `?hydrate=` too, which the app's routing answers with a full load (`Navigation.load`) rather than a push, so the server renders the page again.",
       uses: ["Initial", "Animate", "Variants", "staggerChildren", "server-rendered CSS", "a Mount as the take-over"],
+      why: [
+        "A server-rendered page is on screen before its JavaScript has loaded. An entrance that waits for the JavaScript waits on the network: the banner sits blank, then starts late, or never with the JavaScript off. Wardic writes each element's entrance into the page as a CSS animation, sampled from the same spring or tween the browser would run, so the banner moves from the first paint, from the HTML and its stylesheet alone.",
+        "When the JavaScript arrives, Wardic takes each element over from where its CSS has drawn it, by the time that has passed, and carries on with the same spring: no jump, mid-flight or after the end. With no JavaScript, the CSS plays to the end and holds. There's nothing to turn on: every `w.Initial` and `w.Animate` on a server-rendered page gets one, variants and their stagger included.",
+        "Try it with the links under the banner. \"Hydrate 2 s late\" holds the JavaScript back, as a slow network would, and \"Don't hydrate\" never runs it, as with the JavaScript off. The line above them says when the JavaScript took over.",
+      ],
     },
     area: "server",
     title: "A banner that arrives before the JavaScript",
@@ -499,8 +659,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     id: "size-guide",
     foldkit: {
       title: "A size guide in Foldkit UI's dialog",
-      note: "On Foldkit the guide is `@foldkit/ui`'s Dialog, a submodel whose `toView` hands the page the attributes of each part, spread onto elements of the page's own: the shade and the guide are `w.*` elements under `w.Presence`, so Wardic plays their exits. A close request (Escape, the shade, ✕) turns the page's `showing` off first, and `onExitComplete` then closes the library's dialog. Focus, Escape, the inert page and the scroll lock are the library's.",
-      uses: ["Foldkit UI's Dialog", "its attributes on w.* elements", "w.Presence", "Exit"],
+      note: "Where the Solid apps give Kobalte's parts the motion props through `w.create`, Foldkit UI's dialog hands the page each part's attributes, spread onto `w.*` elements of the page's own, and the page closes the library's dialog once Wardic's exits have played.",
+      uses: ["Foldkit UI's Dialog", "its attributes on w.* elements", "Presence", "Exit"],
+      why: [
+        "A dialog's hard part isn't its motion. It's moving focus in and back out, keeping Tab inside, closing on Escape, hiding the page from screen readers, and stopping the page scrolling underneath. A UI library does all of that, and on Foldkit that's `@foldkit/ui`. The guide is its `Dialog`; its motion is Wardic's.",
+        "The dialog is a submodel whose `toView` hands the page the attributes of each part, spread onto elements of the page's own: the shade and the guide are `w.*` elements with `w.Initial`, `w.Animate` and `w.Exit`, keyed children under `w.Presence`, so Wardic plays their exits. The library's own presence waits only for CSS animations, so a close request (Escape, the shade, ✕) turns the page's `showing` off first, Wardic runs the exits, and `onExitComplete` then closes the library's dialog, which hands focus back to the button.",
+      ],
     },
     area: "library",
     title: "A size guide in Kobalte's dialog",
@@ -519,8 +683,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     id: "sort-by",
     foldkit: {
       title: "Sort the shop with Foldkit UI's listbox",
-      note: "On Foldkit the select is `@foldkit/ui`'s Listbox, which renders its button and its list itself and anchors the list with a Mount of its own. An element has one Mount on Foldkit, so the list isn't a `w.*` element: it grows and shrinks by the stylesheet's transitions on the library's attributes, `data-closed` as it enters and leaves and `data-placement` for the edge it opens from (and fades alone under the system's reduced motion). Wardic's part is the button's press, through the Bundle (`w.attributes`), and the pieces: the order picked re-sorts them, declared with `Wardic.animateLayout`, so they slide as the list closes.",
+      note: "Where the Solid apps grow Kobalte's list as a `w.create` element, Foldkit UI's listbox renders and anchors its list itself with a Mount of its own, so the list grows by the stylesheet's transitions on the library's attributes; Wardic's part is the button's press and the pieces' re-sort.",
       uses: ["Foldkit UI's Listbox", "w.attributes", "the library's data-closed and data-placement", "Layout", "Wardic.animateLayout"],
+      why: [
+        "A select is a list that opens from a button, which the keyboard must reach and walk, with the chosen option announced. `@foldkit/ui`'s `Listbox` does that: it renders its button and its list itself, and anchors the list against the button with a Mount of its own. An element has one Mount on Foldkit, so the list isn't a `w.*` element: it grows and shrinks by the stylesheet's transitions on the library's attributes, `data-closed` as it enters and leaves and `data-placement` for the edge it opens from, so it grows down from the button, or up when there's no room below.",
+        "Wardic's part is the button's press, through the Bundle (`w.attributes`), and the pieces, each a `w.Layout()` card. Choosing an order re-sorts them, which moves them without resizing any, so `update` declares it with `Wardic.animateLayout()` as a Command, and they slide to their places as the list closes.",
+      ],
     },
     area: "library",
     title: "Sort the shop with Kobalte's select",
@@ -539,8 +707,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     id: "details-tabs",
     foldkit: {
       title: "A piece's details in Foldkit UI's tabs",
-      note: "On Foldkit the tabs are `@foldkit/ui`'s Tabs, a submodel whose `toView` hands the page each tab's and panel's attributes, spread onto `w.*` elements of the page's own: the underline's `w.LayoutId` sits in the active tab, and the active panel, keyed by its tab, enters afresh each time.",
+      note: "Where the Solid apps give Kobalte's parts the motion props through `w.create`, Foldkit UI's tabs hand the page each tab's and panel's attributes, spread onto `w.*` elements of the page's own.",
       uses: ["Foldkit UI's Tabs", "LayoutId inside a library's parts", "its attributes on w.* elements"],
+      why: [
+        "Tabs need more than buttons: arrow keys between them, Home and End, one tab in the Tab order, and `aria-selected` and `aria-controls` kept right. `@foldkit/ui`'s `Tabs` does all of it. How the selection looks is left to you, and here that's Wardic's: one underline with a `w.LayoutId`, drawn inside whichever tab is active, slides from tab to tab however the selection changed.",
+        "Tabs on a product page builds the same underline on buttons of its own. Here the tabs are the library's: a submodel whose `toView` hands the page each tab's and panel's attributes, spread onto `w.*` elements of the page's own, and the active panel, keyed by its tab, enters afresh each time with `w.Initial` and `w.Animate`.",
+      ],
     },
     area: "library",
     title: "A piece's details in Kobalte's tabs",
@@ -578,6 +750,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
           "A second Handle on the page, with Features and services of its own; and `drag`'s code is the shop's already, so the bytes saved are the program's alone.",
         ],
       },
+      why: [
+        "Most visitors look at a room plan and never move a thing, so the code that lets them is weight they'd pay for nothing. This room is a Foldkit program of its own (`Runtime.makeElement`), with its own Handle naming `Features.drag` alone, in a module the page imports when you press Rearrange: a Mount on the plan loads it (`import()`), embeds it (`Runtime.embed`) and disposes it when the plan goes. Until then the pieces are plain markup.",
+        "The cost is the wait. Switch on \"Slow connection\" and the import is held back 1.5 s: drag a piece meanwhile and nothing happens, and once the program arrives, the drag you tried isn't replayed. Replay the demo and it arrives at once: the browser keeps a module it has loaded.",
+        "A press is one trigger of several. Load on view, embedding the program as its section scrolls in, for something below the fold that most visitors reach. Load after the first paint, for something nearly everyone uses that needn't hold up the first frame. Load on intent, as here, for something few use. The shop's one Handle has `drag` already, since its other rooms drag on it, so what the press fetches is the room's program, and the card times that.",
+      ],
     },
     area: "shipping",
     title: "Rearrange the room: drag loads when you ask",

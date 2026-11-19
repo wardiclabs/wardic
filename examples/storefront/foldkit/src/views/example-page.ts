@@ -13,7 +13,7 @@ import { Message, type Model } from "~/model.ts"
 import type { PageEnv } from "~/page.ts"
 import { pageOf } from "~/pages.ts"
 import type { Highlighted } from "~/shop.ts"
-import { summaryOf, titleOf, tradeoffsOf, usesOf } from "~/views/words.ts"
+import { reducedMotionOf, summaryOf, titleOf, tradeoffsOf, usesOf, whyOf } from "~/views/words.ts"
 import { prose } from "~/views/prose.ts"
 
 const codeFile = (h: HtmlBuilder<Message>, file: Highlighted): Html => h.div([h.Class("code-file")], [h.header([], [file.path]), h.div([h.InnerHTML(file.html)])])
@@ -76,10 +76,10 @@ export const examplePage = (model: Model, h: HtmlBuilder<Message>, id: string, e
       h.div([h.Class("demo-bar")], [h.span([h.Class("eyebrow")], ["Live demo"]), h.button([h.Class("button quiet"), h.OnClick(Message.Replay())], ["Replay"])]),
       demo(model, h, env),
     ]),
-    h.p([h.Class("note")], [h.strong([], ["Reduced motion:"]), " ", ...prose(h, example.reducedMotion)]),
+    h.p([h.Class("note")], [h.strong([], ["Reduced motion:"]), " ", ...prose(h, reducedMotionOf(example))]),
     h.section([h.Class("why")], [
       h.h2([], ["Why"]),
-      ...example.why.map((paragraph) => h.p([], prose(h, paragraph))),
+      ...whyOf(example).map((paragraph) => h.p([], prose(h, paragraph))),
       ...UndefinedOr.match(tradeoffsOf(example), { onUndefined: () => [], onDefined: ({ gains, costs }) => [tradeoffs(h, gains, costs)] }),
     ]),
     codePanel(model, h, example),
