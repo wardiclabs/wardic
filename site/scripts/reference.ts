@@ -1,7 +1,7 @@
 /**
- * The core and dom references (#558): each module of `@wardic/core` and `@wardic/dom`, from its source's
- * JSDoc as it is, by TypeDoc and typedoc-plugin-markdown, as MDX pages the site renders as any other,
- * under `src/content/reference/{core,dom}/`. Made before every build and dev run, and left out of git,
+ * The core, dom and Foldkit references (#558, #795): each module of `@wardic/core`, `@wardic/dom` and
+ * `@wardic/foldkit`, from its source's JSDoc as it is, by TypeDoc and typedoc-plugin-markdown, as MDX
+ * pages the site renders as any other, under `src/content/reference/{core,dom,foldkit}/`. Made before every build and dev run, and left out of git,
  * so they can't drift from the code. It runs on Node (24 runs TypeScript as it is), as prerender.ts.
  *
  * - A module is a page: `@wardic/core/DragActivity` is `/reference/core/drag-activity`. The types its
@@ -27,6 +27,7 @@ const CONTENT = join(SITE, "src", "content", "reference")
 const PACKAGES = [
   { dir: "core", name: "@wardic/core", about: "Wardic's engine: animations, gestures, layout projection and the services an Environment provides, free of any framework or platform." },
   { dir: "dom", name: "@wardic/dom", about: "The browser's Environment for Wardic: its renderer, input, probe, projection system and the services a binding builds on." },
+  { dir: "foldkit", name: "@wardic/foldkit", about: "Wardic for Foldkit: Motion's animations on Foldkit's views, as Effect, through one Handle whose builder makes the `w.*` elements." },
 ] as const
 
 /** Each index's label: the package is typed with Effect's own types, and what that means for its versions (ADR-0008). */
@@ -64,6 +65,8 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
     // Layout.
     "DomProjectionSystem", "FlushGate", "ProjectionSystem", "ReorderController",
   ],
+  // The binding's six modules (#795): the Handle, the attributes' types, the Features, and the controls and scope made apart from any element.
+  foldkit: ["AnimationControls", "AnimationScope", "DragControls", "Features", "Ward", "Wardic"],
 }
 
 /** Every file under `dir`, recursively. */
@@ -74,10 +77,14 @@ const filesUnder = (dir: string): ReadonlyArray<string> =>
     return [path]
   })
 
+/** Whether `file`'s opening doc comment carries a `@module` tag: TypeDoc then renders it as the module's comment itself (#795, Foldkit's files). */
+const declaresModule = (file: string): boolean => /^\s*\/\*\*[\s\S]*?@module[\s\S]*?\*\//.test(readFileSync(file, "utf8"))
+
 /**
  * A module's overview: its source file's opening doc comment, as Markdown, `{@link X}` as `X`'s code
- * span, and prose that MDX would read as JSX escaped. Its files carry no `@module` tag, so TypeDoc
- * doesn't take it as the module's comment.
+ * span, and prose that MDX would read as JSX escaped. Core's and dom's files carry no `@module` tag,
+ * so TypeDoc doesn't take the comment as the module's, and the page gets it from here; Foldkit's do
+ * (#795), so TypeDoc writes it on the page and this one is its description alone, the tag left out.
  */
 const overviewOf = (file: string): string | undefined => {
   const match = /^\s*\/\*\*([\s\S]*?)\*\//.exec(readFileSync(file, "utf8"))
@@ -86,6 +93,7 @@ const overviewOf = (file: string): string | undefined => {
     .split("\n")
     .map((line) => line.replace(/^\s*\* ?/, ""))
     .join("\n")
+    .replace(/^@module[ \t]*$/m, "")
     .trim()
     .replace(/\{@link\s+([^}\s|]+)[^}]*\}/g, "`$1`")
   // Its `@example`, to the comment's end, as a TypeScript block; the prose before it, escaped.
@@ -110,9 +118,12 @@ const descriptionOf = (overview: string): string => {
     before = flat
     flat = flat.replace(/\s*\((?:[^()]|\([^()]*\))*?(?:#\d|ADR-\d)(?:[^()]|\([^()]*\))*\)/g, "")
   }
+  // Emphasis dropped, outside code spans: a `w.*` keeps its star (#795).
   flat = flat
     .replace(/^The `?\w+`? module[.:] /, "")
-    .replace(/\*/g, "")
+    .split(/(`+[^`]*`+)/)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(/\*/g, "")))
+    .join("")
     .trim()
   const end = /\.(\s|$)/.exec(flat)
   const sentence = end === null ? flat : flat.slice(0, end.index + 1)
@@ -201,17 +212,22 @@ const liftServices = (context: Context): void => {
   }
 }
 
+/** The packages with pages of their own a dependent's pages link to, by name: core from dom's and Foldkit's, dom from Foldkit's. */
+const LINKED: Readonly<Record<string, string>> = { "@wardic/core": "core", "@wardic/dom": "dom" }
+
 /**
- * A link to a core type from dom's pages: core is dom's dependency, with pages of its own, so a type dom
- * names from a core module links to it there, `Clock` to `/reference/core/clock#clock`. A type from core's
- * internal files, or any other package's, stays its name.
+ * A link to a dependency's type from a dependent's pages: core is dom's dependency, with pages of its
+ * own, so a type dom names from a core module links to it there, `Clock` to `/reference/core/clock#clock`,
+ * and Foldkit's pages link to core's and dom's the same way (#795). A type from a package's internal or
+ * `unstable/` files, or any other package's, stays its name.
  */
-const coreLink = (_ref: unknown, _reflection: unknown, _part: unknown, symbol: ReflectionSymbolId | undefined): string | undefined => {
-  if (symbol?.packageName !== "@wardic/core") return undefined
-  const module = /^src\/(\w+)\.ts$/.exec(symbol.packagePath)?.[1]
+const dependencyLink = (_ref: unknown, _reflection: unknown, _part: unknown, symbol: ReflectionSymbolId | undefined): string | undefined => {
+  const dir = LINKED[symbol?.packageName ?? ""]
+  if (dir === undefined) return undefined
+  const module = /^src\/(\w+)\.ts$/.exec(symbol!.packagePath)?.[1]
   if (module === undefined) return undefined
-  const name = symbol.qualifiedName.split(".").at(-1) ?? symbol.qualifiedName
-  return `/reference/core/${slugOf(module)}#${slugOfHeading(name)}`
+  const name = symbol!.qualifiedName.split(".").at(-1) ?? symbol!.qualifiedName
+  return `/reference/${dir}/${slugOf(module)}#${slugOfHeading(name)}`
 }
 
 /**
@@ -223,6 +239,16 @@ const CORE_EXTERNAL = [
   join(REPO, "packages", "core", "{src,dist}", "*"),
   join(REPO, "packages", "core", "{src,dist}", "!(unstable)", "**"),
 ]
+
+/** Dom's files as Foldkit's run sees them (#795): every one, its `unstable/` modules too, which Foldkit's pages name without documenting. */
+const DOM_EXTERNAL = [join(REPO, "packages", "dom", "**")]
+
+/** What a package's run documents on other pages, so its own leave it out: its dependencies'. */
+const externalOf = (dir: (typeof PACKAGES)[number]["dir"]): ReadonlyArray<string> => {
+  if (dir === "core") return []
+  if (dir === "dom") return CORE_EXTERNAL
+  return [...CORE_EXTERNAL, ...DOM_EXTERNAL]
+}
 
 /** One package's ready modules as MDX pages in `CONTENT/<dir>`. */
 const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
@@ -236,8 +262,9 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
     entryPoints: [join(source, "src", "*.ts")],
     // Core, which dom depends on from its source, is documented on its own pages: dom's link to them.
     // Not its `unstable/` modules (#672), which core's pages leave out: dom's Tier 2 faces re-export
-    // them (`Report`, `Style`'s starting values), so dom's pages document them.
-    externalPattern: ["**/node_modules/**", ...(pkg.dir === "core" ? [] : CORE_EXTERNAL)],
+    // them (`Report`, `Style`'s starting values), so dom's pages document them. Foldkit's pages link
+    // to core's and dom's both (#795).
+    externalPattern: ["**/node_modules/**", ...externalOf(pkg.dir)],
     exclude: [join(source, "src", "index.ts")],
     tsconfig: join(source, "tsconfig.json"),
     plugin: ["typedoc-plugin-markdown", "typedoc-plugin-missing-exports"],
@@ -260,7 +287,7 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
     useCodeBlocks: true,
   } as Parameters<typeof Application.bootstrapWithPlugins>[0])
   app.converter.on(Converter.EVENT_RESOLVE_BEGIN, liftServices)
-  if (pkg.dir !== "core") app.converter.addUnknownSymbolResolver(coreLink)
+  if (pkg.dir !== "core") app.converter.addUnknownSymbolResolver(dependencyLink)
   const project = await app.convert()
   if (project === undefined) throw new Error(`reference: TypeDoc couldn't convert ${pkg.name}`)
   await app.generateOutputs(project)
@@ -282,12 +309,15 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
     const place = placeOf(from)
     const module = moduleOfFile(from)
     const internal = place.endsWith("/internal")
-    const overview = internal ? undefined : overviewOf(join(source, "src", `${module}.ts`))
+    const moduleFile = join(source, "src", `${module}.ts`)
+    const overview = internal ? undefined : overviewOf(moduleFile)
     const description = internal ? `The types ${pkg.name}/${module}'s exports name that it doesn't export.` : descriptionOf(overview ?? `${pkg.name}/${module}.`)
     if (!internal) modules.push({ name: module, place, description })
-    // Its heading the page's title (TypeDoc's internal page is `# <internal>`), its overview after it.
+    // Its heading the page's title (TypeDoc's internal page is `# <internal>`), its overview after it,
+    // unless the file declares `@module` and TypeDoc wrote the comment there itself.
     const title = internal ? `${module}: its internal types` : module
-    const page = readFileSync(file, "utf8").replace(/^# .+\n/, () => (overview === undefined ? `# ${title}\n` : `# ${title}\n\n${overview}\n`))
+    const inserted = overview !== undefined && !declaresModule(moduleFile) ? overview : undefined
+    const page = readFileSync(file, "utf8").replace(/^# .+\n/, () => (inserted === undefined ? `# ${title}\n` : `# ${title}\n\n${inserted}\n`))
     // TypeDoc's one-row table of the internal types' page, as a sentence.
     const linked = page.replace(
       /## Modules\n\n\| Module \| Description \|\n\| -+ \| -+ \|\n\| \[\\<internal\\>\]\(([^)]+)\) \| - \|\n/,

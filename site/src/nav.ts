@@ -80,6 +80,7 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/reference/solid", title: "Solid reference" },
       ...indexOf("core", "Core reference"),
       ...indexOf("dom", "DOM reference"),
+      ...indexOf("foldkit", "Foldkit reference"),
     ],
     groups: [
       {
@@ -196,9 +197,10 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/advanced/create-projection-node", title: "createProjectionNode" },
         ],
       },
-      // Core's and dom's modules, generated at build (scripts/reference.ts), as each is published.
+      // Core's, dom's and Foldkit's modules, generated at build (scripts/reference.ts), as each is published.
       ...groupOf("Core", modulesOf("core")),
       ...groupOf("DOM", modulesOf("dom")),
+      ...groupOf("Foldkit", modulesOf("foldkit")),
     ],
   },
 ]
