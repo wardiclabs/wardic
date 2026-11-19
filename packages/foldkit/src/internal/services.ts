@@ -136,6 +136,49 @@ export interface State {
   hydrating: boolean
   /** The Handoffs under way: hydrated elements whose Appear animation their ward hasn't yet taken over. */
   pending: number
+  /** The live `w.Presence`s (#840), each with what the Handle calls on it: see {@link LivePresence}. */
+  readonly presences: Set<LivePresence>
+  /** Whether the live presences' snapshots stand (#840): taken by {@link snapshotPopLayouts}, spent by {@link snapshotSpent}. */
+  snapshotted: boolean
+}
+
+/**
+ * A live `w.Presence`'s hooks the Handle calls (#840): `snapshot`, its children measured where they are,
+ * ahead of a patch, which `popLayout` pins the next change's leavers at; `flush`, its delivery run now
+ * from the records its observer holds, ahead of a `w.*` element's mount, so a presence inside an entering
+ * child starts that child's elements after this one has pinned its leavers.
+ */
+export interface LivePresence {
+  readonly snapshot: () => void
+  readonly flush: () => void
+}
+
+/**
+ * Every live `popLayout` presence's children measured where they are (#840): called as a view renders a
+ * `w.Presence({ mode: "popLayout" })` element, before that render's patch. A presence's delivery comes a
+ * microtask after the patch, when a sibling the patch put in has already moved a leaver, so the box to
+ * pin the leaver at is read here, as Motion's `PopChild` reads it before React's update. Taken once for
+ * every such element a view renders: the snapshots stand until a microtask later, when the patch's
+ * deliveries have had them, or until a delivery spends them ({@link snapshotSpent}), so a render after
+ * it in the same task, as a Mount's message brings, measures afresh.
+ */
+export const snapshotPopLayouts = (state: State): void => {
+  if (state.snapshotted) return
+  Iter.forEach(state.presences, (presence) => presence.snapshot())
+  state.snapshotted = true
+  queueMicrotask(() => {
+    state.snapshotted = false
+  })
+}
+
+/** The live presences' snapshots spent (#840): what a presence's delivery says as it tells its controller what's shown, which pins at the snapshot and clears it. */
+export const snapshotSpent = (state: State): void => {
+  state.snapshotted = false
+}
+
+/** Every live presence's delivery run now (#840): what a `w.*` element's Mount does before the element registers anything. */
+export const flushPresences = (state: State): void => {
+  Iter.forEach(state.presences, (presence) => presence.flush())
 }
 
 /** What a Handle renders a server's Appear animations with (ADR-0044; #794): `Wardic.make`'s `appear` and `nonce`. */
@@ -264,6 +307,8 @@ export const makeState = (options: MakeOptions<Feature.InstanceFeaturesProp>): S
   said: new Set(),
   hydrating: false,
   pending: 0,
+  presences: new Set(),
+  snapshotted: false,
 })
 
 /**

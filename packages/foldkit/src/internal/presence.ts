@@ -1,13 +1,15 @@
 /**
  * Presence on Foldkit (ADR-0071 decision 29; *Amendment (#791)* at slice 2): `w.Presence(options)` on
  * the leavers' parent. Its element's Mount runs dom's presence controller over one `MutationObserver`
- * on the element's child list. Each delivery, a microtask after Foldkit's patch (P8), puts back each
- * known child the patch took out, where it was; asks the controller what goes on the page (`shown`:
- * under `mode="wait"` an entering child is held, hidden with `display: none`, until the last leaver is
- * gone, P23); starts the children mounted since the last delivery; and tells the controller what's
- * present, which retains each leaver at Motion's place and plays its exit (#675's placement is P19's).
- * A child under a presence starts in that delivery, not in its own Mount: take-overs (#286) and holds
- * are decided in `shown`, after Foldkit has mounted the child and before anything of it animates.
+ * on the element's child list. Each delivery, a microtask after Foldkit's patch (P8), or in the patch's
+ * task when a `w.*` element's Mount flushes it (#840), puts back each known child the patch took out,
+ * where it was; asks the controller what goes on the page (`shown`: under `mode="wait"` an entering
+ * child is held, hidden with `display: none`, until the last leaver is gone, P23); tells the controller
+ * what's present, which retains each leaver at Motion's place, a `popLayout` one pinned where the
+ * binding's snapshot measured it (#840), and plays its exit (#675's placement is P19's); and then starts
+ * the children mounted since the last delivery. A child under a presence starts in that delivery, not
+ * in its own Mount: take-overs (#286) and holds are decided in `shown`, after Foldkit has mounted the
+ * child and before anything of it animates.
  *
  * @module
  */
@@ -27,7 +29,7 @@ import { deliveredTo, hintFrameUnless } from "./delivery.ts"
 import { configOf, dispatcherOf } from "./element.ts"
 import { PresenceMaker, type PresenceMakerShape } from "./keys.ts"
 import { quietLayoutIn } from "./layout.ts"
-import { featureIn, type Provider, type State } from "./services.ts"
+import { featureIn, type LivePresence, type Provider, snapshotSpent, type State } from "./services.ts"
 import { isMounted, nearestPresenceElement } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
@@ -271,7 +273,39 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
     child.cancel = PresenceRecord.presenceHold(controller.context, child.element, begun)
     if (Predicate.isUndefined(child.cancel)) begun()
   }
-  /** A delivery (above): after a patch, at the mount, or as the last leaver goes. */
+  /**
+   * What the Handle calls on it (#840): its children measured where they are, ahead of a patch, which
+   * `popLayout` pins the next change's leavers at; and its delivery run now, from the records its observer
+   * holds, ahead of a Mount, since a presence inside an entering child starts that child's elements at its
+   * own mount, inside the patch's task, before this presence's observer is told, and a `layoutId` twin
+   * starting then measures the one it takes over from, in a leaver this presence hasn't pinned yet.
+   * Foldkit runs a Mount in its vnode's `insert` hook, once the patch has committed, so the records a
+   * flush takes are the whole change's.
+   */
+  const live: LivePresence = {
+    snapshot: () => {
+      if (optionsNow().mode !== "popLayout") return
+      // A change not yet delivered (an earlier patch's in this task) first, its leavers pinned where they were; then the children as they stand.
+      live.flush()
+      controller.snapshot(Arr.filter(Arr.fromIterable(element.children), (child) => known.has(child)))
+      // Measuring an outermost `<svg>` child puts dom's filler in and out: no change of Foldkit's.
+      UndefinedOr.map(observer, (watching) => watching.takeRecords())
+    },
+    flush: () => {
+      UndefinedOr.map(observer, (watching) => {
+        const records = watching.takeRecords()
+        if (records.length === 0) return
+        deliver(records, true)
+        // Taking the records silences the observer's own callback for them, which would have started the
+        // children enrolled after this delivery: those of the patch's Mounts that come after the one
+        // flushing. A delivery a microtask on starts them, where the observer's would have.
+        queueMicrotask(() => {
+          if (pending.length > 0) deliver([], true)
+        })
+      })
+    },
+  }
+  /** A delivery (above): after a patch, at the mount, at a flush, or as the last leaver goes. */
   const deliver = (records: ReadonlyArray<MutationRecord>, hint: boolean): void => {
     if (torn) return
     const { leavers, dropped } = takenOut(records)
@@ -282,12 +316,18 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
     if (hint) hintFrameUnless(provider.loop, paused)
     // Foldkit's children now: the known ones it kept, and the ones it put in; not a leaver the controller retains.
     const current = Arr.filter(Arr.fromIterable(element.children), (child) => Bool.or(Bool.and(known.has(child), Bool.not(leavers.has(child))), enterers.has(child)))
+    // `shown` pins a `popLayout` leaver at the binding's snapshot and spends it (#840): the next render takes a new one.
+    snapshotSpent(state)
     const onPage = new Set(elementsOf(controller.shown(current)))
     Arr.forEach(current, (child) => Bool.match(onPage.has(child), { onTrue: () => show(child), onFalse: () => hide(child) }))
-    Arr.forEach(pending.splice(0), start)
     // Told not to affect layout (Motion's `presenceAffectsLayout: false`): its child list's changes make no pass either (#792, Q21).
     quietLayoutIn(element, Bool.not(affectsLayout()))
     controller.present(Arr.filter(current, (child) => onPage.has(child)))
+    // The children start once the leavers are retained and a `popLayout` one is pinned (#840): a child
+    // taking over a `layoutId` twin inside a leaver measures the twin as it starts, where the leaver is
+    // then, which before the pin is where the patch pushed it. Solid's children start after its presence
+    // has placed its leavers too.
+    Arr.forEach(pending.splice(0), start)
     known = new Set(current)
     // Its own moves, and the controller's, make records too: dropped, so they deliver nothing (P19).
     UndefinedOr.map(observer, (watching) => watching.takeRecords())
@@ -310,12 +350,14 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
       offer = offerMessage
       observer = new MutationObserver((records) => deliver(records, true))
       observer.observe(element, { childList: true })
+      state.presences.add(live)
       // The first delivery, inside the patch: every child is Foldkit's; those mounted with the presence start, and `initial: false` covers them.
       known = new Set(Arr.fromIterable(element.children))
       deliver([], false)
       controller.mounted()
       return () => {
         torn = true
+        state.presences.delete(live)
         UndefinedOr.map(observer, (watching) => watching.disconnect())
         observer = undefined
         tearDown()

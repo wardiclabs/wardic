@@ -359,14 +359,23 @@ const pxOf = (value: string): number => {
   return px
 }
 
+/** Whether `el` is popped at all: an HTML element, or an outermost `<svg>` (#744, beyond Motion's). An SVG element inside an `<svg>` runs its exit in place (#702), as Motion's. */
+const isPopped = (el: Element): el is HTMLElement | SVGSVGElement => Bool.or(isHTMLElement(el), isSvgRoot(el))
+
+/** `el`'s gaps now, as its kind reads them (below): `undefined` for an element that isn't popped. */
+const gapsNowOf = (el: Element): EdgeGaps | undefined => {
+  if (isHTMLElement(el)) return htmlGapsOf(el)
+  if (isSvgRoot(el)) return svgGapsOf(el)
+  return undefined
+}
+
 /**
- * Where `el` is now, to pop it (#277): `undefined` for one that isn't popped: an SVG element inside an
- * `<svg>`, which runs its exit in place (#702), as Motion's, and one with no size of its own. An outermost
- * `<svg>` is popped (#744), beyond Motion's.
+ * Where `el` is now, to pop it (#277): `undefined` for one that isn't popped, or with no size of its own.
+ * With `ahead`, its gaps as a binding's snapshot measured them before its framework's change (#840), the
+ * box is at those, not at the gaps the change has left it with.
  */
-const popBoxOf = (el: Element, anchors: PopAnchors): PopBox | undefined => {
-  if (isHTMLElement(el)) return pinBoxOf(el, anchors, htmlGapsOf)
-  if (isSvgRoot(el)) return pinBoxOf(el, anchors, svgGapsOf)
+const popBoxOf = (el: Element, anchors: PopAnchors, ahead: EdgeGaps | undefined): PopBox | undefined => {
+  if (isPopped(el)) return pinBoxOf(el, anchors, (measured) => UndefinedOr.match(ahead, { onUndefined: () => gapsNowOf(measured), onDefined: identity }))
   return undefined
 }
 
@@ -650,6 +659,14 @@ export interface PresenceController {
    */
   readonly shown: (resolved: unknown) => unknown
   /**
+   * `children` measured where they are now, for the next change's leavers: {@link shown} pins a
+   * `popLayout` leaver among them at the box measured here, not where the change has moved it by then,
+   * and spends the snapshot, whatever its mode. For a binding whose change reaches the controller after
+   * its framework has applied it; one that resolves a change first needs none. Measuring an outermost
+   * `<svg>` child puts an element in and out beside it, which an observer of the children sees.
+   */
+  readonly snapshot: (children: ReadonlyArray<Element>) => void
+  /**
    * `propagate` (#277's PR 5c): every child present leaves, as if the change took them all, and
    * `done` is called once none is left (at once with none).
    */
@@ -775,6 +792,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // and kept until it's gone. Whether this change popped one, so the projection is told.
   const pops = new Map<Element, PopBox>()
   let popped = false
+  // A binding's snapshot of its children's gaps from before its framework's change (#840): what this
+  // change's leavers are pinned at, where the change has moved them by the time the binding sees it.
+  const ahead = new Map<Element, EdgeGaps>()
   // Whether this change moved a leaver from an earlier one to its place (#675), so the projection is
   // told: a twin leaver crossfading in the flow is drawn on its Lead from where it now is.
   let moved = false
@@ -1270,8 +1290,16 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     Arr.forEach(previous, (placed) => {
       if (kept.has(placed.el)) return
       if (Bool.not(retains(placed.el))) return
-      UndefinedOr.map(popBoxOf(placed.el, anchors), (box) => pops.set(placed.el, box))
+      // At the snapshot's gaps when a binding took one (#840): a `bottom` or `right` gap is from the containing block's far edge as it was then, as Motion's `getSnapshotBeforeUpdate`'s.
+      UndefinedOr.map(popBoxOf(placed.el, anchors, ahead.get(placed.el)), (box) => pops.set(placed.el, box))
     })
+  }
+
+  /** `children` measured where they are now, for the next change's leavers ({@link PresenceController.snapshot}). */
+  const snapshot = (children: ReadonlyArray<Element>): void => {
+    // #840: Foldkit's binding, whose delivery comes a microtask after the patch; Solid's resolves a change before the DOM moves and never calls it.
+    ahead.clear()
+    Arr.forEach(children, (el) => UndefinedOr.map(gapsNowOf(el), (gaps) => ahead.set(el, gaps)))
   }
 
   /** Put a retained child back where it was, if a framework took it out. */
@@ -1668,6 +1696,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // `popLayout` (#277): each child leaving in this change is measured where it is, before the change
     // moves it, as Motion's `getSnapshotBeforeUpdate`.
     if (mode === "popLayout") measureLeavers(resolved)
+    // A binding's snapshot is one change's (#840): spent here, measured or not.
+    ahead.clear()
     // A child back under the key of one leaving takes over from it (#286): found before the mode
     // decides what goes on the page, so `wait` doesn't hold it. Nothing is looked up with no key.
     if (keyed) findTakeovers(resolved)
@@ -1694,6 +1724,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   return {
     context: ctx,
     shown,
+    snapshot,
     leaveAll,
     anchor: () => anchor,
     mounted: () => {
