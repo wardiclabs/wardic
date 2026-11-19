@@ -1,13 +1,12 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import * as Effect from "effect/Effect"
 import * as Atom from "effect/reactivity/Atom"
-import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Schema from "effect/Schema"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import { defineView } from "foldkit/submodel"
-import { LiveValue } from "@wardic/foldkit"
-import { feed, listen, onWardic } from "~/lib/live.ts"
+import { LiveValue, Wardic } from "@wardic/foldkit"
+import { feed, onWardic } from "~/lib/live.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 
@@ -21,11 +20,8 @@ const lens = {
   looking: { opacity: 1, scale: 1, transition: { type: "spring", stiffness: 400, damping: 28 } },
 } as const
 
-// The Live values, Atoms at module scope (ADR-0071, decision 16). Where the pointer is over the photo,
-// from its corner, which the photo's Mount writes; where the lens is, which the view binds, fed from
-// the springs that follow the pointer; and how wide the photo is drawn.
-const pointerX = Atom.make(LENS)
-const pointerY = Atom.make(LENS)
+// The Live values, Atoms at module scope (ADR-0071, decision 16): where the lens is, which the view
+// binds, fed from the springs that follow the pointer over the photo; and how wide the photo is drawn.
 const lensX = Atom.make(LENS)
 const lensY = Atom.make(LENS)
 const width = Atom.make(0)
@@ -42,13 +38,12 @@ const Message = defineMessageUnion({ Following: {} })
 type Message = typeof Message.Type
 
 /**
- * The photo's Mount: the lens follows the pointer on a spring, so it glides after it and settles where
- * it stops. The springs are made on Wardic's services for as long as the photo is on the page, and
- * the lens's Atoms follow them. `pointermove` hears a mouse over the photo and a finger dragging on
- * it, and `pointerdown` a finger's press where it lands, since a finger never hovers
- * (`touch-action: none` keeps the page from scrolling under it). Under reduced
- * motion the lens doesn't glide, it's where the pointer is: a live value is yours, so Wardic's
- * reduced motion leaves it alone, and the springs jump instead.
+ * The photo's Mount: the pointer over the photo as Live values (`Wardic.pointer`), a finger's too,
+ * since it presses and drags where a mouse hovers (`touch-action: none` keeps the page from scrolling
+ * under it). Two springs follow its place, so the lens glides after it and settles where it stops,
+ * and the lens's Atoms follow the springs; the photo's drawn width comes with the values, for the
+ * inside's size. Under reduced motion the lens doesn't glide, it's where the pointer is: a live value
+ * is yours, so Wardic's reduced motion leaves it alone, and the springs jump instead.
  */
 const Follow = Mount.define("MagnifierFollow", {
   args: { reduced: Schema.Boolean },
@@ -56,20 +51,13 @@ const Follow = Mount.define("MagnifierFollow", {
   execute: ({ element, reduced }) =>
     onWardic(
       Effect.gen(function* () {
-        const registry = yield* AtomRegistry.AtomRegistry
         const skipped = () => reduced
-        const x = yield* LiveValue.spring(pointerX, { stiffness: 380, damping: 32 }, skipped)
-        const y = yield* LiveValue.spring(pointerY, { stiffness: 380, damping: 32 }, skipped)
+        const pointer = yield* Wardic.pointer(element, { types: ["mouse", "pen", "touch"] })
+        const x = yield* LiveValue.spring(pointer.x, { stiffness: 380, damping: 32 }, skipped)
+        const y = yield* LiveValue.spring(pointer.y, { stiffness: 380, damping: 32 }, skipped)
         yield* feed(x, lensX)
         yield* feed(y, lensY)
-        const place = (event: PointerEvent): void => {
-          const box = element.getBoundingClientRect()
-          registry.set(width, box.width)
-          registry.set(pointerX, event.clientX - box.left)
-          registry.set(pointerY, event.clientY - box.top)
-        }
-        yield* listen(element, "pointermove", place)
-        yield* listen(element, "pointerdown", place)
+        yield* feed(pointer.width, width)
         return Message.Following()
       }),
     ),

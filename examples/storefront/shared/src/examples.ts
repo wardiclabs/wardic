@@ -370,8 +370,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "magnifier",
     foldkit: {
-      note: "On Foldkit the lens's values are Atoms at module scope, bound in `w.Style`: its `x` and `y`, and the custom properties the stylesheet reads. A Mount on the photo springs them after the pointer, which it hears itself, with no Message per move, on the Handle's services through `Wardic.provide`. Reduced motion is an argument of the Mount, and the photo is keyed by it, so a switch mounts it afresh with its springs skipped.",
-      uses: ["LiveValue.spring in a Mount", "Atom.map", "Atoms in w.Style", "WhileHover", "WhileTap", "Wardic.provide"],
+      note: "On Foldkit the lens's values are Atoms at module scope, bound in `w.Style`: its `x` and `y`, and the custom properties the stylesheet reads. A Mount on the photo reads the pointer over it as Live values, `Wardic.pointer`, a finger's too, and springs its place, with no Message per move, on the Handle's services through `Wardic.provide`. Reduced motion is an argument of the Mount, and the photo is keyed by it, so a switch mounts it afresh with its springs skipped.",
+      uses: ["Wardic.pointer", "LiveValue.spring in a Mount", "Atom.map", "Atoms in w.Style", "WhileHover", "WhileTap"],
     },
     area: "live",
     title: "A closer look at the glaze",
@@ -444,8 +444,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "spotlight",
     foldkit: {
-      note: "On Foldkit each card's Mount hears the pointer itself and springs two Atoms of the card's own, at module scope; `LiveValue.transform` maps them to where the light sits, and the card's `w.Style` binds the tilt and the light's custom properties. The hover's variant is the card's own, `w.WhileHover`. Touch never hovers, so on a phone the cards stay still.",
-      uses: ["LiveValue.spring in a Mount", "LiveValue.transform", "custom properties in w.Style and variants", "WhileHover"],
+      note: "On Foldkit each card's Mount reads the pointer over it as Live values, `Wardic.pointer`, a mouse's alone, and two springs follow its place, centred and sent home once it has left (a derived Atom over `inside`); `LiveValue.transform` maps the springs to where the light sits, and the card's `w.Style` binds the tilt and the light's custom properties. The hover's variant is the card's own, `w.WhileHover`. Touch never hovers, so on a phone the cards stay still.",
+      uses: ["Wardic.pointer", "LiveValue.spring in a Mount", "LiveValue.transform", "a derived Atom over inside", "custom properties in w.Style and variants", "WhileHover"],
     },
     area: "live",
     title: "Cards that catch the light",
