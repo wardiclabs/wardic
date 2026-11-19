@@ -30,19 +30,13 @@ import { configOf, dispatcherOf } from "./element.ts"
 import { PresenceMaker, type PresenceMakerShape } from "./keys.ts"
 import { quietLayoutIn } from "./layout.ts"
 import { featureIn, type LivePresence, type Provider, snapshotSpent, type State } from "./services.ts"
-import { isMounted, nearestPresenceElement } from "./tree.ts"
+import { isMounted, nearestPresenceElement, releaseWaiting, type Waiting } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
-/** A child's start, deferred to its presence's next delivery: begun there, or once shown under `wait`; released by its Mount's destroy. */
-interface Pending {
-  readonly element: Element
-  /** Starts the child; returns its release. */
-  readonly begin: () => () => void
-  release: (() => void) | undefined
+/** A child's start, deferred to its presence's next delivery: begun there, or once shown under `wait`; released by its Mount's destroy (a `Waiting` start, `tree.ts`, with its hold). */
+interface Pending extends Waiting {
   /** Cancels its hold, while `wait` holds it. */
   cancel: (() => void) | undefined
-  /** Its Mount destroyed before it began. */
-  gone: boolean
 }
 
 /** A `w.Presence` element's presence: what its children register with, and what its own Mount runs. */
@@ -340,9 +334,8 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
       const entry: Pending = { element: child, begin, release: undefined, cancel: undefined, gone: false }
       pending.push(entry)
       return () => {
-        entry.gone = true
         UndefinedOr.map(entry.cancel, (cancel) => cancel())
-        UndefinedOr.map(entry.release, (release) => release())
+        releaseWaiting(entry)
       }
     },
     mount: (isPaused, offerMessage) => {

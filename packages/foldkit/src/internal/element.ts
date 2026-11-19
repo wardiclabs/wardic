@@ -51,7 +51,7 @@ import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
 import { groupDelivered, reorderItemOf } from "./reorder.ts"
 import { hydrationMounted, type Provider, reducedMotionUnder, type State } from "./services.ts"
-import { configValueOf, dropNode, layoutGroupOf, nodeOf } from "./tree.ts"
+import { configValueOf, dropNode, layoutGroupOf, nodeOf, startUnder } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** An element's config as the spine reads it: what the view delivered, with its merged `style`. */
@@ -271,8 +271,10 @@ const followText = (element: HTMLElement, atom: Config["text"], registry: AtomRe
  * lands at once under it. `offer` sends a callback's Message through the element's Mount Stream.
  * `root` is the Handle's app-wide config. Under a `w.Presence` (decision 29) the element is enrolled
  * with it and starts in the presence's next delivery, after take-overs and holds are decided; else it
- * starts now. Returns the release: the element's teardown, run at its Mount's destroy, before Foldkit
- * removes it.
+ * starts once its nearest `w.*` ancestor has, or now at the top (#848: Foldkit mounts a child before
+ * its parent, and a tree mounted by one patch starts top-down this way, its Variant children's stagger
+ * slots set with every sibling registered). Returns the release: the element's teardown, run at its
+ * Mount's destroy, before Foldkit removes it.
  */
 export const mountElement = (provider: Provider, state: State, element: HTMLElement, paused: () => boolean, offer: (message: unknown) => void, root: WardicConfigValue.WardicConfigValue | undefined): (() => void) => {
   const tag = element.localName
@@ -640,7 +642,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       dropNode(element)
     }
   }
-  return UndefinedOr.match(presence, { onUndefined: begin, onDefined: (p) => p.enroll(element, begin) })
+  return UndefinedOr.match(presence, { onUndefined: () => startUnder(element, begin), onDefined: (p) => p.enroll(element, begin) })
 }
 
 /** Development's word on a render giving an element other controls, or values in their place (#798, Q17): it keeps the ones it mounted with. */
