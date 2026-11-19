@@ -2,6 +2,7 @@ import { DomLive } from "@wardic/dom"
 import * as Effect from "effect/Effect"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
+import * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
@@ -23,8 +24,13 @@ const LINES = [
 // The Live value the bar binds, an Atom at module scope: how far the panel is scrolled, from 0 to 1.
 const progress = Atom.make(0)
 
+const Model = Schema.Struct({})
+type Model = typeof Model.Type
 const Message = defineMessageUnion({ Reading: {} })
 type Message = typeof Message.Type
+
+export const init = (): Model => ({})
+export const update = (model: Model, message: Message) => Message.match(message, { Reading: () => ({ model }) })
 
 /** The panel's Mount: its scroll as Live values (`Wardic.scroll`), fed into `progress` while the panel is on the page. Without `container`, it's the page's. */
 const Read = Mount.define("Read", {
@@ -45,7 +51,7 @@ const Read = Mount.define("Read", {
 })
 
 /** A panel's scroll, shown as a bar across its top: the bar is the scroll itself, with no animation of its own. */
-export const view = (h: HtmlBuilder<Message>): Html => {
+export const view = (_model: Model, h: HtmlBuilder<Message>): Html => {
   const w = wardic.html(h)
   return h.div([h.Class("sample-scroller")], [
     w.div([h.Class("sample-progress"), w.Style({ scaleX: progress })]),

@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
+import * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
@@ -11,8 +12,13 @@ import { wardic } from "~/lib/wardic.ts"
 const x = Atom.make(0)
 const y = Atom.make(0)
 
+const Model = Schema.Struct({})
+type Model = typeof Model.Type
 const Message = defineMessageUnion({ Following: {} })
 type Message = typeof Message.Type
+
+export const init = (): Model => ({})
+export const update = (model: Model, message: Message) => Message.match(message, { Following: () => ({ model }) })
 
 /** Each value of `from`, written into `into`, until the Scope ends. */
 const feed = <A>(from: Atom.Atom<A>, into: Atom.Writable<A, A>) =>
@@ -46,7 +52,7 @@ const Follow = Mount.define("Follow", {
 })
 
 /** A dot that follows the pointer: the pointer sets two Atoms, and two springs follow them. */
-export const view = (h: HtmlBuilder<Message>): Html => {
+export const view = (_model: Model, h: HtmlBuilder<Message>): Html => {
   const w = wardic.html(h)
   return h.div([h.Class("sample-field"), h.OnMount(Follow())], [w.div([h.Class("sample-dot"), w.Style({ x, y })])])
 }

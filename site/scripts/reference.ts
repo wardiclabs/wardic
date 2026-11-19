@@ -23,11 +23,30 @@ const SITE = join(import.meta.dirname, "..")
 const REPO = join(SITE, "..")
 const CONTENT = join(SITE, "src", "content", "reference")
 
-/** Each package referenced: its name in the site's paths, and what its index says it is. */
+/**
+ * Core's files as a dependent's run sees them, its sources or, through the project reference, its built
+ * types: every one but its `unstable/` modules' (#672).
+ */
+const CORE_EXTERNAL = [
+  join(REPO, "packages", "core", "!(src|dist)", "**"),
+  join(REPO, "packages", "core", "{src,dist}", "*"),
+  join(REPO, "packages", "core", "{src,dist}", "!(unstable)", "**"),
+]
+
+/** Dom's files as Foldkit's run sees them (#795): every one, its `unstable/` modules too, which Foldkit's pages name without documenting. */
+const DOM_EXTERNAL = [join(REPO, "packages", "dom", "**")]
+
+/**
+ * Each package referenced: its name in the site's paths, what its index says it is, and the files its
+ * run leaves to other pages, its dependencies', documented on theirs. Core, which dom depends on from
+ * its source, is documented on its own pages: dom's link to them. Not its `unstable/` modules (#672),
+ * which core's pages leave out: dom's Tier 2 faces re-export them (`Report`, `Style`'s starting values),
+ * so dom's pages document them. Foldkit's pages link to core's and dom's both (#795).
+ */
 const PACKAGES = [
-  { dir: "core", name: "@wardic/core", about: "Wardic's engine: animations, gestures, layout projection and the services an Environment provides, free of any framework or platform." },
-  { dir: "dom", name: "@wardic/dom", about: "The browser's Environment for Wardic: its renderer, input, probe, projection system and the services a binding builds on." },
-  { dir: "foldkit", name: "@wardic/foldkit", about: "Wardic for Foldkit: Motion's animations on Foldkit's views, as Effect, through one Handle whose builder makes the `w.*` elements." },
+  { dir: "core", name: "@wardic/core", about: "Wardic's engine: animations, gestures, layout projection and the services an Environment provides, free of any framework or platform.", external: [] },
+  { dir: "dom", name: "@wardic/dom", about: "The browser's Environment for Wardic: its renderer, input, probe, projection system and the services a binding builds on.", external: CORE_EXTERNAL },
+  { dir: "foldkit", name: "@wardic/foldkit", about: "Wardic for Foldkit: Motion's animations on Foldkit's views, as Effect, through one Handle whose builder makes the `w.*` elements.", external: [...CORE_EXTERNAL, ...DOM_EXTERNAL] },
 ] as const
 
 /** Each index's label: the package is typed with Effect's own types, and what that means for its versions (ADR-0008). */
@@ -222,32 +241,13 @@ const LINKED: Readonly<Record<string, string>> = { "@wardic/core": "core", "@war
  * `unstable/` files, or any other package's, stays its name.
  */
 const dependencyLink = (_ref: unknown, _reflection: unknown, _part: unknown, symbol: ReflectionSymbolId | undefined): string | undefined => {
-  const dir = LINKED[symbol?.packageName ?? ""]
+  if (symbol === undefined) return undefined
+  const dir = LINKED[symbol.packageName]
   if (dir === undefined) return undefined
-  const module = /^src\/(\w+)\.ts$/.exec(symbol!.packagePath)?.[1]
+  const module = /^src\/(\w+)\.ts$/.exec(symbol.packagePath)?.[1]
   if (module === undefined) return undefined
-  const name = symbol!.qualifiedName.split(".").at(-1) ?? symbol!.qualifiedName
+  const name = symbol.qualifiedName.split(".").at(-1) ?? symbol.qualifiedName
   return `/reference/${dir}/${slugOf(module)}#${slugOfHeading(name)}`
-}
-
-/**
- * Core's files as dom's run sees them, its sources or, through dom's project reference, its built
- * types: every one but its `unstable/` modules' (#672).
- */
-const CORE_EXTERNAL = [
-  join(REPO, "packages", "core", "!(src|dist)", "**"),
-  join(REPO, "packages", "core", "{src,dist}", "*"),
-  join(REPO, "packages", "core", "{src,dist}", "!(unstable)", "**"),
-]
-
-/** Dom's files as Foldkit's run sees them (#795): every one, its `unstable/` modules too, which Foldkit's pages name without documenting. */
-const DOM_EXTERNAL = [join(REPO, "packages", "dom", "**")]
-
-/** What a package's run documents on other pages, so its own leave it out: its dependencies'. */
-const externalOf = (dir: (typeof PACKAGES)[number]["dir"]): ReadonlyArray<string> => {
-  if (dir === "core") return []
-  if (dir === "dom") return CORE_EXTERNAL
-  return [...CORE_EXTERNAL, ...DOM_EXTERNAL]
 }
 
 /** One package's ready modules as MDX pages in `CONTENT/<dir>`. */
@@ -260,11 +260,8 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const out = mkdtempSync(join(tmpdir(), `wardic-reference-${pkg.dir}-`))
   const app = await Application.bootstrapWithPlugins({
     entryPoints: [join(source, "src", "*.ts")],
-    // Core, which dom depends on from its source, is documented on its own pages: dom's link to them.
-    // Not its `unstable/` modules (#672), which core's pages leave out: dom's Tier 2 faces re-export
-    // them (`Report`, `Style`'s starting values), so dom's pages document them. Foldkit's pages link
-    // to core's and dom's both (#795).
-    externalPattern: ["**/node_modules/**", ...externalOf(pkg.dir)],
+    // Its dependencies' files, documented on their own pages (`PACKAGES`).
+    externalPattern: ["**/node_modules/**", ...pkg.external],
     exclude: [join(source, "src", "index.ts")],
     tsconfig: join(source, "tsconfig.json"),
     plugin: ["typedoc-plugin-markdown", "typedoc-plugin-missing-exports"],

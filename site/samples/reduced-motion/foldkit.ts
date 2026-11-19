@@ -14,7 +14,7 @@ type Model = typeof Model.Type
 const Message = defineMessageUnion({ Set: { setting: Setting }, Move: {}, SystemMotion: { reduced: Schema.Boolean } })
 type Message = typeof Message.Type
 
-/** The visitor's own setting, as their system gives it: read once, in a Command, as the app starts. */
+/** The visitor's own setting, as their system gives it: read once, in a Command, as the app starts (a Subscription on the media query would follow a change). */
 const ReadSystemMotion = Command.define("ReadSystemMotion", {
   messages: [Message.SystemMotion],
   execute: Effect.sync(() => Message.SystemMotion({ reduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches })),
