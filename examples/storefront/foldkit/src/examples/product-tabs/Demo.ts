@@ -47,7 +47,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
         TABS.map((name) =>
           h.button([h.Class("tab"), h.Role("tab"), h.AriaSelected(model.tab === name), h.AriaControls("piece-panel"), h.OnClick(Message.Show({ tab: name }))], [
             name,
-            // One indicator, under whichever tab is selected: its layoutId carries it from tab to tab.
+            // One indicator, under whichever tab is selected: its `w.LayoutId` carries it from tab to tab.
             ...(model.tab === name ? [w.keyed("span")("indicator", [h.Class("tab-indicator"), w.LayoutId("tab-indicator")])] : []),
           ]),
         ),

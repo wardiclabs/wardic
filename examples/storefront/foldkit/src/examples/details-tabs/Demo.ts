@@ -43,7 +43,7 @@ const details = (model: Model, h: HtmlBuilder<Message>, render: Tabs.RenderInfo<
       render.tabs.map((tab) =>
         w.button([...tab.tab, h.Class("tab")], [
           tab.value,
-          // One underline, inside whichever tab is active: its layoutId carries it from tab to tab.
+          // One underline, inside whichever tab is active: its `w.LayoutId` carries it from tab to tab.
           ...(tab.isActive ? [w.keyed("span")("indicator", [h.Class("tab-indicator"), w.LayoutId("details-underline")])] : []),
         ]),
       ),

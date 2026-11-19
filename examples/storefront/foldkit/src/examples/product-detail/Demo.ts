@@ -40,7 +40,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
       [h.Class("product-grid")],
       model.products.map((product) =>
         h.li([], [
-          // Each part of the card has a twin in the detail view: the same layoutId.
+          // Each part of the card has a twin in the detail view: the same `w.LayoutId`.
           w.button([h.Class("product-card"), w.LayoutId(`card-${product.id}`), h.OnClick(Message.Open({ product })), h.AriaLabel(`Open ${product.name}`)], [
             photo(h, product),
             h.div([h.Class("line")], [
