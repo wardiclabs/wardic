@@ -93,9 +93,10 @@ const observe = (provider: Provider, state: State, projection: ProjectionSystem.
       }
     }
     if (Arr.every(records, isQuietChange)) return
-    // A microtask on (#840): the presences' observers, made after this one, are told after it, and the
-    // pass would measure a `popLayout` leaver where the patch pushed it, before its presence pins it; a
-    // microtask later they have delivered, and the pass is still in the patch's task.
+    // A microtask on (#840): a presence's observer, made at its mount, is told after this one when this
+    // one came first, and the pass would measure a `popLayout` leaver where the patch pushed it, before
+    // its presence pins it; a microtask later every presence has delivered, and the pass is still in the
+    // patch's task.
     queueMicrotask(() => {
       // The pass's first step paints in the patch's frame (decision 32; #792, Q7), unless replay has a view (decision 34).
       hintFrameUnless(provider.loop, provider.paused)

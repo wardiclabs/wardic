@@ -134,7 +134,7 @@ const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, 
   const folded = fold(attributes)
   if (DEV && Predicate.isNotUndefined(folded.config.text) && Predicate.isNotUndefined(children) && children.length > 0) throw new Error(TEXT_WITH_CHILDREN)
   // A `popLayout` presence rendering (#840): every live one's children measured now, before this render's patch moves a leaver.
-  if (Bool.not(IS_SERVER) && isPopLayout(folded.config.presence)) snapshotPopLayouts(state)
+  if (!IS_SERVER && isPopLayout(folded.config.presence)) snapshotPopLayouts(state)
   const node = brandViewResult<Html>(make(wardAttributes(state, h, tag, folded) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
   if (IS_SERVER && DEV) noteServerRender(state, Predicate.isNotUndefined(folded.provider))
   // The Provider element's subtree exists by now, children before their parent: each Variant child's

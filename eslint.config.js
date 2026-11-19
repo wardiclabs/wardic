@@ -71,14 +71,14 @@ const BRANCHES = [
   ),
   // #518: `Bool.match(isServer, …)` kept the server render's code in every Solid 2 client bundle.
   restrict(
-    // The flag as an argument, as `!flag`, or as the end of a member (`import.meta.env.DEV`).
+    // The flag as an argument, as `!flag`, or as the end of a member (`import.meta.env.DEV`); Foldkit's binding names its `IS_SERVER` (#840).
     [
-      "CallExpression[callee.object.name='Bool'] > Identifier[name=/^(isServer|DEV)$/]",
-      "CallExpression[callee.object.name='Bool'] > UnaryExpression > Identifier[name=/^(isServer|DEV)$/]",
-      "CallExpression[callee.object.name='Bool'] > MemberExpression > Identifier.property[name=/^(isServer|DEV)$/]",
-      "CallExpression[callee.object.name='Bool'] > UnaryExpression > MemberExpression > Identifier.property[name=/^(isServer|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > Identifier[name=/^(isServer|IS_SERVER|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > UnaryExpression > Identifier[name=/^(isServer|IS_SERVER|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > MemberExpression > Identifier.property[name=/^(isServer|IS_SERVER|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > UnaryExpression > MemberExpression > Identifier.property[name=/^(isServer|IS_SERVER|DEV)$/]",
     ].join(", "),
-    "Test a build-time flag (isServer, DEV) in a plain if or &&: a bundler drops only the side a literal test rules out, and a Bool call keeps both in every build",
+    "Test a build-time flag (isServer, IS_SERVER, DEV) in a plain if or &&: a bundler drops only the side a literal test rules out, and a Bool call keeps both in every build",
   ),
 ]
 

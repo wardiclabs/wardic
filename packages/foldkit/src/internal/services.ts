@@ -138,8 +138,8 @@ export interface State {
   pending: number
   /** The live `w.Presence`s (#840), each with what the Handle calls on it: see {@link LivePresence}. */
   readonly presences: Set<LivePresence>
-  /** Whether the presences' snapshots have been taken in this task (#840): once a render, cleared a microtask later or at a delivery. */
-  snapshotting: boolean
+  /** Whether the live presences' snapshots stand (#840): taken by {@link snapshotPopLayouts}, spent by {@link snapshotSpent}. */
+  snapshotted: boolean
 }
 
 /**
@@ -155,17 +155,25 @@ export interface LivePresence {
 
 /**
  * Every live `popLayout` presence's children measured where they are (#840): called as a view renders a
- * `w.Presence({ mode: "popLayout" })` element, before that render's patch, once a task. A presence's
- * delivery comes a microtask after the patch, when a sibling the patch put in has already moved a leaver,
- * so the box to pin the leaver at is read here, as Motion's `PopChild` reads it before React's update.
+ * `w.Presence({ mode: "popLayout" })` element, before that render's patch. A presence's delivery comes a
+ * microtask after the patch, when a sibling the patch put in has already moved a leaver, so the box to
+ * pin the leaver at is read here, as Motion's `PopChild` reads it before React's update. Taken once for
+ * every such element a view renders: the snapshots stand until a microtask later, when the patch's
+ * deliveries have had them, or until a delivery spends them ({@link snapshotSpent}), so a render after
+ * it in the same task, as a Mount's message brings, measures afresh.
  */
 export const snapshotPopLayouts = (state: State): void => {
-  if (state.snapshotting) return
-  state.snapshotting = true
-  queueMicrotask(() => {
-    state.snapshotting = false
-  })
+  if (state.snapshotted) return
   Iter.forEach(state.presences, (presence) => presence.snapshot())
+  state.snapshotted = true
+  queueMicrotask(() => {
+    state.snapshotted = false
+  })
+}
+
+/** The live presences' snapshots spent (#840): what a presence's delivery says as it tells its controller what's shown, which pins at the snapshot and clears it. */
+export const snapshotSpent = (state: State): void => {
+  state.snapshotted = false
 }
 
 /** Every live presence's delivery run now (#840): what a `w.*` element's Mount does before the element registers anything. */
@@ -300,7 +308,7 @@ export const makeState = (options: MakeOptions<Feature.InstanceFeaturesProp>): S
   hydrating: false,
   pending: 0,
   presences: new Set(),
-  snapshotting: false,
+  snapshotted: false,
 })
 
 /**

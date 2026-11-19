@@ -222,14 +222,17 @@ describe("w.Presence({ mode: \"popLayout\" }) across a page swap, a layoutId bet
   const PageMessage = defineMessageUnion({ Show: { page: PageName } })
   type PageMessage = typeof PageMessage.Type
   const laid = Wardic.make({ env: DomLive, features: [Features.layout, Features.presence] })
-  // The photo's flight, the catalogue's: along an arc, whose start is set as the handover begins and not moved by the pass that follows.
+  // The photo's flight, the catalogue's: along an arc.
   const FLIGHT = { layout: { type: "tween", duration: 0.6, ease: "linear", path: arc({ strength: 0.25 }) } } as const
 
   /**
    * Two pages under one popLayout presence: the list with a small card, and the item, taller, with the
    * card's twin as its hero at its top, keyed under a presence of its own (the storefront's catalogue,
-   * whose "Next piece" slides the content). That inner presence starts the hero at its own mount, in the
-   * patch's task, before the outer presence's observer is told.
+   * whose "Next piece" slides the content). In the storefront that inner presence starts the hero at its
+   * own mount, in the patch's task, before the outer presence's observer is told, and the hero's flight
+   * kept the card's box as the patch pushed it (#840). This harness's pass corrects such a start, so the
+   * case holds with the Mount's flush and without it: it guards the pin and the handover's shape; the
+   * flush is pinned by the storefront's catalogue probed in Chromium (#840).
    */
   const pages = (model: Page, h: HtmlBuilder<PageMessage>): Html => {
     const w = laid.html(h)
@@ -251,14 +254,14 @@ describe("w.Presence({ mode: \"popLayout\" }) across a page swap, a layoutId bet
     ])
   }
 
-  it("the hero starts at the card's box and the list is pinned where it was, as the item enters above it", async () => {
+  it("the hero is at the card's box as its flight begins and the list is pinned where it was, as the item enters above it", async () => {
     const held = embed<Page, PageMessage, Page["page"]>({ Model: Page, Set: PageName, init: { page: "list" }, update: (model, message) => PageMessage.match(message, { Show: ({ page }) => ({ model: { ...model, page } }) }), view: pages, toMessage: (page) => PageMessage.Show({ page }) })
     app = held
     const card = await boxOf(held, "card")
     await frames(2)
     const from = card.getBoundingClientRect()
     // The item goes in before the list in the DOM: the list, 240 px lower until it's pinned, is where a
-    // measurement after the patch finds the card. The hero registering in its Mount measures its twin then.
+    // measurement after the patch finds the card.
     held.send("item")
     await until(() => held.container.querySelector("#hero") !== null, 2000, "the item enters")
     await frames(2)

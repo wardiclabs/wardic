@@ -70,10 +70,12 @@ const wardicPart =
         count()
         const left = joined(state, on, element)
         const isPaused = (): boolean => paused
-        // The live presences deliver before this element registers anything (#840): a Mount runs in the
-        // patch's task, before their observers are told, and a presence this element carries starts its
-        // children at its own mount, a `layoutId` twin among them, which measures the one it takes over
-        // from where it is then: in a `popLayout` leaver an outer presence hasn't pinned yet.
+        // The live presences deliver before this element registers anything (#840): Foldkit runs a Mount
+        // in the patch's task, once the patch has committed and before the observers are told, and a
+        // presence this element carries starts its children at its own mount, a `layoutId` twin among
+        // them, which measures the one it takes over from where it is then: in a `popLayout` leaver an
+        // outer presence hasn't pinned yet. Delivered before this element's key is registered, a key
+        // re-entering during its exit is matched at the delivery its enrollment brings, a microtask on.
         flushPresences(state)
         const release = mountElement(on, state, element as HTMLElement, isPaused, offer, state.rootConfig)
         markMounted(element)
