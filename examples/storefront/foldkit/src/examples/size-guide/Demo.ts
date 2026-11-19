@@ -58,7 +58,7 @@ const guide = (model: Model, h: HtmlBuilder<Message>, render: Dialog.RenderInfo)
             w.keyed("div")("guide", [...render.panel, h.Class("size-guide"), w.Initial(rise.initial), w.Animate(rise.animate), w.Exit(rise.exit), w.Transition(rise.transition)], [
               h.header([], [h.h2([...render.title], ["Size guide"]), h.button([...render.closeButton, h.Class("icon-button"), h.AriaLabel("Close")], ["✕"])]),
               h.p([...render.description, h.Class("muted")], ["Height × width, or across for plates and bowls."]),
-              h.table([h.Class("size-table")], [h.tbody([], model.pieces.map((piece) => h.tr([], [h.th([h.Attribute("scope", "row")], [piece.name]), h.td([], [piece.details[0]])])))]),
+              h.table([h.Class("size-table")], [h.tbody([], model.pieces.map((piece) => h.tr([], [h.th([h.Scope("row")], [piece.name]), h.td([], [piece.details[0]])])))]),
             ]),
           ]
         : [],

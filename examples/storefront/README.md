@@ -62,7 +62,7 @@ The header's switches:
 - **The theme** cycles system, light and dark.
 - **⚙ (the store)** sets the delay on each request (300 ms to start with), or makes the next request fail, so loading states and rollbacks show when you want them.
 
-Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow network would, or `?hydrate=off`, to never hydrate, as with JavaScript off: what plays before the JavaScript then shows on its own. Solid 2's `src/client-setup.ts` is the plugin's `start.clientSetup`, which its generated entry awaits before `hydrate()` (its start mode takes an authored client entry only with an authored server entry beside it); Solid 1's `src/entry-client.tsx` waits before it mounts.
+Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow network would, or `?hydrate=off`, to never hydrate, as with JavaScript off: what plays before the JavaScript then shows on its own. Solid 2's `src/client-setup.ts` is the plugin's `start.clientSetup`, which its generated entry awaits before `hydrate()` (its start mode takes an authored client entry only with an authored server entry beside it); the Foldkit app's `src/entry.ts` waits before `wardic.hydrate`; Solid 1's `src/entry-client.tsx` waits before it mounts.
 
 ## Deploy it
 
@@ -94,11 +94,12 @@ Each page's screenshot lands in the app's `.smoke/`.
 ## Add an example
 
 1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, the selector the smoke test watches, and what it does first, if anything (a selector to click, `drag:<selector>:<dx>:<dy>`, or `scroll:<selector>:<dy>`).
-2. Its demo goes in each app's `src/examples/<id>/Demo.tsx`. That file is what the page shows as the code, so keep it about the pattern.
-   Its elements are the Slim one, `w.*`: the provider gives every page `domAnimation` alone, and `strict` makes a Complete element an error in development (#526). A demo that lays out or drags brings `layout` or `drag` itself, wrapping its markup in `<LazyWardic features={[layout]}>`, so the pages that don't never load them.
-3. Its route goes in `src/routes/<area>/<id>.tsx`, which renders `<ExamplePage id="<id>" demo={Demo} />`.
+2. Its demo goes in each app's `src/examples/<id>/Demo.tsx` (`Demo.ts` in the Foldkit app: a page module, `definePage`, with its own Model, Messages, `update` and `view`). That file is what the page shows as the code, so keep it about the pattern.
+   In the Solid apps its elements are the Slim one, `w.*`: the provider gives every page `domAnimation` alone, and `strict` makes a Complete element an error in development (#526). A demo that lays out or drags brings `layout` or `drag` itself, wrapping its markup in `<LazyWardic features={[layout]}>`, so the pages that don't never load them. The Foldkit app has one Handle for the whole program, with every Feature.
+3. In the Solid apps its route goes in `src/routes/<area>/<id>.tsx`, which renders `<ExamplePage id="<id>" demo={Demo} />`.
    An example whose demo is pages of its own (the catalogue, #479) makes that route a layout instead: it renders `<ExamplePage>` with a demo around its outlet, `props.children`, and its pages go in `src/routes/<area>/<id>/`.
-4. An example for one binding's pattern alone (Solid 2's `<Loading>` in a page, say) names its apps in `apps`: only their galleries list it and their smoke tests open it.
+   The Foldkit app lists the page in `src/pages.ts`; its route is the app's parser's, `/<area>/<id>`, and the catalogue's pieces are a route of their own under it.
+4. An example for one binding's pattern alone (Solid 2's `<Loading>` in a page, say) names its apps in `apps`: only their galleries list it and their smoke tests open it. Where the Foldkit form differs in words, its entry's `foldkit` says so: a `note` shown above the code, and its own `title`, `summary`, `uses` or `tradeoffs` where the shared ones don't hold.
 
 ## The photos
 

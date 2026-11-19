@@ -17,7 +17,7 @@ import { init, routing, view } from "~/app.ts"
 import { Flags, type Prefs, REDUCE_MOTION_COOKIE, Theme, THEME_COOKIE } from "~/model.ts"
 import { pageOf } from "~/pages.ts"
 import { rpc, VISITOR_COOKIE, visitorOf } from "~/rpc/server.ts"
-import { urlToRoute } from "~/routes.ts"
+import { exampleOf, urlToRoute } from "~/routes.ts"
 import { Shop } from "~/shop.ts"
 import { shopFor } from "~/shop/live.ts"
 
@@ -45,7 +45,8 @@ const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs): Effect.Effe
     const settings = yield* Effect.orElseSucceed(shop.getSettings, () => DEFAULT_SETTINGS)
     const cart = yield* Effect.orElseSucceed(shop.getCart, () => ({ lines: [] }))
     const route = urlToRoute(url)
-    const forExample = route._tag === "Example" ? Option.map(pageOf(route.id), (page) => ({ id: route.id, page })) : Option.none()
+    // The example under the route, a piece's included: every route is server-rendered with its page's data.
+    const forExample = Option.flatMap(exampleOf(route), ({ id }) => Option.map(pageOf(id), (page) => ({ id, page })))
     const page = yield* Option.match(forExample, {
       onNone: () => Effect.succeed(null),
       onSome: ({ id, page }) => Effect.orElseSucceed(Effect.map(page.load, (data: unknown) => ({ id, data })), () => null),

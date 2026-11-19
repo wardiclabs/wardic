@@ -44,8 +44,9 @@ type Message = typeof Message.Type
 /**
  * The photo's Mount: the lens follows the pointer on a spring, so it glides after it and settles where
  * it stops. The springs are made on Wardic's services for as long as the photo is on the page, and
- * the lens's Atoms follow them. One `pointermove` hears a mouse over the photo and a finger pressing
- * and dragging on it (`touch-action: none` keeps the page from scrolling under it). Under reduced
+ * the lens's Atoms follow them. `pointermove` hears a mouse over the photo and a finger dragging on
+ * it, and `pointerdown` a finger's press where it lands, since a finger never hovers
+ * (`touch-action: none` keeps the page from scrolling under it). Under reduced
  * motion the lens doesn't glide, it's where the pointer is: a live value is yours, so Wardic's
  * reduced motion leaves it alone, and the springs jump instead.
  */
@@ -61,12 +62,14 @@ const Follow = Mount.define("MagnifierFollow", {
         const y = yield* LiveValue.spring(pointerY, { stiffness: 380, damping: 32 }, skipped)
         yield* feed(x, lensX)
         yield* feed(y, lensY)
-        yield* listen(element, "pointermove", (event) => {
+        const place = (event: PointerEvent): void => {
           const box = element.getBoundingClientRect()
           registry.set(width, box.width)
           registry.set(pointerX, event.clientX - box.left)
           registry.set(pointerY, event.clientY - box.top)
-        })
+        }
+        yield* listen(element, "pointermove", place)
+        yield* listen(element, "pointerdown", place)
         return Message.Following()
       }),
     ),
@@ -81,7 +84,7 @@ const view = defineView<Model, Message, PageEnv>((_model, env, h) => {
       `photo-${String(env.reduceMotion)}`,
       [h.Class("magnifier-photo"), h.OnMount(Follow({ reduced: env.reduceMotion })), w.Variants(frame), w.Initial("rest"), w.Animate("rest"), w.WhileHover("looking"), w.WhileTap("looking")],
       [
-        h.img([h.Src(photo.large), h.Width(String(photo.width)), h.Height(String(photo.height)), h.Alt("The Lagoon Vase, up close"), h.Attribute("draggable", "false")]),
+        h.img([h.Src(photo.large), h.Width(String(photo.width)), h.Height(String(photo.height)), h.Alt("The Lagoon Vase, up close"), h.Draggable(false)]),
         w.div([
           h.Class("lens"),
           h.AriaHidden(true),

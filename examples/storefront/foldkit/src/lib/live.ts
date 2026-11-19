@@ -22,10 +22,14 @@ export const onWardic = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.prov
 /**
  * A scroll as Live values (`Wardic.scroll`, Motion's `useScroll`): the page's, or `container`'s,
  * with Motion's `target` and `offset`, read until the Scope ends. The shop's Handle names
- * `Features.scroll`, so the binding's `ScrollFailed` can't come here: were it to, that's a defect
- * of the app's wiring, not a case a page handles.
+ * `Features.scroll` among Features given, not loaded, so the binding's `ScrollFailed` can't come
+ * here: were it to, that's a defect of the app's wiring, not a case a page handles.
  */
 export const scroll = (options?: Wardic.ScrollOptions): Effect.Effect<LiveValue.ScrollValues, never, Wardic.Wardic | Scope.Scope> => Effect.orDie(Wardic.scroll(options))
+
+// ADR-0071, decision 16: Atoms at module scope, here one set per item of several.
+/** One `make()` per key: the Live values of each of several items, which a view binds by the item's key and the item's Mount feeds. */
+export const perKey = <A>(keys: ReadonlyArray<string>, make: () => A): Readonly<Record<string, A>> => Object.fromEntries(keys.map((key) => [key, make()]))
 
 /** Each value of `from`, written into `into`, which a view binds, until the Scope ends. */
 export const feed = <A>(from: Atom.Atom<A>, into: Atom.Writable<A, A>): Effect.Effect<void, never, AtomRegistry.AtomRegistry | Scope.Scope> =>

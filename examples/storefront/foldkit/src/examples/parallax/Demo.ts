@@ -7,17 +7,18 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import { defineView } from "foldkit/submodel"
-import { feed, onWardic, scroll } from "~/lib/live.ts"
+import { feed, onWardic, perKey, scroll } from "~/lib/live.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 
-/** A banner's Live values, Atoms at module scope (ADR-0071, decision 16): how far its photo and its words have drifted, which the view binds and the banner's Mount feeds. */
+// ADR-0071, decision 16: Atoms at module scope, one set a banner.
+/** A banner's Live values: how far its photo and its words have drifted, which the view binds and the banner's Mount feeds. */
 interface Drift {
   readonly photoY: Atom.Writable<number>
   readonly wordsY: Atom.Writable<number>
 }
 
-const BANNERS: Readonly<Record<string, Drift>> = Object.fromEntries(LOOKBOOK.map((collection) => [collection.photo, { photoY: Atom.make(0), wordsY: Atom.make(0) }]))
+const BANNERS = perKey(LOOKBOOK.map((collection) => collection.photo), (): Drift => ({ photoY: Atom.make(0), wordsY: Atom.make(0) }))
 
 const Data = Schema.Struct({})
 const Model = Schema.Struct({})
@@ -38,7 +39,6 @@ const Depth = Mount.define("LookbookDepth", {
     onWardic(
       Effect.gen(function* () {
         const drift = BANNERS[key]
-        if (drift === undefined) return Message.Drifting()
         const { scrollYProgress } = yield* scroll({ container: element.parentElement, target: element, offset: ["start end", "end start"] })
         const depth = (travel: number) => (progress: number) => {
           if (reduced) return 0
@@ -57,13 +57,13 @@ const banner = (h: HtmlBuilder<Message>, env: PageEnv, collection: Collection): 
   const photo = photoOf(collection.photo)
   // Keyed by the reduced-motion setting: the switch mounts the banner afresh, and its Mount reads the setting once.
   return h.keyed("section")(`${collection.photo}-${String(env.reduceMotion)}`, [h.Class("lookbook-banner"), h.OnMount(Depth({ key: collection.photo, reduced: env.reduceMotion }))], [
-    w.img([h.Class("lookbook-photo"), ...(drift === undefined ? [] : [w.Style({ y: drift.photoY })]), h.Src(photo.large), h.Srcset(srcsetOf(photo)), h.Sizes("(max-width: 640px) 100vw, 720px"), h.Alt("")]),
-    w.div([h.Class("lookbook-words"), ...(drift === undefined ? [] : [w.Style({ y: drift.wordsY })])], [h.h3([], [collection.title]), h.p([], [collection.blurb])]),
+    w.img([h.Class("lookbook-photo"), w.Style({ y: drift.photoY }), h.Src(photo.large), h.Srcset(srcsetOf(photo)), h.Sizes("(max-width: 640px) 100vw, 720px"), h.Alt("")]),
+    w.div([h.Class("lookbook-words"), w.Style({ y: drift.wordsY })], [h.h3([], [collection.title]), h.p([], [collection.blurb])]),
   ])
 }
 
 const view = defineView<Model, Message, PageEnv>((_model, env, h) =>
-  h.div([h.Class("lookbook"), h.Attribute("tabindex", "0"), h.AriaLabel("The lookbook")], LOOKBOOK.map((collection) => banner(h, env, collection))),
+  h.div([h.Class("lookbook"), h.Tabindex(0), h.AriaLabel("The lookbook")], LOOKBOOK.map((collection) => banner(h, env, collection))),
 )
 
 export default definePage({

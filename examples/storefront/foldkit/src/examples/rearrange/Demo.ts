@@ -29,8 +29,9 @@ const Room = Mount.define("RearrangeRoom", {
   execute: ({ element, slow }) =>
     Effect.gen(function* () {
       const pressedAt = performance.now()
-      // A Mount's element is an Element; the host is a div, which a Foldkit program's container must be.
-      if (!(element instanceof HTMLElement)) return Message.Arrived({ ms: 0 })
+      // A Mount's element is an Element; the host is a div, which a Foldkit program's container must
+      // be, so anything else is a defect of the page's own.
+      if (!(element instanceof HTMLElement)) return yield* Effect.die(new Error("rearrange: the room's host isn't an HTMLElement"))
       if (slow) yield* Effect.sleep(HOLD_MS)
       const { mount } = yield* Effect.promise(() => import("./room.ts"))
       yield* Effect.acquireRelease(
@@ -41,17 +42,19 @@ const Room = Mount.define("RearrangeRoom", {
     }),
 })
 
+type State = "still" | "loading" | "arrived"
+
 /** The plan's state, which the stylesheet reads: the pieces aren't handles until the room has arrived. */
-const stateOf = (model: Model): "still" | "loading" | "arrived" => {
+const stateOf = (model: Model): State => {
   if (!model.wanted) return "still"
   if (model.arrivedIn === null) return "loading"
   return "arrived"
 }
 
-const status = (h: HtmlBuilder<Message>, model: Model): ReadonlyArray<Html | string> => {
-  if (!model.wanted) return ["The room's program isn't loaded: the pieces stay put."]
-  if (model.arrivedIn === null) return ["Loading the room… a drag now does nothing."]
-  return [`The room arrived in ${model.arrivedIn} ms, `, h.code([], ["drag"]), " on a Handle of its own."]
+const status = (h: HtmlBuilder<Message>, state: State, arrivedIn: number | null): ReadonlyArray<Html | string> => {
+  if (state === "still") return ["The room's program isn't loaded: the pieces stay put."]
+  if (state === "loading") return ["Loading the room… a drag now does nothing."]
+  return [`The room arrived in ${String(arrivedIn)} ms, `, h.code([], ["drag"]), " on a Handle of its own."]
 }
 
 const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
@@ -61,7 +64,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
     h.div([h.Class("lazy-bar")], [
       w.button([h.Class("button accent rearrange"), h.Disabled(model.wanted), w.WhileHover({ y: -1 }), w.WhileTap({ scale: 0.97 }), h.OnClick(Message.Rearrange())], ["Rearrange"]),
       h.label([h.Class("switch")], [h.input([h.Type("checkbox"), h.Checked(model.slow), h.Disabled(model.wanted), h.OnClick(Message.SetSlow({ on: !model.slow }))]), h.span([], ["Slow connection"])]),
-      h.output([h.Class("lazy-status"), h.AriaLive("polite")], status(h, model)),
+      h.output([h.Class("lazy-status"), h.AriaLive("polite")], status(h, state, model.arrivedIn)),
     ]),
     h.div([h.Class("room-frame")], [
       h.div([h.Class("room-plan"), h.DataAttribute("drag", state)], [

@@ -37,10 +37,18 @@ export interface Example {
   /**
    * The Foldkit app's words (#795), where the Foldkit form differs: what differs from the Solid apps'
    * (Commands and Messages where Solid has actions and signals), shown above the code on its page alone;
-   * and, where this example's `title` or `summary` doesn't hold on Foldkit, its own. Its code is that
-   * app's `src/examples/<id>/`.
+   * and, where this example's `title`, `summary`, `uses` or `tradeoffs` don't hold on Foldkit, its own.
+   * Its code is that app's `src/examples/<id>/`.
    */
-  readonly foldkit?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined; readonly uses?: ReadonlyArray<string> | undefined } | undefined
+  readonly foldkit?:
+    | {
+        readonly note: string
+        readonly title?: string | undefined
+        readonly summary?: string | undefined
+        readonly uses?: ReadonlyArray<string> | undefined
+        readonly tradeoffs?: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> } | undefined
+      }
+    | undefined
   /**
    * What the pattern gains and what it costs, where it's a trade (#526 Q6): two short lists, shown
    * under "Why" in every app.
@@ -558,6 +566,18 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       summary: "The room's pieces stay put until you press Rearrange. Only then does the page fetch the room's own program, with a Handle of its own, and the card says how long it took to arrive.",
       note: "On Foldkit the room is a Foldkit program of its own (`Runtime.makeElement`), with its own Handle naming `drag` alone, in a module the page imports when you press Rearrange: a Mount on the plan embeds it (`Runtime.embed`) and disposes it when the plan goes. The shop's one Handle has `drag` already, since its other rooms drag on it, so what the press fetches is the room's program, and the card times that; \"Slow connection\" holds the import back.",
       uses: ["Runtime.makeElement", "Runtime.embed from a Mount", "a Handle of its own: Features.drag", "import() on the press", "Drag", "DragConstraints"],
+      tradeoffs: {
+        gains: [
+          "A smaller first load: the room's program and its Handle, under 1 KB gzipped here, are fetched on the press.",
+          "The cost only on intent: a visitor who never rearranges never fetches them.",
+          "The server's render is unchanged: the room is there, in place, before any script runs.",
+        ],
+        costs: [
+          "Until the program arrives, the pieces aren't handles, and nothing is replayed: a drag begun mid-load is lost.",
+          "One more request, made just as the visitor wants to drag.",
+          "A second Handle on the page, with Features and services of its own; and `drag`'s code is the shop's already, so the bytes saved are the program's alone.",
+        ],
+      },
     },
     area: "shipping",
     title: "Rearrange the room: drag loads when you ask",

@@ -11,7 +11,7 @@ import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import { defineView } from "foldkit/submodel"
 import { LiveValue } from "@wardic/foldkit"
-import { feed, listen, onWardic } from "~/lib/live.ts"
+import { feed, listen, onWardic, perKey } from "~/lib/live.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 
@@ -26,7 +26,8 @@ const lighting = {
   lit: { "--light": 1 },
 } as const
 
-/** A card's Live values, Atoms at module scope (ADR-0071, decision 16), one set a card. */
+// ADR-0071, decision 16: Atoms at module scope, one set a card.
+/** A card's Live values. */
 interface CardValues {
   /** Where the pointer is over the card, from -1 to 1 across and down: 0, 0 at its centre. The card's Mount writes them. */
   readonly across: Atom.Writable<number>
@@ -39,7 +40,7 @@ interface CardValues {
 }
 
 const cardValues = (): CardValues => ({ across: Atom.make(0), down: Atom.make(0), rotateX: Atom.make(0), rotateY: Atom.make(0), lightX: Atom.make("50%"), lightY: Atom.make("50%") })
-const CARDS: Readonly<Record<string, CardValues>> = Object.fromEntries(SHELF.map((product) => [product.id, cardValues()]))
+const CARDS = perKey(SHELF.map((product) => product.id), cardValues)
 
 const Data = Schema.Struct({})
 const Model = Schema.Struct({})
@@ -61,7 +62,6 @@ const Tilt = Mount.define("SpotlightTilt", {
     onWardic(
       Effect.gen(function* () {
         const values = CARDS[id]
-        if (values === undefined) return Message.Lit()
         const registry = yield* AtomRegistry.AtomRegistry
         const skipped = () => reduced
         const springAcross = yield* LiveValue.spring(values.across, { stiffness: 260, damping: 22 }, skipped)
@@ -105,7 +105,7 @@ const card = (h: HtmlBuilder<Message>, env: PageEnv, product: Product): Html => 
         w.Initial("rest"),
         w.Animate("rest"),
         w.WhileHover("lit"),
-        ...(values === undefined ? [] : [w.Style({ rotateX: values.rotateX, rotateY: values.rotateY, "--light-x": values.lightX, "--light-y": values.lightY })]),
+        w.Style({ rotateX: values.rotateX, rotateY: values.rotateY, "--light-x": values.lightX, "--light-y": values.lightY }),
       ],
       [
         h.div([h.Class("photo")], [h.img([h.Src(photo.small), h.Srcset(srcsetOf(photo)), h.Sizes("(max-width: 640px) 100vw, 240px"), h.Width(String(photo.width)), h.Height(String(photo.height)), h.Alt(product.name)])]),

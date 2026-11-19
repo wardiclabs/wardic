@@ -87,7 +87,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
           itemToConfig: (order) => ({ className: "select-item", content: h.span([], [order]) }),
           ariaLabel: "Sort by",
           buttonClassName: "select-trigger",
-          buttonContent: h.span([], [h.span([h.Class("muted")], ["Sort by"]), ` ${model.order} `, h.span([h.Attribute("aria-hidden", "true")], ["⌄"])]),
+          buttonContent: h.span([], [h.span([h.Class("muted")], ["Sort by"]), ` ${model.order} `, h.span([h.AriaHidden(true)], ["⌄"])]),
           // The Bundle, `w.attributes`: Wardic's attributes for an element the library renders, its button's press.
           buttonAttributes: childAttributes(w.attributes({ whileHover: { y: -1 }, whileTap: { scale: 0.97 } })),
           itemsClassName: "select-list",

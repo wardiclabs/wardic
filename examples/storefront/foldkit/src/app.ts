@@ -24,7 +24,7 @@ import { wardic } from "~/lib/wardic.ts"
 import { type Arrival, type Flags, Message, type Model, type PageState, Prefs, REDUCE_MOTION_COOKIE, Theme, THEME_COOKIE } from "~/model.ts"
 import type { AnyPage, PageEnv, PageOut, PageServices } from "~/page.ts"
 import { pageOf, PAGES } from "~/pages.ts"
-import { AppRoute, exampleOf, urlToRoute } from "~/routes.ts"
+import { AppRoute, CATALOGUE, exampleOf, urlToRoute } from "~/routes.ts"
 import { Shop } from "~/shop.ts"
 import { ShopClient } from "~/shop/client.ts"
 import { asked } from "~/shop/text.ts"
@@ -126,7 +126,7 @@ const entering = (model: Model, route: AppRoute): Return =>
     Home: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
     NotFound: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
     Example: ({ area, id }): Return => enteringExample(model, route, id, `/${area}/${id}`),
-    Piece: ({ area, id, piece }): Return => enteringExample(model, route, id, `/${area}/${id}/${piece}`),
+    Piece: ({ piece }): Return => enteringExample(model, route, CATALOGUE.id, `/${CATALOGUE.area}/${CATALOGUE.id}/${piece}`),
   })
 
 /** What the app gives a page: whether motion is reduced, by the system or the header's switch (#388), the visitor's name, the route's piece and the URL's query. */
@@ -140,7 +140,8 @@ const envOf = (model: Model): PageEnv => ({
 /** The URL's query, as the Model keeps it: `""` without one. */
 const queryOf = (url: Url.Url): string => Option.getOrElse(url.search, () => "")
 
-/** Whether a link asks for a full page load: one with `?hydrate=`, whose point is the server's render and when the JavaScript takes over (the before-hydration page, #388). */
+// #388: the before-hydration page's links.
+/** Whether a link asks for a full page load: one with `?hydrate=`, whose point is the server's render and when the JavaScript takes over. */
 const asksFullLoad = (url: Url.Url): boolean => Option.match(url.search, { onNone: () => false, onSome: (search) => new URLSearchParams(search).has("hydrate") })
 
 /** What a page told the app, applied: the cart, or a piece's twin in the cart button, arriving or recalled. */
@@ -279,7 +280,7 @@ const content = (model: Model, h: HtmlBuilder<Message>) =>
   AppRoute.match(model.route, {
     Home: () => gallery(h),
     Example: ({ id }) => examplePage(model, h, id, envOf(model)),
-    Piece: ({ id }) => examplePage(model, h, id, envOf(model)),
+    Piece: () => examplePage(model, h, CATALOGUE.id, envOf(model)),
     NotFound: () => notFound(h),
   })
 

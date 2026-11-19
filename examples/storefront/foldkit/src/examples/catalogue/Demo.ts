@@ -25,7 +25,7 @@ const PIECES = PRODUCTS.slice(0, 6)
 const HOME = "/transitions/catalogue"
 
 const pieceOf = (id: string): Product | undefined => PIECES.find((piece) => piece.id === id)
-const nextOf = (piece: Product): Product => PIECES[(PIECES.indexOf(piece) + 1) % PIECES.length] as Product
+const nextOf = (piece: Product): Product => PIECES[(PIECES.indexOf(piece) + 1) % PIECES.length]
 
 // Each page fades in and out; what the two share flies on top of that.
 const page = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { type: "tween", duration: 0.25 } } as const
@@ -90,8 +90,9 @@ const photo = (h: HtmlBuilder<Message>, piece: Product, sizes: string): Html => 
   ])
 }
 
+// #439: a press of the button's own.
 /**
- * A card's "Add" (#439): its press is its own (`Propagate({ tap: false })`), so the card around it
+ * A card's "Add": its press is its own (`Propagate({ tap: false })`), so the card around it
  * doesn't squeeze as it's pressed. It sits beside the card's link, not in it, so a click on it opens
  * nothing: `Propagate` keeps a press from the card's, not a click from the link's.
  */

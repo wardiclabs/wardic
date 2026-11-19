@@ -44,7 +44,7 @@ const view = defineView<Model, Message, PageEnv>((_model, _env, h) => {
     // The bar is the scroll itself, scaled across from its left edge: no animation of its own.
     w.div([h.Class("reading-bar"), w.Style({ scaleX: progress })]),
     h.div(
-      [h.Class("reading-panel"), h.OnMount(Read()), h.Attribute("tabindex", "0"), h.AriaLabel(LAGOON_ARTICLE.title)],
+      [h.Class("reading-panel"), h.OnMount(Read()), h.Tabindex(0), h.AriaLabel(LAGOON_ARTICLE.title)],
       LAGOON_ARTICLE.sections.map((section) => h.section([], [h.h3([], [section.heading]), ...section.paragraphs.map((paragraph) => h.p([], [paragraph]))])),
     ),
   ])

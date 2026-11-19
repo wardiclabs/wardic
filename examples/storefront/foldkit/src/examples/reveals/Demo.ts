@@ -27,7 +27,7 @@ type Message = typeof Message.Type
 const view = defineView<Model, Message, PageEnv>((_model, _env, h) => {
   const w = wardic.html(h)
   return h.div(
-    [h.Id("story-panel"), h.Class("story"), h.Attribute("tabindex", "0"), h.AriaLabel("The studio's story")],
+    [h.Id("story-panel"), h.Class("story"), h.Tabindex(0), h.AriaLabel("The studio's story")],
     STUDIO_CHAPTERS.map((story) => {
       const photo = photoOf(story.photo)
       // In view once a third of it shows in the panel, named by its selector, since a view has no refs;

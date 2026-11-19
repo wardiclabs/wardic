@@ -13,7 +13,7 @@ import { Message, type Model } from "~/model.ts"
 import type { PageEnv } from "~/page.ts"
 import { pageOf } from "~/pages.ts"
 import type { Highlighted } from "~/shop.ts"
-import { summaryOf, titleOf, usesOf } from "~/views/words.ts"
+import { summaryOf, titleOf, tradeoffsOf, usesOf } from "~/views/words.ts"
 import { prose } from "~/views/prose.ts"
 
 const codeFile = (h: HtmlBuilder<Message>, file: Highlighted): Html => h.div([h.Class("code-file")], [h.header([], [file.path]), h.div([h.InnerHTML(file.html)])])
@@ -80,7 +80,7 @@ export const examplePage = (model: Model, h: HtmlBuilder<Message>, id: string, e
     h.section([h.Class("why")], [
       h.h2([], ["Why"]),
       ...example.why.map((paragraph) => h.p([], prose(h, paragraph))),
-      ...UndefinedOr.match(example.tradeoffs, { onUndefined: () => [], onDefined: ({ gains, costs }) => [tradeoffs(h, gains, costs)] }),
+      ...UndefinedOr.match(tradeoffsOf(example), { onUndefined: () => [], onDefined: ({ gains, costs }) => [tradeoffs(h, gains, costs)] }),
     ]),
     codePanel(model, h, example),
   ])

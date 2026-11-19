@@ -1,4 +1,4 @@
-/** The room's pieces, where they start (#795): what the page draws before the room's program arrives, and what the program draws then. */
+/** The room's pieces, where they start: what the page draws before the room's program arrives, and what the program draws then. */
 export const PIECES = [
   { id: "sofa", name: "Sofa", x: 24, y: 24, width: 120, height: 52 },
   { id: "table", name: "Table", x: 64, y: 112, width: 72, height: 44 },

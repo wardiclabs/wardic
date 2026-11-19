@@ -2972,8 +2972,8 @@ button.product-card:hover .photo {
 
 /* The Foldkit app's list (#795): `@foldkit/ui`'s Listbox renders and anchors it itself, so it grows from
    the edge it opens from, and shrinks back, by these transitions on the library's attributes:
-   `data-closed` as it enters and leaves, `data-placement` for the edge. Its items are marked
-   `data-active` and `data-selected`. */
+   `data-transition` while it enters or leaves, `data-closed` at the hidden end of each, and
+   `data-placement` for the edge. Its items are marked `data-active` and `data-selected`. */
 .select-list[data-placement^="bottom"] {
   transform-origin: top left;
 }

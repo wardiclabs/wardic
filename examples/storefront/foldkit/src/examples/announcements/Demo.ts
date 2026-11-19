@@ -103,7 +103,7 @@ const Clock = Mount.defineStream("AnnouncementsClock", {
 
 const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
   const w = wardic.html(h)
-  const text = MESSAGES[model.index % MESSAGES.length] ?? MESSAGES[0]
+  const text = MESSAGES[model.index % MESSAGES.length]
   return h.div([h.Class("announcements")], [
     // keyed: each message is a new child, so the last one leaves before the next enters.
     w.div([h.Class("announcement"), w.Presence({ mode: "wait" })], [
@@ -111,7 +111,7 @@ const view = defineView<Model, Message, PageEnv>((model, _env, h) => {
     ]),
     w.keyed("div")(`bar-${model.index}`, [h.Class("announcement-bar"), h.OnMount(Clock({ initiallyHeld: model.held })), w.Style({ scaleX: progress })]),
     h.div([h.Class("announcement-controls")], [
-      h.button([h.Type("button"), h.Class("button quiet"), h.Attribute("aria-pressed", String(model.held)), h.OnClick(Message.TogglePause())], [model.held ? "Play" : "Pause"]),
+      h.button([h.Type("button"), h.Class("button quiet"), h.AriaPressed(String(model.held)), h.OnClick(Message.TogglePause())], [model.held ? "Play" : "Pause"]),
       h.button([h.Type("button"), h.Class("button quiet"), h.OnClick(Message.Next())], ["Next"]),
     ]),
   ])
