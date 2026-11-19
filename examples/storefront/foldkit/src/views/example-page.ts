@@ -13,7 +13,7 @@ import { Message, type Model } from "~/model.ts"
 import type { PageEnv } from "~/page.ts"
 import { pageOf } from "~/pages.ts"
 import type { Highlighted } from "~/shop.ts"
-import { summaryOf, titleOf } from "~/views/words.ts"
+import { summaryOf, titleOf, usesOf } from "~/views/words.ts"
 import { prose } from "~/views/prose.ts"
 
 const codeFile = (h: HtmlBuilder<Message>, file: Highlighted): Html => h.div([h.Class("code-file")], [h.header([], [file.path]), h.div([h.InnerHTML(file.html)])])
@@ -70,7 +70,7 @@ export const examplePage = (model: Model, h: HtmlBuilder<Message>, id: string, e
       h.p([h.Class("eyebrow")], [area.title]),
       h.h1([], [titleOf(example)]),
       h.p([h.Class("muted")], [summaryOf(example)]),
-      h.ul([h.Class("tags")], example.uses.map((use) => h.li([], [use]))),
+      h.ul([h.Class("tags")], usesOf(example).map((use) => h.li([], [use]))),
     ]),
     h.section([h.Class("demo"), h.AriaLabel("Demo")], [
       h.div([h.Class("demo-bar")], [h.span([h.Class("eyebrow")], ["Live demo"]), h.button([h.Class("button quiet"), h.OnClick(Message.Replay())], ["Replay"])]),

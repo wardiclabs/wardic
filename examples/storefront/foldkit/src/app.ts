@@ -140,6 +140,9 @@ const envOf = (model: Model): PageEnv => ({
 /** The URL's query, as the Model keeps it: `""` without one. */
 const queryOf = (url: Url.Url): string => Option.getOrElse(url.search, () => "")
 
+/** Whether a link asks for a full page load: one with `?hydrate=`, whose point is the server's render and when the JavaScript takes over (the before-hydration page, #388). */
+const asksFullLoad = (url: Url.Url): boolean => Option.match(url.search, { onNone: () => false, onSome: (search) => new URLSearchParams(search).has("hydrate") })
+
 /** What a page told the app, applied: the cart, or a piece's twin in the cart button, arriving or recalled. */
 const told = (model: Model, out: PageOut): Model =>
   Match.value(out).pipe(
@@ -208,7 +211,11 @@ export const update = (model: Model, message: Message): Return =>
   Message.match<Return>(message, {
     RequestedUrl: ({ request }) =>
       Navigation.UrlRequest.match(request, {
-        Internal: ({ url }) => ({ model, commands: [PushUrl({ url: Url.toString(url) })] }),
+        Internal: ({ url }) => {
+          const href = Url.toString(url)
+          if (asksFullLoad(url)) return { model, commands: [Load({ href })] }
+          return { model, commands: [PushUrl({ url: href })] }
+        },
         External: ({ href }) => ({ model, commands: [Load({ href })] }),
       }),
     ChangedUrl: ({ url }) => {

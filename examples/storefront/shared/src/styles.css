@@ -1275,6 +1275,14 @@ button.product-card:hover .photo {
   cursor: progress;
 }
 
+/* The Foldkit app's room (#795): a program of its own, embedded in a host that fills the plan; its
+   pieces sit in the host. */
+.room-host,
+.room-pieces {
+  position: absolute;
+  inset: 0;
+}
+
 /* --- Questions ---------------------------------------------------------------------------- */
 
 .faq-demo {
@@ -2865,6 +2873,19 @@ button.product-card:hover .photo {
   font-size: var(--text-l);
 }
 
+/* The Foldkit app's dialog element (#795): `@foldkit/ui`'s Dialog opens and places it; the shade and the
+   guide inside are the page's own. */
+.size-guide-dialog {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 .size-table {
   width: 100%;
   border-collapse: collapse;
@@ -2947,6 +2968,51 @@ button.product-card:hover .photo {
 .select-item[data-selected] {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* The Foldkit app's list (#795): `@foldkit/ui`'s Listbox renders and anchors it itself, so it grows from
+   the edge it opens from, and shrinks back, by these transitions on the library's attributes:
+   `data-closed` as it enters and leaves, `data-placement` for the edge. Its items are marked
+   `data-active` and `data-selected`. */
+.select-list[data-placement^="bottom"] {
+  transform-origin: top left;
+}
+
+.select-list[data-placement="bottom-end"] {
+  transform-origin: top right;
+}
+
+.select-list[data-placement^="top"] {
+  transform-origin: bottom left;
+}
+
+.select-list[data-placement="top-end"] {
+  transform-origin: bottom right;
+}
+
+.select-list[data-transition] {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.select-list[data-closed] {
+  opacity: 0;
+  transform: scale(0.94);
+}
+
+.select-item[data-active] {
+  background: var(--tile);
+}
+
+.select-item[data-selected]::after {
+  content: "✓";
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .select-list[data-closed] {
+    transform: none;
+  }
 }
 
 /* A piece's details: one panel, the chosen one. Kobalte 2.0's presence (the Solid 2 app) keeps the

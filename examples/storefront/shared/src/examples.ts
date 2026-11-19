@@ -40,7 +40,7 @@ export interface Example {
    * and, where this example's `title` or `summary` doesn't hold on Foldkit, its own. Its code is that
    * app's `src/examples/<id>/`.
    */
-  readonly foldkit?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
+  readonly foldkit?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined; readonly uses?: ReadonlyArray<string> | undefined } | undefined
   /**
    * What the pattern gains and what it costs, where it's a trade (#526 Q6): two short lists, shown
    * under "Why" in every app.
@@ -68,9 +68,6 @@ export interface Example {
    */
   readonly allowDiagnostics?: Readonly<Record<string, string>> | undefined
 }
-
-/** The apps of an example whose Foldkit page comes with the storefront's second PR (#795). */
-const NOT_YET_ON_FOLDKIT: ReadonlyArray<AppId> = ["solid1", "solid2"]
 
 export const EXAMPLES: ReadonlyArray<Example> = [
   {
@@ -328,7 +325,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "catalogue",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit the catalogue and each piece are two routes of the app's own parser, under one page the app keeps while the route stays on the example: the list and the piece are keyed roots under `w.Presence({ mode: \"popLayout\" })`, so the one that leaves goes by itself, and \"Next piece\" keys the piece's content under a presence of its own. A card's \"Add\" is a Command over the store, what it shows meanwhile a Message's, and its press stays its own with `w.Propagate({ tap: false })`.",
+      uses: ["w.Presence({ mode: \"popLayout\" })", "LayoutId", "arc()", "Propagate({ tap: false })", "Exit", "a Piece route under the example", "keyed content"],
+    },
     area: "transitions",
     title: "From the catalogue to a piece's own page",
     summary: "Open a piece and its photo flies from the catalogue into its own page; go back and it flies home. The two are routes, so the browser's back and forward do the same.",
@@ -361,7 +361,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "magnifier",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit the lens's values are Atoms at module scope, bound in `w.Style`: its `x` and `y`, and the custom properties the stylesheet reads. A Mount on the photo springs them after the pointer, which it hears itself, with no Message per move, on the Handle's services through `Wardic.provide`. Reduced motion is an argument of the Mount, and the photo is keyed by it, so a switch mounts it afresh with its springs skipped.",
+      uses: ["LiveValue.spring in a Mount", "Atom.map", "Atoms in w.Style", "WhileHover", "WhileTap", "Wardic.provide"],
+    },
     area: "live",
     title: "A closer look at the glaze",
     summary: "Hover over the vase and a lens follows your pointer, gliding after it and settling where you stop.",
@@ -378,7 +381,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "reading-progress",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit the panel's Mount asks `Wardic.scroll({ container })` for the panel's progress, on the Handle's `Features.scroll`, and feeds an Atom at module scope that the bar binds in `w.Style`; the minutes left are `Atom.map` of the same progress, bound in `w.Text`.",
+      uses: ["Wardic.scroll", "Features.scroll", "Atom.map", "scaleX in w.Style", "w.Text"],
+    },
     area: "live",
     title: "A reading bar for the studio's story",
     summary: "Scroll through how the Lagoon glaze is made, and a bar along the top fills as you read, the minutes left beside it.",
@@ -393,7 +399,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "parallax",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit each banner's Mount asks `Wardic.scroll` for the banner's own progress, with the `target` and `offset`, and feeds two Atoms that its photo's and its words' `w.Style` bind. The banner is keyed by the reduced-motion setting, an argument of its Mount, so a switch mounts it afresh with its drift at 0.",
+      uses: ["Wardic.scroll with target and offset", "Atom.map", "y in w.Style"],
+    },
     area: "live",
     title: "A lookbook with depth",
     summary: "Scroll the lookbook and each collection's photo drifts slower than its banner and its words faster, as if they sat at different depths.",
@@ -409,7 +418,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "reveals",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit each chapter takes `w.WhileInView(\"shown\")` and `w.Viewport({ root: \"#story-panel\", once: true, amount: 0.35 })`, the root a selector, since a view has no refs.",
+      uses: ["WhileInView", "Viewport: root, amount, once", "Variants", "staggerChildren"],
+    },
     area: "live",
     title: "The studio's story, revealed as you read",
     summary: "Each chapter of the studio's story rises into place as it scrolls into view, its photo first and its words after.",
@@ -423,7 +435,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "spotlight",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit each card's Mount hears the pointer itself and springs two Atoms of the card's own, at module scope; `LiveValue.transform` maps them to where the light sits, and the card's `w.Style` binds the tilt and the light's custom properties. The hover's variant is the card's own, `w.WhileHover`. Touch never hovers, so on a phone the cards stay still.",
+      uses: ["LiveValue.spring in a Mount", "LiveValue.transform", "custom properties in w.Style and variants", "WhileHover"],
+    },
     area: "live",
     title: "Cards that catch the light",
     summary: "Move over a piece and its card tilts toward your pointer, with a soft light under it that follows.",
@@ -439,7 +454,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "announcements",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit the clock is a Mount on each bar that is a Stream (`Mount.defineStream`): `LiveValue.eachFrame` adds the frame's delta to the bar's Atom, bound in `w.Style`, and sends `Next` when the message's time is up. The Mount hears the pointer resting on the strip itself, and holds, as Pause does; a frame loop stands still while the tab is in the background. Each message is a keyed child under `w.Presence({ mode: \"wait\" })`.",
+      uses: ["Mount.defineStream", "LiveValue.eachFrame", "w.Presence({ mode: \"wait\" })", "scaleX in w.Style"],
+    },
     area: "live",
     title: "Announcements that take turns",
     summary: "The strip above the shop shows one message at a time, a bar filling under it, and holds while you read it or look away.",
@@ -453,7 +471,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "before-hydration",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      note: "On Foldkit the status line's Mount is the JavaScript's arrival: a Mount runs on the client alone, once its element is on the page, so the server renders the line without it, from the page's `?hydrate=`. The links carry `?hydrate=` too, which the app's routing answers with a full load (`Navigation.load`) rather than a push, so the server renders the page again.",
+      uses: ["Initial", "Animate", "Variants", "staggerChildren", "server-rendered CSS", "a Mount as the take-over"],
+    },
     area: "server",
     title: "A banner that arrives before the JavaScript",
     summary: "The season's banner plays its entrance from the first paint, whether the JavaScript is late or never comes.",
@@ -468,7 +489,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "size-guide",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      title: "A size guide in Foldkit UI's dialog",
+      note: "On Foldkit the guide is `@foldkit/ui`'s Dialog, a submodel whose `toView` hands the page the attributes of each part, spread onto elements of the page's own: the shade and the guide are `w.*` elements under `w.Presence`, so Wardic plays their exits. A close request (Escape, the shade, ✕) turns the page's `showing` off first, and `onExitComplete` then closes the library's dialog. Focus, Escape, the inert page and the scroll lock are the library's.",
+      uses: ["Foldkit UI's Dialog", "its attributes on w.* elements", "w.Presence", "Exit"],
+    },
     area: "library",
     title: "A size guide in Kobalte's dialog",
     summary: "Open the size guide: the shop dims and the guide rises in. Escape, a click outside or ✕ takes it away as smoothly.",
@@ -484,7 +509,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "sort-by",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      title: "Sort the shop with Foldkit UI's listbox",
+      note: "On Foldkit the select is `@foldkit/ui`'s Listbox, which renders its button and its list itself and anchors the list with a Mount of its own. An element has one Mount on Foldkit, so the list isn't a `w.*` element: it grows and shrinks by the stylesheet's transitions on the library's attributes, `data-closed` as it enters and leaves and `data-placement` for the edge it opens from (and fades alone under the system's reduced motion). Wardic's part is the button's press, through the Bundle (`w.attributes`), and the pieces: the order picked re-sorts them, declared with `Wardic.animateLayout`, so they slide as the list closes.",
+      uses: ["Foldkit UI's Listbox", "w.attributes", "the library's data-closed and data-placement", "Layout", "Wardic.animateLayout"],
+    },
     area: "library",
     title: "Sort the shop with Kobalte's select",
     summary: "Pick an order: the list grows out of its button, and the pieces slide to their new places.",
@@ -500,7 +529,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "details-tabs",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      title: "A piece's details in Foldkit UI's tabs",
+      note: "On Foldkit the tabs are `@foldkit/ui`'s Tabs, a submodel whose `toView` hands the page each tab's and panel's attributes, spread onto `w.*` elements of the page's own: the underline's `w.LayoutId` sits in the active tab, and the active panel, keyed by its tab, enters afresh each time.",
+      uses: ["Foldkit UI's Tabs", "LayoutId inside a library's parts", "its attributes on w.* elements"],
+    },
     area: "library",
     title: "A piece's details in Kobalte's tabs",
     summary: "Switch between a piece's size, material and care: the underline slides to the tab, whether you click or use the arrow keys.",
@@ -520,7 +553,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
   {
     id: "rearrange",
-    apps: NOT_YET_ON_FOLDKIT,
+    foldkit: {
+      title: "Rearrange the room: its program loads when you ask",
+      summary: "The room's pieces stay put until you press Rearrange. Only then does the page fetch the room's own program, with a Handle of its own, and the card says how long it took to arrive.",
+      note: "On Foldkit the room is a Foldkit program of its own (`Runtime.makeElement`), with its own Handle naming `drag` alone, in a module the page imports when you press Rearrange: a Mount on the plan embeds it (`Runtime.embed`) and disposes it when the plan goes. The shop's one Handle has `drag` already, since its other rooms drag on it, so what the press fetches is the room's program, and the card times that; \"Slow connection\" holds the import back.",
+      uses: ["Runtime.makeElement", "Runtime.embed from a Mount", "a Handle of its own: Features.drag", "import() on the press", "Drag", "DragConstraints"],
+    },
     area: "shipping",
     title: "Rearrange the room: drag loads when you ask",
     summary: "The room's pieces stay put until you press Rearrange. Only then does the page fetch Wardic's drag, and the card says how long it took to arrive.",
