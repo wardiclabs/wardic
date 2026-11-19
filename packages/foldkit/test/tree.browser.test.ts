@@ -80,6 +80,41 @@ describe("orchestration", () => {
     expect(c! - b!, "c starts after b").toBeGreaterThan(90)
   })
 
+  // #848: the tree mounts in one patch, parent and children together, where the case above triggers a
+  // tree already mounted. Foldkit runs the children's Mounts before the parent's, so each child registered
+  // with the parent's orchestration and started at once: the first to start fixed the slots with one child
+  // registered, and every child after it read slot 0 of 1, a delay of nothing. On a hard load the
+  // server-rendered entrance carried the stagger instead, which is why the storefront's grid read right there.
+  it("staggers the children of a tree mounted by one patch, Initial and Animate on the parent (#848)", async () => {
+    const held = embed<Model, Message, boolean>({
+      Model,
+      Set: Schema.Boolean,
+      init: { open: false },
+      update,
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return h.div([h.Id("root")], Bool.match(model.open, {
+          onTrue: () => [
+            w.ul([h.Id("list"), w.Variants(list), w.Initial("closed"), w.Animate("open"), w.Transition({ duration: 0.3, ease: "linear", staggerChildren: 0.15 })], [
+              w.keyed("li")("a", [h.Class("item"), w.Variants(item)], ["a"]),
+              w.keyed("li")("b", [h.Class("item"), w.Variants(item)], ["b"]),
+              w.keyed("li")("c", [h.Class("item"), w.Variants(item)], ["c"]),
+            ]),
+          ],
+          onFalse: (): ReadonlyArray<Html> => [],
+        }))
+      },
+      toMessage: (open) => Message.Open({ open }),
+    })
+    app = held
+    await until(() => held.container.querySelector("#root") !== null, 2000, "the root renders")
+    held.send(true)
+    const [a, b, c] = await startTimesOf(held, 0)
+    // 150 ms apart, give or take a frame or two under load: every slot known before any child reads one.
+    expect(b! - a!, "b starts after a").toBeGreaterThan(90)
+    expect(c! - b!, "c starts after b").toBeGreaterThan(90)
+  })
+
   it("beforeChildren holds the children until the parent has landed", async () => {
     const held = embed<Model, Message, boolean>({ Model, Set: Schema.Boolean, init: { open: false }, update, view: listView({ duration: 0.3, ease: "linear", when: "beforeChildren" }), toMessage: (open) => Message.Open({ open }) })
     app = held

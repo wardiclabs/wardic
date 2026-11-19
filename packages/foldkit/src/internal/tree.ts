@@ -11,6 +11,7 @@
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as LayoutGroup from "@wardic/dom/unstable/LayoutGroup"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined, identity } from "effect/Function"
 import * as Option from "effect/Option"
@@ -85,6 +86,60 @@ const groupIdOf = (group: Element): string | undefined =>
 /** Mark `element`'s Mount as run: from now on, a `w.Presence` a render adds to it can't run (its Mount is made once). */
 export const markMounted = (element: Element): void => {
   mounted.add(element)
+}
+
+// Module state (#848): the elements whose own start has run, and the children waiting to start with each, held weakly.
+const started = new WeakSet<Element>()
+const waiting = new WeakMap<Element, Array<Waiting>>()
+
+/** A child's start, waiting for its nearest `w.*` ancestor's (#848). */
+interface Waiting {
+  readonly element: Element
+  readonly begin: () => () => void
+  release: (() => void) | undefined
+  gone: boolean
+}
+
+/**
+ * `element`'s own start, `begin`, run now, then the starts of the children that waited for it, in their
+ * Mounts' order (#848). Returns the release, which forgets the start.
+ */
+export const begun = (element: Element, begin: () => () => void): (() => void) => {
+  const release = begin()
+  started.add(element)
+  UndefinedOr.map(waiting.get(element), (children) => {
+    waiting.delete(element)
+    Arr.forEach(children, (child) => {
+      if (child.gone) return
+      child.release = begun(child.element, child.begin)
+    })
+  })
+  return () => {
+    started.delete(element)
+    release()
+  }
+}
+
+/**
+ * `begin` run now, or once the nearest `w.*` ancestor of `element` has started (#848). Foldkit runs a
+ * child's Mount before its parent's, and a Variant child that started before its ancestor read a
+ * stagger slot set with itself alone registered, so a tree mounted by one patch started its children
+ * together; every child's Mount registers before the ancestor's runs, so a child that waits for the
+ * ancestor's start reads its slot with every sibling known, as Solid's children do, theirs starting
+ * after the parent's render. Returns the release, which drops a start still waiting.
+ */
+export const startUnder = (element: Element, begin: () => () => void): (() => void) => {
+  const ancestor = nearestWard(element)
+  if (Predicate.isUndefined(ancestor)) return begun(element, begin)
+  if (started.has(ancestor)) return begun(element, begin)
+  const entry: Waiting = { element, begin, release: undefined, gone: false }
+  const children = UndefinedOr.match(waiting.get(ancestor), { onUndefined: (): Array<Waiting> => [], onDefined: identity })
+  children.push(entry)
+  waiting.set(ancestor, children)
+  return () => {
+    entry.gone = true
+    UndefinedOr.map(entry.release, (release) => release())
+  }
 }
 
 /** Whether `element`'s Mount has run. */
