@@ -140,7 +140,7 @@ describe("Live values in style (#130, ADR-0043)", () => {
     await settle()
     const before = styleRuns
     const steps = await stepped(30, (i) => 0.2 + i / 100, setOpacity, () => Number(el.style.opacity))
-    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 6)
+    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 5)
     expect(styleRuns - before, "a change never runs Solid's style").toBe(0)
   })
 
@@ -191,10 +191,11 @@ describe("Live values in style (#130, ADR-0043)", () => {
     const leaving = valuesIn(frames, "leave")
     const jumps = leaving.slice(1).map((v, i) => Math.abs(v - leaving[i]!))
     expect(Math.max(...jumps), "the return never jumps").toBeLessThan(0.1)
-    expect(opacityOf(el)).toBeCloseTo(live(), 6)
+    // Five digits: the opacity comes back from CSS as a float serialized to six decimals, whose error reaches six digits' bound (#836).
+    expect(opacityOf(el)).toBeCloseTo(live(), 5)
     // Followed from here, each change in the next frame.
     const steps = await stepped(20, (i) => 0.3 + i / 100, setLive, () => opacityOf(el))
-    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 6)
+    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 5)
   })
 
   it("LF5: a tween return eases toward the moving value and lands exactly on it, then follows it", async () => {
@@ -388,7 +389,7 @@ describe("Live values in style (#130, ADR-0043)", () => {
     await settle()
     expect([el.style.opacity, el.style.transform]).toEqual(["0.4", "translateX(30px)"])
     const steps = await stepped(10, (i) => 0.5 + i / 100, setLive, () => Number(el.style.opacity))
-    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 6)
+    for (const s of followed(steps)) expect(s.shown).toBeCloseTo(s.set, 5)
   })
 
   it("LF11: ward.value at rest outside the gate: its style value, else a transform key's identity", async () => {
