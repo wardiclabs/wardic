@@ -87,6 +87,7 @@
         "@effect/platform-browser": "4.1.4",
         "@effect/platform-node": "4.1.4",
         "@foldkit/node": "0.2.0",
+        "@foldkit/ui": "0.171.0",
         "@wardic/core": "workspace:*",
         "@wardic/dom": "workspace:*",
         "@wardic/example-storefront-shared": "workspace:*",
@@ -528,6 +529,8 @@
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
 
     "@foldkit/node": ["@foldkit/node@0.2.0", "", { "dependencies": { "@effect/platform-node": "~4.1.0", "@effect/platform-node-shared": "~4.1.0" }, "peerDependencies": { "effect": "~4.1.0", "foldkit": ">=0.165.0" } }, "sha512-JpPVp2XHl/65TDzQSmFxiPBJu3XRdjg4sUsmKlBtspWjF4SLjq8218eW7HE533Lz1Osq3KLOSpOZcWHvuJvedA=="],
+
+    "@foldkit/ui": ["@foldkit/ui@0.171.0", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "effect": "~4.1.0", "foldkit": ">=0.167.0" } }, "sha512-eHo653/fG8vTQfIHpXpRGw8mwmrXAgX72t4bSo0B2RKRU7c1D654FUq/YEda8JuYrnnVZ485ax29t6aSbq9GTA=="],
 
     "@foldkit/vite-plugin": ["@foldkit/vite-plugin@0.29.1", "", { "dependencies": { "@effect/platform-node": "~4.1.0", "@effect/platform-node-shared": "~4.1.0", "magic-string": "^1.4.2", "vitefu": "^1.1.3", "ws": "^8.21.3" }, "peerDependencies": { "effect": "~4.1.0", "foldkit": ">=0.167.0", "vite": "^8.0.0" } }, "sha512-PYErA63nqfF4dn/exAkbHKzxHekqG2Q0pMGaT5ss6XnTfFglo11Cr6A3rDTE664IwaQ8GEXQQftCnX5Vzmb14g=="],
 

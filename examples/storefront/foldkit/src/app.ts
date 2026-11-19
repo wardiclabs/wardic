@@ -24,7 +24,7 @@ import { wardic } from "~/lib/wardic.ts"
 import { type Arrival, type Flags, Message, type Model, type PageState, Prefs, REDUCE_MOTION_COOKIE, Theme, THEME_COOKIE } from "~/model.ts"
 import type { AnyPage, PageEnv, PageOut, PageServices } from "~/page.ts"
 import { pageOf, PAGES } from "~/pages.ts"
-import { AppRoute, urlToRoute } from "~/routes.ts"
+import { AppRoute, CATALOGUE, exampleOf, urlToRoute } from "~/routes.ts"
 import { Shop } from "~/shop.ts"
 import { ShopClient } from "~/shop/client.ts"
 import { asked } from "~/shop/text.ts"
@@ -110,19 +110,39 @@ const LoadCode = Command.define("LoadCode", {
     ),
 })
 
+/** Whether `model`'s page is `id`'s, loading or loaded: a route that stays on the example keeps it. */
+const onExample = (model: Model, id: string): boolean => model.page._tag !== "None" && model.page.id === id
+
+/** An example's page, entered: loading, with its Commands; kept where the route stays on it (the catalogue's pieces). */
+const enteringExample = (model: Model, route: AppRoute, id: string, path: string): Return => {
+  if (Predicate.isUndefined(exampleById(id)) || Option.isNone(pageOf(id))) return { model: { ...model, route: AppRoute.NotFound({ path }), page: NONE, code: null } }
+  if (onExample(model, id)) return { model: { ...model, route } }
+  return { model: { ...model, route, page: { _tag: "Loading", id }, code: null }, commands: [LoadPage({ id }), LoadCode({ id })] }
+}
+
 /** The page under `route`, from the Flags where they carry it; else loading, with its Commands. */
 const entering = (model: Model, route: AppRoute): Return =>
   AppRoute.match(route, {
     Home: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
     NotFound: (): Return => ({ model: { ...model, route, page: NONE, code: null } }),
-    Example: ({ area, id }): Return => {
-      if (Predicate.isUndefined(exampleById(id)) || Option.isNone(pageOf(id))) return { model: { ...model, route: AppRoute.NotFound({ path: `/${area}/${id}` }), page: NONE, code: null } }
-      return { model: { ...model, route, page: { _tag: "Loading", id }, code: null }, commands: [LoadPage({ id }), LoadCode({ id })] }
-    },
+    Example: ({ area, id }): Return => enteringExample(model, route, id, `/${area}/${id}`),
+    Piece: ({ piece }): Return => enteringExample(model, route, CATALOGUE.id, `/${CATALOGUE.area}/${CATALOGUE.id}/${piece}`),
   })
 
-/** What the app gives a page: whether motion is reduced, by the system or the header's switch (#388), and the visitor's name. */
-const envOf = (model: Model): PageEnv => ({ reduceMotion: Bool.or(model.prefs.reduceMotion, model.systemReducedMotion), visitorName: model.visitorName })
+/** What the app gives a page: whether motion is reduced, by the system or the header's switch (#388), the visitor's name, the route's piece and the URL's query. */
+const envOf = (model: Model): PageEnv => ({
+  reduceMotion: Bool.or(model.prefs.reduceMotion, model.systemReducedMotion),
+  visitorName: model.visitorName,
+  piece: Option.match(exampleOf(model.route), { onNone: () => null, onSome: ({ piece }) => piece }),
+  query: model.query,
+})
+
+/** The URL's query, as the Model keeps it: `""` without one. */
+const queryOf = (url: Url.Url): string => Option.getOrElse(url.search, () => "")
+
+// #388: the before-hydration page's links.
+/** Whether a link asks for a full page load: one with `?hydrate=`, whose point is the server's render and when the JavaScript takes over. */
+const asksFullLoad = (url: Url.Url): boolean => Option.match(url.search, { onNone: () => false, onSome: (search) => new URLSearchParams(search).has("hydrate") })
 
 /** What a page told the app, applied: the cart, or a piece's twin in the cart button, arriving or recalled. */
 const told = (model: Model, out: PageOut): Model =>
@@ -159,6 +179,7 @@ export const init = (flags: Flags, url: Url.Url): Return => {
   const route = urlToRoute(url)
   const base: Model = {
     route,
+    query: queryOf(url),
     prefs: flags.prefs,
     themeSwitches: 0,
     visitorName: flags.visitorName,
@@ -174,11 +195,13 @@ export const init = (flags: Flags, url: Url.Url): Return => {
   // On the client, after hydration: the theme onto the document, the system's setting read. The server runs no Command.
   const commands = [ApplyPrefs({ theme: flags.prefs.theme })]
   const carried = flags.page
-  if (route._tag === "Example" && carried !== null && carried.id === route.id) {
+  const on = exampleOf(route)
+  if (Option.isSome(on) && carried !== null && carried.id === on.value.id) {
+    const { id } = on.value
     const data = carried.data
-    return Option.match(pageOf(route.id), {
+    return Option.match(pageOf(id), {
       onNone: () => entering(base, route),
-      onSome: (page) => ({ model: { ...base, page: { _tag: "Loaded", id: route.id, data, model: page.init(data), run: 1 } }, commands }),
+      onSome: (page) => ({ model: { ...base, page: { _tag: "Loaded", id, data, model: page.init(data), run: 1 } }, commands }),
     })
   }
   const entered = entering(base, route)
@@ -189,12 +212,19 @@ export const update = (model: Model, message: Message): Return =>
   Message.match<Return>(message, {
     RequestedUrl: ({ request }) =>
       Navigation.UrlRequest.match(request, {
-        Internal: ({ url }) => ({ model, commands: [PushUrl({ url: Url.toString(url) })] }),
+        Internal: ({ url }) => {
+          const href = Url.toString(url)
+          if (asksFullLoad(url)) return { model, commands: [Load({ href })] }
+          return { model, commands: [PushUrl({ url: href })] }
+        },
         External: ({ href }) => ({ model, commands: [Load({ href })] }),
       }),
     ChangedUrl: ({ url }) => {
-      const entered = entering({ ...model, settingsOpen: false }, urlToRoute(url))
-      return { model: entered.model, commands: [...(entered.commands ?? []), ScrollTop()] }
+      const route = urlToRoute(url)
+      const entered = entering({ ...model, query: queryOf(url), settingsOpen: false }, route)
+      // A route that stays on the example (the catalogue's pieces) keeps the page's scroll: the demo sits partway down it.
+      const stays = Option.match(exampleOf(route), { onNone: () => false, onSome: ({ id }) => onExample(model, id) })
+      return { model: entered.model, commands: [...(entered.commands ?? []), ...(stays ? [] : [ScrollTop()])] }
     },
     Navigated: () => ({ model }),
     SetReduceMotion: ({ on }) => {
@@ -240,18 +270,17 @@ export const update = (model: Model, message: Message): Return =>
   })
 
 /** The page's title: the example's, or the shop's. */
-const documentTitleOf = (model: Model): string => {
-  if (model.route._tag === "Example") {
-    const example = exampleById(model.route.id)
-    if (example !== undefined) return `${titleOf(example)} · Wardic Northlight`
-  }
-  return "Wardic Northlight · Foldkit"
-}
+const documentTitleOf = (model: Model): string =>
+  Option.match(Option.flatMap(exampleOf(model.route), ({ id }) => Option.fromUndefinedOr(exampleById(id))), {
+    onNone: () => "Wardic Northlight · Foldkit",
+    onSome: (example) => `${titleOf(example)} · Wardic Northlight`,
+  })
 
 const content = (model: Model, h: HtmlBuilder<Message>) =>
   AppRoute.match(model.route, {
     Home: () => gallery(h),
     Example: ({ id }) => examplePage(model, h, id, envOf(model)),
+    Piece: () => examplePage(model, h, CATALOGUE.id, envOf(model)),
     NotFound: () => notFound(h),
   })
 

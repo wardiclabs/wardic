@@ -1,14 +1,15 @@
 # Deploying the storefront demo
 
-The apps (Solid 2's; Solid 1's isn't deployed, #566, and Foldkit's joins with #795's second PR) on one Linux VPS, from one Docker image, behind [Caddy](https://caddyserver.com), which serves each on its own subdomain with HTTPS:
+The apps (Solid 2's and Foldkit's; Solid 1's isn't deployed, #566) on one Linux VPS, from one Docker image, behind [Caddy](https://caddyserver.com), which serves each on its own subdomain with HTTPS:
 
 | Address | What |
 |---|---|
 | `https://<domain>` | A landing page: which app to open (`landing/index.html`) |
 | `https://solid2.<domain>` | Wardic on Solid 2 |
+| `https://foldkit.<domain>` | Wardic on Foldkit |
 | `https://solid1.<domain>` | A permanent redirect to `solid2` (#566): Solid 1's app is no longer deployed |
 
-Each app runs as it does in the smoke test, the Solid 2 app under `vite preview`. Caddy in front adds HTTPS, and flushes the live feeds as they stream. The store keeps everything in memory, one store per app, so a restart empties every cart, and the apps restart each night at 04:30 (server time) to keep that memory bounded.
+Each app runs as it does in the smoke test, the Solid 2 app under `vite preview`, the Foldkit app on its Node host (`@foldkit/node`, `server.ts`). Caddy in front adds HTTPS, compresses the Foldkit host's answers (its Node host sends them plain, where `vite preview` compresses Solid 2's own), and flushes the live feeds as they stream. The store keeps everything in memory, one store per app, so a restart empties every cart, and the apps restart each night at 04:30 (server time) to keep that memory bounded.
 
 ## Sizing
 
@@ -17,7 +18,7 @@ Each app runs as it does in the smoke test, the Solid 2 app under `vite preview`
 ## First setup
 
 1. **The server:** Ubuntu 24.04 (Hostinger's Docker template has Docker already), with your SSH key, and the deploy key of the machine that deploys.
-2. **DNS:** an `A` record for `<domain>` and for `*.<domain>` (or `solid2`, and `solid1` for its redirect, each), pointing at the server. To try it first with no DNS at all, use `<server-ip>.sslip.io` as the domain: `solid2.<server-ip>.sslip.io` and the rest resolve to the server by themselves, and get real certificates.
+2. **DNS:** an `A` record for `<domain>` and for `*.<domain>` (or `solid2` and `foldkit`, and `solid1` for its redirect, each), pointing at the server. To try it first with no DNS at all, use `<server-ip>.sslip.io` as the domain: `solid2.<server-ip>.sslip.io` and the rest resolve to the server by themselves, and get real certificates.
 3. **Set it up**, as root, once:
    ```sh
    ssh root@<server> 'bash -s' < examples/storefront/deploy/setup-server.sh <domain>
@@ -51,7 +52,7 @@ It copies the source to the server (the repo is private: the server has no git a
 Then check it from outside: the smoke test runs against a deployment when `STOREFRONT_SMOKE_URL` names it, starting nothing itself:
 
 ```sh
-cd examples/storefront/solid2
+cd examples/storefront/solid2   # or foldkit
 STOREFRONT_SMOKE_URL=https://solid2.<domain> bun ../shared/src/smoke.ts solid2
 ```
 

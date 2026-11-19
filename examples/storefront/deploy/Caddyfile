@@ -17,3 +17,10 @@ solid1.{$STOREFRONT_DOMAIN} {
 solid2.{$STOREFRONT_DOMAIN} {
 	reverse_proxy solid2:4102
 }
+
+foldkit.{$STOREFRONT_DOMAIN} {
+	# Its Node host (`@foldkit/node`) answers uncompressed: compressed here. Its wishlist feed is a
+	# streaming RPC response, flushed as the host writes it.
+	encode zstd gzip
+	reverse_proxy foldkit:4104
+}
