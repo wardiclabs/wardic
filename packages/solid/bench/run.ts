@@ -57,7 +57,9 @@
  *   frames count the ResizeObserver's deliveries and the passes they run.
  *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
- * when one fails, and 2 when the run is too noisy.
+ * when one fails, and 2 when the run is too noisy. What it shares with `bench:foldkit`, the arguments,
+ * the stats and the gate, a side's page build, a page's opening and its rounds, the heap sampling, is
+ * `paired.ts`'s (#795).
  *
  * `--live` (#130, ADR-0043) runs `--head` alone, with no base: N elements following a Live value
  * each frame (`?kind=live`) against N plain divs whose style binds the same signal (`?kind=live-plain`),
@@ -111,33 +113,20 @@
  * switch goes through the binding's `batch`, ungated.
  */
 import { execSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { type CDPSession, chromium, type Page } from "playwright"
-import { build } from "vite"
+import type { Page } from "playwright"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { BatchRound, LayoutRound, LiveRound, ReorderRound, Round, Scene, TextRound } from "./page.tsx"
-import { APP_TARGET, bindingPluginsOf, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
-
-const GATE = 1.05
-const NOISE = 0.05
-/** The control page's elements, against the Wardic pages' N: enough that its tasks can be timed (#318). */
-const CONTROL_SCALE = 10
-/** The heap profiler's mean sampling interval, in bytes: a page's rounds take about 170,000 samples. */
-const ALLOC_INTERVAL = 4096
+import { arg, buildPage, CONTROL_SCALE, failsGate, GATE, heldBy, launch, median, NOISE, openPage as openBenchPage, orderOf, percent, quantile, runRounds as runBenchRounds, sampled, spread, when } from "./paired.ts"
+import { bindingPluginsOf, commitHas, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const BENCH = dirname(fileURLToPath(import.meta.url))
 const OUT = join(REPO, ".tmp/bench-solid")
-
-const arg = (name: string, fallback: string): string => {
-  const at = process.argv.indexOf(`--${name}`)
-  if (at === -1 || at + 1 >= process.argv.length) return fallback
-  return process.argv[at + 1]!
-}
 
 const base = arg("base", "main")
 const headRef = arg("head", "")
@@ -196,20 +185,7 @@ const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
  */
 const V2_WARDS = ["packages/solid/src/ward.tsx", "packages/solid/src/unstable/v2/ward.tsx"]
 /** Whether `commit` (the working tree when undefined) has the Solid 2 binding. */
-const hasV2 = (commit: string | undefined): boolean =>
-  V2_WARDS.some((path) =>
-    UndefinedOr.match(commit, {
-      onUndefined: () => existsSync(join(REPO, path)),
-      onDefined: (c) => {
-        try {
-          execSync(`git cat-file -e ${c}:${path}`, { cwd: REPO, stdio: "ignore" })
-          return true
-        } catch {
-          return false
-        }
-      },
-    }),
-  )
+const hasV2 = (commit: string | undefined): boolean => V2_WARDS.some((path) => commitHas(commit, path))
 
 /** Whether `commit` (the working tree when undefined) has what `since` brought: it is `since`, or after it. */
 const hasSince = (since: string | undefined, commit: string | undefined): boolean => {
@@ -242,34 +218,8 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
   if (!existsSync(join(root, "node_modules"))) symlinkSync(join(deps, "packages/solid/node_modules"), join(root, "node_modules"))
   // The Solid 2 page builds with Solid 2's compile, without its dev checks, as an app ships it.
   const v2 = isV2(side)
-  await build({
-    configFile: false,
-    logLevel: "warn",
-    mode: "production",
-    root,
-    plugins: [sideResolver(root, deps), bindingPluginsOf(v2)],
-    define: { "process.env.NODE_ENV": JSON.stringify("production") },
-    build: {
-      outDir: join(root, "dist"),
-      emptyOutDir: true,
-      minify: true,
-      target: [...APP_TARGET],
-      lib: {
-        entry: join(root, Bool.match(v2, { onTrue: () => "page-v2.tsx", onFalse: () => "page.tsx" })),
-        formats: ["iife"],
-        name: "benchSolid",
-        fileName: () => "page.js",
-      },
-    },
-  })
-  return readFileSync(join(root, "dist/page.js"), "utf8")
+  return buildPage({ root, entry: Bool.match(v2, { onTrue: () => "page-v2.tsx", onFalse: () => "page.tsx" }), plugins: [sideResolver(root, deps), bindingPluginsOf(v2)], name: "benchSolid" })
 }
-
-const quantile = (xs: ReadonlyArray<number>, p: number): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) * p)]!
-const median = (xs: ReadonlyArray<number>): number => quantile(xs, 0.5)
-/** `text` when `cond` holds, else nothing: a report line's optional part. */
-const when = (cond: boolean, text: string): string => Bool.match(cond, { onTrue: () => text, onFalse: () => "" })
-const percent = (ratio: number): string => `${when(ratio >= 1, "+")}${((ratio - 1) * 100).toFixed(1)}%`
 
 const baseCommit = commitOf(base)
 const headCommit = Bool.match(headRef.length > 0, { onTrue: (): string | undefined => commitOf(headRef), onFalse: constUndefined })
@@ -296,34 +246,15 @@ const v2BaseScript = await Bool.match(Bool.and(runSolid2, Bool.not(headAlone)), 
 })
 const scripts: Record<Side, string> = { base: baseScript, head: headScript, v2Base: v2BaseScript, v2Head: v2HeadScript }
 
-const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] })
+const browser = await launch()
 /** A page of `side`'s build for `kind`, with `query`'s further parameters, its script loaded, and the errors it throws. */
-const openPage = async (side: Side, kind: Kind, query = ""): Promise<{ readonly page: Page; readonly errors: Array<string> }> => {
-  const page = await browser.newPage()
-  const errors: Array<string> = []
-  page.on("pageerror", (e) => errors.push(String(e)))
-  await page.route("http://localhost:4174/**", (route) => {
-    if (new URL(route.request().url()).pathname === "/page.js") {
-      // culori's identifiers aren't ASCII: the script is UTF-8.
-      return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: scripts[side] })
-    }
-    return route.fulfill({
-      status: 200,
-      contentType: "text/html",
-      body: "<!doctype html><title>bench:solid</title><body></body>",
-      headers: { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" },
-    })
-  })
+const openPage = (side: Side, kind: Kind, query = ""): Promise<{ readonly page: Page; readonly errors: Array<string> }> => {
   const elements = Bool.match(kind === "plain", { onTrue: () => n * CONTROL_SCALE, onFalse: () => n })
-  await page.goto(`http://localhost:4174/?n=${elements}&kind=${kind}${query}`)
-  if (!(await page.evaluate(() => crossOriginIsolated))) throw new Error("bench:solid: page not cross-origin isolated")
-  await page.addScriptTag({ url: "http://localhost:4174/page.js" })
-  return { page, errors }
+  return openBenchPage(browser, "bench:solid", scripts[side], `n=${elements}&kind=${kind}${query}`)
 }
 
 /** The page's `rounds` rounds. */
-const runRounds = (page: Page): Promise<ReadonlyArray<Round>> =>
-  page.evaluate((k) => (globalThis as unknown as { __wardicBenchSolid: (k: number) => Promise<ReadonlyArray<Round>> }).__wardicBenchSolid(k), rounds)
+const runRounds = (page: Page): Promise<ReadonlyArray<Round>> => runBenchRounds<Round>(page, rounds, "__wardicBenchSolid")
 
 /** One page of `side`'s build: `rounds` rounds of `kind`. */
 const runPage = async (side: Side, kind: Kind, query = ""): Promise<ReadonlyArray<Round>> => {
@@ -334,28 +265,13 @@ const runPage = async (side: Side, kind: Kind, query = ""): Promise<ReadonlyArra
   return out
 }
 
-/** A heap profile's node: what was allocated in its function, and its callees. */
-interface HeapNode {
-  readonly selfSize: number
-  readonly children: ReadonlyArray<HeapNode>
-}
-const bytesOf = (node: HeapNode): number => node.children.reduce((sum, child) => sum + bytesOf(child), node.selfSize)
-
 /** What one `wardic` page, or a feature page, of `side`'s build allocates over its rounds, in bytes per element per round. */
 const allocatedPage = async (side: Side, kind: "wardic" | FeatureKind = "wardic"): Promise<number> => {
   const { page, errors } = await openPage(side, kind)
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send("HeapProfiler.enable")
-  await cdp.send("HeapProfiler.startSampling", {
-    samplingInterval: ALLOC_INTERVAL,
-    includeObjectsCollectedByMajorGC: true,
-    includeObjectsCollectedByMinorGC: true,
-  })
-  await runRounds(page)
-  const { profile } = await cdp.send("HeapProfiler.stopSampling")
+  const { bytes } = await sampled(page, () => runRounds(page))
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} ${kind} allocation: ${errors.join("; ")}`)
-  return bytesOf(profile.head as HeapNode) / (rounds * n)
+  return bytes / (rounds * n)
 }
 
 /** One `layout` page of `side`'s build (#385): its rounds. */
@@ -374,19 +290,11 @@ const layoutPage = async (side: Side): Promise<ReadonlyArray<LayoutRound>> => {
 const allocatedLayoutPage = async (side: Side): Promise<number> => {
   const { page, errors } = await openPage(side, "layout")
   await page.evaluate(() => (globalThis as unknown as { __wardicLayoutMount: () => Promise<void> }).__wardicLayoutMount())
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send("HeapProfiler.enable")
-  await cdp.send("HeapProfiler.startSampling", {
-    samplingInterval: ALLOC_INTERVAL,
-    includeObjectsCollectedByMajorGC: true,
-    includeObjectsCollectedByMinorGC: true,
-  })
-  const out = (await runRounds(page)) as unknown as ReadonlyArray<LayoutRound>
-  const { profile } = await cdp.send("HeapProfiler.stopSampling")
+  const { bytes, out } = await sampled(page, () => runRounds(page) as unknown as Promise<ReadonlyArray<LayoutRound>>)
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} layout allocation: ${errors.join("; ")}`)
   const frames = out.reduce((sum, round) => SCENES.reduce((inner, scene) => inner + round[scene].frames, sum), 0)
-  return bytesOf(profile.head as HeapNode) / frames
+  return bytes / frames
 }
 
 /** Mount and unmount cycles on each retained page: the median of them is the page's (#318). */
@@ -394,13 +302,6 @@ const RETAINED_CYCLES = 3
 
 /** The most an unmount may leave per element, in bytes: every page leaves 0.1–0.3 KB (#418). */
 const LEFT_CEILING = 1024
-
-/** The heap the page's JS holds after two full GCs, in bytes. */
-const heldBy = async (cdp: CDPSession): Promise<number> => {
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.send("HeapProfiler.collectGarbage")
-  return (await cdp.send("Runtime.getHeapUsage")).usedSize
-}
 
 /** What one retained page of `side`'s build keeps (#318, #379), in bytes per element. */
 interface Retained {
@@ -690,11 +591,6 @@ console.log(
   )}\n`,
 )
 
-/** Rep `r`'s order: base first on even reps, head first on odd ones. */
-const orderOf = (r: number): ReadonlyArray<"base" | "head"> => {
-  if (r % 2 === 0) return ["base", "head"]
-  return ["head", "base"]
-}
 /** A binding's two builds: Solid 1's `base` and `head`, Solid 2's `v2Base` and `v2Head`. */
 const SIDES = {
   solid1: { base: "base", head: "head" },
@@ -793,11 +689,6 @@ const RETAINED_ROWS: ReadonlyArray<readonly [RetainedKind, string]> = [
   ["retained-reorder", "reorder item"],
 ]
 const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid/v1)", solid2: "Solid 2 (@wardic/solid)" }
-
-/** Ratios' median and quartiles, as the tables print them. */
-const spread = (ratios: ReadonlyArray<number>): string => `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`
-/** Whether ratios fail the gate: a median past +5%, its 25th percentile above 0%. */
-const failsGate = (ratios: ReadonlyArray<number>): boolean => Bool.and(quantile(ratios, 0.5) > GATE, quantile(ratios, 0.25) > 1)
 
 /**
  * A binding's feature pages (`--features`): each warm task and its bytes, head against base when the

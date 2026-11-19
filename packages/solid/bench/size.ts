@@ -2,15 +2,19 @@
 /**
  * `bun run size [--base <ref>] [--head <ref>]` (#511, decision Q10): what an app ships for Wardic.
  *
- * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
+ * - **The apps:** each Solid binding's plain app, one Complete element (`wardic.div` under a
  *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
  *   Slim element's base, and with each Feature (#511); a Wardic instance's of `domAnimation` (#516); one whose values follow a scroll (#240). And a multi-route app (#548): a shell giving
  *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
  *   SolidStart's routes are, measured as what the plain page loads, so a Feature that reaches a page
  *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
+ *   And the Foldkit binding's (#795, ADR-0071 decision 38): `f-plain`, Foldkit alone with one `h.div`
+ *   and an opacity style, and `f-slim`, one `w.div` fading in under `w.Provider()` on a Handle with no
+ *   Features, the binding's Slim app, with a budget of its own.
  * - **Each side is built as an app ships it** (`sides.ts`): a Vite app build, production mode,
  *   minified, tree-shaken, for the browsers an app ships to by default (`APP_TARGET`, #525); Solid 1
- *   through vite-plugin-solid, Solid 2 through the repo's `solid2({ dev: false })`. Not Vite's lib
+ *   through vite-plugin-solid, Solid 2 through the repo's `solid2({ dev: false })`, Foldkit as plain
+ *   TypeScript, its bare imports (`foldkit`, `effect`) the binding's own. Not Vite's lib
  *   mode, as `bench:solid`'s pages are: for an ES library Vite keeps the whitespace, for bundlers
  *   downstream, and the Slim element's app read 122.5 KB gzipped where an app ships 103.9 (#518).
  * - **Reported:** each app's minified, gzip (level 9) and brotli bytes, head against base, and the
@@ -32,7 +36,7 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { APP_TARGET, bindingPluginsOf, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, type Binding, BINDINGS, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 /** An app fails when its gzip passes this ratio of the base's. */
 const GATE = 1.01
@@ -55,9 +59,11 @@ const GATE = 1.01
  * track `imperative.ts`'s, 94.5 and 115.9 with a Batch member's hold all `member-hold.ts`'s. #672's
  * PR 2 raised them by what it measured (Q23): 95.2 and 116.5, the Environment's three ports' plumbing and
  * the helpers out of the spine (ADR-0067, *Note (#672)*). #566 raised Solid 2's to 118.0 for Solid 2.0.1, whose own
- * code grew 1.5 KB in every app that makes a ward (ADR-0067, *Note (#566)*).
+ * code grew 1.5 KB in every app that makes a ward (ADR-0067, *Note (#566)*). The Foldkit binding's Slim app,
+ * `f-slim`, holds 196.3 from its first number, 195.8, with the same room (#795, ADR-0071 decision 38): a budget
+ * on the first number, no target, which is a follow-up's with what the Handle ships that a Slim element doesn't.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.3 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -69,7 +75,7 @@ const arg = (name: string, fallback: string): string => {
 
 interface App {
   readonly name: string
-  readonly v2: boolean
+  readonly binding: Binding
   readonly source: string
   /**
    * A multi-route app's pages (#548), each its own file and its own entry, as SolidStart's routes are,
@@ -186,7 +192,7 @@ render(() => <WardicProvider env={DomLive}><List /></WardicProvider>, document.b
  */
 const routes = (render: string, entry: string, name: string): App => ({
   name,
-  v2: render === "@solidjs/web",
+  binding: Bool.match(render === "@solidjs/web", { onTrue: (): Binding => "solid2", onFalse: (): Binding => "solid1" }),
   source: `import { lazy, Show } from "solid-js"
 import { render } from "${render}"
 import { DomLive } from "@wardic/dom"
@@ -209,48 +215,84 @@ export default function Moves() { return <LazyWardic features={[layout]}><w.div 
   ],
 })
 
+/**
+ * A Foldkit app (#795): an element program with an empty Model, embedded in the body, whose `view` is
+ * given, after `imports` of its own.
+ */
+const foldkitApp = (imports: string, view: string): string => `import * as Schema from "effect/Schema"
+import * as Runtime from "foldkit/runtime"
+${imports}const Model = Schema.Struct({})
+const container = document.createElement("div")
+container.id = "app"
+document.body.append(container)
+Runtime.embed(Runtime.makeElement({ Model, init: () => ({ model: {} }), update: (model) => ({ model }), view: ${view}, container }))
+`
+
+/** Foldkit alone (#795): one `h.div` with an opacity style. What Foldkit's runtime and Effect cost before Wardic, the `f-slim` app's baseline. */
+const foldkitPlain = (): string => foldkitApp("", `(_model, h) => h.div([h.Style({ opacity: "1" })], ["hi"])`)
+
+/**
+ * The Foldkit binding's Slim app (#795, ADR-0071 decision 38): one `w.div` fading in under
+ * `w.Provider()`, on a Handle over `DomLive` with no Features. The binding's base, as `s1-slim` and
+ * `s2-slim` are the Slim element's, with a budget of its own (`BUDGETS`).
+ */
+const foldkitSlim = (): string =>
+  foldkitApp(
+    `import { DomLive } from "@wardic/dom"
+import * as Wardic from "@wardic/foldkit/Wardic"
+const wardic = Wardic.make({ env: DomLive })
+`,
+    `(_model, h) => {
+  const w = wardic.html(h)
+  return w.div([w.Provider(), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.3 })], ["hi"])
+}`,
+  )
+
 const APPS: ReadonlyArray<App> = [
-  { name: "s1-plain", v2: false, source: plain("solid-js/web") },
-  { name: "s1-complete", v2: false, source: complete("solid-js/web", "@wardic/solid/v1", false) },
-  { name: "s1-presence", v2: false, source: complete("solid-js/web", "@wardic/solid/v1", true) },
-  { name: "s1-slim", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", []) },
-  { name: "s1-colors", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["colors"]) },
-  { name: "s1-layout", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["layout"]) },
-  { name: "s1-hover", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["hover"]) },
-  { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["drag"]) },
-  { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["domAnimation"]) },
-  { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid/v1", ["domMax"]) },
-  { name: "s1-instance", v2: false, source: instance("solid-js/web", "@wardic/solid/v1", ["domAnimation"]) },
-  { name: "s1-scroll", v2: false, source: scrollApp("solid-js/web", "@wardic/solid/v1") },
-  { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid/v1") },
-  { name: "s1-reorder-batch", v2: false, source: reorderBatch("solid-js/web", "@wardic/solid/v1") },
+  { name: "s1-plain", binding: "solid1", source: plain("solid-js/web") },
+  { name: "s1-complete", binding: "solid1", source: complete("solid-js/web", "@wardic/solid/v1", false) },
+  { name: "s1-presence", binding: "solid1", source: complete("solid-js/web", "@wardic/solid/v1", true) },
+  { name: "s1-slim", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", []) },
+  { name: "s1-colors", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", ["colors"]) },
+  { name: "s1-layout", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", ["layout"]) },
+  { name: "s1-hover", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", ["hover"]) },
+  { name: "s1-drag", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", ["drag"]) },
+  { name: "s1-dom-animation", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", ["domAnimation"]) },
+  { name: "s1-dom-max", binding: "solid1", source: slim("solid-js/web", "@wardic/solid/v1", ["domMax"]) },
+  { name: "s1-instance", binding: "solid1", source: instance("solid-js/web", "@wardic/solid/v1", ["domAnimation"]) },
+  { name: "s1-scroll", binding: "solid1", source: scrollApp("solid-js/web", "@wardic/solid/v1") },
+  { name: "s1-batch", binding: "solid1", source: batch("solid-js/web", "@wardic/solid/v1") },
+  { name: "s1-reorder-batch", binding: "solid1", source: reorderBatch("solid-js/web", "@wardic/solid/v1") },
   routes("solid-js/web", "@wardic/solid/v1", "s1-routes"),
-  { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
-  { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid", false) },
-  { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid", true) },
-  { name: "s2-slim", v2: true, source: slim("@solidjs/web", "@wardic/solid", []) },
-  { name: "s2-colors", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["colors"]) },
-  { name: "s2-layout", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["layout"]) },
-  { name: "s2-hover", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["hover"]) },
-  { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["drag"]) },
-  { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["domAnimation"]) },
-  { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid", ["domMax"]) },
-  { name: "s2-instance", v2: true, source: instance("@solidjs/web", "@wardic/solid", ["domAnimation"]) },
-  { name: "s2-scroll", v2: true, source: scrollApp("@solidjs/web", "@wardic/solid") },
-  { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid") },
-  { name: "s2-reorder-batch", v2: true, source: reorderBatch("@solidjs/web", "@wardic/solid") },
+  { name: "s2-plain", binding: "solid2", source: plain("@solidjs/web") },
+  { name: "s2-complete", binding: "solid2", source: complete("@solidjs/web", "@wardic/solid", false) },
+  { name: "s2-presence", binding: "solid2", source: complete("@solidjs/web", "@wardic/solid", true) },
+  { name: "s2-slim", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", []) },
+  { name: "s2-colors", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", ["colors"]) },
+  { name: "s2-layout", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", ["layout"]) },
+  { name: "s2-hover", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", ["hover"]) },
+  { name: "s2-drag", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", ["drag"]) },
+  { name: "s2-dom-animation", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", ["domAnimation"]) },
+  { name: "s2-dom-max", binding: "solid2", source: slim("@solidjs/web", "@wardic/solid", ["domMax"]) },
+  { name: "s2-instance", binding: "solid2", source: instance("@solidjs/web", "@wardic/solid", ["domAnimation"]) },
+  { name: "s2-scroll", binding: "solid2", source: scrollApp("@solidjs/web", "@wardic/solid") },
+  { name: "s2-batch", binding: "solid2", source: batch("@solidjs/web", "@wardic/solid") },
+  { name: "s2-reorder-batch", binding: "solid2", source: reorderBatch("@solidjs/web", "@wardic/solid") },
   routes("@solidjs/web", "@wardic/solid", "s2-routes"),
+  { name: "f-plain", binding: "foldkit", source: foldkitPlain() },
+  { name: "f-slim", binding: "foldkit", source: foldkitSlim() },
 ]
 
-/** What a source map's sources are counted under. */
-const GROUPS = ["core", "dom", "solid", "effect", "solid-js", "culori", "other"] as const
+/** What a source map's sources are counted under: the packages, then the frameworks (`foldkit-lib` is the Foldkit framework, `foldkit` the binding). */
+const GROUPS = ["core", "dom", "solid", "foldkit", "effect", "solid-js", "foldkit-lib", "culori", "other"] as const
 type Group = (typeof GROUPS)[number]
 
 const groupOf = (source: string): Group => {
-  const own = /packages\/(core|dom|solid)\/src\//.exec(source)
+  const own = /packages\/(core|dom|solid|foldkit)\/src\//.exec(source)
   if (own !== null) return own[1] as Group
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?effect\//.test(source)) return "effect"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(solid-js|solid-js-1|solid-js-2|@solidjs)\//.test(source)) return "solid-js"
+  if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(foldkit|@foldkit)\//.test(source)) return "foldkit-lib"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?culori\//.test(source)) return "culori"
   return "other"
 }
@@ -337,7 +379,7 @@ const appSizeOf = async (root: string, deps: string, app: App, entry: string, si
     logLevel: "error",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps), bindingPluginsOf(app.v2)],
+    plugins: [sideResolver(root, deps, BINDINGS[app.binding].importing), BINDINGS[app.binding].plugins()],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist", app.name),
@@ -396,7 +438,7 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
   if (!existsSync(join(root, "node_modules"))) symlinkSync(join(deps, "packages/solid/node_modules"), join(root, "node_modules"))
   const sizes = new Map<string, Size>()
   for (const app of APPS) {
-    const entry = join(root, "apps", `${app.name}.tsx`)
+    const entry = join(root, "apps", `${app.name}.${BINDINGS[app.binding].ext}`)
     writeFileSync(entry, app.source)
     // An app the base can't build is one the head adds (its API is new): reported, not gated.
     const size = await appSizeOf(root, deps, app, entry, side)
