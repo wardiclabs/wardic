@@ -33,9 +33,11 @@ const message = {
 
 // The Live values, Atoms at module scope (ADR-0071, decision 16): how far the message is through
 // its time, 0 to 1, the bar under it, which its clock writes; and whether the strip is paused, a
-// switch the clock reads each frame, which the Pause button's Command writes.
+// switch the clock reads each frame, which the Pause button's Command writes. The view binds
+// `progress`, which mounts it; nothing mounts `held`, and Effect disposes an Atom no one has mounted
+// along with its value, so a write to it would be gone by the next frame: `keepAlive` pins it.
 const progress = Atom.make(0)
-const held = Atom.make(false)
+const held = Atom.keepAlive(Atom.make(false))
 
 const Data = Schema.Struct({})
 const Model = Schema.Struct({ index: Schema.Number, held: Schema.Boolean })
@@ -76,8 +78,10 @@ const Clock = Mount.defineStream("AnnouncementsClock", {
           const registry = yield* AtomRegistry.AtomRegistry
           registry.set(progress, 0)
           registry.set(held, initiallyHeld)
-          let hovered = false
+          // Each message is a new clock, and the pointer may rest on the strip already as one begins (the
+          // Next button is on it), with no `pointerenter` to come: the strip's `:hover` says where it is.
           const strip = element.closest(".announcements")
+          let hovered = strip !== null && strip.matches(":hover")
           if (strip !== null) {
             yield* listen(strip, "pointerenter", () => {
               hovered = true
