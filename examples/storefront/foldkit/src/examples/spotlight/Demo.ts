@@ -44,8 +44,8 @@ const Message = defineMessageUnion({ Lit: {} })
 type Message = typeof Message.Type
 
 /**
- * A card's Mount: the pointer over the card as Live values (`Wardic.pointer`), a mouse's alone, since
- * touch never hovers. Its place, from -1 to 1 across and down with 0 at the centre, and the centre
+ * A card's Mount: the pointer over the card as Live values (`Wardic.pointer`), a mouse's or a pen's,
+ * the default, since a finger never hovers. Its place, from -1 to 1 across and down with 0 at the centre, and the centre
  * once it has left, is what two springs follow, so the card eases toward the pointer and back to
  * rest; the tilt and the light's place are read from the springs, and the view's Atoms follow them.
  * Under reduced motion the card doesn't tilt, and the light is where the pointer is: the springs jump.
@@ -58,10 +58,10 @@ const Tilt = Mount.define("SpotlightTilt", {
       Effect.gen(function* () {
         const values = CARDS[id]
         const skipped = () => reduced
-        const { xProgress, yProgress, inside } = yield* Wardic.pointer(element, { types: ["mouse"] })
+        const { xProgress, yProgress, inside } = yield* Wardic.pointer(element)
         // The pointer's progress across the card, as a place from -1 to 1 about its centre: a leave keeps the place, so the centre once it has left is read here.
         const centred = (progress: Atom.Atom<number>): Atom.Atom<number> =>
-          Atom.readable((get) => {
+          Atom.make((get) => {
             if (get(inside)) return get(progress) * 2 - 1
             return 0
           })

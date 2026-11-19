@@ -21,9 +21,10 @@ const lens = {
 } as const
 
 // The Live values, Atoms at module scope (ADR-0071, decision 16): where the lens is, which the view
-// binds, fed from the springs that follow the pointer over the photo; and how wide the photo is drawn.
-const lensX = Atom.make(LENS)
-const lensY = Atom.make(LENS)
+// binds, fed from the springs that follow the pointer over the photo, from the photo's corner, where the
+// pointer's values start, while the lens is still hidden; and how wide the photo is drawn.
+const lensX = Atom.make(0)
+const lensY = Atom.make(0)
 const width = Atom.make(0)
 // The photo inside the lens, placed so its centre shows what's under the lens, ZOOM times larger:
 // a custom property each, which the stylesheet's `background-position` reads, derived from the lens's place.
@@ -52,12 +53,12 @@ const Follow = Mount.define("MagnifierFollow", {
     onWardic(
       Effect.gen(function* () {
         const skipped = () => reduced
-        const pointer = yield* Wardic.pointer(element, { types: ["mouse", "pen", "touch"] })
-        const x = yield* LiveValue.spring(pointer.x, { stiffness: 380, damping: 32 }, skipped)
-        const y = yield* LiveValue.spring(pointer.y, { stiffness: 380, damping: 32 }, skipped)
+        const { x: pointerX, y: pointerY, width: drawn } = yield* Wardic.pointer(element, { types: ["mouse", "pen", "touch"] })
+        const x = yield* LiveValue.spring(pointerX, { stiffness: 380, damping: 32 }, skipped)
+        const y = yield* LiveValue.spring(pointerY, { stiffness: 380, damping: 32 }, skipped)
         yield* feed(x, lensX)
         yield* feed(y, lensY)
-        yield* feed(pointer.width, width)
+        yield* feed(drawn, width)
         return Message.Following()
       }),
     ),
