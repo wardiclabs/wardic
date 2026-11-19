@@ -2,7 +2,7 @@
 /**
  * `bun run size [--base <ref>] [--head <ref>]` (#511, decision Q10): what an app ships for Wardic.
  *
- * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
+ * - **The apps:** each Solid binding's plain app, one Complete element (`wardic.div` under a
  *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
  *   Slim element's base, and with each Feature (#511); a Wardic instance's of `domAnimation` (#516); one whose values follow a scroll (#240). And a multi-route app (#548): a shell giving
  *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
@@ -36,7 +36,7 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { APP_TARGET, type Binding, commitOf, depsOf, importingOf, PACKAGES, pluginsOf, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, type Binding, BINDINGS, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 /** An app fails when its gzip passes this ratio of the base's. */
 const GATE = 1.01
@@ -216,37 +216,37 @@ export default function Moves() { return <LazyWardic features={[layout]}><w.div 
 })
 
 /**
- * Foldkit alone (#795): an element program with one `h.div` and an opacity style, embedded in the body.
- * What Foldkit's runtime and Effect cost before Wardic, the `f-slim` app's baseline.
+ * A Foldkit app (#795): an element program with an empty Model, embedded in the body, whose `view` is
+ * given, after `imports` of its own.
  */
-const foldkitPlain = (): string => `import * as Schema from "effect/Schema"
+const foldkitApp = (imports: string, view: string): string => `import * as Schema from "effect/Schema"
 import * as Runtime from "foldkit/runtime"
-const Model = Schema.Struct({})
+${imports}const Model = Schema.Struct({})
 const container = document.createElement("div")
 container.id = "app"
 document.body.append(container)
-Runtime.embed(Runtime.makeElement({ Model, init: () => ({ model: {} }), update: (model) => ({ model }), view: (_model, h) => h.div([h.Style({ opacity: "1" })], ["hi"]), container }))
+Runtime.embed(Runtime.makeElement({ Model, init: () => ({ model: {} }), update: (model) => ({ model }), view: ${view}, container }))
 `
+
+/** Foldkit alone (#795): one `h.div` with an opacity style. What Foldkit's runtime and Effect cost before Wardic, the `f-slim` app's baseline. */
+const foldkitPlain = (): string => foldkitApp("", `(_model, h) => h.div([h.Style({ opacity: "1" })], ["hi"])`)
 
 /**
  * The Foldkit binding's Slim app (#795, ADR-0071 decision 38): one `w.div` fading in under
  * `w.Provider()`, on a Handle over `DomLive` with no Features. The binding's base, as `s1-slim` and
  * `s2-slim` are the Slim element's, with a budget of its own (`BUDGETS`).
  */
-const foldkitSlim = (): string => `import * as Schema from "effect/Schema"
-import * as Runtime from "foldkit/runtime"
-import { DomLive } from "@wardic/dom"
+const foldkitSlim = (): string =>
+  foldkitApp(
+    `import { DomLive } from "@wardic/dom"
 import * as Wardic from "@wardic/foldkit/Wardic"
 const wardic = Wardic.make({ env: DomLive })
-const Model = Schema.Struct({})
-const container = document.createElement("div")
-container.id = "app"
-document.body.append(container)
-Runtime.embed(Runtime.makeElement({ Model, init: () => ({ model: {} }), update: (model) => ({ model }), view: (_model, h) => {
+`,
+    `(_model, h) => {
   const w = wardic.html(h)
   return w.div([w.Provider(), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.3 })], ["hi"])
-}, container }))
-`
+}`,
+  )
 
 const APPS: ReadonlyArray<App> = [
   { name: "s1-plain", binding: "solid1", source: plain("solid-js/web") },
@@ -379,7 +379,7 @@ const appSizeOf = async (root: string, deps: string, app: App, entry: string, si
     logLevel: "error",
     mode: "production",
     root,
-    plugins: [sideResolver(root, deps, importingOf(app.binding)), pluginsOf(app.binding)],
+    plugins: [sideResolver(root, deps, BINDINGS[app.binding].importing), BINDINGS[app.binding].plugins()],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
       outDir: join(root, "dist", app.name),
@@ -438,8 +438,7 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
   if (!existsSync(join(root, "node_modules"))) symlinkSync(join(deps, "packages/solid/node_modules"), join(root, "node_modules"))
   const sizes = new Map<string, Size>()
   for (const app of APPS) {
-    // A Foldkit app is plain TypeScript; the Solid apps' JSX needs its compile.
-    const entry = join(root, "apps", `${app.name}.${Bool.match(app.binding === "foldkit", { onTrue: () => "ts", onFalse: () => "tsx" })}`)
+    const entry = join(root, "apps", `${app.name}.${BINDINGS[app.binding].ext}`)
     writeFileSync(entry, app.source)
     // An app the base can't build is one the head adds (its API is new): reported, not gated.
     const size = await appSizeOf(root, deps, app, entry, side)

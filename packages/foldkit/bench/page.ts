@@ -6,14 +6,18 @@
  * a comparison.
  *
  * On Foldkit a change is a Message: the runtime runs `update`, renders the view and patches the DOM in a
- * frame of its own, and a `w.*` element's Mount runs in the patch. So a task is timed from the view's
+ * task of its own, and a `w.*` element's Mount runs in the patch. So a task is timed from the view's
  * call to the end of the patch's task: a full GC as the view is called, then the clock from there to the
- * first microtask after the patch, which the render, the patch and the elements' Mounts run before. Per
- * round:
+ * first microtask after the patch, which the render, the patch, the elements' Mounts and the setter's
+ * Retargets run before. Outside the window: a fiber hop a Mount makes (Foldkit's scheduler is a
+ * microtask, queued after this page's) and the binding's own microtask after a patch (its recheck and
+ * frame hint). Per round:
  * - **mount:** the Message that shows N elements: Foldkit's render and patch of N new elements, and
  *   their Mounts, 2N Leg starts among them.
  * - **firstFrame:** the frame after it, from its first rAF callback to just after its paint: the Legs'
- *   first step, the gate's first commits and rendering. Reported, not gated.
+ *   first step, the gate's first commits and rendering. Its rAF is requested as the view is called,
+ *   before the mount's work, so the frame is timed from before the Clock's tick (`bench:solid`'s
+ *   page's order). Reported, not gated.
  * - **retarget:** the Message retargeting all N mid-flight: the render, the patch of N elements whose
  *   attributes changed, and 2N interrupts and 2N starts in their deliveries.
  * - **restRetarget:** the same once every Leg has settled, 90 frames on (`bench:solid`'s rule).
@@ -21,9 +25,13 @@
  *   renders and patches N elements, and Wardic's deliveries find nothing changed. What a page pays for a
  *   render that touches nothing of Wardic's.
  * - **unmount:** the Message hiding them mid-flight: the patch's N removals, and 2N interrupts in the
- *   Mounts' releases.
+ *   Mounts' releases. Since `render` needs the Legs at rest, a sixth Message Retargets them 5 frames
+ *   before, untimed, so the unmount interrupts 2N Legs as `bench:solid`'s does; the bytes per round
+ *   include it.
  *
- * The runner starts Chromium with `--expose-gc`; what a side allocates is held by its bytes gate.
+ * The runner starts Chromium with `--expose-gc`; what a side allocates is held by its bytes gate. The
+ * frame, paint and `at` helpers are `bench:solid`'s page's, copied: a page is copied into each side's
+ * root on its own, with nothing beside it.
  */
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
@@ -60,15 +68,23 @@ const exposedGc = (globalThis as { gc?: () => void }).gc
 if (exposedGc === undefined) throw new Error("bench:foldkit: the page needs Chromium's --js-flags=--expose-gc")
 const gc: () => void = exposedGc
 
-/** The task being timed: resolved with its ms by the first microtask after the patch the view's call starts. */
-let timing: ((ms: number) => void) | undefined
+/** The task being timed: resolved with its ms by the first microtask after the patch the view's call starts; `frame` asks for the frame after it too. */
+interface Timing {
+  readonly resolve: (ms: number) => void
+  readonly frame: boolean
+}
+let timing: Timing | undefined
+/** The frame after the last task that asked for one (`timed(…, true)`): its rAF requested as the view was called. */
+let frameAfter: Promise<number> = Promise.resolve(0)
 const timedView = (): void => {
-  const resolve = timing
-  if (resolve === undefined) return
+  const pending = timing
+  if (pending === undefined) return
   timing = undefined
+  // The frame's rAF first, then the task's work, so the frame is timed from before the Clock's tick.
+  if (pending.frame) frameAfter = nextFrame()
   gc()
   const t0 = performance.now()
-  queueMicrotask(() => resolve(performance.now() - t0))
+  queueMicrotask(() => pending.resolve(performance.now() - t0))
 }
 
 /** N `w.div`s under a `w.div` host, which stays through the rounds so the Handle's services do too. */
@@ -108,10 +124,17 @@ const element = Runtime.makeElement({
 const handle = Runtime.embed(element)
 
 let current: Model = { shown: false, o: 1, c: WHITE, tick: 0 }
-/** Send `change` to the Model and time the render and patch it causes, in ms. */
-const timed = (change: Partial<Model>): Promise<number> =>
-  new Promise((resolve) => {
-    timing = resolve
+/** Send `change` to the Model and time the render and patch it causes, in ms, timing the frame after it too when `frame`; a view that never comes fails the round. */
+const timed = (change: Partial<Model>, frame = false): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const late = setTimeout(() => reject(new Error("bench:foldkit: no render within 10 s of a Message")), 10000)
+    timing = {
+      resolve: (ms) => {
+        clearTimeout(late)
+        resolve(ms)
+      },
+      frame,
+    }
     current = { ...current, ...change }
     handle.ports.set.send(current)
   })
@@ -127,12 +150,18 @@ const frames = (k: number): Promise<void> =>
     realRaf(f)
   })
 const afterPaint = (): Promise<void> => new Promise((resolve) => realRaf(() => setTimeout(resolve, 0)))
-/** The next frame, from its first rAF callback to just after its paint, in ms. */
+/** The next frame, from its first rAF callback to just after its paint, in ms (`bench:solid`'s `nextFrame`). */
 const nextFrame = (): Promise<number> =>
   new Promise((resolve) => {
+    const channel = new MessageChannel()
+    let start = 0
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      resolve(performance.now() - start)
+    }
     realRaf(() => {
-      const t0 = performance.now()
-      setTimeout(() => resolve(performance.now() - t0), 0)
+      start = performance.now()
+      channel.port2.postMessage(undefined)
     })
   })
 
@@ -158,9 +187,9 @@ export interface Round {
 
 const round = async (): Promise<Round> => {
   await afterPaint()
-  const mount = await timed({ shown: true, o: 1, c: WHITE })
+  const mount = await timed({ shown: true, o: 1, c: WHITE }, true)
   if (boxes().length !== n) throw new Error(`bench:foldkit: mounted ${boxes().length} of ${n}`)
-  const firstFrame = await nextFrame()
+  const firstFrame = await frameAfter
   await frames(7)
   if (kind !== "plain" && !boxes().some((el) => Number(el.style.opacity) > 0 && Number(el.style.opacity) < 1)) {
     throw new Error("bench:foldkit: not mid-flight at the Retarget")
@@ -177,8 +206,8 @@ const round = async (): Promise<Round> => {
   const render = await timed({ tick: current.tick + 1 })
   if (!at(0.2, RED)) throw new Error("bench:foldkit: the render moved a target")
   await afterPaint()
-  const retargetAgain = await timed({ o: 0.6, c: BLUE })
-  void retargetAgain
+  // Mid-flight again (`render` left every Leg at rest), so the unmount interrupts 2N Legs, as `bench:solid`'s does.
+  await timed({ o: 0.6, c: BLUE })
   await frames(5)
   await afterPaint()
   const unmount = await timed({ shown: false })

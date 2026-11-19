@@ -31,8 +31,8 @@ import type { Page } from "playwright"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { arg, buildPage, CONTROL_SCALE, failsGate, launch, median, NOISE, openPage as openBenchPage, orderOf, percent, quantile, runRounds as runBenchRounds, sampled, spread, when } from "../../solid/bench/paired.ts"
-import { commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "../../solid/bench/sides.ts"
+import { arg, buildPage, CONTROL_SCALE, failsGate, launch, median, NOISE, openPage as openBenchPage, orderOf, runRounds as runBenchRounds, sampled, spread, when } from "../../solid/bench/paired.ts"
+import { commitHas, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "../../solid/bench/sides.ts"
 import type { Round } from "./page.ts"
 
 const BENCH = dirname(fileURLToPath(import.meta.url))
@@ -67,6 +67,8 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
 }
 
 const baseCommit = commitOf(base)
+// A base from before the binding (#561) has no page to build: said here, not as an unresolved import later.
+if (Bool.not(commitHas(baseCommit, "packages/foldkit/src"))) throw new Error(`bench:foldkit: ${base} (${baseCommit.slice(0, 7)}) has no packages/foldkit/src: a base from before @wardic/foldkit`)
 const headCommit = Bool.match(headRef.length > 0, { onTrue: (): string | undefined => commitOf(headRef), onFalse: constUndefined })
 const baseDeps = depsOf(baseCommit)
 const headDeps = UndefinedOr.match(headCommit, { onUndefined: () => REPO, onDefined: depsOf })
@@ -101,7 +103,7 @@ const runPage = async (side: Side, kind: Kind): Promise<ReadonlyArray<Round>> =>
 /** What one `wardic` page of `side`'s build allocates over its rounds, in bytes per element per round. */
 const allocatedPage = async (side: Side): Promise<number> => {
   const { page, errors } = await openPage(side, "wardic")
-  const bytes = await sampled(page, () => runRounds(page))
+  const { bytes } = await sampled(page, () => runRounds(page))
   await page.close()
   if (errors.length > 0) throw new Error(`bench:foldkit: ${side} allocation: ${errors.join("; ")}`)
   return bytes / (rounds * n)
@@ -153,18 +155,20 @@ for (const [label, pick, gated] of [["warm", warm, true], ["cold", cold, false]]
   }
   console.log("")
 }
-// The plain page's own numbers: Foldkit's render and patch of 10 × N plain divs, the baseline the Wardic page is read against.
-console.log(`plain (ms, warm, median across reps; ${n * CONTROL_SCALE} h.divs binding the Model, Foldkit alone)`)
+// The plain page's own numbers: Foldkit's render and patch of plain divs, the baseline the Wardic page is read against. The
+// page runs at CONTROL_SCALE × N, so its tasks can be timed (#318); per N elements, its numbers divide by that.
+console.log(`plain (ms per ${n} elements, warm, median across reps; from ${n * CONTROL_SCALE} h.divs binding the Model, Foldkit alone; firstFrame as measured)`)
 console.log(`  ${"task".padEnd(14)}${"base".padEnd(10)}head`)
 for (const task of [...TASKS, "firstFrame"] as const) {
-  console.log(`  ${task.padEnd(14)}${median(runs.plain.base.map((page) => warm(page, task))).toFixed(1).padEnd(10)}${median(runs.plain.head.map((page) => warm(page, task))).toFixed(1)}`)
+  const per = Bool.match(task === "firstFrame", { onTrue: () => 1, onFalse: () => CONTROL_SCALE })
+  console.log(`  ${task.padEnd(14)}${(median(runs.plain.base.map((page) => warm(page, task))) / per).toFixed(2).padEnd(10)}${(median(runs.plain.head.map((page) => warm(page, task))) / per).toFixed(2)}`)
 }
 const allocRatios = allocated.head.map((b, r) => b / allocated.base[r]!)
 const allocFails = failsGate(allocRatios)
 failed ||= allocFails
 console.log("\nallocated (KB per element per round, tasks and frames; head / base paired per rep: median [p25 – p75])")
 console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
-console.log(`  ${"bytes".padEnd(14)}${(median(allocated.base) / 1024).toFixed(1).padEnd(10)}${(median(allocated.head) / 1024).toFixed(1).padEnd(10)}${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${when(allocFails, "  FAIL")}`)
+console.log(`  ${"bytes".padEnd(14)}${(median(allocated.base) / 1024).toFixed(1).padEnd(10)}${(median(allocated.head) / 1024).toFixed(1).padEnd(10)}${spread(allocRatios)}${when(allocFails, "  FAIL")}`)
 
 if (noisy) process.exit(2)
 process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))

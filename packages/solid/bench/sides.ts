@@ -54,7 +54,7 @@ export const depsOf = (commit: string): string => {
 }
 
 /** Whether `commit` (the working tree when undefined) has `path`. */
-const has = (commit: string | undefined, path: string): boolean =>
+export const commitHas = (commit: string | undefined, path: string): boolean =>
   UndefinedOr.match(commit, {
     onUndefined: () => existsSync(join(REPO, path)),
     onDefined: (c) => {
@@ -74,7 +74,7 @@ const has = (commit: string | undefined, path: string): boolean =>
  * build their pages without them.
  */
 export const sourcesInto = (root: string, commit: string | undefined, manifests = false): void => {
-  const paths = PACKAGES.filter((pkg) => has(commit, `packages/${pkg}/src`)).flatMap((pkg) => {
+  const paths = PACKAGES.filter((pkg) => commitHas(commit, `packages/${pkg}/src`)).flatMap((pkg) => {
     if (manifests) return [`packages/${pkg}/src`, `packages/${pkg}/package.json`]
     return [`packages/${pkg}/src`]
   })
@@ -89,9 +89,9 @@ export const sourcesInto = (root: string, commit: string | undefined, manifests 
 const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index", v1: "v1/index" }
 
 /**
- * `@wardic/foldkit`'s subpaths whose module a production browser build gets from its `exports`'
- * conditions (#795): `internal/dev` is `dev.production` (`DEV` false), `internal/server` the browser's
- * `server` (`IS_SERVER` false), as an app's bundler resolves them.
+ * `@wardic/foldkit`'s subpath whose module a production browser build gets from its `exports`'
+ * conditions, not by its name (#795): `internal/dev` is `dev.production` (`DEV` false). `internal/server`
+ * needs no entry: its name is the browser's module, `server` (`IS_SERVER` false).
  */
 const FOLDKIT_SUBPATHS: Readonly<Record<string, string>> = { "internal/dev": "internal/dev.production" }
 
@@ -123,14 +123,19 @@ export const bindingPluginsOf = (v2: boolean): PluginOption =>
 /** The bindings an app is built on (#795): the two Solid ones, and Foldkit's. */
 export type Binding = "solid1" | "solid2" | "foldkit"
 
-/** An app's build plugins for `binding`: the Solid compiles above, or none, since a Foldkit app is plain TypeScript Vite builds as it is. */
-export const pluginsOf = (binding: Binding): PluginOption => {
-  if (binding === "foldkit") return []
-  return bindingPluginsOf(binding === "solid2")
+/** What an app's build takes from its binding: its compile plugins, the package whose dependencies resolve its own bare imports, and its entry's extension. */
+export interface BindingBuild {
+  readonly plugins: () => PluginOption
+  readonly importing: Package
+  readonly ext: "ts" | "tsx"
 }
 
-/** The package whose dependencies resolve an app's own bare imports on `binding`: `solid`'s, or `foldkit`'s. */
-export const importingOf = (binding: Binding): Package => Bool.match(binding === "foldkit", { onTrue: (): Package => "foldkit", onFalse: (): Package => "solid" })
+/** Each binding's build (#795): the Solid compiles, or none, since a Foldkit app is plain TypeScript Vite builds as it is. */
+export const BINDINGS: Readonly<Record<Binding, BindingBuild>> = {
+  solid1: { plugins: () => bindingPluginsOf(false), importing: "solid", ext: "tsx" },
+  solid2: { plugins: () => bindingPluginsOf(true), importing: "solid", ext: "tsx" },
+  foldkit: { plugins: () => [], importing: "foldkit", ext: "ts" },
+}
 
 /**
  * A side's module `stem`: `.tsx` when the side has it, else `.ts`. `@wardic/solid`'s entries are `index.tsx`,

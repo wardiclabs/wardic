@@ -123,7 +123,7 @@ import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { BatchRound, LayoutRound, LiveRound, ReorderRound, Round, Scene, TextRound } from "./page.tsx"
 import { arg, buildPage, CONTROL_SCALE, failsGate, GATE, heldBy, launch, median, NOISE, openPage as openBenchPage, orderOf, percent, quantile, runRounds as runBenchRounds, sampled, spread, when } from "./paired.ts"
-import { bindingPluginsOf, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { bindingPluginsOf, commitHas, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const BENCH = dirname(fileURLToPath(import.meta.url))
 const OUT = join(REPO, ".tmp/bench-solid")
@@ -185,20 +185,7 @@ const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
  */
 const V2_WARDS = ["packages/solid/src/ward.tsx", "packages/solid/src/unstable/v2/ward.tsx"]
 /** Whether `commit` (the working tree when undefined) has the Solid 2 binding. */
-const hasV2 = (commit: string | undefined): boolean =>
-  V2_WARDS.some((path) =>
-    UndefinedOr.match(commit, {
-      onUndefined: () => existsSync(join(REPO, path)),
-      onDefined: (c) => {
-        try {
-          execSync(`git cat-file -e ${c}:${path}`, { cwd: REPO, stdio: "ignore" })
-          return true
-        } catch {
-          return false
-        }
-      },
-    }),
-  )
+const hasV2 = (commit: string | undefined): boolean => V2_WARDS.some((path) => commitHas(commit, path))
 
 /** Whether `commit` (the working tree when undefined) has what `since` brought: it is `since`, or after it. */
 const hasSince = (since: string | undefined, commit: string | undefined): boolean => {
@@ -281,7 +268,7 @@ const runPage = async (side: Side, kind: Kind, query = ""): Promise<ReadonlyArra
 /** What one `wardic` page, or a feature page, of `side`'s build allocates over its rounds, in bytes per element per round. */
 const allocatedPage = async (side: Side, kind: "wardic" | FeatureKind = "wardic"): Promise<number> => {
   const { page, errors } = await openPage(side, kind)
-  const bytes = await sampled(page, () => runRounds(page))
+  const { bytes } = await sampled(page, () => runRounds(page))
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} ${kind} allocation: ${errors.join("; ")}`)
   return bytes / (rounds * n)
@@ -303,10 +290,7 @@ const layoutPage = async (side: Side): Promise<ReadonlyArray<LayoutRound>> => {
 const allocatedLayoutPage = async (side: Side): Promise<number> => {
   const { page, errors } = await openPage(side, "layout")
   await page.evaluate(() => (globalThis as unknown as { __wardicLayoutMount: () => Promise<void> }).__wardicLayoutMount())
-  let out: ReadonlyArray<LayoutRound> = []
-  const bytes = await sampled(page, async () => {
-    out = (await runRounds(page)) as unknown as ReadonlyArray<LayoutRound>
-  })
+  const { bytes, out } = await sampled(page, () => runRounds(page) as unknown as Promise<ReadonlyArray<LayoutRound>>)
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} layout allocation: ${errors.join("; ")}`)
   const frames = out.reduce((sum, round) => SCENES.reduce((inner, scene) => inner + round[scene].frames, sum), 0)

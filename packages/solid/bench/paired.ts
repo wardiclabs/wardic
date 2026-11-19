@@ -4,9 +4,10 @@
  * `bench:foldkit` (`packages/foldkit/bench/run.ts`) each build a page per side as an app ships it, open it
  * in production Chromium with the GC exposed, run its rounds base and head back to back in alternating
  * order (paired reps), and gate each task's warm median against the base by one rule (ADR-0040, decision
- * 6; its *Amendment (#69)* for the bytes). This module holds what doesn't depend on a page's kinds: the
- * arguments, the stats and the gate, a side's page build, a page's opening and its rounds, its heap
- * sampling, and the heap it holds.
+ * 6; its *Amendment (#69)* for the bytes). This module holds what both runners share: the arguments,
+ * the stats and the gate, the control page's scale, a side's page build, a page's opening and its
+ * rounds, its heap sampling, and the heap it holds. The kinds, the pages and the tables are each
+ * runner's own.
  */
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -129,8 +130,8 @@ interface HeapNode {
 }
 const bytesOf = (node: HeapNode): number => node.children.reduce((sum, child) => sum + bytesOf(child), node.selfSize)
 
-/** What `run` allocates on `page`, in bytes: V8's sampling heap profiler, objects freed by either GC counted. */
-export const sampled = async (page: Page, run: () => Promise<unknown>): Promise<number> => {
+/** What `run` allocates on `page`, in bytes (V8's sampling heap profiler, objects freed by either GC counted), with what `run` returned. */
+export const sampled = async <A>(page: Page, run: () => Promise<A>): Promise<{ readonly bytes: number; readonly out: A }> => {
   const cdp = await page.context().newCDPSession(page)
   await cdp.send("HeapProfiler.enable")
   await cdp.send("HeapProfiler.startSampling", {
@@ -138,9 +139,9 @@ export const sampled = async (page: Page, run: () => Promise<unknown>): Promise<
     includeObjectsCollectedByMajorGC: true,
     includeObjectsCollectedByMinorGC: true,
   })
-  await run()
+  const out = await run()
   const { profile } = await cdp.send("HeapProfiler.stopSampling")
-  return bytesOf(profile.head as HeapNode)
+  return { bytes: bytesOf(profile.head as HeapNode), out }
 }
 
 /** The heap the page's JS holds after two full GCs, in bytes. */
