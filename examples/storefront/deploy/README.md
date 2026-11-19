@@ -47,7 +47,7 @@ From a clean checkout, at the commit to deploy:
 examples/storefront/deploy/deploy.sh
 ```
 
-It copies the source to the server (the repo is private: the server has no git access of its own), builds the image there, and restarts the apps whose image changed. Caddy keeps its certificates in a volume across deploys.
+It copies the source to the server (the repo is private: the server has no git access of its own), builds the image there, and restarts the apps whose image changed. A deploy that changes the Caddyfile recreates Caddy too, since the file is bind-mounted on its own and the mount keeps the copy rsync replaced; Caddy keeps its certificates in a volume across deploys, so a recreate loses none.
 
 Then check it from outside: the smoke test runs against a deployment when `STOREFRONT_SMOKE_URL` names it, starting nothing itself:
 
