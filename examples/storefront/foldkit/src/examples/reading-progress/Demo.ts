@@ -5,8 +5,7 @@ import * as Schema from "effect/Schema"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import { defineView } from "foldkit/submodel"
-import { LiveValue } from "@wardic/foldkit"
-import { feed, onWardic } from "~/lib/live.ts"
+import { feed, onWardic, scroll } from "~/lib/live.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 
@@ -23,7 +22,7 @@ const Message = defineMessageUnion({ Reading: {} })
 type Message = typeof Message.Type
 
 /**
- * The panel's Mount: its scroll as Live values (`LiveValue.scroll`), set within the scroll's own
+ * The panel's Mount: its scroll as Live values (`Wardic.scroll`), set within the scroll's own
  * event, held while the panel is on the page. Leave out `container`, and it's the page's scroll.
  */
 const Read = Mount.define("ReadingScroll", {
@@ -31,7 +30,7 @@ const Read = Mount.define("ReadingScroll", {
   execute: ({ element }) =>
     onWardic(
       Effect.gen(function* () {
-        const { scrollYProgress } = yield* LiveValue.scroll({ container: element })
+        const { scrollYProgress } = yield* scroll({ container: element })
         yield* feed(scrollYProgress, progress)
         return Message.Reading()
       }),

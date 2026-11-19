@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect"
 import type * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import type * as Scope from "effect/Scope"
+import type { LiveValue } from "@wardic/foldkit"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { wardic } from "~/lib/wardic.ts"
 
@@ -17,6 +18,14 @@ import { wardic } from "~/lib/wardic.ts"
  * program's: the Handle's own Layer provides the one `Wardic.provide` needs. The Scope is the Mount's.
  */
 export const onWardic = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.provide(Wardic.provide(effect), wardic.resources)
+
+/**
+ * A scroll as Live values (`Wardic.scroll`, Motion's `useScroll`): the page's, or `container`'s,
+ * with Motion's `target` and `offset`, read until the Scope ends. The shop's Handle names
+ * `Features.scroll`, so the binding's `ScrollFailed` can't come here: were it to, that's a defect
+ * of the app's wiring, not a case a page handles.
+ */
+export const scroll = (options?: Wardic.ScrollOptions): Effect.Effect<LiveValue.ScrollValues, never, Wardic.Wardic | Scope.Scope> => Effect.orDie(Wardic.scroll(options))
 
 /** Each value of `from`, written into `into`, which a view binds, until the Scope ends. */
 export const feed = <A>(from: Atom.Atom<A>, into: Atom.Writable<A, A>): Effect.Effect<void, never, AtomRegistry.AtomRegistry | Scope.Scope> =>

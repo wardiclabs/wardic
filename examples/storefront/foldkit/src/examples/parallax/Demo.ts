@@ -7,8 +7,7 @@ import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import * as Mount from "foldkit/mount"
 import { defineView } from "foldkit/submodel"
-import { LiveValue } from "@wardic/foldkit"
-import { feed, onWardic } from "~/lib/live.ts"
+import { feed, onWardic, scroll } from "~/lib/live.ts"
 import { wardic } from "~/lib/wardic.ts"
 import { definePage, type PageEnv } from "~/page.ts"
 
@@ -27,7 +26,7 @@ const Message = defineMessageUnion({ Drifting: {} })
 type Message = typeof Message.Type
 
 /**
- * A banner's Mount: its own progress through the panel, from `LiveValue.scroll` with a `target` and
+ * A banner's Mount: its own progress through the panel, from `Wardic.scroll` with a `target` and
  * Motion's `offset`, 0 as its top comes in at the bottom and 1 as its bottom leaves at the top, mapped
  * to a few dozen pixels of `y` for the photo and for the words, one each way: depth. A parallax is
  * motion of your own, so reduced motion is yours to apply: under it, neither drifts.
@@ -40,7 +39,7 @@ const Depth = Mount.define("LookbookDepth", {
       Effect.gen(function* () {
         const drift = BANNERS[key]
         if (drift === undefined) return Message.Drifting()
-        const { scrollYProgress } = yield* LiveValue.scroll({ container: element.parentElement, target: element, offset: ["start end", "end start"] })
+        const { scrollYProgress } = yield* scroll({ container: element.parentElement, target: element, offset: ["start end", "end start"] })
         const depth = (travel: number) => (progress: number) => {
           if (reduced) return 0
           return (progress - 0.5) * travel
