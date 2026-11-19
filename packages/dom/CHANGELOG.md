@@ -1,5 +1,12 @@
 # @wardic/dom
 
+## 1.1.4
+
+### Patch Changes
+
+- 8c19ae6: `PagePoint` (unstable): Solid's `correctParentTransform` and `transformViewBoxPoint` moved here for every DOM binding (#795), each taking its element as a selector too, looked up in the document at each point.
+  - @wardic/core@1.1.4
+
 ## 1.1.3
 
 ### Patch Changes
