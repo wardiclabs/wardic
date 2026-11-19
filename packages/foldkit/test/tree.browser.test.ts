@@ -3,7 +3,9 @@
 // defaults; the callbacks are Messages; a target's `transitionEnd` lands after it.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import { afterEach, describe, expect, it } from "vitest"
@@ -113,6 +115,65 @@ describe("orchestration", () => {
     // 150 ms apart, give or take a frame or two under load: every slot known before any child reads one.
     expect(b! - a!, "b starts after a").toBeGreaterThan(90)
     expect(c! - b!, "c starts after b").toBeGreaterThan(90)
+  })
+
+  // #848, two levels down: the items under a plain `w.div` with no variants of its own, which hands down
+  // the list's names. The items wait for the div, the div for the list: the tree starts top-down.
+  it("staggers the children of a tree mounted by one patch two w.* levels down (#848)", async () => {
+    const held = embed<Model, Message, boolean>({
+      Model,
+      Set: Schema.Boolean,
+      init: { open: false },
+      update,
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return h.div([h.Id("root")], Bool.match(model.open, {
+          onTrue: () => [
+            w.ul([h.Id("list"), w.Variants(list), w.Initial("closed"), w.Animate("open"), w.Transition({ duration: 0.3, ease: "linear", staggerChildren: 0.15 })], [
+              w.div([h.Id("mid")], [
+                w.keyed("li")("a", [h.Class("item"), w.Variants(item)], ["a"]),
+                w.keyed("li")("b", [h.Class("item"), w.Variants(item)], ["b"]),
+                w.keyed("li")("c", [h.Class("item"), w.Variants(item)], ["c"]),
+              ]),
+            ]),
+          ],
+          onFalse: (): ReadonlyArray<Html> => [],
+        }))
+      },
+      toMessage: (open) => Message.Open({ open }),
+    })
+    app = held
+    await until(() => held.container.querySelector("#root") !== null, 2000, "the root renders")
+    held.send(true)
+    const [a, b, c] = await startTimesOf(held, 0)
+    expect(b! - a!, "b starts after a").toBeGreaterThan(90)
+    expect(c! - b!, "c starts after b").toBeGreaterThan(90)
+  })
+
+  // #848: a child a later patch adds under a parent that has started starts at once, as before: nothing to wait for.
+  it("starts a child a later patch adds under a started parent at once (#848)", async () => {
+    const held = embed<Model, Message, boolean>({
+      Model,
+      Set: Schema.Boolean,
+      init: { open: false },
+      update,
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return w.ul([h.Id("list"), w.Variants(list), w.Initial("closed"), w.Animate("open"), w.Transition({ duration: 0.3, ease: "linear", staggerChildren: 0.15 })], [
+          w.keyed("li")("a", [h.Class("item"), w.Variants(item)], ["a"]),
+          ...Bool.match(model.open, { onTrue: () => [w.keyed("li")("d", [h.Id("d"), w.Variants(item)], ["d"])], onFalse: (): ReadonlyArray<Html> => [] }),
+        ])
+      },
+      toMessage: (open) => Message.Open({ open }),
+    })
+    app = held
+    await until(() => UndefinedOr.match(held.container.querySelector<HTMLElement>(".item") ?? undefined, { onUndefined: () => false, onDefined: (el) => opacityOf(el) === 1 }), 3000, "the list has landed")
+    const t0 = performance.now()
+    held.send(true)
+    await until(() => Predicate.isNotNull(held.container.querySelector("#d")), 2000, "d renders")
+    await until(() => opacityOf(held.container.querySelector<HTMLElement>("#d")!) > 0, 2000, "d starts")
+    // Within a few frames of the patch: it waited for nothing.
+    expect(performance.now() - t0, "d starts at once").toBeLessThan(250)
   })
 
   it("beforeChildren holds the children until the parent has landed", async () => {

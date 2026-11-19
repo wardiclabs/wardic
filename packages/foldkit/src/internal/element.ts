@@ -51,7 +51,7 @@ import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
 import { groupDelivered, reorderItemOf } from "./reorder.ts"
 import { hydrationMounted, type Provider, reducedMotionUnder, type State } from "./services.ts"
-import { begun, configValueOf, dropNode, layoutGroupOf, nodeOf, startUnder } from "./tree.ts"
+import { configValueOf, dropNode, layoutGroupOf, nodeOf, startUnder } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** An element's config as the spine reads it: what the view delivered, with its merged `style`. */
@@ -642,7 +642,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       dropNode(element)
     }
   }
-  return UndefinedOr.match(presence, { onUndefined: () => startUnder(element, begin), onDefined: (p) => p.enroll(element, () => begun(element, begin)) })
+  return UndefinedOr.match(presence, { onUndefined: () => startUnder(element, begin), onDefined: (p) => p.enroll(element, begin) })
 }
 
 /** Development's word on a render giving an element other controls, or values in their place (#798, Q17): it keeps the ones it mounted with. */
