@@ -4,6 +4,7 @@
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -299,6 +300,70 @@ describe("Live values", () => {
     await boxOf(held)
     held.send(true)
     await until(() => held.container.querySelector("#reason")?.textContent === "no-scroll-feature", 3000, "the Command answers with the typed failure's reason")
+  })
+
+  it("w.Style follows the pointer over an element from Wardic.pointer in a Command: a mouse's moves, not a finger's, and its leave (#833)", async () => {
+    const across = Atom.make(0)
+    const inside = Atom.make(false)
+    const Model = Schema.Struct({ done: Schema.Boolean })
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Go: {}, Done: {} })
+    type Message = typeof Message.Type
+    // The pad's pointer as Live values, in the Command's own Scope: held until the pointer has crossed a quarter of the pad and left.
+    const Follow = Command.define("Follow", {
+      messages: [Message.Done],
+      execute: Effect.scoped(
+        Wardic.provide(
+          Effect.gen(function* () {
+            const registry = yield* AtomRegistry.AtomRegistry
+            // By the pad's own id: the Command can't close over `held`, whose `update` closes over the Command.
+            const values = yield* Wardic.pointer(Option.getOrThrow(Option.fromNullishOr(document.querySelector("#pad"))))
+            const stops = [registry.subscribe(values.xProgress, (at) => registry.set(across, at), { immediate: true }), registry.subscribe(values.inside, (is) => registry.set(inside, is), { immediate: true })]
+            yield* Effect.addFinalizer(() => Effect.sync(() => stops.forEach((stop) => stop())))
+            yield* Effect.repeat(Effect.sleep("20 millis"), { until: () => registry.get(across) >= 0.25 && Bool.not(registry.get(inside)) })
+            return Message.Done()
+          }),
+        ),
+      ),
+    })
+    const held = embed<Model, Message, boolean, Wardic.Wardic>({
+      Model,
+      Set: Schema.Boolean,
+      init: { done: false },
+      update: (model, message) => Message.match(message, { Go: () => ({ model, commands: [Follow()] }), Done: () => ({ model: { done: true } }) }),
+      view: (model, h) => {
+        const w = wardic.html(h)
+        return h.div([h.Id("root")], [
+          w.div([h.Id("bar"), w.Style({ scaleX: across }), h.Style({ width: "100px", height: "4px", background: "teal", "transform-origin": "left" })]),
+          w.span([h.Id("inside"), w.Text(Atom.map(inside, String))]),
+          h.div([h.Id("pad"), h.Style({ width: "200px", height: "100px" })]),
+          h.span([h.Id("done")], [String(model.done)]),
+        ])
+      },
+      toMessage: () => Message.Go(),
+      resources: wardic.resources,
+    })
+    app = held
+    const bar = await boxOf(held, "bar")
+    const pad = await boxOf(held, "pad")
+    const insideEl = await boxOf(held, "inside")
+    const at = (type: string, fraction: number, pointerType: string): void => {
+      const box = pad.getBoundingClientRect()
+      pad.dispatchEvent(new PointerEvent(type, { clientX: box.left + box.width * fraction, clientY: box.top + box.height / 2, pointerType, bubbles: true }))
+    }
+    held.send(true)
+    // Two frames: the Message's patch has run and the Command has its listeners on the pad before the pointer moves.
+    await frames(2)
+    at("pointermove", 0.25, "mouse")
+    await until(() => bar.style.transform.includes("scaleX(0.25)"), 3000, "the bar follows the mouse to a quarter across")
+    expect(insideEl.textContent).toBe("true")
+    // A finger's move: not among the default types, so nothing moves.
+    at("pointermove", 0.75, "touch")
+    await frames(2)
+    expect(bar.style.transform).toContain("scaleX(0.25)")
+    at("pointerleave", 0.25, "mouse")
+    await until(() => insideEl.textContent === "false", 3000, "the leave turns inside off")
+    await until(() => held.container.querySelector("#done")?.textContent === "true", 3000, "the Command answered once the pointer had crossed and left")
   })
 
   it("w.Text writes an Atom's text, w.OnUpdate sinks the element's values, and w.TransformTemplate shapes its transform", async () => {
