@@ -28,6 +28,16 @@ services:
     working_dir: /app/examples/storefront/solid2
     command: [node_modules/.bin/vite, preview, --host, 0.0.0.0, --port, "4102", --strictPort]
 
+  # The Foldkit app's Node host (`server.ts`, `@foldkit/node`): its own environment, since it isn't
+  # `vite preview`; ORIGIN is the address Caddy serves it at.
+  foldkit:
+    <<: *app
+    working_dir: /app/examples/storefront/foldkit
+    environment:
+      PORT: "4104"
+      ORIGIN: https://foldkit.${STOREFRONT_DOMAIN:?set STOREFRONT_DOMAIN in .env}
+    command: [node, server.ts]
+
   caddy:
     image: caddy:2.11.7
     restart: unless-stopped
@@ -39,7 +49,7 @@ services:
       - ./landing:/srv/landing:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on: [solid2]
+    depends_on: [solid2, foldkit]
 
 volumes:
   caddy_data:

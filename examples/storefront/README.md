@@ -55,7 +55,7 @@ bun run dev                     # http://localhost:3101 (solid2: 3102, foldkit: 
 
 Their production builds serve on 4101, 4102 and 4104 (`bun run preview` in the Solid apps, `bun run start` in `foldkit`, after `bun run build`).
 
-The Foldkit app has its first four areas (entrances, layout, gestures and presence); the rest, and its deployment beside the others, come with the storefront's second PR (#795).
+The examples' words are shared; where the Foldkit form differs, its page says so above the code (the registry's `foldkit.note`, with its own title, summary and tags where the shared ones don't hold), and its "With a component library" pages are on `@foldkit/ui`.
 
 The header's switches:
 - **Reduce motion** sets the provider's `reducedMotion` to `"always"`, so you can see what every demo does under it.
@@ -66,7 +66,7 @@ Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow
 
 ## Deploy it
 
-[`deploy/`](deploy) runs the apps it deploys (Solid 2's; Solid 1's isn't, #566) on one VPS behind Caddy, each on its own subdomain with HTTPS, and a landing page on the domain: a Docker image, a compose file, a one-time server setup, and a deploy script. Its README has the steps.
+[`deploy/`](deploy) runs the apps it deploys (Solid 2's and Foldkit's; Solid 1's isn't, #566) on one VPS behind Caddy, each on its own subdomain with HTTPS, and a landing page on the domain: a Docker image, a compose file, a one-time server setup, and a deploy script. Its README has the steps.
 
 ## The store
 
