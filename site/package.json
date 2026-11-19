@@ -10,7 +10,7 @@
     "og-image": "node scripts/og-image.ts",
     "preview": "vite preview",
     "smoke:dev": "node scripts/reference.ts && bun scripts/smoke.ts",
-    "typecheck": "../node_modules/typescript-7/bin/tsc --noEmit && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid2.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid1.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.motion.json"
+    "typecheck": "../node_modules/typescript-7/bin/tsc --noEmit && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid2.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid1.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.motion.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.foldkit.json"
   },
   "dependencies": {
     "@kobalte/core": "2.0.0-alpha.4",

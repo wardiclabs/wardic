@@ -13,11 +13,13 @@ import { registerHooks } from "node:module"
 import { dirname, join, relative } from "node:path"
 import { fieldOfPages, pagesUnder } from "../plugins/page-front-matter.ts"
 
-/** The bindings a sample can be written for, in `CodeTabs`' order, with their labels. */
+/** The bindings a sample can be written for, in `CodeTabs`' order, with their labels and their fences' languages. */
 const BINDINGS = [
-  { file: "solid2.tsx", label: "Solid 2" },
-  { file: "solid1.tsx", label: "Solid 1 (v1)" },
-  { file: "motion.tsx", label: "Motion" },
+  { file: "solid2.tsx", label: "Solid 2", lang: "tsx" },
+  { file: "solid1.tsx", label: "Solid 1 (v1)", lang: "tsx" },
+  // Foldkit's form is a `.ts` file: a view takes Foldkit's builder, not JSX (#795).
+  { file: "foldkit.ts", label: "Foldkit", lang: "ts" },
+  { file: "motion.tsx", label: "Motion", lang: "tsx" },
 ] as const
 
 /** A self-closing component of the site's on a line of its own, `<CodeTabs sample="enter" />`. */
@@ -32,7 +34,7 @@ const codeOf = (samples: string, sample: string): string =>
   BINDINGS.flatMap((binding) => {
     const file = join(samples, sample, binding.file)
     if (!existsSync(file)) return []
-    return [`${binding.label}:\n\n\`\`\`tsx\n${readFileSync(file, "utf8").trimEnd()}\n\`\`\``]
+    return [`${binding.label}:\n\n\`\`\`${binding.lang}\n${readFileSync(file, "utf8").trimEnd()}\n\`\`\``]
   }).join("\n\n")
 
 /** A page's Markdown, from its MDX: `url` is the page's own, for its live demos. */
