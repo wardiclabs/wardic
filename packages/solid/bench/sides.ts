@@ -120,6 +120,18 @@ const solidModuleOf = (root: string, sub: string | undefined): string => {
 export const bindingPluginsOf = (v2: boolean): PluginOption =>
   Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })
 
+/** The bindings an app is built on (#795): the two Solid ones, and Foldkit's. */
+export type Binding = "solid1" | "solid2" | "foldkit"
+
+/** An app's build plugins for `binding`: the Solid compiles above, or none, since a Foldkit app is plain TypeScript Vite builds as it is. */
+export const pluginsOf = (binding: Binding): PluginOption => {
+  if (binding === "foldkit") return []
+  return bindingPluginsOf(binding === "solid2")
+}
+
+/** The package whose dependencies resolve an app's own bare imports on `binding`: `solid`'s, or `foldkit`'s. */
+export const importingOf = (binding: Binding): Package => Bool.match(binding === "foldkit", { onTrue: (): Package => "foldkit", onFalse: (): Package => "solid" })
+
 /**
  * A side's module `stem`: `.tsx` when the side has it, else `.ts`. `@wardic/solid`'s entries are `index.tsx`,
  * as they re-export components, and a base before that rename has `index.ts`.
