@@ -20,6 +20,24 @@ def cpu_times():
     return rows
 
 
+def thread_ticks(pid, names):
+    out = {}
+    try:
+        for tid in os.listdir(f"/proc/{pid}/task"):
+            try:
+                stat = open(f"/proc/{pid}/task/{tid}/stat").read()
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            comm = stat[stat.index("(") + 1 : stat.rindex(")")]
+            rest = stat[stat.rindex(")") + 2 :].split()
+            key = "main" if tid == pid else comm
+            if key in names:
+                out[key] = out.get(key, 0) + int(rest[11]) + int(rest[12])
+    except (FileNotFoundError, ProcessLookupError):
+        pass
+    return out
+
+
 def procs():
     seen = {}
     for pid in os.listdir("/proc"):
@@ -35,10 +53,13 @@ def procs():
                 m = re.search(r"--type=(\S+)", cmd)
                 kind = m.group(1) if m else "browser"
                 seen[pid] = (kind, ticks)
+                if kind == "browser":
+                    seen[pid + "/t"] = ("browser-threads", thread_ticks(pid, {"main", "Chrome_IOThread"}))
             elif comm in ("node", "bun", "MainThread"):
                 cmd = open(f"/proc/{pid}/cmdline").read()
                 if "vitest" in cmd and "browser.config" in cmd:
                     seen[pid] = ("vitest", ticks)
+                    seen[pid + "/t"] = ("vitest-threads", thread_ticks(pid, {"main"}))
         except (FileNotFoundError, ProcessLookupError, ValueError, IndexError):
             continue
     return seen
@@ -59,7 +80,17 @@ with open(out, "a") as f:
             cores[k] = (100 * (1 - (idle - prev_cpu[k][1]) / dtot), 100 * (io - prev_cpu[k][2]) / dtot)
         kinds = {}
         busiest_browser = 0.0
+        threads = {"vitestMain": 0.0, "browserMainMax": 0.0, "browserIoMax": 0.0}
         for pid, (kind, ticks) in ps.items():
+            if kind.endswith("-threads"):
+                before = prev_procs.get(pid, (kind, {}))[1]
+                pct_of = lambda name: 100 * (ticks.get(name, 0) - before.get(name, ticks.get(name, 0))) / HZ / dt
+                if kind == "vitest-threads":
+                    threads["vitestMain"] = max(threads["vitestMain"], pct_of("main"))
+                else:
+                    threads["browserMainMax"] = max(threads["browserMainMax"], pct_of("main"))
+                    threads["browserIoMax"] = max(threads["browserIoMax"], pct_of("Chrome_IOThread"))
+                continue
             pct = 100 * (ticks - prev_procs[pid][1]) / HZ / dt if pid in prev_procs else 0.0
             n, total = kinds.get(kind, (0, 0.0))
             kinds[kind] = (n + 1, total + pct)
@@ -80,6 +111,7 @@ with open(out, "a") as f:
                     "availMB": mem // 1024,
                     "procs": {k: [n, round(p, 1)] for k, (n, p) in kinds.items()},
                     "busiestBrowser": round(busiest_browser, 1),
+                    "threads": {k: round(v, 1) for k, v in threads.items()},
                 }
             )
             + "\n"
