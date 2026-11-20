@@ -28,9 +28,13 @@ export { CheckFrames, NonFiniteFrame } from "./internal/frameLoop.ts"
  * an Effect doesn't compile, where a `void` one would drop the Effect silently. A Frame handed to a sink
  * is the run's until the next tick, which may rewrite it in place: a sink that keeps a Frame, its
  * `value` or its `velocity`, copies it.
+ *
+ * It's handed `dt` too: the time its run was just stepped over, in seconds, the step's own. That's the
+ * tick's, for a step a tick or its Late window makes, and 0 for a last-lane run's step again in the
+ * window. A sink that works out a speed from its Frames divides by it.
  */
-// ADR-0027, decision 8; ADR-0030, decision 11 (`Machine.springValues`' Frame).
-export type Sink<F> = (frame: F) => undefined
+// ADR-0027, decision 8; ADR-0030, decision 11 (`Machine.springValues`' Frame); `dt`: *Amendment (#865)*.
+export type Sink<F> = (frame: F, dt: number) => undefined
 
 /**
  * The Frame loop: `run` runs a machine on it, as `Machine.run` does, and `runLast` one stepped after

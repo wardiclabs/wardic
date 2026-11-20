@@ -788,3 +788,8 @@ The projection's Measure pass takes the first step of the nodes it seeded when i
 
 The loop gains `hint(frameTime)` (ADR-0071, decision 32; the hint ADR-0018's *Amendment (#673)* deferred): a binding whose code runs inside a Refresh frame after the frame's tick, rendering in a frame callback of its own, says so, with the frame's time. The loop opens the *Amendment (#680)* Late window when a burst's last tick was that frame's, which it reads from the Clock's new `frameAt`, the last tick's Refresh frame time, or when no burst runs, so no tick is coming in the frame. The runs added after the hint take their Late step in the window's microtask, at the last tick's dt, or `NOMINAL_DT` before any; with a tick still to come in the frame, the hint opens nothing, and that tick is their first step. `frame-loop.test.ts` HT1–HT3.
 
+## Amendment (#865, 2026-11-20): a sink is handed its step's dt
+
+`FrameLoop.Sink<F>` is `(frame: F, dt: number) => undefined`. The loop hands each sink the dt it just stepped the run by, in seconds: the tick's for a tick's step and for a Late step, and 0 for a last-lane run's step again in the window. The spine's Blend legs divide their change by it (ADR-0005, *Amendment (#865)*), as a presence's exit already divided by its step's. A one-argument sink still compiles, and a sink that wraps another passes it on (`PresenceController`'s exit runs). Decision 8's guard holds as before: a sink still returns `undefined`.
+
+**Tests:** `packages/core/test/frame-loop.test.ts`, SD1–SD2.

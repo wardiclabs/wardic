@@ -1289,3 +1289,54 @@ describe("the Frame loop: a binding's hint (ADR-0018 *Amendment (#673)*, ADR-007
     expect(dtsOf(later.received)).toEqual([0.02])
   })
 })
+
+describe("the Frame loop: a sink's dt (ADR-0027 *Amendment (#865)*)", () => {
+  /** Fire a Refresh frame at `t`, then let its microtasks run (its Late window). */
+  const frame = async (h: Awaited<ReturnType<typeof makeHarness>>, t: number): Promise<void> => {
+    h.frames.fire(t)
+    await endOfTask()
+  }
+  /**
+   * Start a `counting` run on `h`'s loop whose sink records, per Frame, the dt its step was given (the
+   * Frame's last) beside the dt the sink is handed.
+   */
+  const seeing = (h: Awaited<ReturnType<typeof makeHarness>>, via: "run" | "runLast", onFrame?: (frame: Frame.Frame<ReadonlyArray<number>>) => void) => {
+    const seen: Array<readonly [stepped: number, handed: number]> = []
+    h.fork(
+      h.loop[via](counting(Infinity), (frame, dt) => {
+        seen.push([frame.value.at(-1)!, dt])
+        onFrame?.(frame)
+        return undefined
+      }),
+    )
+    return seen
+  }
+
+  it("SD1: a sink is handed the dt its run was stepped by: the nominal one first, then the measured one", async () => {
+    const h = await makeHarness()
+    const seen = seeing(h, "run")
+    await endOfTask()
+    await frame(h, 1000)
+    await frame(h, 1016)
+    expect(seen).toEqual([
+      [Clock.NOMINAL_DT, Clock.NOMINAL_DT],
+      [(1016 - 1000) / 1000, (1016 - 1000) / 1000],
+    ])
+  })
+
+  it("SD2: a Late step's sink is handed the tick's dt, and a last-lane run's dt-0 step after it, 0", async () => {
+    const h = await makeHarness()
+    let late: Array<readonly [number, number]> | undefined
+    const last = seeing(h, "runLast")
+    seeing(h, "run", (f) => {
+      if (f.value.length === 1) late = seeing(h, "run")
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    expect(late, "the Late step's").toEqual([[Clock.NOMINAL_DT, Clock.NOMINAL_DT]])
+    expect(last, "the tick's, then the dt-0 step's").toEqual([
+      [Clock.NOMINAL_DT, Clock.NOMINAL_DT],
+      [0, 0],
+    ])
+  })
+})

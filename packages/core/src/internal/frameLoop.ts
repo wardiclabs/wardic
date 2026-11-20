@@ -256,9 +256,9 @@ const checkValue = (value: unknown): void => {
 /** `sink`, each Frame checked first: a run's sink with `CheckFrames` on. */
 const checked =
   <F extends Frame.Frame<unknown>>(sink: FrameLoop.Sink<F>): FrameLoop.Sink<F> =>
-  (frame) => {
+  (frame, dt) => {
     checkValue(frame.value)
-    return sink(frame)
+    return sink(frame, dt)
   }
 
 /** A run's wait for its end. Built once (#460). */
@@ -394,7 +394,7 @@ export const make = Effect.fnUntraced(
         if (entry.removed) continue
         try {
           const frame = entry.step(dt)
-          entry.sink(frame)
+          entry.sink(frame, dt)
           if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
         } catch (defect) {
           end(entry, dieNamed(entry.name, defect))
@@ -435,7 +435,7 @@ export const make = Effect.fnUntraced(
         if (entry.removed) continue
         try {
           const frame = entry.step(dt)
-          entry.sink(frame)
+          entry.sink(frame, dt)
           if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
         } catch (defect) {
           end(entry, dieNamed(entry.name, defect))
@@ -490,7 +490,7 @@ export const make = Effect.fnUntraced(
     const stepOne = (entry: Entry, dt: number): void => {
       try {
         const frame = entry.step(dt)
-        entry.sink(frame)
+        entry.sink(frame, dt)
         if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
       } catch (defect) {
         end(entry, dieNamed(entry.name, defect))

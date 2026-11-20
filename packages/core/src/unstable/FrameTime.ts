@@ -17,13 +17,9 @@ import type * as WardicServices from "./WardicServices.ts"
 
 /**
  * How long a key's velocity holds once nothing has moved it, in ms (Motion's `MAX_VELOCITY_DELTA`):
- * past it, the key is at rest. A velocity worked out from two frames further apart takes this as their
- * time apart.
+ * past it, the key is at rest. A velocity worked out over a longer step takes this as the step's time.
  */
 export const MAX_VELOCITY_DELTA = 30
-
-/** A frame at 60 Hz, in ms: the time a leg's first frame is read over, from where it started (Motion's first-frame delta). */
-export const NOMINAL_FRAME = 1000 / 60
 
 // #672: declared here, as core's `Clock.ts` declares it, since core builds with no DOM in its lib.
 declare const performance: { readonly now: () => number }
