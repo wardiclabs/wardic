@@ -6,7 +6,7 @@ api: [useIsPresent, IsPresent]
 
 # useIsPresent
 
-Whether a child of an [`AnimatePresence`](/reference/solid/presence/animate-presence) is still present: `false` from its leave on, while its exit plays. Its own effects have ended by then, so it's for what still runs on the element: an event handler, a timer. Motion's `useIsPresent`.
+Whether a child of an [`AnimatePresence`](/reference/solid/presence/animate-presence) is still present: `false` from its leave on, while its exit plays. Its own effects and bindings have ended by then, so a binding such as `disabled={!present()}` never sees `false`: it's for what still runs on the element, an event handler or a timer. To act as the child leaves, use [`usePresence`](/reference/solid/presence/use-presence)'s `next("leave")`. Motion's `useIsPresent`.
 
 On Solid 2, it's given to `ref`, and called to read:
 
