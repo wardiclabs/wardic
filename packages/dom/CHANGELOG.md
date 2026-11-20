@@ -1,5 +1,13 @@
 # @wardic/dom
 
+## 1.2.0
+
+### Patch Changes
+
+- 69b558a: `unstable/PointerValues`: the pointer over an element as Live values, for the bindings (#833): its place in the element's pixels, its progress across the element's box, the box's size, and whether it's inside, each an Atom set within the pointer's own events, read until the Scope ends; a mouse and a pen unless `types` says.
+- 8cb7917: `PresenceController.snapshot(children)` (#840): a binding whose change reaches the presence after its framework's patch (Foldkit's) measures its children where they are before the patch, and a `popLayout` leaver of the next change is pinned at that box, not where the patch has pushed it. A binding that resolves a change before its framework applies it (Solid's) is as it was.
+  - @wardic/core@1.2.0
+
 ## 1.1.4
 
 ### Patch Changes
