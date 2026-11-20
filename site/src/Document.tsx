@@ -5,7 +5,11 @@
  */
 import { HydrationScript } from "@solidjs/web"
 import type { ParentProps } from "solid-js"
+import DESCRIPTIONS from "virtual:page-descriptions"
 import { THEME_SCRIPT } from "~/components/ThemeToggle.tsx"
+
+/** What `public/og.png` shows (scripts/og-image.ts): the lockup, the home page's description under it, and the address. */
+const OG_IMAGE_ALT = `The Wardic logo, Cassiopeia's W in a ward ring beside the wordmark, over the words "${DESCRIPTIONS["index"]}" and wardic.dev.`
 
 export default function Document(props: ParentProps) {
   return (
@@ -18,7 +22,7 @@ export default function Document(props: ParentProps) {
         <meta property="og:image" content="https://wardic.dev/og.png" />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="Wardic: Cassiopeia's W in a ward ring, beside the wordmark." />
+        <meta property="og:image:alt" content={OG_IMAGE_ALT} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eceff4" />
         <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2e3440" />
