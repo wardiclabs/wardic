@@ -2,7 +2,7 @@
 # PROBE for #857, never merged: the box every second as JSON lines to argv[1] until argv[2] exists:
 # CPU busy / iowait (all cores and the busiest), the run queue, load, memory, and Chromium's processes by
 # type (count, CPU %, the busiest browser process's CPU %), with the vitest Node process's CPU %.
-import json, os, sys, time
+import json, os, re, sys, time
 
 out, stop = sys.argv[1], sys.argv[2]
 HZ = os.sysconf("SC_CLK_TCK")
@@ -31,8 +31,9 @@ def procs():
             rest = stat[stat.rindex(")") + 2 :].split()
             ticks = int(rest[11]) + int(rest[12])
             if comm.startswith("chrome") or "headless" in comm:
-                cmd = open(f"/proc/{pid}/cmdline").read().split("\0")
-                kind = next((a[7:] for a in cmd if a.startswith("--type=")), "browser")
+                cmd = open(f"/proc/{pid}/cmdline").read().replace("\0", " ")
+                m = re.search(r"--type=(\S+)", cmd)
+                kind = m.group(1) if m else "browser"
                 seen[pid] = (kind, ticks)
             elif comm in ("node", "bun", "MainThread"):
                 cmd = open(f"/proc/{pid}/cmdline").read()
