@@ -9,7 +9,7 @@ import { expect } from "vitest"
 import { noteStarts, type Recorded, recordFrames } from "./appear-frames.ts"
 import "./browser-commands.ts"
 
-export { type Drawn, drawnOf, followsMachine, machineAt, type Recorded, TOL, tween } from "./appear-frames.ts"
+export { type Drawn, drawnOf, followsMachine, machineAt, type Recorded, sinceHydration, TOL, tween } from "./appear-frames.ts"
 
 export interface Run {
   readonly frames: ReadonlyArray<Recorded>
@@ -18,6 +18,11 @@ export interface Run {
   readonly host: HTMLElement
   /** Each watched element's inline `transform` right after `hydrate()` returned, before the first commit. */
   readonly hydratedStyle: Readonly<Record<string, string>>
+  /**
+   * The time of the frame `hydrate()` was called in, `document.timeline.currentTime`: the start an animation that
+   * hydration starts takes, frame-aligned, so it can be up to a frame before the call itself (#854).
+   */
+  readonly hydratedAt?: number | undefined
   /** Whether hydration claimed each watched element: the server's node is still the one on the page. */
   readonly claimed: Readonly<Record<string, boolean>>
   /** When each late write landed, on the rAF timeline (a streamed run's). */
@@ -88,6 +93,7 @@ export const runServerRendered = async (
   })
   const startOf: Record<string, number> = {}
   const hydratedStyle: Record<string, string> = {}
+  let hydratedAt: number | undefined
   if (options.then !== undefined) {
     const { afterMs, act } = options.then
     const timer = setTimeout(act, afterMs)
@@ -99,6 +105,7 @@ export const runServerRendered = async (
       freshHydration()
       // Each watched element's CSS animation's start, noted just before the Handoff takes them over (#524).
       noteStarts(page, watched, startOf)
+      hydratedAt = document.timeline.currentTime as number
       dispose = hydrate(code, host, { renderId })
       hydrated = true
       for (const el of watched) {
@@ -109,5 +116,5 @@ export const runServerRendered = async (
     }, options.hydrateAfter)
   }
   const frames = await recordFrames({ page, watched: () => watched, forMs: options.forMs, hydrated: () => hydrated, startOf })
-  return { frames, startOf, host, hydratedStyle, claimed }
+  return { frames, startOf, host, hydratedStyle, claimed, hydratedAt }
 }

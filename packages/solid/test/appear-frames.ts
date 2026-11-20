@@ -137,7 +137,18 @@ export const machineAt = (machine: Machine.Machine<Frame.Frame<Values.Values>>, 
   Machine.startAt(machine, () => Math.max(0, seconds)).start()(1 / 60).value
 
 /** Tolerances: a little over the sampler's own, for the browser's rounding. */
-export const TOL = { opacity: 0.012, px: 0.6, deg: 1.5, dash: 0.006 }
+export const TOL = { opacity: 0.012, scale: 0.012, px: 0.6, deg: 1.5, dash: 0.006 }
+
+/**
+ * `frame`'s time since the frame `hydrate()` was called in, in seconds: how far an animation that hydration
+ * starts can have got by that frame, at most. A read by a frame's index instead (the second hydrated frame,
+ * say) counts frames, and a slow runner skips reads (#184): CI's second hydrated frame came five frames in (#854).
+ */
+export const sinceHydration = (hydratedAt: number | undefined, frame: Recorded | undefined): number => {
+  expect(hydratedAt, "the run hydrated").toBeDefined()
+  expect(frame, "a frame after hydration").toBeDefined()
+  return (frame!.at - hydratedAt!) / 1000
+}
 
 /** A run as {@link followsMachine} reads it: its frames and each element's CSS animation's start. */
 export interface Traced {
