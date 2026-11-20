@@ -4,8 +4,8 @@ name: Foldkit latest
 # Monday at 06:00 UTC, and on demand: the binding's devDependency set to `foldkit@latest`, then its
 # typecheck and its three vitest projects (Chromium, the hydration of a server render, and the server
 # render itself). A failure is this run's own: it files no issue; the fix is a PR, which widens the
-# peer range or takes the change, per the decision. The repo's `bun.lock` is untouched: the newer
-# Foldkit lives in this run alone.
+# peer range or takes the change, per the decision. Nothing is committed: the newer Foldkit, and the
+# manifest and lockfile `bun add` rewrites for it, live in the run's checkout alone.
 
 on:
   schedule:
@@ -19,9 +19,13 @@ jobs:
   foldkit-latest:
     # Pinned with CI's: Playwright 1.59.1 can't install Chromium on ubuntu 26.04.
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/foldkit
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24, as CI's: the hydration project renders on it before Chromium hydrates.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -33,33 +37,32 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
+        working-directory: ${{ github.workspace }}
         run: bun install --frozen-lockfile
 
       # The newest Foldkit as the binding's devDependency, whatever the peer range says: the tests say
-      # whether the binding holds on it. Its version goes in the run's summary.
+      # whether the binding holds on it. Its version, read from the package Node resolves, goes in the
+      # run's summary; a resolution that fails fails the step.
       - name: Foldkit at latest
-        working-directory: packages/foldkit
         run: |
           bun add -d foldkit@latest
-          echo "foldkit $(jq -r .version node_modules/foldkit/package.json)" >> "$GITHUB_STEP_SUMMARY"
+          version=$(node --input-type=module -e "import { fileURLToPath } from 'node:url'; import { dirname, join } from 'node:path'; import { existsSync, readFileSync } from 'node:fs'; let dir = dirname(fileURLToPath(import.meta.resolve('foldkit'))); while (!existsSync(join(dir, 'package.json'))) dir = dirname(dir); console.log(JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).version)")
+          echo "foldkit $version" >> "$GITHUB_STEP_SUMMARY"
 
       # The browser alone, as CI's: the runner image has Chromium's libraries (ci.yml says why).
       - name: Install Playwright browser
         timeout-minutes: 3
+        working-directory: ${{ github.workspace }}
         run: bunx playwright install chromium
 
       - name: Typecheck
-        working-directory: packages/foldkit
         run: bun run typecheck && bun run typecheck:tests
 
       - name: Test (Chromium)
-        working-directory: packages/foldkit
         run: bunx vitest run --config vitest.browser.config.ts
 
       - name: Test (hydration)
-        working-directory: packages/foldkit
         run: bunx vitest run --config vitest.hydrate.config.ts
 
       - name: Test (server render)
-        working-directory: packages/foldkit
         run: bunx vitest run --config vitest.ssr.config.ts

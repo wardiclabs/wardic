@@ -3,15 +3,17 @@
  * workflow once its "Version Packages" PR has merged.
  *
  * 1. Each package whose version npm doesn't have yet, in dependency order (`core`, then `dom` and
- *    `test`, then `solid` and `foldkit`), so a package never names a version of another that isn't out. A version
+ *    `test`, then `solid` and `foldkit`), so a package never names a version of another that isn't
+ *    out. A version
  *    npm has is skipped, so a run that failed halfway can run again.
  * 2. Packed by Bun, which writes `workspace:*` dependencies as the version they point at (npm's own
  *    pack would leave them), as the tarball check (#554) packs them. Bun takes that version from
  *    `bun.lock`, which `bun run version-packages` keeps in step, as it keeps each package's `VERSION`
  *    constant; a package whose `VERSION` names another version than its own, or whose tarball names a
  *    `@wardic/*` dependency at another version than that package's in the repo, isn't published.
- *    `core`, `dom`, `test` and `foldkit` (since 1.2, #795) are one fixed group, at one version; `solid`
- *    versions alone since its 2.0 (#566), and names the exact `core` and `dom` it was built with.
+ *    `core`, `dom`, `test` and `foldkit` (since 1.2, #795) are one fixed group, at one version;
+ *    `solid` versions alone since its 2.0 (#566), and names the exact `core` and `dom` it was built
+ *    with.
  * 3. Published with npm, which brings trusted publishing (OIDC) and provenance, on `latest`. A pre
  *    release (`1.0.0-rc.N`, Changesets' pre mode) goes to `next` only once npm has a stable version
  *    of the package to keep on `latest`: until 1.0.0, the newest release candidate is what a plain
