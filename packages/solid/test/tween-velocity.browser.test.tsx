@@ -1,6 +1,8 @@
 // A key's velocity from its frames on Solid 2 (#464): the Solid 1 binding's (`../tween-velocity.browser.test.tsx`).
 //
-// - VLV1: a spring that takes over a moving tween carries its speed on outward first.
+// - VLV1: a spring that takes over a moving tween carries its speed on outward first. On `SOFT` (#808), as
+//   Solid 1's VL1: under load a tick delivered late lowers the speed a takeover carries (#865), and a
+//   stiffer spring's 3.7 px overshoot fell under the read's 2 px at 200 px/s.
 // - VLV2: a spring after a tween that landed starts at rest: no older spring's velocity.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
@@ -11,6 +13,8 @@ import { raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
+/** A slow critically damped spring: its first frames show the speed it starts with (#808). */
+const SOFT: WardicTransition = { type: "spring", stiffness: 20, damping: 9 }
 const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
 const byId = (id: string): HTMLElement => document.getElementById(id) as HTMLElement
 const xs = async (el: Element, n: number): Promise<ReadonlyArray<number>> => {
@@ -48,7 +52,7 @@ describe("a key's velocity from its frames on Solid 2 (#464)", () => {
     set(300, { duration: 1, ease: "linear" })
     await until(() => xOf(byId("box")) > 100)
     const at = xOf(byId("box"))
-    set(0, { type: "spring", stiffness: 100, damping: 10 })
+    set(0, SOFT)
     const after = await xs(byId("box"), 4)
     expect(Math.max(...after), "on outward first").toBeGreaterThan(at + 2)
   })
