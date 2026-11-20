@@ -26,7 +26,7 @@ import type { JSX } from "solid-js"
 import { commands } from "vitest/browser"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { countReads } from "../appear-reads.ts"
-import { cleanups, followsMachine, type Run, runServerRendered, TOL } from "./appear-hydrate-harness.ts"
+import { cleanups, followsMachine, machineAt, type Run, runServerRendered, sinceHydration, TOL, tween } from "./appear-hydrate-harness.ts"
 import { B1, B2, B2_STAGGER, B2_TARGETS, B2_TWEEN, B3, B3_TWEEN, B4, B4_TWEEN, B5 } from "./batch-appear-fixtures.tsx"
 import "../browser-commands.ts"
 
@@ -64,6 +64,12 @@ const memberAt = (
   if (values.opacity !== undefined) values.opacity = Math.min(1, Math.max(0, values.opacity))
   return values
 }
+
+/** B4's and B5's member fading in from 0, `seconds` into its change. */
+const fadedAt = (seconds: number): number => memberAt(["opacity"], B4_TWEEN, { opacity: 0 }, [1], 0, seconds).opacity as number
+
+/** B4's and B5's Wardic element's own mount animation, its scale from 0.5, `seconds` in. */
+const grownAt = (seconds: number): number => machineAt(tween({ scale: 0.5 }, { scale: 1 }, B4_TWEEN), seconds).scale as number
 
 /** B2's member `i` `seconds` in, on `transition`. */
 const tileAt = (i: number, seconds: number, transition: Batch.Transitions = B2_TWEEN) =>
@@ -166,20 +172,22 @@ describe("a Batch's members' Appear animations, server render to hydration (#706
 
   it("BH7: a Wardic element on a member's element leaves its Batch's animation to the Batch; a vetoed member moves from its start", async () => {
     const r = await run("B4", B4, { hydrateAfter: 300, forMs: 1300 })
-    const fade = (seconds: number) => ({ opacity: memberAt(["opacity"], B4_TWEEN, { opacity: 0 }, [1], 0, seconds).opacity as number })
-    expect(followsMachine(r, "w", fade)).toBeGreaterThan(5)
+    expect(followsMachine(r, "w", (seconds) => ({ opacity: fadedAt(seconds) }))).toBeGreaterThan(5)
     expect(handedOff(r, "w")).toBe(true)
     const before = r.frames.filter((frame) => !frame.hydrated)
     const after = r.frames.filter((frame) => frame.hydrated)
     const last = after[after.length - 1]
     // Its own mount waited for the JavaScript, at its start, then played from hydration.
     for (const frame of before) expect(Math.abs((frame.drawn.w?.scale ?? 0) - 0.5), "w's scale before hydration").toBeLessThanOrEqual(0.01)
-    expect(after[1]?.drawn.w?.scale, "w's scale as hydration starts it").toBeLessThan(0.6)
+    // As hydration starts it, no further than its animation gets from hydration: read by the frame's own time,
+    // not its index, as a slow runner skips reads (#854).
+    const started = sinceHydration(r.hydratedAt, after[1])
+    expect(after[1]?.drawn.w?.scale, "w's scale as hydration starts it").toBeLessThanOrEqual(grownAt(started) + TOL.scale)
     expect(last?.drawn.w?.scale).toBeCloseTo(1, 2)
     // The vetoed member: no CSS of the Batch's, at its start till hydration, then moved from there.
     expect(r.frames.every((frame) => frame.drawn.v?.css === false), "v runs no CSS animation").toBe(true)
     for (const frame of before) expect(frame.drawn.v?.opacity, "v before hydration").toBe(0)
-    expect(after[1]?.drawn.v?.opacity, "v as hydration starts it").toBeLessThan(0.15)
+    expect(after[1]?.drawn.v?.opacity, "v as hydration starts it").toBeLessThanOrEqual(fadedAt(started) + TOL.opacity)
     expect(last?.drawn.v?.opacity).toBe(1)
   }, 30_000)
 
@@ -193,7 +201,8 @@ describe("a Batch's members' Appear animations, server render to hydration (#706
     for (const frame of after) expect(frame.drawn.w?.scale ?? 0, "w's scale after hydration").toBeGreaterThanOrEqual(playedTo - 0.02)
     // Its member: at its start till hydration, then moved from there, not from the element's animation's time.
     for (const frame of before) expect(frame.drawn.w?.opacity, "w's opacity before hydration").toBe(0)
-    expect(after[1]?.drawn.w?.opacity, "w's opacity as hydration starts it").toBeLessThan(0.15)
+    // Read by the frame's own time since hydration, not its index (#854).
+    expect(after[1]?.drawn.w?.opacity, "w's opacity as hydration starts it").toBeLessThanOrEqual(fadedAt(sinceHydration(r.hydratedAt, after[1])) + TOL.opacity)
     expect(after[after.length - 1]?.drawn.w?.opacity).toBe(1)
   }, 30_000)
 
