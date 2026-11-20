@@ -1,7 +1,7 @@
 /**
  * `bun run build` (#554): the packages' published output, one file per source module, never
  * bundled, so an app's bundler splits Wardic's modules as it splits its own (ADR-0067, *Amendment
- * (#548)*). `@wardic/foldkit` (#791) builds with them, private until 1.2.
+ * (#548)*). `@wardic/foldkit` (#791) builds with them.
  *
  * 1. `tsc --build`: `core`, `dom`, `test` and `foldkit` into `dist/` (ESM `.js`, `.d.ts`, maps), and
  *    `@wardic/solid`'s Solid 2 binding, its root (#566), into `dist/solid/`, its JSX kept as JSX: the

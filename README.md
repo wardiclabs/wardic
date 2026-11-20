@@ -61,13 +61,14 @@ Its source is in [`examples/storefront`](examples/storefront), with a Solid 1 ve
 | Package | What it is |
 | --- | --- |
 | [`@wardic/solid`](packages/solid) | The Solid binding: Solid 2 at the root, Solid 1 under `/v1`, deprecated. |
+| [`@wardic/foldkit`](packages/foldkit) | The Foldkit binding: Motion's animations on Foldkit's views, as Effect. |
 | [`@wardic/dom`](packages/dom) | The browser environment it runs on. |
 | [`@wardic/core`](packages/core) | The engine, for building a binding or an environment of your own. |
 | [`@wardic/test`](packages/test) | Testing Layers: a clock that replays the frames you give it and input you push, with no browser. |
 
 ## Status
 
-`@wardic/solid` 2.0: Motion for React's API on Solid 2 at the root, under semver, and on Solid 1 at `/v1`, deprecated. `@wardic/core`, `@wardic/dom` and `@wardic/test` are on 1.x, and version together; `@wardic/solid` versions on its own, on the exact `@wardic/core` and `@wardic/dom` it's built with. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major. What comes next is on the [docs site](https://wardic.dev) and in the [milestones](https://github.com/wardiclabs/wardic/milestones).
+`@wardic/solid` 2.0: Motion for React's API on Solid 2 at the root, under semver, and on Solid 1 at `/v1`, deprecated. `@wardic/core`, `@wardic/dom`, `@wardic/test` and `@wardic/foldkit` are on 1.x, and version together; `@wardic/solid` versions on its own, on the exact `@wardic/core` and `@wardic/dom` it's built with. The Effect-typed packages, `@wardic/core`, `@wardic/dom`, `@wardic/test` and `@wardic/foldkit`, and the Solid binding's Effect-typed entries, move to a new Effect major only in a Wardic major. What comes next is on the [docs site](https://wardic.dev) and in the [milestones](https://github.com/wardiclabs/wardic/milestones).
 
 ## Contributing
 

@@ -56,7 +56,7 @@ const ALL: ReadonlyArray<Fixture> = [
   { name: "solid2-start", installs: ["core", "dom", "solid"], ssr: true, nodeImport: { spec: "@wardic/solid", dist: "/dist/server/index.js" } },
   { name: "solid1-compiled", installs: ["core", "dom", "solid"], ssr: false },
   { name: "solid2-compiled", installs: ["core", "dom", "solid"], ssr: false },
-  // `@wardic/foldkit` on Vite, client-rendered (#791, Q12): private until 1.2, packed and installed all the same.
+  // `@wardic/foldkit` on Vite, client-rendered (#791, Q12), packed and installed as the others.
   { name: "foldkit-vite", installs: ["core", "dom", "foldkit"], ssr: false, drag: false },
   // `@wardic/foldkit` server-rendered and hydrated (#794, Q12): Node's import reads the package's `node` condition.
   { name: "foldkit-ssr", installs: ["core", "dom", "foldkit"], ssr: true, nodeImport: { spec: "@wardic/foldkit/internal/server", dist: "/dist/internal/server.node.js" }, drag: false, appear: true },

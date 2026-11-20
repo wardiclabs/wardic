@@ -7,8 +7,8 @@
 #
 # A changeset waits when a version step would use it up: one that names a package Changesets
 # versions, or an empty one. One that names only private packages, while `privatePackages.version`
-# is false (Foldkit's until 1.2, ADR-0071), stays on disk through every version step, so counting it
-# would keep the workflow out of publishing for good (#566). In pre mode, a changeset a version step
+# is false (Foldkit's were, until 1.2, ADR-0071), stays on disk through every version step, so
+# counting it would keep the workflow out of publishing for good (#566). In pre mode, a changeset a version step
 # has used stays on disk too, listed in pre.json's `changesets`, so it doesn't wait.
 #
 #   scripts/changesets-waiting.sh >> "$GITHUB_OUTPUT"
