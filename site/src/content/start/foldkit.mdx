@@ -1,0 +1,86 @@
+---
+title: Start on Foldkit
+description: Install Wardic in a Foldkit app, make its Handle, choose its Features, animate your first element, and render it on the server.
+---
+
+# Start on Foldkit
+
+Wardic's binding for [Foldkit](https://www.npmjs.com/package/foldkit) is `@wardic/foldkit`: Motion's animations on Foldkit's views, as Effect. It's [Effect-typed](/roadmap#10-motions-api-on-solid) throughout, so it moves to a new Effect major only in a Wardic major, and it follows semver from `1.2.0`. It works in a Foldkit app rendered on the server or not.
+
+It takes Motion's props as attributes on `w.*` elements, which take Foldkit's attributes too. Where Motion takes callback props, such as `onTap`, Wardic sends a Message: `w.OnTap(Message.Tapped())`. On Solid, see [Start](/start/solid-2).
+
+## Install
+
+<InstallTabs packages="@wardic/foldkit @wardic/dom effect foldkit" />
+
+`effect` and `foldkit` are peers: Wardic uses the copies your app has.
+
+## The Handle
+
+A Foldkit app has one Handle, made once at module scope with `Wardic.make`. It takes the environment Wardic runs in, `DomLive` in a browser, and the app's Features. Its `html(h)` gives a view the builder `w`.
+
+```ts
+// src/lib/wardic.ts
+import { DomLive } from "@wardic/dom"
+import { Features, Wardic } from "@wardic/foldkit"
+
+export const wardic = Wardic.make({ env: DomLive, features: Features.domAnimation })
+```
+
+The first `w.*` element to mount builds Wardic's services on the Handle's `env`, shared until the last has left. Put `w.Provider()` on the topmost `w.*` element: it names the root the subtree options hang on, and the walk a server render starts from.
+
+```ts
+import type { Html, HtmlBuilder } from "foldkit/html"
+import { wardic } from "~/lib/wardic.ts"
+
+const view = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const w = wardic.html(h)
+  return w.div([w.Provider(), h.Class("app")], [page(model, h)])
+}
+```
+
+These guides import the Handle as `~/lib/wardic.ts`, an alias for `src`; without one, import it by its path.
+
+## Your app's Features
+
+What an element does beyond animating its values, a gesture, layout or a colour space, is a [Feature](/guides/features), code an app ships only if it asks for it. A Foldkit app chooses its once, on the Handle: `Features.domAnimation` is hover, press, focus and in-view; `Features.layout`, `Features.drag` and `Features.presence` are named beside it when a page lays out, drags or plays exits.
+
+```ts
+export const wardic = Wardic.make({ env: DomLive, features: [Features.domAnimation, Features.layout, Features.presence] })
+```
+
+Its elements take those Features' attributes: one of another Feature is a type error that names it. The Features can be a load too, `features: () => import("./features.ts").then((m) => m.domMax)`, fetched by the first `w.*` element to mount; an element mounted before it arrives starts its gestures once it has. [Shipping less](/guides/features) has the rest.
+
+## Your first element
+
+A `w.*` element takes Motion's props as attributes: it animates from `w.Initial` to `w.Animate`, and to its `w.WhileHover` target while the pointer is over it. The demo runs the Solid 2 form; the Foldkit tab is the same view on Foldkit's builder.
+
+<Demo sample="enter" />
+
+<CodeTabs sample="enter" show="Foldkit" />
+
+The same motion can go on an element `w` doesn't make, with the attributes bundle: `h.div([...w.attributes({ initial, animate, transition })])`.
+
+A change is a Message: `update` returns the next Model, the view renders it, and an element whose `w.Animate` target changed Retargets in the patch, while one whose target is the same holds. Live values, a spring following the pointer or a scroll's progress, are Atoms the view binds with `w.Style({ x: atom })`, driven from a Mount on the element that reads them: see the Foldkit tabs of [Live values](/guides/live-values) and [Scroll](/guides/scroll).
+
+## Rendered on the server
+
+On a server-rendered page, an element arrives in the HTML already at `w.Initial`, so it never flashes at its target first. Under `w.Provider()`, its entrance plays from the first paint, before the JavaScript has loaded, and the client takes it over mid-flight when it hydrates. See [Server rendering](/guides/server-rendering).
+
+Foldkit's server rendering is for `makeApplication` programs. Build the client and the server from one build with `@foldkit/vite-plugin`, so both carry one build id; on the server, Foldkit's `renderToString` renders the program's view, every `w.*` element at its Starting style; on the client, `wardic.hydrate` takes `Runtime.hydrate`'s place in the entry: it moves the entrance rules into the head before Foldkit adopts the page, and has the hydration render keep each running animation for the element's ward to take over, with no flicker.
+
+```ts
+// src/entry.ts, the client
+import { wardic } from "~/lib/wardic.ts"
+import { app } from "./app.ts"
+
+wardic.hydrate(app)
+```
+
+`Runtime.hydrate` called directly would find a `<style>` the view lacks and rebuild the Provider element's subtree, and strip each running animation back to its start.
+
+## Next
+
+- [Animate an element](/guides/animate): `initial`, `animate` and `transition`, each sample with its Foldkit tab.
+- [Foldkit reference](/reference/foldkit): every module of `@wardic/foldkit`, generated from its source.
+- [Coming from Motion](/motion): every Motion API, and its name in Wardic.

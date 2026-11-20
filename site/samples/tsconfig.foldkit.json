@@ -1,0 +1,24 @@
+{
+  "// note": "The docs' Foldkit samples (#795): each sample's Foldkit form, typechecked against @wardic/foldkit's source and the Foldkit its package holds (the site has none of its own), for the code tabs' comparison. Only typechecked: the site runs the Solid 2 samples. Its `~/lib/wardic.ts` is `foldkit-wardic.ts`, the Handle.",
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "customConditions": ["@wardic/source"],
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "paths": {
+      "foldkit": ["../../packages/foldkit/node_modules/foldkit/dist/index.d.ts"],
+      "foldkit/*": ["../../packages/foldkit/node_modules/foldkit/dist/*/public.d.ts"],
+      "@wardic/foldkit": ["../../packages/foldkit/src/index.ts"],
+      "@wardic/foldkit/*": ["../../packages/foldkit/src/*.ts"],
+      "~/lib/wardic.ts": ["./foldkit-wardic.ts"]
+    }
+  },
+  "include": ["*/foldkit.ts", "*/foldkit-*.ts", "foldkit-wardic.ts"]
+}

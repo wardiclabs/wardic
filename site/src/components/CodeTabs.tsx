@@ -1,6 +1,6 @@
 /**
- * A sample's code, in tabs (#558): one per binding it's written for (Solid 2, Solid 1, Motion), from
- * `samples/<name>/`, each highlighted at build, open on `show`'s tab (Solid 2's unless a page says).
+ * A sample's code, in tabs (#558): one per binding it's written for (Solid 2, Solid 1, Foldkit, Motion),
+ * from `samples/<name>/`, each highlighted at build, open on `show`'s tab (Solid 2's unless a page says).
  * Kobalte's tabs give the keyboard and the roles. Each sample's code is a chunk of its own, loaded by
  * the page that shows it: the server waits for it, and a page opened by a link loads it.
  */
@@ -13,12 +13,13 @@ interface Highlighted {
 }
 
 // The bindings' files alone: a page's own `demo.tsx` (#665) is never a tab, so it isn't highlighted.
-const CODE = import.meta.glob<Highlighted>("../../samples/*/{solid2,solid1,motion}.tsx", { query: "?code", import: "default" })
+const CODE = import.meta.glob<Highlighted>("../../samples/*/{solid2.tsx,solid1.tsx,foldkit.ts,motion.tsx}", { query: "?code", import: "default" })
 
-/** The bindings a sample can be written for, in the tabs' order: the site's own first. */
+/** The bindings a sample can be written for, in the tabs' order: the site's own first. Foldkit's form is a `.ts` file, a view over Foldkit's builder (#795). */
 const BINDINGS = [
   { file: "solid2.tsx", label: "Solid 2" },
   { file: "solid1.tsx", label: "Solid 1 (v1)" },
+  { file: "foldkit.ts", label: "Foldkit" },
   { file: "motion.tsx", label: "Motion" },
 ] as const
 
