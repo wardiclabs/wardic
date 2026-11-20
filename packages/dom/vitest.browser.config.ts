@@ -1,6 +1,6 @@
 import { playwright } from "@vitest/browser-playwright"
 import { defineConfig } from "vitest/config"
-import type { BrowserCommand } from "vitest/node"
+import { collectGarbage, realMouse } from "../../scripts/browser-commands.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Real-browser test project for @wardic/dom — the DOM realization of the engine's
@@ -15,36 +15,9 @@ import { wardicSource } from "../../scripts/wardic-source.ts"
 //
 // No Solid plugin here (this package has no JSX). Tests import from @effect/vitest
 // and are named `*.browser.test.ts`. Run via `bun run test:browser` (the root
-// browser config composes this with the @wardic/solid browser project).
-/**
- * Two full garbage collections, through Chromium's DevTools protocol: for a test of what the engine
- * lets go of, read through a `WeakRef` afterwards (#418). Typed in `test/browser-commands.ts`.
- */
-const collectGarbage: BrowserCommand<[]> = async (ctx) => {
-  const cdp = await ctx.page.context().newCDPSession(ctx.page)
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.detach()
-}
-
-/** Where the test's iframe sits in the page, which Playwright's mouse moves over. */
-const iframeOffset = async (ctx: Parameters<BrowserCommand<[]>>[0]): Promise<{ x: number; y: number }> => {
-  const box = await (await (await ctx.frame()).frameElement()).boundingBox()
-  return { x: box?.x ?? 0, y: box?.y ?? 0 }
-}
-
-/**
- * Real pointer input (#712), as the Solid binding's tests have it: Playwright's mouse moved to the client
- * point `(x, y)` inside the test iframe, then pressed or released for `down` / `up`. A trusted event runs
- * the page's microtasks between its listeners, where a dispatched one runs them only after the last.
- */
-const realMouse: BrowserCommand<[type: "move" | "down" | "up", x: number, y: number]> = async (ctx, type, x, y) => {
-  const offset = await iframeOffset(ctx)
-  await ctx.page.mouse.move(offset.x + x, offset.y + y)
-  if (type === "down") await ctx.page.mouse.down()
-  if (type === "up") await ctx.page.mouse.up()
-}
-
+// browser config composes this with the @wardic/solid browser project). Its commands, the garbage
+// collection and the real mouse, are the shared ones (scripts/browser-commands.ts, #806), typed for its
+// tests in `test/browser-commands.ts`.
 export default defineConfig({
   // `@wardic/*` from its source (#554).
   plugins: [wardicSource()],
