@@ -185,18 +185,18 @@ const exitRunOf = (
     const key = leg.key
     return Effect.suspend(() =>
       leg.machine().pipe(
-        Machine.run((frame) => {
+        Machine.run((frame, dt) => {
           velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
-          return commitFrame({ ...frame, value: { [key]: frame.value } })
+          return commitFrame({ ...frame, value: { [key]: frame.value } }, dt)
         }),
       ))
   }
   if (leg._tag === "Numbers") {
     return Effect.suspend(() =>
       leg.machine().pipe(
-        Machine.run((frame) => {
+        Machine.run((frame, dt) => {
           velocitiesInto(velocities, frame)
-          return commitFrame(frame)
+          return commitFrame(frame, dt)
         }),
       ))
   }
