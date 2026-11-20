@@ -18,12 +18,15 @@
 // - VL6: an exit that takes over a moving tween starts with its speed, as Motion's. On `SOFT` (#784), as VL1.
 // - VL10: an exit reads a key a paused Imperative animation holds at rest: its held frames move nothing.
 // - VL11: an exit after a long task reads a moving spring's key at rest: it drew nothing for 100 ms.
+// - VL12: a takeover after a tick delivered late carries the speed the tween moved at (#865): on Refresh
+//   frames the test fires, its spring draws the frames it draws when every tick is on time.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createAnimate, createAnimationControls, wardic, type WardicAnimate, type WardicTransition, WardicProvider } from "@wardic/solid/v1"
+import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import { createSignal, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 
 afterEach(cleanup)
@@ -228,6 +231,88 @@ describe("a key's velocity from its frames (#464)", () => {
     void animate(p, { x: 0 }, SPRING_BACK)
     const after = await xs(p, 4)
     expect(Math.max(...after), "on outward first").toBeGreaterThan(at + 2)
+  })
+})
+
+/**
+ * The page's Refresh frames and clock, in the test's hands (#865): `requestAnimationFrame` queues its
+ * callbacks, and `fire(t, late)` runs those queued so far at timestamp `t`, with `performance.now()`
+ * `late` ms past it. A provider mounted after it builds its Clock on them (DomLive reads both as it builds).
+ */
+const handFrames = () => {
+  const realRequest = window.requestAnimationFrame
+  const realCancel = window.cancelAnimationFrame
+  let now = 0
+  let queue = new Map<number, FrameRequestCallback>()
+  let next = 1
+  window.requestAnimationFrame = (callback) => {
+    const handle = next++
+    queue.set(handle, callback)
+    return handle
+  }
+  window.cancelAnimationFrame = (handle) => {
+    queue.delete(handle)
+  }
+  vi.spyOn(performance, "now").mockImplementation(() => now)
+  return {
+    fire: (t: number, late: number): void => {
+      now = t + late
+      const due = [...queue.values()]
+      queue = new Map()
+      for (const callback of due) callback(t)
+    },
+    /** The time now, between frames. */
+    setNow: (t: number): void => {
+      now = t
+    },
+    restore: (): void => {
+      window.requestAnimationFrame = realRequest
+      window.cancelAnimationFrame = realCancel
+      vi.restoreAllMocks()
+    },
+  }
+}
+
+describe("a takeover after a late tick (#865)", () => {
+  /**
+   * A 300 px/s tween on hand-fired frames 1/60 s apart, each tick delivered 0.5 ms after its frame's time
+   * but, when `late`, the one before the takeover, 16.5 ms after it; then `SPRING_BACK` takes it over
+   * before the next frame, as a test's frame callback does. Its first four frames, from where it was.
+   */
+  const takeover = async (late: boolean): Promise<ReadonlyArray<number>> => {
+    const frames = handFrames()
+    try {
+      const box = mountBox()
+      let t = 1000
+      const tick = async (lateBy: number): Promise<void> => {
+        frames.fire(t, lateBy)
+        t += 1000 / 60
+        await wait(0)
+      }
+      for (let i = 0; i < 3; i++) await tick(0.5)
+      box.set(300, { duration: 1, ease: "linear" })
+      for (let i = 0; i < 20; i++) await tick(Bool.match(Bool.and(late, i === 19), { onTrue: () => 16.5, onFalse: () => 0.5 }))
+      frames.setNow(t + 0.5)
+      const at = xOf(byId("box"))
+      box.set(0, SPRING_BACK)
+      const after: Array<number> = []
+      for (let i = 0; i < 4; i++) {
+        await tick(0.5)
+        after.push(xOf(byId("box")) - at)
+      }
+      return after
+    } finally {
+      frames.restore()
+      cleanup()
+    }
+  }
+
+  it("VL12: a takeover after a tick delivered late carries the speed the tween moved at: the frames it draws on time", async () => {
+    const onTime = await takeover(false)
+    const late = await takeover(true)
+    // On time, it carries the tween's 300 px/s: `SPRING_BACK` goes 3 px past where it was before it turns.
+    expect(Math.max(...onTime), "on time: on outward first").toBeGreaterThan(2)
+    for (const [i, d] of late.entries()) expect(d, `frame ${i}: as on time`).toBeCloseTo(onTime[i]!, 1)
   })
 })
 

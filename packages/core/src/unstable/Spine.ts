@@ -523,10 +523,11 @@ export interface Running extends Machine.RunOptions {
   frames: number
   /** When it drew its last frame, on {@link FrameTime.frameNow}'s clock; -Infinity before its first (#464). */
   lastAt: number
-  /** A Blend leg's last frame's values, and the ones before them (the Snapshot's, before its first) and when (#464). */
+  /** A Blend leg's last frame's values, and the ones before them (the Snapshot's, before its first) (#464). */
   last: Values.Values | undefined
   before: Values.Values | undefined
-  beforeAt: number
+  /** The time, in ms, its last frame's step covered: its run's dt then, which a Blend's change is over (#865). */
+  lastStep: number
   /**
    * A Numbers leg's last Frame (#663): its keys' velocities are read from it when one is asked for, as
    * a Blend leg's are from its frames, by index from a spring's. None before its first frame.
@@ -722,14 +723,14 @@ export const runningOf = (to: Values.Values, resolution: Resolution, landing: La
   lastAt: Number.NEGATIVE_INFINITY,
   last: undefined,
   before: undefined,
-  beforeAt: Number.NEGATIVE_INFINITY,
+  lastStep: Number.NEGATIVE_INFINITY,
   physics: undefined,
 })
 
 /**
- * A Blend leg's velocity for `key` (#464, Motion's `getVelocity`): its last two frames' change over
- * their time apart, at most `MAX_VELOCITY_DELTA`; none for a string, nor for a Snap, a leg that landed
- * on its first frame (a `set`, a `duration: 0`).
+ * A Blend leg's velocity for `key` (#464, Motion's `getVelocity`): its last two frames' change over the
+ * time its last step covered (#865), at most `MAX_VELOCITY_DELTA`; none for a string, nor for a Snap, a
+ * leg that landed on its first frame (a `set`, a `duration: 0`).
  */
 const blendVelocityOf = (running: Running, key: string): number => {
   if (Bool.and(running.done, running.frames < 2)) return 0
@@ -742,7 +743,9 @@ const blendVelocityOf = (running: Running, key: string): number => {
   const before = beforeValues[key]
   if (Bool.not(Predicate.isNumber(last))) return 0
   if (Bool.not(Predicate.isNumber(before))) return 0
-  const apart = Math.min(running.lastAt - running.beforeAt, FrameTime.MAX_VELOCITY_DELTA)
+  // The step's own time (#865): two frames' stamps are when their ticks were delivered, and a tick
+  // delivered late stretches the gap but not the step.
+  const apart = Math.min(running.lastStep, FrameTime.MAX_VELOCITY_DELTA)
   if (apart <= 0) return 0
   return (((last as number) - (before as number)) * 1000) / apart
 }
@@ -2405,17 +2408,14 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are. A blend's
     // last two are kept, its keys' velocities read from them (#464): the frame's own values, which a
     // blend makes anew each frame (`values` writes one object for a leg that lost keys).
-    const sink = (frame: Frame.Frame<Values.Values>): undefined => {
+    const sink = (frame: Frame.Frame<Values.Values>, dt: number): undefined => {
       const value = running.values(frame.value)
       let before = running.last
-      let beforeAt = running.lastAt
-      // Its first frame: from the Snapshot's values, a nominal frame before it.
-      if (Predicate.isUndefined(before)) {
-        before = snapshot.values
-        beforeAt = snapshot.now() - FrameTime.NOMINAL_FRAME
-      }
+      // Its first frame: from the Snapshot's values.
+      if (Predicate.isUndefined(before)) before = snapshot.values
       running.before = before
-      running.beforeAt = beforeAt
+      // Over the time its step covered (#865), its first's included: its run's dt, in ms.
+      running.lastStep = dt * 1000
       running.last = frame.value
       snapshot.values = { ...snapshot.values, ...value }
       gate.write(id, value)
