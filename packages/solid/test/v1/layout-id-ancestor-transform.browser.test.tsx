@@ -92,7 +92,11 @@ for (const [layout, busy] of [
       () => ({ lead: rectOf(container.querySelector("[data-big]")!), follower: rectOf(thumb), shows: Number(getComputedStyle(thumb).opacity) > 0.01 }),
       40,
     )
-    expect(apart(flight[0]!.lead, seen), "the Lead starts on its twin").toBeLessThanOrEqual(apart(flight[1]!.lead, flight[0]!.lead) + 1)
+    // The first paint is the flight's first step, at the cold start's nominal dt: 1.1 px off its twin here.
+    // It's held to the larger of the next two steps (#808), normally 1.6 then 3.7 px: under load a tick
+    // that advanced nothing once made the next one 0.007 px, which 210 loaded runs of the scene didn't show again.
+    const stepTo = (i: number): number => apart(flight[i]!.lead, flight[i - 1]!.lead)
+    expect(apart(flight[0]!.lead, seen), "the Lead starts on its twin").toBeLessThanOrEqual(Math.max(stepTo(1), stepTo(2)) + 1)
     for (const [i, f] of flight.entries()) if (f.shows) expect(apart(f.follower, f.lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.75)
   })
 }
