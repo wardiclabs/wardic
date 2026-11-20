@@ -6,9 +6,9 @@
 //
 // - R1: a drag of an item past its neighbour sends `Items` with the new order; the Model takes it, the
 //   DOM follows, and the item lands on its new slot at the release.
-// - R2: the guard under both triggers (Q11): after a Crossover the group makes no further one until the
-//   new order's boxes are measured, by the observer's pass under `"patch"` and the binding's ask under
-//   `"declared"`: one drag across two neighbours ends two places down either way.
+// - R2: the guard under each trigger (Q11), a test each (#814): after a Crossover the group makes no further
+//   one until the new order's boxes are measured, by the observer's pass under `"patch"` and the binding's
+//   ask under `"declared"`: one drag across two neighbours ends two places down either way.
 // - R3: the **Reorder hold** (#348): `OnHoldStart` at the drag's start, not the press; `OnReorderEnd` then
 //   `OnHoldEnd` (`how: "drop"`) at the release; a click is no hold; dropped back where it was, no `OnReorderEnd`.
 // - R4: the **Keyboard reorder** (ADR-0037): each item a tab stop with the instructions in
@@ -136,8 +136,9 @@ describe("w.ReorderGroup and w.ReorderItem (#793, PR 3; ADR-0020)", () => {
     expect(domOrder(app)).toEqual(["a", "c", "b"])
   })
 
-  it("R2: the guard under both triggers: one drag across two neighbours ends two places down", async () => {
-    for (const layoutTrigger of ["patch", "declared"] as const) {
+  // One test per trigger (#814): the two in one test outran its 15 s on a slow runner, and each names its own.
+  for (const layoutTrigger of ["patch", "declared"] as const) {
+    it(`R2: the guard under "${layoutTrigger}": one drag across two neighbours ends two places down`, async () => {
       const wardic = Wardic.make({ env: DomLive, features: Features.domMax, layoutTrigger })
       const app = mounted(embedList(wardic, ["a", "b", "c", "d"], (w, model) => [w.ReorderGroup({ values: model.items, onReorder: (items) => Message.Items({ items }) })]))
       const b = await settledBox(app, "item-b")
@@ -151,8 +152,8 @@ describe("w.ReorderGroup and w.ReorderItem (#793, PR 3; ADR-0020)", () => {
       expect(domOrder(app), layoutTrigger).toEqual(["a", "c", "d", "b"])
       app.dispose()
       await mouse.move(PARK)
-    }
-  })
+    })
+  }
 
   it("R3: the Reorder hold: OnHoldStart at the drag's start, OnReorderEnd then OnHoldEnd at the release; a click is no hold; dropped back, no OnReorderEnd", async () => {
     const wardic = Wardic.make({ env: DomLive, features: Features.domMax })
