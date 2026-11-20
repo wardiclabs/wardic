@@ -1,6 +1,6 @@
 # @wardic/foldkit
 
-[Wardic](https://wardic.dev) for [Foldkit](https://www.npmjs.com/package/foldkit): Motion's animations on Foldkit's views, as Effect. Private until Wardic 1.2 ships it (#561).
+[Wardic](https://wardic.dev) for [Foldkit](https://www.npmjs.com/package/foldkit): Motion's animations on Foldkit's views, as Effect. Shipped from Wardic 1.2 (#561), versioned with `@wardic/core` and `@wardic/dom`.
 
 ```ts
 import { DomLive } from "@wardic/dom"
