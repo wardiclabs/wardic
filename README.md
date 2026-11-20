@@ -5,9 +5,9 @@
   </picture>
 </h1>
 
-Animation for [Solid](https://www.solidjs.com), with the API of [Motion](https://motion.dev) for React.
+An animation library with the API of [Motion](https://motion.dev) for React, built on [Effect](https://effect.website), for [Solid](https://www.solidjs.com) and [Foldkit](https://www.npmjs.com/package/foldkit).
 
-Wardic's elements take Motion's props: `initial`, `animate`, `exit` and `transition`; variants that pass down the tree; hover, press, focus, drag and pan; layout and shared-element animations (`layout`, `layoutId`); presence; and values that follow the scroll or the pointer. On a server-rendered page, mount animations play before the JavaScript has loaded, and the client takes them over mid-flight. It runs on [Effect](https://effect.website), which it keeps out of your way: you never write Effect to use it.
+Wardic's elements take Motion's props: `initial`, `animate`, `exit` and `transition`; variants that pass down the tree; hover, press, focus, drag and pan; layout and shared-element animations (`layout`, `layoutId`); presence; and values that follow the scroll or the pointer. On a server-rendered page, mount animations play before the JavaScript has loaded, and the client takes them over mid-flight. On Solid, Effect stays out of your way: you never write Effect to use it.
 
 ## Install
 
