@@ -1,0 +1,65 @@
+name: Foldkit latest
+
+# Does `@wardic/foldkit` still hold on Foldkit's newest release? (#795; ADR-0071, decision 39.) Each
+# Monday at 06:00 UTC, and on demand: the binding's devDependency set to `foldkit@latest`, then its
+# typecheck and its three vitest projects (Chromium, the hydration of a server render, and the server
+# render itself). A failure is this run's own: it files no issue; the fix is a PR, which widens the
+# peer range or takes the change, per the decision. The repo's `bun.lock` is untouched: the newer
+# Foldkit lives in this run alone.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foldkit-latest:
+    # Pinned with CI's: Playwright 1.59.1 can't install Chromium on ubuntu 26.04.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The newest Foldkit as the binding's devDependency, whatever the peer range says: the tests say
+      # whether the binding holds on it. Its version goes in the run's summary.
+      - name: Foldkit at latest
+        working-directory: packages/foldkit
+        run: |
+          bun add -d foldkit@latest
+          echo "foldkit $(jq -r .version node_modules/foldkit/package.json)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The browser alone, as CI's: the runner image has Chromium's libraries (ci.yml says why).
+      - name: Install Playwright browser
+        timeout-minutes: 3
+        run: bunx playwright install chromium
+
+      - name: Typecheck
+        working-directory: packages/foldkit
+        run: bun run typecheck && bun run typecheck:tests
+
+      - name: Test (Chromium)
+        working-directory: packages/foldkit
+        run: bunx vitest run --config vitest.browser.config.ts
+
+      - name: Test (hydration)
+        working-directory: packages/foldkit
+        run: bunx vitest run --config vitest.hydrate.config.ts
+
+      - name: Test (server render)
+        working-directory: packages/foldkit
+        run: bunx vitest run --config vitest.ssr.config.ts
