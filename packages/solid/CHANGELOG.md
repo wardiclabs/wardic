@@ -1,5 +1,14 @@
 # @wardic/solid
 
+## 2.0.1
+
+### Patch Changes
+
+- Updated dependencies [69b558a]
+- Updated dependencies [8cb7917]
+  - @wardic/dom@1.2.0
+  - @wardic/core@1.2.0
+
 ## 2.0.0
 
 ### Major Changes
