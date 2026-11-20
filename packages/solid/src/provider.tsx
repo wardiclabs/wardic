@@ -59,7 +59,7 @@ import {
 import type * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "./messages.ts"
 import { warnWithoutSpans } from "./spans-check.ts"
-import { onSettledClientOnly, reactivityIn } from "./solid-reactivity.ts"
+import { onSettledClientOnly, reactivityIn, untracked } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import * as Instant from "@wardic/dom/unstable/Instant"
@@ -406,9 +406,11 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
  * Whether reduced motion applies now (ADR-0029): the nearest `WardicConfig`'s `reducedMotion` (#434),
  * else the provider's, and the user's preference; always `false` during a server render. Internal.
  */
+// Untracked: read as each animation starts, an exit's in its presence's effect apply among them, where
+// a config's `reducedMotion={signal()}` was Solid 2's STRICT_READ_UNTRACKED.
 export function useWardicReducedMotion(): () => boolean {
   const config = useWardicConfig()
-  return fromContext(contextValue(), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
+  return fromContext(contextValue(), "useWardicReducedMotion", (value) => untracked(reducedMotionWith(value, config)))
 }
 
 /**
@@ -416,12 +418,13 @@ export function useWardicReducedMotion(): () => boolean {
  * `skipAnimations`, or the provider's Instant change while one runs (#443). Read when each starts.
  * Internal.
  */
+// Untracked, as `useWardicReducedMotion`: a config's `skipAnimations={signal()}` is read as each starts.
 export function useWardicSkipAnimations(): () => boolean {
   const config = WardicConfigValue.skipAnimationsOf(useWardicConfig())
   const value = contextValue()
-  if (Predicate.isUndefined(value)) return config
+  if (Predicate.isUndefined(value)) return untracked(config)
   const instant = value.instant
-  return () => Bool.or(instant.active(), config())
+  return untracked(() => Bool.or(instant.active(), config()))
 }
 
 /**

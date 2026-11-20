@@ -5,6 +5,9 @@
 //   "never" animates x under a provider's "always".
 // - WRV2: an exit honours the leaving element's config, not its presence's: under "always" it lands
 //   and goes at once.
+// - WRV3: a config's reducedMotion from a signal is read as each animation starts, untracked: a change
+//   and an exit, which starts in its presence's effect apply, where Solid reported the read
+//   (STRICT_READ_UNTRACKED). Its change applies to the next: the move animates, the exit lands at once.
 import { DomLive } from "@wardic/dom"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type { JSX } from "@solidjs/web"
@@ -12,7 +15,7 @@ import { AnimatePresence, ward, wardic, WardicConfig, WardicProvider, type Wardi
 import * as Bool from "effect/Boolean"
 import { createSignal, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { leftOf, raf } from "./browser-helpers.ts"
+import { leftOf, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const TWEEN: WardicTransition = { type: "tween", duration: 0.4, ease: "linear" }
@@ -106,5 +109,34 @@ describe("WardicConfig's reducedMotion on Solid 2 (#434)", () => {
     const [o] = await paints([outside], 6)
     expect(inside.isConnected, "its config's \"always\": its exit landed at once").toBe(false)
     expect(animated(o!, base, base + 200), "beside it, the provider's \"never\"").toBe(true)
+  })
+
+  it("WRV3: a config's reducedMotion from a signal: read as each animation starts, an exit's too, untracked", async () => {
+    const [setting, setSetting] = createSignal<ReducedMotion.Config>("never")
+    const [x, setX] = createSignal(0)
+    const [shown, setShown] = createSignal(true)
+    mount(() => (
+      <WardicProvider env={DomLive} reducedMotion="never">
+        <div style={{ position: "relative", width: "600px", height: "120px" }}>
+          <WardicConfig reducedMotion={setting()}>
+            <AnimatePresence>
+              <Show when={shown()}>
+                <wardic.div id="element" initial={{ x: 0 }} animate={{ x: x() }} exit={{ x: 0, transition: TWEEN }} transition={TWEEN} style={boxAt(0)} />
+              </Show>
+            </AnimatePresence>
+          </WardicConfig>
+        </div>
+      </WardicProvider>
+    ))
+    await frames(4)
+    const el = byId("element")
+    const base = leftOf(el)
+    setX(200)
+    const [moved] = await paints([el], 10)
+    expect(animated(moved!, base, base + 200), "under \"never\", the move animates").toBe(true)
+    setSetting("always")
+    setShown(false)
+    await until(() => !el.isConnected, 300, "the exit landed")
+    expect(el.isConnected, "under \"always\", its 0.4 s exit landed at once").toBe(false)
   })
 })

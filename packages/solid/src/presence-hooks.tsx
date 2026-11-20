@@ -120,12 +120,14 @@ export const usePresence = (): PresenceExit => {
 
 /**
  * Whether a child of `<AnimatePresence>` is still present: `false` from its leave on, while its exit
- * plays. Give it to `ref` on an element in the child, and call it to read. Outside a presence, always
- * `true`. Motion's `useIsPresent`.
+ * plays. Give it to `ref` on an element in the child, and call it to read. The child's own bindings and
+ * effects are disposed by its leave, so one that reads it never sees `false`: read it where code still
+ * runs on the retained element, an event handler or a timer. To act as the child leaves, use
+ * `usePresence()`'s `next("leave")`. Outside a presence, always `true`. Motion's `useIsPresent`.
  *
  * @example
  * const present = useIsPresent()
- * <button ref={present} disabled={!present()}>Save</button>
+ * <button ref={present} onClick={() => present() && save()}>Save</button>
  * @see https://wardic.dev/reference/solid/presence/use-is-present
  */
 export const useIsPresent = (): IsPresent => {

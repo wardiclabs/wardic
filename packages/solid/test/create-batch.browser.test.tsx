@@ -24,12 +24,15 @@
 //   element's; a member named through the Batch and its element is one subject (Q40).
 // - CV10: a key the Batch doesn't have and a string, in a Segment of it, and a transform it doesn't draw
 //   through a member's element, are errors naming the key.
+// - CV11: under a `WardicConfig` whose `transition` comes from a signal, a member draws what a `w.div`
+//   draws through each change, the config's change applying to the next: read at each change, in the
+//   Batch's effect apply, untracked, where Solid reported the read (STRICT_READ_UNTRACKED).
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
-import { createAnimate, createBatch, stagger, w, type WardicAnimate, type WardicAnimationScope, WardicProvider } from "@wardic/solid"
+import { createAnimate, createBatch, stagger, w, type WardicAnimate, type WardicAnimationScope, WardicConfig, WardicProvider, type WardicTransition } from "@wardic/solid"
 import { createEffect, createSignal, For, isPending } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -335,5 +338,36 @@ describe("createBatch on Solid 2 (#665)", () => {
     expect(() => animate([[both.grid(), { opacity: 1 }]])).toThrow(/"opacity", which isn't one of its keys \(x\)/)
     expect(() => animate([[both.grid(), { x: "2rem" as never }]])).toThrow(/"x" as "2rem"/)
     expect(() => animate([[both.members[0], { rotate: 10 }]])).toThrow(/"rotate"/)
+  })
+
+  it("CV11: under a WardicConfig's transition from a signal, a member draws what a w.div draws through each change", async () => {
+    const [target, setTarget] = createSignal(100)
+    const [transition, setTransition] = createSignal<WardicTransition>(SPRING)
+    let ward!: HTMLDivElement
+    let member!: HTMLDivElement
+    const Scene = (): JSX.Element => {
+      const grid = createBatch({ count: 1, initial: { x: 0 }, animate: () => ({ x: target() }) })
+      return (
+        <>
+          <w.div ref={(el: HTMLDivElement) => (ward = el)} style={BOX} initial={{ x: 0 }} animate={{ x: target() }} />
+          <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <WardicConfig transition={transition()}>
+          <Scene />
+        </WardicConfig>
+      </WardicProvider>
+    ))
+    const sprung = await xsOver(60, [ward, member])
+    expectSame(sprung[1], sprung[0])
+    expect(sprung[1].at(-1)).toBe(100)
+    setTransition(TWEEN)
+    setTarget(30)
+    const tweened = await xsOver(40, [ward, member])
+    expectSame(tweened[1], tweened[0])
+    expect(tweened[1].at(-1)).toBe(30)
   })
 })

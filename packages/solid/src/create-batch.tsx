@@ -17,7 +17,7 @@ import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx
 import { flightsOf } from "./flights.ts"
 import * as MemberHold from "@wardic/dom/unstable/MemberHold"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
-import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
+import { CLIENT_ONLY_DEFERRED, untracked } from "./solid-reactivity.ts"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -180,7 +180,9 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   if (isServer) return serverBatchOf(config, keyed)
   // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).
   MemberHold.provideBatchHolds()
-  const configTransition = BatchMembers.configTransitionOf(useWardicConfig())
+  // Untracked: read at each change, in its effect's apply, where a config's `transition={signal()}` was
+  // Solid 2's STRICT_READ_UNTRACKED.
+  const configTransition = untracked(BatchMembers.configTransitionOf(useWardicConfig()))
   const flights = flightsOf<BatchMembers.WardicBatchLanding>()
   const events = new Waiters<WardicBatchEvents>("The Batch was disposed before its next event.")
   const runtime = useWardicRuntime()

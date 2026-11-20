@@ -8,7 +8,9 @@
 //   config's change followed. SUV4b: under an emulated preference, a config's `"user"` reads it.
 //   SUV4c (#584): the provider's change is followed too.
 // - SUV5: `WardicConfig`'s `isValidProp` keeps a tag's props off it, asks of no `on` prop, and hands a
-//   wrapped component every prop.
+//   wrapped component every prop. SUV5b: one that reads a signal is read once, as each element is made,
+//   untracked, where Solid reported the read in the element's body (STRICT_READ_UNTRACKED): an element
+//   made after the signal's change reads the change, one made before keeps what it read.
 // - SUV6: `forwardMotionProps` hands a wrapped component the motion props, which still drive the
 //   element; without it, it gets none.
 import type { JSX } from "@solidjs/web"
@@ -199,6 +201,29 @@ describe("#443's hooks on Solid 2", () => {
     expect(clicked).toBe(1)
     expect(asked.filter((key) => key.startsWith("on"))).toEqual([])
     expect(given).toBe("danger")
+  })
+
+  it("SUV5b: an isValidProp that reads a signal is read once, as each element is made, untracked", () => {
+    const [allow, setAllow] = createSignal(false)
+    const [later, setLater] = createSignal(false)
+    const props = { tone: "danger" } as Record<string, unknown>
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <WardicConfig isValidProp={(key) => allow() || key !== "tone"}>
+          <wardic.div data-k="before" {...props} />
+          <Show when={later()}>
+            <wardic.div data-k="after" {...props} />
+          </Show>
+        </WardicConfig>
+      </WardicProvider>
+    ))
+    const toneOf = (k: string): string | null => host.querySelector(`[data-k="${k}"]`)!.getAttribute("tone")
+    expect(toneOf("before"), "kept off").toBeNull()
+    setAllow(true)
+    setLater(true)
+    flush()
+    expect(toneOf("after"), "made after the change: it reaches the element").toBe("danger")
+    expect(toneOf("before"), "made before: what it read then").toBeNull()
   })
 
   it("SUV6: forwardMotionProps hands a wrapped component the motion props, which still drive the element; without it, none", async () => {

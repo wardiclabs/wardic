@@ -6,6 +6,9 @@
 //   then; outside, it moves.
 // - SKV2: an exit removes its element at once.
 // - SKV3: `createAnimate`'s `animate()` lands at once, and `createSpring` follows its source at once.
+// - SKV4: a config's skipAnimations from a signal is read as each animation starts, untracked: a change
+//   and an exit, which starts in its presence's effect apply, where Solid reported the read
+//   (STRICT_READ_UNTRACKED). Its change applies to the next: the move runs, the exit lands at once.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import {
@@ -109,5 +112,31 @@ describe("WardicConfig's skipAnimations on Solid 2 (#468)", () => {
     expect(xOf(byId("skv-plain")), "animate()'s").toBeCloseTo(100, 3)
     expect(controls.state).toBe("finished")
     expect(xOf(byId("skv-spring")), "the spring's").toBeCloseTo(150, 3)
+  })
+
+  it("SKV4: a config's skipAnimations from a signal: read as each animation starts, an exit's too, untracked", async () => {
+    const [skip, setSkip] = createSignal(false)
+    const [x, setX] = createSignal(0)
+    const [shown, setShown] = createSignal(true)
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <WardicConfig skipAnimations={skip()}>
+          <AnimatePresence>
+            <Show when={shown()}>
+              <wardic.div id="skv-leaving" initial={{ x: 0 }} animate={{ x: x() }} exit={{ opacity: 0, transition: SLOW }} transition={SLOW} style={BOX} />
+            </Show>
+          </AnimatePresence>
+        </WardicConfig>
+      </WardicProvider>
+    ))
+    await frames(4)
+    const el = byId("skv-leaving")
+    setX(100)
+    await frames(3)
+    expect(xOf(el), "not skipped: on its way").toBeLessThan(20)
+    setSkip(true)
+    setShown(false)
+    await until(() => !el.isConnected, 300, "the exit landed")
+    expect(el.isConnected, "skipped: gone within 300 ms of a 2 s exit").toBe(false)
   })
 })
