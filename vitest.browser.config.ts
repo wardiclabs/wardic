@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config"
+import { Probe857 } from "./scripts/probe857-reporter.ts"
 
 // Root config for the canonical DOM test tier — run via `bun run test:browser`.
 //
@@ -16,6 +17,8 @@ import { defineConfig } from "vitest/config"
 // @wardic/core, @wardic/test and the layout lab's classifier. Both gates must pass in CI.
 export default defineConfig({
   test: {
+    // PROBE #857, never merged.
+    reporters: ["default", new Probe857()],
     projects: [
       "packages/dom/vitest.browser.config.ts",
       // The Solid 2 binding, `@wardic/solid` (#209, #566): in Chromium, and its server render to
