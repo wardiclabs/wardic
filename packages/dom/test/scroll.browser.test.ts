@@ -475,7 +475,6 @@ layer(TestLayer)("ScrollSource on the DOM (#234)", (it) => {
       document.documentElement.style.border = ""
     }))
 
-  // 60 s: the tier's start stalls Chromium for seconds, and a command waits it out (#806).
   it.effect("PS13: a released container's element isn't kept (#618)", () =>
     Effect.gen(function* () {
       const source = yield* ScrollSource.ScrollSource
@@ -492,5 +491,5 @@ layer(TestLayer)("ScrollSource on the DOM (#234)", (it) => {
       yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
       yield* Effect.promise(() => commands.collectGarbage())
       expect(refs.filter((ref) => ref.deref() !== undefined).length, "every released container collected").toBe(0)
-    }), 60_000)
+    }))
 })
