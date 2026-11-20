@@ -18,7 +18,7 @@
     "clean": "node_modules/typescript-7/bin/tsc --build --clean && rm -rf packages/*/dist",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:browser": "bun scripts/test-browser.ts",
     "test:storefront": "bun run --filter='@wardic/example-storefront-solid*' --filter='@wardic/example-storefront-foldkit' smoke",
     "lint": "eslint packages/core/src packages/core/bench packages/core/test packages/dom packages/solid packages/test packages/foldkit",
     "bench:core": "bun packages/core/bench/run.ts",

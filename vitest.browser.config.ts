@@ -1,8 +1,10 @@
 import { defineConfig } from "vitest/config"
 
-// Root config for the canonical DOM test tier — run via `bun run test:browser`.
+// Root config for the canonical DOM test tier. `bun run test:browser` runs it as a vitest process per group
+// of scripts/browser-tier.ts, all at once, each with its own Node main thread (scripts/test-browser.ts,
+// #857). `vitest --config vitest.browser.config.ts` runs it as one process, as an IDE does.
 //
-// Composes the three real-browser projects so CI runs them in one pass:
+// Composes the real-browser projects:
 //   - @wardic/dom    (packages/dom/vitest.browser.config.ts) — the DOM ports
 //     against real observers / geometry / event timing.
 //   - browser        (packages/solid/vitest.browser.config.ts) — `@wardic/solid`, Solid 2's binding:
