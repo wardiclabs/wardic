@@ -40,6 +40,8 @@ export default defineConfig({
             // The docs site's checks: the Solid reference covers every export, and every example in
             // core's doc comments typechecks (#558).
             "site/test/**/*.test.ts",
+            // The browser projects' shared commands (#806): finding the calling file's own iframe.
+            "scripts/test/**/*.test.ts",
           ],
         },
       },

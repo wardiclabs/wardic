@@ -51,6 +51,7 @@ const heldAfterGc = async (refs: ReadonlyArray<WeakRef<HTMLElement>>): Promise<n
 }
 
 describe("what the projection engine lets go of (#418)", () => {
+  // 60 s: the tier's start stalls Chromium for seconds, and a command waits it out (#806).
   it("UR1: the first node registered is collected once unregistered, while another stays: the viewport's listener doesn't keep it", async () => {
     const e = makeEngine(makeSink().sink)
     const refs = await goneAfter(e, 1, async () => {
@@ -62,8 +63,9 @@ describe("what the projection engine lets go of (#418)", () => {
     expect(await heldAfterGc(refs), "the first node, unregistered, is collected").toBe(0)
     Arr.forEach(toDispose.splice(0), (dispose) => dispose())
     e.dispose()
-  })
+  }, 60_000)
 
+  // 60 s: the tier's start stalls Chromium for seconds, and a command waits it out (#806).
   it("UR2: every node unregistered is collected, with no pass after: the depth order doesn't keep them", async () => {
     const e = makeEngine(makeSink().sink)
     const refs = await goneAfter(e, 3, async () => {
@@ -73,5 +75,5 @@ describe("what the projection engine lets go of (#418)", () => {
     })
     expect(await heldAfterGc(refs), "the three unregistered nodes are collected").toBe(0)
     e.dispose()
-  })
+  }, 60_000)
 })

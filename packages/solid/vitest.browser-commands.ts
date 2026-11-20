@@ -1,57 +1,19 @@
 // The browser test projects' commands and pre-bundled modules, both bindings' (#209, #566): what a test asks
-// of the page it runs in (real input, reduced motion, garbage collection, a line to the log).
+// of the page it runs in (real input, reduced motion, garbage collection, a line to the log). The mouse and
+// the garbage collection are the shared ones in scripts/browser-commands.ts, @wardic/dom's too (#806).
 import * as Bool from "effect/Boolean"
 import type { CDPSession } from "playwright"
-import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
-
-/** Where the test iframe sits on the page, so a client point inside it maps to a page point. */
-const iframeOffset = async (ctx: BrowserCommandContext): Promise<{ x: number; y: number }> => {
-  const box = await (await (await ctx.frame()).frameElement()).boundingBox()
-  return { x: box?.x ?? 0, y: box?.y ?? 0 }
-}
+import type { BrowserCommand } from "vitest/node"
+import { collectGarbage, iframeOffset, realMouse } from "../../scripts/browser-commands.ts"
 
 /** Emulate `prefers-reduced-motion: reduce` (or clear it) on the test page and its frames (ADR-0029's tests). */
 const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, reduce) => {
   await ctx.page.emulateMedia({ reducedMotion: Bool.match(reduce, { onTrue: () => "reduce", onFalse: () => "no-preference" }) })
 }
 
-/**
- * Two full garbage collections, through Chromium's DevTools protocol, as @wardic/dom's (#418): for a
- * test of what a binding lets go of, read through a `WeakRef` afterwards (#431).
- */
-const collectGarbage: BrowserCommand<[]> = async (ctx) => {
-  const cdp: CDPSession = await ctx.page.context().newCDPSession(ctx.page)
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.send("HeapProfiler.collectGarbage")
-  await cdp.detach()
-}
-
 /** One line to the test runner's stdout, so a browser test can leave numbers in a CI log (#206). */
 const report: BrowserCommand<[line: string]> = (_ctx, line) => {
   process.stdout.write(`[report] ${line}\n`)
-}
-
-/**
- * Real pointer input for the drag tests (#26, #31): moves Playwright's mouse to the
- * client point `(x, y)` inside the test iframe, then presses or releases `button` for
- * `down` / `up`. Synthetic `PointerEvent`s are dispatched straight to their target, so
- * they can't show when the browser delivers input relative to a Refresh frame, or a
- * pointer leaving its element; these go through the browser's own input pipeline.
- * `move: false` presses or releases where the mouse already is, with no move first.
- */
-const realMouse: BrowserCommand<[
-  type: "move" | "down" | "up",
-  x: number,
-  y: number,
-  options?: { readonly button?: "left" | "right"; readonly move?: boolean },
-]> = async (ctx, type, x, y, options) => {
-  if (options?.move !== false) {
-    const offset = await iframeOffset(ctx)
-    await ctx.page.mouse.move(offset.x + x, offset.y + y)
-  }
-  const button = options?.button ?? "left"
-  if (type === "down") await ctx.page.mouse.down({ button })
-  if (type === "up") await ctx.page.mouse.up({ button })
 }
 
 /**
