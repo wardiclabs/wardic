@@ -157,6 +157,7 @@ layer(InputDomLive)("InputDomLive: feeds over many targets (#665)", (it) => {
       }
     }).pipe(Effect.scoped))
 
+  // 60 s: the tier's start stalls Chromium for seconds, and a command waits it out (#806).
   it.effect("IA7: a real mouse's drag among members tells its end: the feed's release runs first, and the page's microtasks between (#712)", () =>
     Effect.gen(function* () {
       const box = document.createElement("div")
@@ -172,7 +173,7 @@ layer(InputDomLive)("InputDomLive: feeds over many targets (#665)", (it) => {
       yield* Effect.promise(() => commands.realMouse("up", 90, 40))
       expect(told.at(0), "it started").toBe("start")
       expect(told.at(-1), "and ended").toBe("end")
-    }).pipe(Effect.scoped))
+    }).pipe(Effect.scoped), 60_000)
 
   it.effect("IA3: two watches with the same memberOf share one listener set, gone with the last", () =>
     Effect.gen(function* () {
