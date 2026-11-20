@@ -2,14 +2,16 @@
 // once nothing has moved it for 30 ms.
 //
 // - VL1: a spring that takes over a moving tween carries its speed on outward first, as Motion's. On
-//   `SOFT` (#784): `SPRING_BACK`'s 3 px peak lasts one frame, which a long frame under load reads past;
-//   `SOFT`'s 11 px peak holds above the read for a dozen.
+//   `SOFT` (#784, #808): under load a tick delivered late lowers the speed a takeover carries (#865), and
+//   `SPRING_BACK`'s 3.7 px overshoot fell under the read's 2 px at 200 px/s; `SOFT`'s 11.8 px clears it
+//   down to 105 px/s, about a third of the tween's speed.
 // - VL2: a spring after a tween that landed starts at rest: the older spring's velocity is gone, so a
 //   critically damped spring doesn't overshoot (the issue's 113, 122, 129…).
 // - VL3: a spring chained in the frame a linear tween lands carries its last speed; one started later
 //   starts at rest.
 // - VL4: a jump (`duration: 0`) leaves no velocity: a spring chained after it doesn't fly off.
-// - VL5: an Imperative animation's spring takes over a moving tween call with its speed too.
+// - VL5: an Imperative animation's spring takes over a moving tween call with its speed too. On `SOFT`
+//   (#808), as VL1.
 // - VL7: a spring stopped mid-flight leaves no velocity 100 ms later: the next starts at rest.
 // - VL8: so does a declarative one (Animation controls' `stop()`), for the element's next Retarget.
 // - VL9: a spring stopped and followed in the same task carries its speed on.
@@ -157,7 +159,7 @@ describe("a key's velocity from its frames (#464)", () => {
     void animate(p, { x: 300 }, { duration: 1, ease: "linear" })
     await until(() => xOf(p) > 100)
     const at = xOf(p)
-    void animate(p, { x: 0 }, SPRING_BACK)
+    void animate(p, { x: 0 }, SOFT)
     const after = await xs(p, 4)
     expect(Math.max(...after), "on outward first").toBeGreaterThan(at + 2)
   })
