@@ -324,7 +324,9 @@ const PASSED_OVER_FORWARDING = ["ref", "style", "wardRef"] as const
  */
 const restOf = (props: Record<string, unknown>, forward: boolean, isTag: boolean): Record<string, unknown> => {
   const rest = Bool.match(forward, { onTrue: () => omit(props, ...PASSED_OVER_FORWARDING), onFalse: () => omit(props, ...PASSED_OVER) })
-  const dropped = droppedKeysOf(() => Object.keys(rest), WardicConfigValue.isValidPropOf(useWardicConfig()), isTag)
+  // Untracked: read once, in the element's body, where an `isValidProp` that reads a signal was Solid 2's
+  // STRICT_READ_UNTRACKED.
+  const dropped = untrack(() => droppedKeysOf(() => Object.keys(rest), WardicConfigValue.isValidPropOf(useWardicConfig()), isTag))
   // Omitted again only when it keeps any off (most elements have no `isValidProp` above them).
   if (Arr.isReadonlyArrayEmpty(dropped)) return rest
   return omit(rest, ...dropped)

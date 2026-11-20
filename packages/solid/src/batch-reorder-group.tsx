@@ -25,7 +25,7 @@ import { usePresenceContext } from "./presence.tsx"
 import { plainOrder } from "./reorder-values.ts"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag, ReorderGroup, ReorderGroupEvents } from "./reorder.tsx"
-import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, untracked } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
@@ -266,7 +266,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         skipAnimations: useWardicSkipAnimations(),
         positionalKeys: useWardicPositionalKeys(),
         defaultTransition: useWardicDefaultTransition(),
-        configTransition: BatchMembers.configTransitionOf(useWardicConfig()),
+        // Untracked, as createBatch's: read at each change, in an effect's apply.
+        configTransition: untracked(BatchMembers.configTransitionOf(useWardicConfig())),
         untrack,
         ...batchHandoffHere(),
       },

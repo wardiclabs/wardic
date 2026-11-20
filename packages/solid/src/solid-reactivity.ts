@@ -62,6 +62,14 @@ const SETTLED = { name: "onSettled", ...CLIENT_ONLY }
  */
 export const onSettledClientOnly = (callback: () => void | (() => void)): void => createTrackedEffect(() => untrack(callback), SETTLED)
 
+/**
+ * `read`, read untracked at each call: for a setting read as each animation starts (ADR-0029, #468),
+ * often in an effect's apply, where Solid 2 reports a reactive read (STRICT_READ_UNTRACKED). A
+ * `WardicConfig` prop from a signal is such a read: a one-time read, which this says. Allocates
+ * nothing per call.
+ */
+export const untracked = <A>(read: () => A): (() => A) => () => untrack(read)
+
 /** Solid 2's reactive primitives, a watch made under `owner`. */
 export const reactivityIn = (owner: Owner | null): Reactivity.Reactivity => ({
   untrack,
