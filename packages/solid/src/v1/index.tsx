@@ -17,7 +17,7 @@
  *
  * @deprecated Solid 1's binding, deprecated and frozen: it goes at Wardic's next major. Solid 2's is `@wardic/solid` (#566).
  */
-export const VERSION = "2.0.1"
+export const VERSION = "2.0.2"
 
 /**
  * `WardicProvider` (one Effect runtime + `AtomRegistry` per ADR-0006), the

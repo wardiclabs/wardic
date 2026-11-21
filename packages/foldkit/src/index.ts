@@ -3,7 +3,7 @@
  * Effect. `Wardic.make({ env })` makes a Handle once per program; `wardic.html(h)` gives a view its
  * `w.*` elements. Shipped from 1.2 (#561).
  */
-export const VERSION = "1.2.0"
+export const VERSION = "1.2.1"
 
 export * as Wardic from "./Wardic.ts"
 export * as Ward from "./Ward.ts"
