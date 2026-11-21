@@ -42,6 +42,8 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
+import * as Stream from "effect/Stream"
+import type { ViewState } from "foldkit/mount"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
 import type { MakeOptions } from "../Wardic.ts"
@@ -88,9 +90,14 @@ export interface Provider {
   root: Element | undefined
   /** Its members, counted: its mounted `w.*` elements, and the Commands' animations and `provide`s while they run. */
   elements: number
-  /** The Mounts whose view DevTools replay has (decision 34): while any, no hint is given from a provider-wide delivery. */
-  readonly pausedViews: Set<object>
-  /** Whether DevTools replay has a view now. */
+  /**
+   * Follow the program's view state for `paused` (decision 34; #849, Q2): the first Mount to arrive
+   * starts it with its `viewStateChanges`, in the provider's Scope, so it outlives that Mount and ends
+   * with the provider; a Mount after it finds it running. The view state is one per program, so one
+   * subscription serves every element.
+   */
+  readonly followViewState: (viewStateChanges: Stream.Stream<ViewState>) => Effect.Effect<void>
+  /** Whether DevTools replay has the view now: every animation then lands at once, no callback Message leaves, and no hint is given. */
   readonly paused: () => boolean
 }
 
@@ -358,7 +365,9 @@ const optional = <S extends Context.Service<any, any>>(context: Context.Context<
  */
 const build = (state: State): Effect.Effect<Provider> =>
   Effect.gen(function* () {
-    const pausedViews = new Set<object>()
+    // The view state (decision 34), followed once the first Mount brings its stream (#849, Q2).
+    let paused = false
+    let following = false
     const scope = Scope.makeUnsafe()
     const memoMap = Layer.makeMemoMapUnsafe()
     // Read as each layout animation starts (slice 2), through the Provider's own reader once it's made.
@@ -411,8 +420,18 @@ const build = (state: State): Effect.Effect<Provider> =>
       scope,
       root: undefined,
       elements: 0,
-      pausedViews,
-      paused: () => pausedViews.size > 0,
+      followViewState: (viewStateChanges) =>
+        Effect.suspend(() => {
+          if (following) return Effect.void
+          following = true
+          const follow = Stream.runForEach(viewStateChanges, (view: ViewState) =>
+            Effect.sync(() => {
+              paused = view === "Paused"
+            }),
+          )
+          return Effect.asVoid(Effect.forkIn(follow, scope))
+        }),
+      paused: () => paused,
     }
   })
 
