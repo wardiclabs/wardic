@@ -3,7 +3,7 @@
  * `routes/transitions/catalogue.tsx` renders `Catalogue` around its outlet, `catalogue/index.tsx`
  * the `CatalogueList`, and `catalogue/[id].tsx` a `CataloguePiece`.
  */
-import { revalidate, useParams } from "@solidjs/router"
+import { useParams } from "@solidjs/router"
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
@@ -12,7 +12,6 @@ import type { JSX } from "@solidjs/web"
 import { AnimatePresence, arc } from "@wardic/solid"
 import { w } from "~/lib/wardic-layout.ts"
 import { action, createEffect, createOptimistic, createSignal, For, Match, Show, Switch } from "solid-js"
-import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
 
 const PIECES = PRODUCTS.slice(0, 6)
@@ -88,8 +87,6 @@ function AddButton(props: { readonly piece: Product }) {
     setAdding(true)
     try {
       yield addToCart(id, 1)
-      // The cart has changed: the header's count reads it again.
-      revalidate(cart.key)
       setEnded({ added: true })
     } catch {
       setEnded({ added: false })
