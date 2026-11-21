@@ -3,7 +3,9 @@
  * (`opacity`) and a string leg (`background-color`), all following one target in the Model. `?kind=wardic`
  * is N `w.div`s on a Handle over `DomLive`; `?kind=plain` is N plain `h.div`s whose `h.Style` binds the
  * same Model: Foldkit without Wardic, the baseline and the noise control, the same code on both sides of
- * a comparison.
+ * a comparison. `?kind=mount` is `plain`'s divs, each with a trivial `OnMount` (#849, Q6): a Mount whose
+ * Stream never emits, as a `w.div`'s holds its own, started in the patch and interrupted at the element's
+ * destroy. It's the floor Foldkit's own Mount lays under a `w.div`'s, which a `w.div` is read over.
  *
  * On Foldkit a change is a Message: the runtime runs `update`, renders the view and patches the DOM in a
  * task of its own, and a `w.*` element's Mount runs in the patch. So a task is timed from the view's
@@ -36,8 +38,10 @@
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
+import * as Mount from "foldkit/mount"
 import * as Port from "foldkit/port"
 import * as Runtime from "foldkit/runtime"
 import * as Subscription from "foldkit/subscription"
@@ -106,6 +110,25 @@ const plainView = (model: Model, h: HtmlBuilder<Message>): Html => {
   }))
 }
 
+/**
+ * A Mount that does nothing and stays open until its element goes: Foldkit's own Mount, with nothing of
+ * Wardic's in it. It never sends the `Set` it declares (Foldkit asks a Mount for at least one Message).
+ */
+const Trivial = Mount.defineStream("Bench.Trivial", { messages: [Message.Set], execute: () => Stream.never })
+
+/** `plainView`'s divs, each with the trivial Mount: the floor under a `w.div`'s (#849). */
+const mountView = (model: Model, h: HtmlBuilder<Message>): Html => {
+  timedView()
+  return h.div([h.Class("host")], Bool.match(model.shown, {
+    onTrue: () => items.map(() => h.div([h.Class("b"), h.Style({ opacity: String(model.o), "background-color": model.c }), h.OnMount(Trivial())], [])),
+    onFalse: (): ReadonlyArray<Html> => [],
+  }))
+}
+
+const views = { wardic: wardicView, plain: plainView, mount: mountView } as const
+const isKind = (given: string): given is keyof typeof views => Object.hasOwn(views, given)
+if (!isKind(kind)) throw new Error(`bench:foldkit: no page kind ${kind}`)
+
 const host = document.createElement("div")
 document.body.append(host)
 const container = document.createElement("div")
@@ -116,7 +139,7 @@ const element = Runtime.makeElement({
   Model,
   init: () => ({ model: { shown: false, o: 1, c: WHITE, tick: 0 } }),
   update: (_model: Model, message: Message) => Message.match(message, { Set: ({ model }) => ({ model }) }),
-  view: Bool.match(kind === "plain", { onTrue: () => plainView, onFalse: () => wardicView }),
+  view: views[kind],
   container,
   ports: { inbound: { set } },
   subscriptions: Subscription.make<Model, Message>()(() => ({ set: Port.subscriptionEntry(set, (model: Model) => Message.Set({ model })) })),
@@ -191,7 +214,7 @@ const round = async (): Promise<Round> => {
   if (boxes().length !== n) throw new Error(`bench:foldkit: mounted ${boxes().length} of ${n}`)
   const firstFrame = await frameAfter
   await frames(7)
-  if (kind !== "plain" && !boxes().some((el) => Number(el.style.opacity) > 0 && Number(el.style.opacity) < 1)) {
+  if (kind === "wardic" && !boxes().some((el) => Number(el.style.opacity) > 0 && Number(el.style.opacity) < 1)) {
     throw new Error("bench:foldkit: not mid-flight at the Retarget")
   }
   await afterPaint()
