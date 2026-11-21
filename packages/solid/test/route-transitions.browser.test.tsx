@@ -15,8 +15,9 @@
 //   card while the data loads; the data then takes the skeleton's place.
 // - RTV6 (#482): the leaving page's card rides the hero's flight, then goes with its page.
 // - RTV7 (#486): a point over the new page mid-transition hits it, not the popped list.
-// - RTV8 (#480): from a list scrolled down, the router's scroll to the top: the hero from where the
-//   card was seen, and the popped list where it was seen.
+// - RTV8 (#480): from a list scrolled down, the router's scroll to the top: the hero's first frame
+//   from where the card was seen, then flying to its place, and the popped list where it was seen,
+//   read on each painted frame from the navigation (#877).
 // - RTV9 (#682): rapid back and forth (piece A, the list, piece B, 150 ms apart): A's photo on the
 //   list that leaves, mid-flight back from A's leaving hero, stays where it's drawn as it fades.
 import type { JSX } from "@solidjs/web"
@@ -26,7 +27,7 @@ import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "
 import * as Bool from "effect/Boolean"
 import { createMemo, Loading, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { afterPaint, paintedReads, raf, until } from "./browser-helpers.ts"
+import { paintedReads, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 afterEach(() => window.scrollTo(0, 0))
@@ -298,12 +299,19 @@ describe("page transitions with Solid Router on Solid 2 (#479)", () => {
     expect(window.scrollY, "the list scrolled down").toBeGreaterThan(500)
     const list = app.pages()[0]!
     const seen = { card: app.el("card")!.getBoundingClientRect().top, list: list.getBoundingClientRect().top }
+    // Each painted frame from the navigation (#877): a read a frame into the flight moves with that
+    // frame's length, at about 0.8 px a ms, and a loaded runner's 33 ms frame put it 41 px off. The
+    // flight's first frame is a Cold start's nominal step in (ADR-0033), 13.8 px, at any load.
+    const painted = paintedReads(() => ({ hero: app.el("hero")?.getBoundingClientRect().top, list: list.getBoundingClientRect().top, scrollY: window.scrollY }), 10)
     app.navigate("/item/3")
-    await until(() => app.el("hero") !== null, 2000)
-    await afterPaint()
-    expect(window.scrollY, "the router scrolled to the top").toBe(0)
-    expect(Math.abs(app.el("hero")!.getBoundingClientRect().top - seen.card), "the hero from where the card was seen, px").toBeLessThan(40)
-    expect(list.getBoundingClientRect().top, "the popped list where it was seen").toBeCloseTo(seen.list, 0)
+    const flight = (await painted).filter((f) => f.hero !== undefined).slice(0, 4)
+    expect(flight.length, "the hero in, four frames of its flight read").toBe(4)
+    expect(flight[0]!.scrollY, "the router scrolled to the top").toBe(0)
+    expect(Math.abs(flight[0]!.hero! - seen.card), "the hero's first frame from where the card was seen, px").toBeLessThan(20)
+    for (const [i, f] of flight.entries()) {
+      expect(f.list, `frame ${i}: the popped list where it was seen`).toBeCloseTo(seen.list, 0)
+      if (i > 0) expect(f.hero!, `frame ${i}: the hero flying to its place`).toBeLessThan(flight[i - 1]!.hero!)
+    }
   })
   it("RTV9: rapid back and forth: the photo on the list that leaves stays where it's drawn, though its twins are leaving too (#682)", async () => {
     const app = mountRoutes([{ path: "/", component: Catalogue }, { path: "/item/:id", component: Piece }], "popLayout")
