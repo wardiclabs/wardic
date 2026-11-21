@@ -1,13 +1,15 @@
 // The Foldkit element (#791, PR 1): a `w.*` under a provider animates its `Animate` target from
 // `Initial`, Retargets on a render that changes its target and holds through one that doesn't, is
 // recreated where a plain element was (the identity stamp, P2), and lands at once in a replay, after the
-// element whose Mount started the provider's watcher has left too (#849).
+// element whose Mount started the provider's watcher has left too, and when a Command built the provider
+// before any element mounted (#849).
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as SubscriptionRef from "effect/SubscriptionRef"
+import * as Command from "foldkit/command"
 import { __setDevToolsOverlay, type DevToolsStore, INIT_INDEX, latestEntryIndex } from "foldkit/devtools-host"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
@@ -208,6 +210,64 @@ describe("DevTools replay", () => {
     // Back to the entry `#first` left at: the box reads the pause through the provider's watcher, which
     // outlived the Mount that started it, and lands at 20 at once, instead of animating back over 0.5 s.
     await Effect.runPromise(store!.jumpTo(leftAt))
+    const landed = await waitAtMost(100, () => xOf(held, box) === 20)
+    expect(landed, "it landed at 20 within 100 ms").toBe(true)
+    await Effect.runPromise(store!.resume)
+    await until(() => xOf(held, box) === 300, 2000, "it lands at 300")
+  })
+
+  it("lands every animation at once when a Command built the provider before any element mounted (#849, E4)", async () => {
+    let store: DevToolsStore | undefined
+    __setDevToolsOverlay((s) =>
+      Effect.sync(() => {
+        store = s
+      }),
+    )
+    const Held = defineMessageUnion({ Hold: {}, Set: { x: Schema.Number } })
+    type Held = typeof Held.Type
+    // A Command that builds the provider and holds it, a member until the program ends.
+    let built = false
+    const Hold = Command.define("Hold", {
+      messages: [Held.Set],
+      execute: Effect.scoped(
+        Wardic.provide(
+          Effect.andThen(
+            Effect.sync(() => {
+              built = true
+            }),
+            Effect.never,
+          ),
+        ),
+      ),
+    })
+    // At x 0 the view has no w.* element; past it, the box is the first, and its Mount the first to arrive.
+    const held = embed<Model, Held, number, Wardic.Wardic>({
+      Model,
+      Set: Schema.Number,
+      init: { x: 0 },
+      update: (model, message) => Held.match(message, { Hold: () => ({ model, commands: [Hold()] }), Set: ({ x }) => ({ model: { ...model, x } }) }),
+      view: (model, h) => {
+        const w = wardic.html(h)
+        const box = (): ReadonlyArray<Html> => [w.div([h.Id("box"), w.Initial({ x: 0 }), w.Animate({ x: model.x }), w.Transition({ duration: 0.5, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])]
+        return h.div([], Bool.match(model.x === 0, { onTrue: () => [], onFalse: box }))
+      },
+      toMessage: (x) => Bool.match(x === 0, { onTrue: () => Held.Hold(), onFalse: () => Held.Set({ x }) }),
+      resources: wardic.resources,
+      devTools: true,
+    })
+    app = held
+    await until(() => store !== undefined, 2000, "the DevTools store is there")
+    held.send(0)
+    await until(() => built, 2000, "the Command built the provider")
+    held.send(20)
+    const box = await boxOf(held)
+    await until(() => xOf(held, box) === 20, 2000, "the box is at 20")
+    const at20 = latestEntryIndex(await Effect.runPromise(SubscriptionRef.get(store!.stateRef)))
+    held.send(300)
+    await until(() => xOf(held, box) > 100, 2000, "it moves past 100")
+    // The box's Mount is the first, though the provider was live before it: it starts the provider's
+    // watcher, so the box reads the pause and lands at 20 at once, instead of animating back over 0.5 s.
+    await Effect.runPromise(store!.jumpTo(at20))
     const landed = await waitAtMost(100, () => xOf(held, box) === 20)
     expect(landed, "it landed at 20 within 100 ms").toBe(true)
     await Effect.runPromise(store!.resume)
