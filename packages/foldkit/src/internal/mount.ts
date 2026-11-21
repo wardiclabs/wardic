@@ -10,21 +10,18 @@
  * @module
  */
 import * as Report from "@wardic/dom/Report"
-import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as MutableRef from "effect/MutableRef"
-import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
-import type { MountAction, ViewState } from "foldkit/mount"
+import type { MountAction } from "foldkit/mount"
 import type * as Ward from "../Ward.ts"
 import { patchTouched } from "./delivery.ts"
 import { mountElement } from "./element.ts"
 import { mountPresence } from "./presence.ts"
 import { mountReorderGroup } from "./reorder.ts"
-import { flushPresences, joined, type Provider, providerFor, type State } from "./services.ts"
+import { flushPresences, joined, providerFor, type State } from "./services.ts"
 import { markMounted } from "./tree.ts"
 
 /** The names a Scene test resolves Wardic's Mounts by (decision 36). */
@@ -39,37 +36,36 @@ type MountFn<Message> = MountAction<Message>["f"]
 /** What a Mount's setup failing is reported as: contained at the binding's edge (decision 13), the element left at its Starting style. */
 const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Starting style"
 
+/** What a Mount whose setup failed runs: a Stream that stays open, sending nothing. */
+const OPEN: Stream.Stream<never> = Stream.never
+
 /**
  * Wardic's part of a `w.*` element's Mount: gets the Handle's Provider, building it when it's the first
- * element to mount, and takes the root when the element carries `w.Provider(options)`; mounts the
- * element on it; follows the view's state for DevTools replay (decision 34); and holds its Scope until
+ * element to mount, and takes the root when the element carries `w.Provider(options)`; has the provider
+ * follow the view's state for DevTools replay (decision 34), the first Mount's stream serving every
+ * element's; mounts the element on it; and holds its Scope until
  * the Mount's destroy, which runs the release before Foldkit removes the element. It never fails: a failure is reported, and the Stream
  * stays open (decision 13). Emits no Message in slice 1's PR 1; PR 2's callbacks come through here.
+ *
+ * The setup runs as the Stream starts, on the Mount's own fiber, and returns its queue's Stream (#849,
+ * Q3): no fiber of its own waiting on `Effect.never`, as `Stream.callback`'s was, and the release a
+ * finalizer of the Stream's Scope, which Foldkit's interrupt closes.
  */
 const wardicPart =
   <Message>(state: State, provider: Ward.ProviderOptions | undefined): MountFn<Message> =>
   (element, viewStateChanges) =>
-    Stream.callback<Message>((queue) =>
+    Stream.unwrap(
       Effect.gen(function* () {
         // The element's callbacks (PR 2) leave as Messages through its own Stream (P7).
+        const queue = yield* Queue.unbounded<Message>()
         const offer = (message: unknown): void => {
           Queue.offerUnsafe(queue, message as Message)
         }
-        let paused = false
-        // The element among the provider's paused views (decision 34), once the provider is known.
-        const counted = MutableRef.make(Option.none<Provider>())
-        const count = (): void => {
-          Option.map(MutableRef.get(counted), (on) => Bool.match(paused, { onTrue: () => on.pausedViews.add(element), onFalse: () => on.pausedViews.delete(element) }))
-        }
-        yield* Effect.forkScoped(Stream.runForEach(viewStateChanges, (view: ViewState) => Effect.sync(() => {
-          paused = view === "Paused"
-          count()
-        })))
         const on = yield* providerFor(state, element, provider)
-        MutableRef.set(counted, Option.some(on))
-        count()
+        // The view state is the program's (decision 34): the provider follows it once, for every element (#849, Q2).
+        yield* on.followViewState(viewStateChanges)
         const left = joined(state, on, element)
-        const isPaused = (): boolean => paused
+        const isPaused = on.paused
         // The live presences deliver before this element registers anything (#840): Foldkit runs a Mount
         // in the patch's task, once the patch has committed and before the observers are told, and a
         // presence this element carries starts its children at its own mount, a `layoutId` twin among
@@ -88,13 +84,12 @@ const wardicPart =
             releaseReorder()
             releasePresence()
             release()
-            on.pausedViews.delete(element)
             left()
           }),
         )
         patchTouched()
-        return yield* Effect.never
-      }).pipe(Effect.catchDefect((defect) => Effect.andThen(Report.failure(FAILED, Cause.die(defect)), Effect.never))),
+        return Stream.fromQueue(queue)
+      }).pipe(Effect.catchDefect((defect) => Effect.as(Report.failure(FAILED, Cause.die(defect)), OPEN))),
     )
 
 /** What a `w.*` element's Mount is made of. */
