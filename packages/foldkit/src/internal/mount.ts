@@ -10,10 +10,11 @@
  * @module
  */
 import * as Report from "@wardic/dom/Report"
+import * as Arr from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
-import * as Queue from "effect/Queue"
+import type * as Scheduler from "effect/Scheduler"
 import * as Stream from "effect/Stream"
 import type { MountAction } from "foldkit/mount"
 import type * as Ward from "../Ward.ts"
@@ -39,6 +40,54 @@ const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Star
 /** What a Mount whose setup failed runs: a Stream that stays open, sending nothing. */
 const OPEN: Stream.Stream<never> = Stream.never
 
+/** A Mount's Messages: what its callbacks offer, and the pull its Stream takes them by. */
+interface Mailbox<Message> {
+  readonly offer: (message: unknown) => void
+  readonly pull: Effect.Effect<Arr.NonEmptyReadonlyArray<Message>>
+}
+
+/**
+ * A Mount's Messages, held until its Stream pulls them (#849, E4). The buffer is made at the element's
+ * first Message, so an element that sends none, as most don't, holds only its pull, which waits on a
+ * callback as `Effect.never` does. A Message offered while the pull waits wakes it a scheduler task
+ * later, as `Queue`'s offer does, so the Messages of one task leave together.
+ */
+const mailbox = <Message>(): Mailbox<Message> => {
+  let messages: Array<Message> | undefined
+  let resume: ((effect: Effect.Effect<void>) => void) | undefined
+  let scheduler: Scheduler.Scheduler | undefined
+  let dispatcher: Scheduler.SchedulerDispatcher | undefined
+  let waking = false
+  const wake = (): void => {
+    waking = false
+    const waiting = resume
+    resume = undefined
+    if (Predicate.isNotUndefined(waiting)) waiting(Effect.void)
+  }
+  const offer = (message: unknown): void => {
+    if (Predicate.isUndefined(messages)) messages = []
+    messages.push(message as Message)
+    if (Predicate.isUndefined(resume) || Predicate.isUndefined(scheduler) || waking) return
+    waking = true
+    // The fiber's own dispatcher is what `Queue` wakes through; made here, at the first wake.
+    if (Predicate.isUndefined(dispatcher)) dispatcher = scheduler.makeDispatcher()
+    dispatcher.scheduleTask(wake, 0)
+  }
+  const wait = Effect.callback<void>(function (this: Scheduler.Scheduler, waiting) {
+    scheduler = this
+    resume = waiting
+  })
+  const take = (): Effect.Effect<Arr.NonEmptyReadonlyArray<Message>> => {
+    const taken = messages
+    messages = undefined
+    if (Predicate.isUndefined(taken) || !Arr.isArrayNonEmpty(taken)) return waitThenTake
+    return Effect.succeed(taken)
+  }
+  const pull = Effect.suspend(take)
+  const waitThenTake = Effect.flatMap(wait, () => pull)
+  return { offer, pull }
+}
+
 /**
  * Wardic's part of a `w.*` element's Mount: gets the Handle's Provider, building it when it's the first
  * element to mount, and takes the root when the element carries `w.Provider(options)`; has the provider
@@ -47,9 +96,9 @@ const OPEN: Stream.Stream<never> = Stream.never
  * the Mount's destroy, which runs the release before Foldkit removes the element. It never fails: a failure is reported, and the Stream
  * stays open (decision 13). Emits no Message in slice 1's PR 1; PR 2's callbacks come through here.
  *
- * The setup runs as the Stream starts, on the Mount's own fiber, and returns its queue's Stream (#849,
- * Q3): no fiber of its own waiting on `Effect.never`, as `Stream.callback`'s was, and the release a
- * finalizer of the Stream's Scope, which Foldkit's interrupt closes.
+ * The setup runs as the Stream starts, on the Mount's own fiber, and returns the Stream of its Messages
+ * (#849, Q3): no fiber of its own waiting on `Effect.never`, as `Stream.callback`'s was, and the
+ * release a finalizer of the Stream's Scope, which Foldkit's interrupt closes.
  */
 const wardicPart =
   <Message>(state: State, provider: Ward.ProviderOptions | undefined): MountFn<Message> =>
@@ -57,10 +106,8 @@ const wardicPart =
     Stream.unwrap(
       Effect.gen(function* () {
         // The element's callbacks (PR 2) leave as Messages through its own Stream (P7).
-        const queue = yield* Queue.unbounded<Message>()
-        const offer = (message: unknown): void => {
-          Queue.offerUnsafe(queue, message as Message)
-        }
+        const box = mailbox<Message>()
+        const offer = box.offer
         const on = yield* providerFor(state, element, provider)
         // The view state is the program's (decision 34): the provider follows it once, for every element (#849, Q2).
         yield* on.followViewState(viewStateChanges)
@@ -88,7 +135,7 @@ const wardicPart =
           }),
         )
         patchTouched()
-        return Stream.fromQueue(queue)
+        return Stream.fromPull(Effect.succeed(box.pull))
       }).pipe(Effect.catchDefect((defect) => Effect.as(Report.failure(FAILED, Cause.die(defect)), OPEN))),
     )
 
