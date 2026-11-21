@@ -97,6 +97,8 @@ export interface Provider {
    * subscription serves every element.
    */
   readonly followViewState: (viewStateChanges: Stream.Stream<ViewState>) => Effect.Effect<void>
+  /** Whether a Mount has started the view-state subscription: a Mount after it then has nothing to start. */
+  readonly following: () => boolean
   /** Whether DevTools replay has the view now: every animation then lands at once, no callback Message leaves, and no hint is given. */
   readonly paused: () => boolean
 }
@@ -431,6 +433,7 @@ const build = (state: State): Effect.Effect<Provider> =>
           )
           return Effect.asVoid(Effect.forkIn(follow, scope))
         }),
+      following: () => following,
       paused: () => paused,
     }
   })

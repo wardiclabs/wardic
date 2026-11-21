@@ -136,18 +136,22 @@ const failed = (defect: unknown): Effect.Effect<Effect.Effect<never>> => Effect.
  * The setup runs as the Stream starts, on the Mount's own fiber (#849, Q3): no fiber of its own waiting
  * on `Effect.never`, as `Stream.callback`'s was. The Stream is one Channel step (#849, E4): the setup
  * returns its pull, and the release is a finalizer of the run's own Scope, which Foldkit's interrupt
- * closes.
+ * closes. Once the provider is live and follows the view state, an element without `w.Provider()`'s
+ * options has nothing to wait on, and mounts without the provider's Effects.
  */
 const wardicPart =
   <Message>(state: State, provider: Ward.ProviderOptions | undefined): MountFn<Message> =>
   (element, viewStateChanges) =>
     Stream.fromChannel(
-      Channel.fromTransform((_, scope) =>
-        Effect.flatMap(providerFor(state, element, provider), (on) =>
+      Channel.fromTransform((_, scope) => {
+        const live = state.live
+        if (Predicate.isUndefined(provider) && Predicate.isNotUndefined(live) && live.following())
+          return Effect.suspend(() => mountOn<Message>(state, live, element, scope)).pipe(Effect.catchDefect(failed))
+        return Effect.flatMap(providerFor(state, element, provider), (on) =>
           // The view state is the program's (decision 34): the provider follows it once, for every element (#849, Q2).
           Effect.flatMap(on.followViewState(viewStateChanges), () => mountOn<Message>(state, on, element, scope)),
-        ).pipe(Effect.catchDefect(failed)),
-      ),
+        ).pipe(Effect.catchDefect(failed))
+      }),
     )
 
 /** What a `w.*` element's Mount is made of. */
