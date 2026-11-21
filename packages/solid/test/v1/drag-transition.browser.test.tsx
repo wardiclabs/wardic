@@ -18,7 +18,8 @@
 // - DT9: an x drag's release runs on x alone, from x's velocity; its y is never constrained, even
 //   outside its y bounds.
 // - DT8: a `<Reorder.Item>`'s release: on Motion's 200 / 40 bounce from rest by default, and on its
-//   slot at once with `dragElastic={0}`, Motion's wall.
+//   slot at once with `dragElastic={0}`, Motion's wall. It lets go once its sampling's first frame is
+//   read (#867): under load that read can run a frame late, and with the wall it read the slot.
 // - DT10 (#279): a snap back a click catches mid-flight goes on from rest, home, and tells
 //   `onDragTransitionEnd` once. Before #279 it stayed where the click caught it.
 // - DT11 (#279): a spring back to a constraint's edge, caught by a click, goes on to the edge.
@@ -290,9 +291,11 @@ describe("a <Reorder.Item>'s release runs on its drag transition (#140)", () => 
     await glide(g, add(g, 0, 20), 10, 20)
     await wait(200)
     const sampling = sampleFrames(() => item.getBoundingClientRect().top - slot.top)
+    await sampling.read(1)
     await mouse.up(add(g, 0, 20))
     await wait(1300)
     const frames = sampling.stop()
+    expect(frames[0]!.v, "held 20 px down when the release starts").toBeGreaterThanOrEqual(19.5)
     return frames.slice(frames.findIndex((f) => f.v < 19.5) - 1)
   }
 
