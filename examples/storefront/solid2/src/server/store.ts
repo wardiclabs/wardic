@@ -6,6 +6,8 @@
  * read.
  */
 import * as Store from "@wardic/example-storefront-shared/server"
+import { respond } from "@solidjs/web"
+import { CART } from "~/lib/keys.ts"
 import { visitor } from "./visitor.ts"
 
 export async function listProducts(category?: string) {
@@ -24,12 +26,13 @@ export async function getCart() {
   return Store.runFor(visitor(), Store.getCart)
 }
 
+// A cart change revalidates the cart alone: named on the response, the router refetches no other query.
 export async function addToCart(productId: string, quantity: number) {
-  return Store.runFor(visitor(), Store.addToCart(productId, quantity))
+  return respond(await Store.runFor(visitor(), Store.addToCart(productId, quantity)), { revalidate: CART })
 }
 
 export async function setCartQuantity(productId: string, quantity: number) {
-  return Store.runFor(visitor(), Store.setCartQuantity(productId, quantity))
+  return respond(await Store.runFor(visitor(), Store.setCartQuantity(productId, quantity)), { revalidate: CART })
 }
 
 export async function getOrders() {

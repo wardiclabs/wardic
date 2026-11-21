@@ -1,10 +1,9 @@
-import { revalidate } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic-layout.ts"
 import { action, createEffect, createMemo, createOptimistic, createSignal, Loading, Match, Show, Switch } from "solid-js"
-import { cart, product } from "~/lib/store.ts"
+import { product } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
 
 // "View cart" slides out from behind the button once the piece is in the cart.
@@ -38,8 +37,6 @@ export default function AddToCart() {
     setFailure(undefined)
     try {
       yield addToCart(id, howMany)
-      // The cart has changed: the header's count reads it again.
-      revalidate(cart.key)
       setAdded({})
     } catch (error) {
       setFailure(messageOf(error))

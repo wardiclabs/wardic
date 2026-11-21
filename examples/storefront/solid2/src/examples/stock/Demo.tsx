@@ -52,7 +52,7 @@ function StockRow(props: { readonly piece: Product; readonly left: () => number 
   const label = () => (isPending(() => bar.settled()) ? "filling…" : `✓ ${props.left()} left`)
   return (
     <li class="stock-row">
-      <img src={photoOf(props.piece.id).small} width="48" height="48" alt="" />
+      <img src={photoOf(props.piece.id).thumb} width="48" height="48" alt="" />
       <span class="name">{props.piece.name}</span>
       <span class="meter">
         <w.span class="meter-fill" wardRef={bar} initial={{ scaleX: 0 }} animate={{ scaleX: props.left() / SHELF }} transition={FILL} />

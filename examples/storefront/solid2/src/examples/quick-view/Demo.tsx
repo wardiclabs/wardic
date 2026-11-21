@@ -100,7 +100,7 @@ function QuickViewBody(props: { readonly piece: Product; readonly onClose: () =>
             <For each={shown()}>
               {(other) => (
                 <w.li class="pairing" layout {...pairing}>
-                  <img src={photoOf(other.id).small} width="40" height="40" alt="" />
+                  <img src={photoOf(other.id).thumb} width="40" height="40" alt="" />
                   <span class="name">{other.name}</span>
                   <span class="price">{formatPrice(other.price)}</span>
                   <button class="icon-button" aria-label={`Not for me: ${other.name}`} onClick={() => setDismissed([...dismissed(), other.id])}>

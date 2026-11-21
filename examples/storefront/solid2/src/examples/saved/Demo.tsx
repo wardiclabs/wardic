@@ -1,4 +1,3 @@
-import { revalidate } from "@solidjs/router"
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
@@ -8,7 +7,6 @@ import { w } from "~/lib/wardic-layout.ts"
 import { action, createMemo, createOptimisticStore, createSignal, For, onFlush, Show } from "solid-js"
 import { arrivalId, useArrivals } from "~/lib/arrivals.tsx"
 import { useReducedMotion } from "~/lib/preferences.tsx"
-import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
 
 const SAVED = PRODUCTS.filter((product) => ["bottle-vase", "tulip-bowl", "painted-jug", "cut-carafe"].includes(product.id))
@@ -30,8 +28,6 @@ export default function SavedForLater() {
     setSaved(without(piece))
     yield addToCart(piece.id, 1)
     setKept(without(piece))
-    // The cart has changed: the header's count reads it again.
-    revalidate(cart.key)
   })
   // A click: the move takes its row out, then its photo's twin appears in the cart button, and Wardic
   // flies the photo there from the row it left (under reduced motion, nothing flies). The twin's write
