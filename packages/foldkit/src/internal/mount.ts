@@ -36,6 +36,9 @@ type MountFn<Message> = MountAction<Message>["f"]
 /** What a Mount's setup failing is reported as: contained at the binding's edge (decision 13), the element left at its Starting style. */
 const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Starting style"
 
+/** What a Mount whose setup failed runs: a Stream that stays open, sending nothing. */
+const OPEN: Stream.Stream<never> = Stream.never
+
 /**
  * Wardic's part of a `w.*` element's Mount: gets the Handle's Provider, building it when it's the first
  * element to mount, and takes the root when the element carries `w.Provider(options)`; has the provider
@@ -43,13 +46,18 @@ const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Star
  * element's; mounts the element on it; and holds its Scope until
  * the Mount's destroy, which runs the release before Foldkit removes the element. It never fails: a failure is reported, and the Stream
  * stays open (decision 13). Emits no Message in slice 1's PR 1; PR 2's callbacks come through here.
+ *
+ * The setup runs as the Stream starts, on the Mount's own fiber, and returns its queue's Stream (#849,
+ * Q3): no fiber of its own waiting on `Effect.never`, as `Stream.callback`'s was, and the release a
+ * finalizer of the Stream's Scope, which Foldkit's interrupt closes.
  */
 const wardicPart =
   <Message>(state: State, provider: Ward.ProviderOptions | undefined): MountFn<Message> =>
   (element, viewStateChanges) =>
-    Stream.callback<Message>((queue) =>
+    Stream.unwrap(
       Effect.gen(function* () {
         // The element's callbacks (PR 2) leave as Messages through its own Stream (P7).
+        const queue = yield* Queue.unbounded<Message>()
         const offer = (message: unknown): void => {
           Queue.offerUnsafe(queue, message as Message)
         }
@@ -80,8 +88,8 @@ const wardicPart =
           }),
         )
         patchTouched()
-        return yield* Effect.never
-      }).pipe(Effect.catchDefect((defect) => Effect.andThen(Report.failure(FAILED, Cause.die(defect)), Effect.never))),
+        return Stream.fromQueue(queue)
+      }).pipe(Effect.catchDefect((defect) => Effect.as(Report.failure(FAILED, Cause.die(defect)), OPEN))),
     )
 
 /** What a `w.*` element's Mount is made of. */
