@@ -12,9 +12,11 @@
 import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
 import * as Cause from "effect/Cause"
+import * as Channel from "effect/Channel"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import type * as Scheduler from "effect/Scheduler"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import type { MountAction } from "foldkit/mount"
 import type * as Ward from "../Ward.ts"
@@ -22,7 +24,7 @@ import { patchTouched } from "./delivery.ts"
 import { mountElement } from "./element.ts"
 import { mountPresence } from "./presence.ts"
 import { mountReorderGroup } from "./reorder.ts"
-import { flushPresences, joined, providerFor, type State } from "./services.ts"
+import { flushPresences, joined, type Provider, providerFor, type State } from "./services.ts"
 import { markMounted } from "./tree.ts"
 
 /** The names a Scene test resolves Wardic's Mounts by (decision 36). */
@@ -37,8 +39,8 @@ type MountFn<Message> = MountAction<Message>["f"]
 /** What a Mount's setup failing is reported as: contained at the binding's edge (decision 13), the element left at its Starting style. */
 const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Starting style"
 
-/** What a Mount whose setup failed runs: a Stream that stays open, sending nothing. */
-const OPEN: Stream.Stream<never> = Stream.never
+/** What a Mount whose setup failed pulls: nothing, ever, so its Stream stays open, sending nothing. */
+const OPEN: Effect.Effect<never> = Effect.never
 
 /** A Mount's Messages: what its callbacks offer, and the pull its Stream takes them by. */
 interface Mailbox<Message> {
@@ -88,6 +90,41 @@ const mailbox = <Message>(): Mailbox<Message> => {
   return { offer, pull }
 }
 
+/** `element` mounted on `on`, its release a finalizer of `scope`: the pull of its Messages. */
+const mountOn = <Message>(state: State, on: Provider, element: Element, scope: Scope.Scope): Effect.Effect<Effect.Effect<Arr.NonEmptyReadonlyArray<Message>>> => {
+  // The element's callbacks (PR 2) leave as Messages through its own Stream (P7).
+  const box = mailbox<Message>()
+  const offer = box.offer
+  const left = joined(state, on, element)
+  const isPaused = on.paused
+  // The live presences deliver before this element registers anything (#840): Foldkit runs a Mount
+  // in the patch's task, once the patch has committed and before the observers are told, and a
+  // presence this element carries starts its children at its own mount, a `layoutId` twin among
+  // them, which measures the one it takes over from where it is then: in a `popLayout` leaver an
+  // outer presence hasn't pinned yet. Delivered before this element's key is registered, a key
+  // re-entering during its exit is matched at the delivery its enrollment brings, a microtask on.
+  flushPresences(state)
+  const release = mountElement(on, state, element as HTMLElement, isPaused, offer, state.rootConfig)
+  markMounted(element)
+  // Its presence, when it carries `w.Presence` (decision 29): its children's exits, run by this Mount.
+  const releasePresence = mountPresence(on, state, element, isPaused, offer)
+  // Its Reorder group, when it carries `w.ReorderGroup` (decision 28): made by its first item's Mount or here, released here.
+  const releaseReorder = mountReorderGroup(on, element as HTMLElement, isPaused, offer)
+  const released = Effect.sync(() => {
+    releaseReorder()
+    releasePresence()
+    release()
+    left()
+  })
+  return Effect.map(Scope.addFinalizer(scope, released), () => {
+    patchTouched()
+    return box.pull
+  })
+}
+
+/** A Mount's setup failing: reported (decision 13), and its Stream left open. */
+const failed = (defect: unknown): Effect.Effect<Effect.Effect<never>> => Effect.as(Report.failure(FAILED, Cause.die(defect)), OPEN)
+
 /**
  * Wardic's part of a `w.*` element's Mount: gets the Handle's Provider, building it when it's the first
  * element to mount, and takes the root when the element carries `w.Provider(options)`; has the provider
@@ -96,47 +133,21 @@ const mailbox = <Message>(): Mailbox<Message> => {
  * the Mount's destroy, which runs the release before Foldkit removes the element. It never fails: a failure is reported, and the Stream
  * stays open (decision 13). Emits no Message in slice 1's PR 1; PR 2's callbacks come through here.
  *
- * The setup runs as the Stream starts, on the Mount's own fiber, and returns the Stream of its Messages
- * (#849, Q3): no fiber of its own waiting on `Effect.never`, as `Stream.callback`'s was, and the
- * release a finalizer of the Stream's Scope, which Foldkit's interrupt closes.
+ * The setup runs as the Stream starts, on the Mount's own fiber (#849, Q3): no fiber of its own waiting
+ * on `Effect.never`, as `Stream.callback`'s was. The Stream is one Channel step (#849, E4): the setup
+ * returns its pull, and the release is a finalizer of the run's own Scope, which Foldkit's interrupt
+ * closes.
  */
 const wardicPart =
   <Message>(state: State, provider: Ward.ProviderOptions | undefined): MountFn<Message> =>
   (element, viewStateChanges) =>
-    Stream.unwrap(
-      Effect.gen(function* () {
-        // The element's callbacks (PR 2) leave as Messages through its own Stream (P7).
-        const box = mailbox<Message>()
-        const offer = box.offer
-        const on = yield* providerFor(state, element, provider)
-        // The view state is the program's (decision 34): the provider follows it once, for every element (#849, Q2).
-        yield* on.followViewState(viewStateChanges)
-        const left = joined(state, on, element)
-        const isPaused = on.paused
-        // The live presences deliver before this element registers anything (#840): Foldkit runs a Mount
-        // in the patch's task, once the patch has committed and before the observers are told, and a
-        // presence this element carries starts its children at its own mount, a `layoutId` twin among
-        // them, which measures the one it takes over from where it is then: in a `popLayout` leaver an
-        // outer presence hasn't pinned yet. Delivered before this element's key is registered, a key
-        // re-entering during its exit is matched at the delivery its enrollment brings, a microtask on.
-        flushPresences(state)
-        const release = mountElement(on, state, element as HTMLElement, isPaused, offer, state.rootConfig)
-        markMounted(element)
-        // Its presence, when it carries `w.Presence` (decision 29): its children's exits, run by this Mount.
-        const releasePresence = mountPresence(on, state, element, isPaused, offer)
-        // Its Reorder group, when it carries `w.ReorderGroup` (decision 28): made by its first item's Mount or here, released here.
-        const releaseReorder = mountReorderGroup(on, element as HTMLElement, isPaused, offer)
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            releaseReorder()
-            releasePresence()
-            release()
-            left()
-          }),
-        )
-        patchTouched()
-        return Stream.fromPull(Effect.succeed(box.pull))
-      }).pipe(Effect.catchDefect((defect) => Effect.as(Report.failure(FAILED, Cause.die(defect)), OPEN))),
+    Stream.fromChannel(
+      Channel.fromTransform((_, scope) =>
+        Effect.flatMap(providerFor(state, element, provider), (on) =>
+          // The view state is the program's (decision 34): the provider follows it once, for every element (#849, Q2).
+          Effect.flatMap(on.followViewState(viewStateChanges), () => mountOn<Message>(state, on, element, scope)),
+        ).pipe(Effect.catchDefect(failed)),
+      ),
     )
 
 /** What a `w.*` element's Mount is made of. */
