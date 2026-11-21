@@ -70,7 +70,7 @@ export default function SharedWishlist() {
         <For each={order()}>
           {(id) => (
             <Reorder.Item class="wish" value={id} data-id={id}>
-              <img src={photoOf(id).small} width="56" height="56" alt="" draggable={false} />
+              <img src={photoOf(id).thumb} width="56" height="56" alt="" draggable={false} />
               <Show when={productOf(id)}>
                 {(product) => (
                   <span class="wish-text">

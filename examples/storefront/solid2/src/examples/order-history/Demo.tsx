@@ -91,7 +91,7 @@ export default function OrderHistory() {
 function OrderLine(props: { readonly line: Order["lines"][number]; readonly product: Product | undefined }) {
   return (
     <li>
-      <img src={photoOf(props.line.productId).small} width="40" height="40" alt="" />
+      <img src={photoOf(props.line.productId).thumb} width="40" height="40" alt="" />
       <Show when={props.product}>{(product) => <span>{product().name}</span>}</Show>
       <span class="muted">× {props.line.quantity}</span>
     </li>

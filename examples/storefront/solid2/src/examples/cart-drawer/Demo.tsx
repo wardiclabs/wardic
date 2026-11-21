@@ -120,7 +120,7 @@ export default function CartDrawer() {
                           <Show when={productOf(one.productId)}>
                             {(product) => (
                               <>
-                                <img src={photoOf(one.productId).small} width="56" height="56" alt="" />
+                                <img src={photoOf(one.productId).thumb} width="56" height="56" alt="" />
                                 <div class="cart-line-text">
                                   <strong>{product().name}</strong>
                                   <span class="muted">{formatPrice(product().price)}</span>
@@ -165,7 +165,7 @@ export default function CartDrawer() {
                               <Show when={productOf(id)}>
                                 {(product) => (
                                   <button class="suggestion" onClick={() => add(id)}>
-                                    <img src={photoOf(id).small} width="44" height="44" alt="" />
+                                    <img src={photoOf(id).thumb} width="44" height="44" alt="" />
                                     <span>{product().name}</span>
                                     <span class="add" aria-hidden="true">
                                       +
