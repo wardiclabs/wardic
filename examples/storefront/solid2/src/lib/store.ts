@@ -5,6 +5,7 @@
  * whose response the router applies to these.
  */
 import { query } from "@solidjs/router"
+import { CART } from "~/lib/keys.ts"
 import * as Server from "~/server/store.ts"
 
 export const products = query(Server.listProducts, "products")
@@ -13,7 +14,7 @@ export const product = query(Server.getProduct, "product")
 
 export const stock = query(Server.getStock, "stock")
 
-export const cart = query(Server.getCart, "cart")
+export const cart = query(Server.getCart, CART)
 
 export const orders = query(Server.getOrders, "orders")
 

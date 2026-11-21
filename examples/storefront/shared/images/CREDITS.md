@@ -2,7 +2,7 @@
 
 Every product photo is a CC0 (public domain) image from [rawpixel](https://www.rawpixel.com)'s public-domain collection, found through [Openverse](https://openverse.org). Most are museums' open-access photographs. CC0 asks for no credit; each source is listed anyway, so you can find the original.
 
-Each is resized and converted to WebP at 480 and 1024 px wide (`<name>-480.webp`, `<name>-1024.webp`). The product names, prices and descriptions in the catalog are made up for the showcase.
+Each is resized and converted to WebP at 480 and 1024 px wide (`<name>-480.webp`, `<name>-1024.webp`), and as a thumbnail whose shorter side is 112 px (`<name>-thumb.webp`), made from the 1024 px one. The product names, prices and descriptions in the catalog are made up for the showcase.
 
 | File | Original | Source | Licence |
 |---|---|---|---|

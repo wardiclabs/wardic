@@ -1,4 +1,3 @@
-import { revalidate } from "@solidjs/router"
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
@@ -6,7 +5,6 @@ import type { Product } from "@wardic/example-storefront-shared/server"
 import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic-layout.ts"
 import { action, createSignal, For, onSettled } from "solid-js"
-import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
 
 interface Toast {
@@ -52,8 +50,6 @@ export default function Toasts() {
   const buy = action(function* (product: Product) {
     try {
       yield addToCart(product.id, 1)
-      // The cart has changed: the header's count reads it again.
-      revalidate(cart.key)
       show("added", `${product.name} is in your cart.`)
     } catch (error) {
       show("failed", `${product.name} wasn't added: ${messageOf(error)}`)

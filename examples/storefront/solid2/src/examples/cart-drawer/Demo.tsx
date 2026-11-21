@@ -3,7 +3,6 @@ import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { CartLine, Product } from "@wardic/example-storefront-shared/server"
 import { AnimatePresence } from "@wardic/solid"
 import { w } from "~/lib/wardic-layout.ts"
-import { revalidate } from "@solidjs/router"
 import { action, createMemo, createOptimisticStore, createSignal, For, Loading, onSettled, refresh, Show } from "solid-js"
 import { cart, products } from "~/lib/store.ts"
 import { addToCart, setCartQuantity } from "~/server/store.ts"
@@ -46,8 +45,8 @@ export default function CartDrawer() {
     } catch (error) {
       setProblem(messageOf(error))
     }
-    // The router's cart is stale now: read it again, here and in the header, then reconcile.
-    revalidate(cart.key)
+    // The store's answer names the cart (server/store.ts), so the router reads it again, for the
+    // header and here, and the lines reconcile with it.
     refresh(lines)
   })
 
@@ -63,7 +62,6 @@ export default function CartDrawer() {
     } catch (error) {
       setProblem(messageOf(error))
     }
-    revalidate(cart.key)
     refresh(lines)
   })
 
@@ -122,7 +120,7 @@ export default function CartDrawer() {
                           <Show when={productOf(one.productId)}>
                             {(product) => (
                               <>
-                                <img src={photoOf(one.productId).small} width="56" height="56" alt="" />
+                                <img src={photoOf(one.productId).thumb} width="56" height="56" alt="" />
                                 <div class="cart-line-text">
                                   <strong>{product().name}</strong>
                                   <span class="muted">{formatPrice(product().price)}</span>
@@ -167,7 +165,7 @@ export default function CartDrawer() {
                               <Show when={productOf(id)}>
                                 {(product) => (
                                   <button class="suggestion" onClick={() => add(id)}>
-                                    <img src={photoOf(id).small} width="44" height="44" alt="" />
+                                    <img src={photoOf(id).thumb} width="44" height="44" alt="" />
                                     <span>{product().name}</span>
                                     <span class="add" aria-hidden="true">
                                       +
