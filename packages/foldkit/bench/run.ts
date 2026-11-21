@@ -16,6 +16,10 @@
  *   order; `--rounds` rounds a page, the first cold, the median of the rest warm.
  * - **Noise control:** the `plain` page, `CONTROL_SCALE` × N `h.div`s binding the same Model, Foldkit
  *   without Wardic, the same code on both sides: off by more than ±5% and the run is too noisy to judge.
+ * - **The floor** (#849, ADR-0071 *Refined at #849's grill*, Q6): the `mount` page, N of `plain`'s divs
+ *   each with a trivial `OnMount`, Foldkit's own Mount under a `w.div`'s. Reported with each task's share,
+ *   a `w.div` page's task over its rep's floor, and not gated. #849's target: the unmount's share no more
+ *   than Solid 1's whole unmount of N (`bench:solid`).
  * - **Time gate,** warm only: a task fails when its median ratio passes +5% with its 25th percentile
  *   above 0. **Bytes gate:** `--alloc-reps` paired pages per side under V8's sampling heap profiler, what
  *   a side allocates per element per round, failing as a task does.
@@ -46,7 +50,7 @@ const rounds = Number(arg("rounds", "4"))
 const allocReps = Number(arg("alloc-reps", "3"))
 
 type Side = "base" | "head"
-type Kind = "wardic" | "plain"
+type Kind = "wardic" | "plain" | "mount"
 /** The tasks gated, warm: `firstFrame` is reported. */
 const TASKS = ["mount", "retarget", "restRetarget", "render", "unmount"] as const
 
@@ -115,11 +119,12 @@ if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDep
 console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes\n`)
 
 const emptySides = (): Record<Side, Array<ReadonlyArray<Round>>> => ({ base: [], head: [] })
-const runs: Record<Kind, Record<Side, Array<ReadonlyArray<Round>>>> = { wardic: emptySides(), plain: emptySides() }
+const runs: Record<Kind, Record<Side, Array<ReadonlyArray<Round>>>> = { wardic: emptySides(), plain: emptySides(), mount: emptySides() }
 for (let r = 0; r < reps; r++) {
   const order = orderOf(r)
   for (const side of order) runs.wardic[side].push(await runPage(side, "wardic"))
   for (const side of order) runs.plain[side].push(await runPage(side, "plain"))
+  for (const side of order) runs.mount[side].push(await runPage(side, "mount"))
   process.stderr.write(`rep ${r + 1}/${reps}\r`)
 }
 const allocated: Record<Side, Array<number>> = { base: [], head: [] }
@@ -163,6 +168,18 @@ for (const task of [...TASKS, "firstFrame"] as const) {
   const per = Bool.match(task === "firstFrame", { onTrue: () => 1, onFalse: () => CONTROL_SCALE })
   console.log(`  ${task.padEnd(14)}${(median(runs.plain.base.map((page) => warm(page, task))) / per).toFixed(2).padEnd(10)}${(median(runs.plain.head.map((page) => warm(page, task))) / per).toFixed(2)}`)
 }
+// The floor (#849): Foldkit's own Mount under N plain divs, and what a `w.div` page's task costs over its rep's floor.
+const shareOf = (side: Side, task: keyof Round): number => median(runs.wardic[side].map((page, r) => warm(page, task) - warm(runs.mount[side][r]!, task)))
+console.log(`\nmount floor (ms per ${n} elements, warm, median across reps; ${n} h.divs each with a trivial OnMount, Foldkit's own Mount; not gated)`)
+console.log(`  ${"task".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}${"w.div over it: base".padEnd(22)}head`)
+for (const task of [...TASKS, "firstFrame"] as const) {
+  console.log(
+    `  ${task.padEnd(14)}${median(runs.mount.base.map((page) => warm(page, task))).toFixed(2).padEnd(10)}` +
+      `${median(runs.mount.head.map((page) => warm(page, task))).toFixed(2).padEnd(10)}` +
+      `${shareOf("base", task).toFixed(2).padEnd(22)}${shareOf("head", task).toFixed(2)}`,
+  )
+}
+console.log(`  #849's target: the unmount's share no more than Solid 1's whole unmount of ${n} (bench:solid's)`)
 const allocRatios = allocated.head.map((b, r) => b / allocated.base[r]!)
 const allocFails = failsGate(allocRatios)
 failed ||= allocFails
