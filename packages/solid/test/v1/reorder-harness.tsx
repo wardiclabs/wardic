@@ -79,9 +79,21 @@ export interface Frame<T> {
   readonly v: T
 }
 
+/** A sampling `sampleFrames` runs: wait for its frames, or stop it and take them. */
+export interface Sampling<T> {
+  /**
+   * Resolves once `n` frames have been read. A test that acts on what it samples, such as a release,
+   * acts once its first frame is read (#867): under load a frame's read can run a frame late, after the
+   * act's first frame was drawn.
+   */
+  readonly read: (n: number) => Promise<void>
+  readonly stop: () => ReadonlyArray<Frame<T>>
+}
+
 /** Read `read` just after every painted frame until `stop()`. */
-export const sampleFrames = <T,>(read: () => T): { readonly stop: () => ReadonlyArray<Frame<T>> } => {
+export const sampleFrames = <T,>(read: () => T): Sampling<T> => {
   const frames: Array<Frame<T>> = []
+  let waiting: Array<{ readonly n: number; readonly resolve: () => void }> = []
   const channel = new MessageChannel()
   let on = true
   let frameAt = 0
@@ -91,12 +103,23 @@ export const sampleFrames = <T,>(read: () => T): { readonly stop: () => Readonly
     rafAt = t
     channel.port2.postMessage(undefined)
   }
+  const wake = (): void => {
+    const due = waiting.filter((w) => frames.length >= w.n)
+    waiting = waiting.filter((w) => frames.length < w.n)
+    for (const w of due) w.resolve()
+  }
   channel.port1.onmessage = () => {
     frames.push({ frameAt, rafAt, v: read() })
+    wake()
     if (on) requestAnimationFrame(post)
   }
   requestAnimationFrame(post)
   return {
+    read: (n) =>
+      new Promise((resolve) => {
+        waiting.push({ n, resolve })
+        wake()
+      }),
     stop: () => {
       on = false
       channel.port1.close()
