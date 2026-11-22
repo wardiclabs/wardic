@@ -35,6 +35,8 @@ export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freez
   scale: 1,
   scaleX: 1,
   scaleY: 1,
+  // A scene's third axis (ADR-0069 decision 4, #883); the DOM draws it with #887.
+  scaleZ: 1,
   rotate: 0,
   // A path's turn (#438, Motion's `pathRotation`): added onto `rotate` where the transform is built.
   pathRotation: 0,

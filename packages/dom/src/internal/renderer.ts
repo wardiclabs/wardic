@@ -53,6 +53,8 @@ export const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn:
   { key: "scale", fn: "scale" },
   { key: "scaleX", fn: "scaleX" },
   { key: "scaleY", fn: "scaleY" },
+  // A scene's third scale (#883), core's transform key since ADR-0069 decision 4: CSS's `scaleZ()`.
+  { key: "scaleZ", fn: "scaleZ" },
   // rotate group: a path's turn after the element's own (#438), which `rotate(a) rotate(b)` adds up
   { key: "rotate", fn: "rotate" },
   { key: "pathRotation", fn: "rotate" },
@@ -113,6 +115,7 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
   scale: "",
   scaleX: "",
   scaleY: "",
+  scaleZ: "",
   rotate: "deg",
   pathRotation: "deg",
   rotateX: "deg",
