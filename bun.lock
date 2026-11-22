@@ -47,6 +47,21 @@
         "vite-plugin-solid": "2.11.15",
       },
     },
+    "examples/scene-lab": {
+      "name": "@wardic/example-scene-lab",
+      "version": "0.0.0",
+      "dependencies": {
+        "@wardic/core": "workspace:*",
+        "@wardic/object": "workspace:*",
+        "@wardic/three": "workspace:*",
+        "effect": "4.1.4",
+        "three": "0.187.0",
+      },
+      "devDependencies": {
+        "@types/three": "0.187.0",
+        "vite": "6.4.2",
+      },
+    },
     "examples/solid-start-basic": {
       "name": "@wardic/example-solid-start-basic",
       "version": "0.0.0",
@@ -1172,6 +1187,8 @@
     "@wardic/example-hand-checks": ["@wardic/example-hand-checks@workspace:examples/hand-checks"],
 
     "@wardic/example-layout-lab": ["@wardic/example-layout-lab@workspace:examples/layout-lab"],
+
+    "@wardic/example-scene-lab": ["@wardic/example-scene-lab@workspace:examples/scene-lab"],
 
     "@wardic/example-solid-start-basic": ["@wardic/example-solid-start-basic@workspace:examples/solid-start-basic"],
 
