@@ -15,7 +15,10 @@
  *      are their compiled browser builds (#566);
  *    - `foldkit-vite`: Foldkit on Vite, client-rendered, on `@wardic/foldkit` (#791);
  *    - `foldkit-ssr`: Foldkit rendered on a server (Node, at build time, into the client build's page)
- *      and hydrated through the Handle's `hydrate`, its Appear animation playing from first paint (#794).
+ *      and hydrated through the Handle's `hydrate`, its Appear animation playing from first paint (#794);
+ *    - `object-vite`: a plain object on frames the page pumps (#882);
+ *    - `three-vite`: a mesh's shared material faded on them, its production build checked for no dev-only
+ *      code, the shared-material warning (#883).
  * 4. Each served by `vite preview` and opened in Chromium: no error in the console (a hydration
  *    mismatch is one), `#enter` animates to its target (from the `opacity: 0` the server rendered,
  *    where it renders), its Appear animation running at load and handed to its ward where the server
@@ -34,7 +37,7 @@ import { chromium } from "playwright"
 
 const ROOT = join(import.meta.dirname, "..", "..")
 const FIXTURES = join(import.meta.dirname, "fixtures")
-const PACKAGES = ["core", "dom", "solid", "test", "foldkit", "object"] as const
+const PACKAGES = ["core", "dom", "solid", "test", "foldkit", "object", "three"] as const
 
 interface Fixture {
   readonly name: string
@@ -48,6 +51,8 @@ interface Fixture {
   readonly drag?: boolean | undefined
   /** Whether the server samples `#enter`'s Appear animation (ADR-0044): running at load, handed to its ward. */
   readonly appear?: boolean | undefined
+  /** Text only a package's dev build carries: its production build, under the `development` condition's other half, mustn't. */
+  readonly devOnly?: string | undefined
 }
 
 const ALL: ReadonlyArray<Fixture> = [
@@ -62,6 +67,8 @@ const ALL: ReadonlyArray<Fixture> = [
   { name: "foldkit-ssr", installs: ["core", "dom", "foldkit"], ssr: true, nodeImport: { spec: "@wardic/foldkit/internal/server", dist: "/dist/internal/server.node.js" }, drag: false, appear: true },
   // `@wardic/object` on Vite (#882): a plain object on frames the page pumps, drawn onto `#enter` after each frame's writes.
   { name: "object-vite", installs: ["core", "object"], ssr: false, drag: false },
+  // `@wardic/three` on Vite (#883): a mesh's shared material faded, drawn onto `#enter`; its dev warning out of the production build.
+  { name: "three-vite", installs: ["core", "object", "three"], ssr: false, drag: false, devOnly: "other meshes share" },
 ]
 
 const asked = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
@@ -135,6 +142,15 @@ for (const fixture of fixtures) {
     sh("npm", ["run", "build"], dir)
   })
   if (!ready) continue
+
+  if (fixture.devOnly !== undefined) {
+    const text = fixture.devOnly
+    await step(`${fixture.name}: its production build carries no dev-only code`, () => {
+      const assets = join(dir, "dist", "assets")
+      const found = readdirSync(assets).filter((name) => name.endsWith(".js") && readFileSync(join(assets, name), "utf8").includes(text))
+      if (found.length > 0) throw new Error(`"${text}" is in ${found.join(", ")}`)
+    })
+  }
 
   if (fixture.nodeImport !== undefined) {
     const { spec, dist } = fixture.nodeImport

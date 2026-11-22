@@ -526,3 +526,24 @@ What the owner decided:
 - **`scaleZ` is a transform key:** its identity is 1, it's positional, and it springs as a scale does. **The DOM draws it too,** as `scaleZ()`, unlike Q2's "#887 keeps the DOM's side". dom's tests pin that every key core gives an identity is one the DOM's renderer projects (D8, IT1), so core can't name a transform key the page doesn't draw. #887 keeps `transformPerspective`.
 - **Size:** core is +0.4–0.5 KB minified in every Slim app, the unit scale's read and its scaled thresholds. `s1-slim` is 95.2 of 95.2 and `f-slim` 196.5 of 196.5, at their budgets.
 
+**PR 2, as built:** `@wardic/three`, private: `WardicThree.make`, `ThreeRenderer`, `ThreeValues`, on `@wardic/object`'s runtime.
+- **`WardicObject.makeWith(environment, options)`** takes an `Environment`: its Renderer, its gate's edges, its start links and Own values, its Positional keys, its Batches' writer and read, and Layers of its own. `make` is `makeWith(OBJECTS)`.
+  - Two of `@wardic/object`'s pieces opened up for it, rather than copied: `ObjectValues.startLinksWith(read)`, and `ObjectBatch`'s key type as a parameter, so a Batch of meshes takes `x` and `opacity`.
+- **The lookup, as built:**
+  1. the Subject itself: a TSL uniform node set for the key, its own number, a uniform it names (a bare uniforms object);
+  2. each of its materials, the same way;
+  3. its uniforms, a `ShaderMaterial`'s;
+  4. a vector's axis, on the Subject, then on its materials (a uniform's vector too).
+
+  Q3 put the TSL node after the uniform. three draws a `<key>Node` over the property it replaces, so the node is checked first on each holder, as `motion/three` does. A key's place is found once per Subject and kept until the Subject's `material` changes, so a frame's write allocates nothing.
+- **`scale` and an axis's key together:** the axis's own key wins on its axis, so `{ scale: 2, scaleY: 3 }` draws (2, 3, 2). The DOM's `scale() scaleY()` multiply instead, but three's `scale` is one vector, and the axis keys read and write it as it is.
+- **Q3's "Key rules" are three's rules after a write,** and the code calls them that: CONTEXT.md's **Key rule** blends a pair, and these don't.
+  - **A camera's projection:** `updateProjectionMatrix()` once a commit after `fov`, `zoom`, `near`, `far` or `aspect`, and after an orthographic camera's `left`, `right`, `top` or `bottom`.
+  - **`opacity`:** below 1 sets the material's `transparent`, with `needsUpdate` only on the flip. Back at 1, Wardic puts back a `transparent` it set, and leaves one the app set.
+- **The shared-material warning** walks the mesh's root, its scene, once per material, at the first key found on it, under the `development` condition's `DEV`. There's no Stage before `@wardic/three/solid`. A mesh in no scene, the material as the Subject itself, and a mesh's own material don't warn.
+- **The unit scale:** `make({ unitScale })`, 100 when left out, is given as `UnitScale.layer` through the Environment's Layers.
+- **A Color key** is an error until PR 3, naming the plain-object way: `animate(material.color, { r, g, b })`.
+- **Types** come from `@types/three`: a mesh takes the transform keys, its own numbers, its vectors' axes and its material's keys; a material its own and its uniforms'; a uniforms object its names. A Batch's keys are its members' scene keys.
+- **pack-check** gains `three-vite`: a mesh's shared material faded from npm's tarballs, its production build checked for no shared-material warning.
+- **Not measured:** the writer's cost a frame, which is `bench:three`'s (PR 5).
+

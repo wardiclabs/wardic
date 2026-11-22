@@ -241,6 +241,12 @@ const DOM_PER_FRAME = [
 const OBJECT_PER_FRAME = ["packages/object/src/PumpedFrames.ts", "packages/object/src/ObjectRenderer.ts", "packages/object/src/ObjectBatch.ts"]
 
 /**
+ * `@wardic/three`'s per-frame files (#883), by dom's rule: the scene writer's commit and Batch write,
+ * and the lookup they write through, once a frame over a patch's keys.
+ */
+const THREE_PER_FRAME = ["packages/three/src/ThreeRenderer.ts", "packages/three/src/internal/lookup.ts"]
+
+/**
  * The mount-path files whose per-element mount code keeps a loop (#540, ADR-0025, *Amendment (#540)*):
  * a site a profile showed with a measurable helper cost, marked `// Per element at mount (#540)`. The
  * Starting style's filter, its layering and its held keys, and the Solid 1 config build. The rest of
@@ -315,7 +321,7 @@ export default defineConfig([
   },
   {
     // The pipeable API's subpaths, for every package's code but core's source (which has its own block).
-    files: ["packages/{dom,solid,test,foldkit,object}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid,foldkit}/bench/**/*.{ts,tsx}"],
+    files: ["packages/{dom,solid,test,foldkit,object,three}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid,foldkit}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     // solid's code carries eslint-plugin-solid's `solid/reactivity` directives. The plugin is
     // registered for every package's code, as the same object its `v2-strict` config registers (so the
@@ -328,8 +334,8 @@ export default defineConfig([
     },
   },
   {
-    // dom's, solid's, foldkit's and object's source take the span rule too (ADR-0040, decision 2), over the block above.
-    files: ["packages/{dom,solid,foldkit,object}/src/**/*.{ts,tsx}"],
+    // dom's, solid's, foldkit's, object's and three's source take the span rule too (ADR-0040, decision 2), over the block above.
+    files: ["packages/{dom,solid,foldkit,object,three}/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS],
     },
@@ -338,7 +344,7 @@ export default defineConfig([
     // dom's, solid's, test's and foldkit's source take the Effect-first rules (ADR-0025, *Amendment (#69)*;
     // foldkit's since #791). solid, test and foldkit have no per-frame file: solid's run sinks are one-line
     // closures (decision 2).
-    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}", "packages/test/src/**/*.ts", "packages/foldkit/src/**/*.ts", "packages/object/src/**/*.ts"],
+    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}", "packages/test/src/**/*.ts", "packages/foldkit/src/**/*.ts", "packages/object/src/**/*.ts", "packages/three/src/**/*.ts"],
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
       "no-ternary": "error",
@@ -347,8 +353,8 @@ export default defineConfig([
     },
   },
   {
-    // Its per-frame files keep a `for` and plain index reads (ADR-0025, *Amendment (#69)*, decision 2); object's too (#882).
-    files: [...DOM_PER_FRAME, ...OBJECT_PER_FRAME],
+    // Its per-frame files keep a `for` and plain index reads (ADR-0025, *Amendment (#69)*, decision 2); object's (#882) and three's (#883) too.
+    files: [...DOM_PER_FRAME, ...OBJECT_PER_FRAME, ...THREE_PER_FRAME],
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS, ...BRANCHES, ...CHECKS, ...ALIASES],
       "no-restricted-properties": [
@@ -381,7 +387,7 @@ export default defineConfig([
     rules: { "no-ternary": "error" },
   },
   {
-    files: ["packages/{dom,solid,foldkit,object}/src/**/*.{ts,tsx}"],
+    files: ["packages/{dom,solid,foldkit,object,three}/src/**/*.{ts,tsx}"],
     ignores: ["packages/dom/src/internal/clock.ts"],
     rules: {
       "no-restricted-globals": ["error", ...FRAME_FUNCTIONS.map((name) => ({ name, message: FRAME_MESSAGE }))],

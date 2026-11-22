@@ -35,10 +35,14 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
+import type * as Renderer from "@wardic/core/Renderer"
+import type * as Batch from "@wardic/core/Batch"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as UnitScale from "@wardic/core/UnitScale"
 import type * as Config from "@wardic/core/unstable/Config"
 import * as FlushGate from "@wardic/core/unstable/FlushGate"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as Spine from "@wardic/core/unstable/Spine"
 import * as FrameEffects from "@wardic/core/unstable/FrameEffects"
 import * as BatchCalls from "@wardic/core/unstable/BatchCalls"
 import * as Imperative from "@wardic/core/unstable/Imperative"
@@ -82,8 +86,8 @@ export type ObjectSegment =
 
 /** A Segment of a Batch, `[batch, target, options?]`: every member, or a member's handle, `batch.at(i)`. */
 export type ObjectBatchSegment =
-  | readonly [batch: ObjectBatch.ObjectBatch<any> | ObjectBatch.Member<any>, target: Readonly<Record<string, ObjectBatch.SegmentValue>>]
-  | readonly [batch: ObjectBatch.ObjectBatch<any> | ObjectBatch.Member<any>, target: Readonly<Record<string, ObjectBatch.SegmentValue>>, options: Imperative.WardicSegmentOptions]
+  | readonly [batch: ObjectBatch.ObjectBatch<any, any> | ObjectBatch.Member<any, any>, target: Readonly<Record<string, ObjectBatch.SegmentValue>>]
+  | readonly [batch: ObjectBatch.ObjectBatch<any, any> | ObjectBatch.Member<any, any>, target: Readonly<Record<string, ObjectBatch.SegmentValue>>, options: Imperative.WardicSegmentOptions]
 
 /** A sequence of objects: Segments of objects and of Batches, function Segments and labels. Motion's `AnimationSequence`. */
 export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | ObjectSegment | ObjectBatchSegment | Imperative.WardicFunctionSegment>
@@ -165,20 +169,57 @@ const probeLayer = (query: MediaQuery | undefined): Layer.Layer<Probe.Probe> =>
   })
 
 /**
- * The object Environment's services, on `frames`: the Effect form, for an app that runs Wardic's
- * Effects itself. `make` builds its runtime on it.
+ * What an Environment of objects gives the runtime: how its Subjects are written and read, which of its
+ * keys are positional, how a Batch of them is drawn, and any Layers of its own. `OBJECTS` is plain
+ * objects'; `@wardic/three` gives three's.
  */
-export const layer = (frames: PumpedFrames.PumpedFrames, options: Options = {}): Layer.Layer<WardicServices.WardicServices> =>
+// #883 (ADR-0073, *Amendment (#883)*, Q1): `make`'s parts, opened up for another Environment of objects.
+export interface Environment {
+  /** Its writer: Wardic's values onto a Subject, once a frame. */
+  readonly renderer: Layer.Layer<Renderer.Renderer>
+  /** What its Flush gate reads of a Subject. */
+  readonly gate: FlushGate.GateEnvironment
+  /** A plain Subject's Base-value links: where each key it animates starts. */
+  readonly startLinksOf: (subject: object) => Spine.StartLinks
+  /** Its values in the shape of their targets. */
+  readonly ownValues: OwnValues.Shape
+  /** Which of its keys reduced motion snaps. */
+  readonly positionalKeys: Layer.Layer<ReducedMotion.PositionalKeys>
+  /** How a Batch of its Subjects is drawn. */
+  readonly batchWriter: Batch.Writer<object>
+  /** How a Batch reads a member's key before it moves it. */
+  readonly batchRead: (subject: object, key: string) => unknown
+  /** Layers of its own: its `UnitScale`, say. */
+  readonly layers?: Layer.Layer<never> | undefined
+}
+
+/** Plain objects' Environment: each key the object's own property. */
+export const OBJECTS: Environment = {
+  renderer: ObjectRenderer.layer,
+  gate: ObjectRenderer.GATE,
+  startLinksOf: ObjectValues.startLinksOf,
+  ownValues: ObjectValues.ownValues,
+  positionalKeys: ReducedMotion.transformsOnly,
+  batchWriter: ObjectBatch.writer,
+  batchRead: ObjectBatch.read,
+}
+
+/**
+ * The Environment's services, on `frames`: the Effect form, for an app that runs Wardic's Effects
+ * itself. `make` builds its runtime on it; `environment` is plain objects' unless given.
+ */
+export const layer = (frames: PumpedFrames.PumpedFrames, options: Options = {}, environment: Environment = OBJECTS): Layer.Layer<WardicServices.WardicServices> =>
   FrameLoop.layer.pipe(
     Layer.provideMerge(
       Layer.mergeAll(
         Clock.layer.pipe(Layer.provideMerge(PumpedFrames.layer(frames))),
-        ObjectRenderer.layer,
+        environment.renderer,
         probeLayer(reducedMotionQuery()),
         InterpolatorRegistry.layer,
-        ReducedMotion.transformsOnly,
+        environment.positionalKeys,
         DefaultTransition.layerByKey,
         Announcer.layerSilent,
+        UndefinedOr.match(environment.layers, { onUndefined: () => Layer.empty, onDefined: (given) => given }),
       ),
     ),
     Layer.provideMerge(
@@ -192,15 +233,16 @@ export const layer = (frames: PumpedFrames.PumpedFrames, options: Options = {}):
 /** The runtime's Flush gate: an object's properties, written once a frame. */
 class Gate extends Context.Service<Gate, FlushGate.Shape>()("@wardic/object/WardicObject/Gate") {}
 
-/** The gate, built with its runtime's services and ended with its Scope. */
-const gateLayer: Layer.Layer<Gate, never, FlushGate.FlushGateServices> = Layer.effect(Gate)(
-  Effect.gen(function* () {
-    // An object has no framework to batch a flush's hooks in.
-    const gate = FlushGate.makeFlushGate(yield* WardicServices.makeRunner<FlushGate.FlushGateServices>(), { batch: (apply) => apply() }, ObjectRenderer.GATE)
-    yield* Effect.addFinalizer(() => Effect.sync(gate.dispose))
-    return gate
-  }),
-)
+/** The gate on `edges`, built with its runtime's services and ended with its Scope. */
+const gateLayerOf = (edges: FlushGate.GateEnvironment): Layer.Layer<Gate, never, FlushGate.FlushGateServices> =>
+  Layer.effect(Gate)(
+    Effect.gen(function* () {
+      // An object has no framework to batch a flush's hooks in.
+      const gate = FlushGate.makeFlushGate(yield* WardicServices.makeRunner<FlushGate.FlushGateServices>(), { batch: (apply) => apply() }, edges)
+      yield* Effect.addFinalizer(() => Effect.sync(gate.dispose))
+      return gate
+    }),
+  )
 
 /** What `given` names as an object: itself, an error for anything that isn't one. */
 const objectOf = (given: unknown): object => {
@@ -229,16 +271,19 @@ const BATCHES: Imperative.Batches<object> = {
   sequencePartsOf: (compiled) => BatchCalls.sequencePartsOf(compiled),
 }
 
-/** The object Environment's ports into core's track: its Subjects any object, each starting from its own values. */
-const PORTS: Imperative.Ports<object> = {
-  subjects: { resolve, startLinksOf: ObjectValues.startLinksOf },
+/** An Environment's ports into core's track: its Subjects any object, each starting where the Environment reads it. */
+const portsOf = (environment: Environment): Imperative.Ports<object> => ({
+  subjects: { resolve, startLinksOf: environment.startLinksOf },
   batches: BATCHES,
-}
+})
 
-/** A runtime on frames the host pumps: `frame(time)` once a frame, before it renders. */
-export const make = (options: Options = {}): WardicObject => {
+/** A runtime on frames the host pumps, for plain objects: `frame(time)` once a frame, before it renders. */
+export const make = (options: Options = {}): WardicObject => makeWith(OBJECTS, options)
+
+/** A runtime on frames the host pumps, for `environment`'s objects: what `@wardic/three` builds on. */
+export const makeWith = (environment: Environment, options: Options = {}): WardicObject => {
   const frames = PumpedFrames.make(options.now)
-  const runtime = ManagedRuntime.make(gateLayer.pipe(Layer.provideMerge(layer(frames, options))))
+  const runtime = ManagedRuntime.make(gateLayerOf(environment.gate).pipe(Layer.provideMerge(layer(frames, options, environment))))
   const { gate, positionalKeys, defaultTransition } = runtime.runSync(
     Effect.all({ gate: Gate, positionalKeys: ReducedMotion.PositionalKeys, defaultTransition: DefaultTransition.DefaultTransition }),
   )
@@ -252,7 +297,7 @@ export const make = (options: Options = {}): WardicObject => {
     skipAnimations: () => skip,
     positionalKeys,
     defaultTransition,
-    ownValues: ObjectValues.ownValues,
+    ownValues: environment.ownValues,
     measuredPairs: ObjectValues.measuredPairs,
     variableValues: ObjectValues.variableValues,
   }
@@ -262,7 +307,7 @@ export const make = (options: Options = {}): WardicObject => {
     started: (controls) => void live.add(controls),
     ended: (controls) => void live.delete(controls),
   }
-  const animate = Imperative.make(env, PORTS, constUndefined, watch) as ObjectAnimate
+  const animate = Imperative.make(env, portsOf(environment), constUndefined, watch) as ObjectAnimate
   const effects = FrameEffects.make({
     // The host asks `wantsFrame()`: a request is counted there.
     requestFrame: constUndefined,
@@ -276,7 +321,7 @@ export const make = (options: Options = {}): WardicObject => {
     Iter.forEach(Arr.fromIterable(live), (controls) => controls.stop())
     void runtime.dispose()
   }
-  const batchContext: ObjectBatch.Context = { runFork: runtime.runFork, positionalKeys, defaultTransition, unitScale: runtime.runSync(UnitScale.UnitScale) }
+  const batchContext: ObjectBatch.Context = { runFork: runtime.runFork, positionalKeys, defaultTransition, unitScale: runtime.runSync(UnitScale.UnitScale), writer: environment.batchWriter, read: environment.batchRead }
   return {
     animate,
     batch: (objects, options) => ObjectBatch.make(batchContext, objects, options),

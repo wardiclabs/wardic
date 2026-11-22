@@ -57,11 +57,13 @@ const valueLike = (raw: unknown, like: number | string): Option.Option<number | 
 const noStyle = (): Option.Option<number | string> => Option.none()
 
 /**
- * `subject`'s Base-value links (ADR-0022): each key starts from its own value, the property as it is
- * when the animation starts; there's no style to start from.
+ * Base-value links (ADR-0022) on `read`: each key starts from what `read` gives for it when the animation
+ * starts, an error it throws naming the key; there's no style to start from. Another Environment of
+ * objects reads its own way: `@wardic/three`'s finds a key on a mesh's material.
  */
-export const startLinksOf = (subject: object): Spine.StartLinks => {
-  const ownValue = (key: string): Option.Option<number | string> => ownValueOf(subject, key)
+// #883 (ADR-0073, *Amendment (#883)*, Q1): the start links `makeWith`'s Environments share.
+export const startLinksWith = (read: (subject: object, key: string) => Option.Option<number | string>) => (subject: object): Spine.StartLinks => {
+  const ownValue = (key: string): Option.Option<number | string> => read(subject, key)
   const linksFor = (like: number | string) => ({
     style: noStyle,
     own: (key: string) => Option.flatMap(ownValue(key), (raw) => valueLike(raw, like)),
@@ -69,6 +71,12 @@ export const startLinksOf = (subject: object): Spine.StartLinks => {
   const startLinkOf = (key: string, like: number | string) => BaseValue.start(key, linksFor(like))
   return { ownValue, linksFor, startLinkOf }
 }
+
+/**
+ * `subject`'s Base-value links (ADR-0022): each key starts from its own value, the property as it is
+ * when the animation starts; there's no style to start from.
+ */
+export const startLinksOf: (subject: object) => Spine.StartLinks = /*#__PURE__*/ startLinksWith(ownValueOf)
 
 /** No record: a plain object's binding gives no style. */
 const NO_RECORD: Readonly<Record<string, unknown>> = {}
