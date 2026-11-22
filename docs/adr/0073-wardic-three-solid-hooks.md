@@ -1,6 +1,6 @@
 # `@wardic/three/solid` is hooks: a Stage in context, `ward` on any Subject, Scene objects by accessor, and Frame effects
 
-*Amended for #881 (2026-11-22), step 0's probes: a scene component joins its `<Loading>` and `<Reveal>` by returning its hook's `held`; a Scene object joins its scene once its ward can start; Solid's own effect, measured, lands a frame late in the Host loop; `TestStage` runs on Solid's client build (*Amendment (#881)*). Amended for #882 (2026-11-22), step 1's build: the Imperative track and Motion's defaults by key move into core, and the Frame effects' slot is a core list each Environment runs at its frame's end (*Amendment (#882)*).*
+*Amended for #881 (2026-11-22), step 0's probes: a scene component joins its `<Loading>` and `<Reveal>` by returning its hook's `held`; a Scene object joins its scene once its ward can start; Solid's own effect, measured, lands a frame late in the Host loop; `TestStage` runs on Solid's client build (*Amendment (#881)*). Amended for #882 (2026-11-22), step 1's build: the Imperative track and Motion's defaults by key move into core, and the Frame effects' slot is a core list each Environment runs at its frame's end (*Amendment (#882)*). Amended for #883 (2026-11-22), step 2's build: `@wardic/three` on `@wardic/object`'s runtime, in five PRs, linear colours after a probe, and core's `UnitScale` and `scaleZ` first (*Amendment (#883)*).*
 
 ADR-0070 gave a scene's Solid 2 binding components: `<WardicScene>` hosts the canvas and provides the runtime, and `<SceneObject>` carries one object's motion props, the scene's Wardic element. None of it is built. Core's Batch and the DOM's `createBatch` shipped (#665, #712), and the spine and the Flush gate are in core (#672).
 
@@ -496,4 +496,33 @@ What the owner decided:
    - Rejected: always giving `keys`, which repeats what the first call says.
 3. **An object of a Batch reaches the track through the Batch alone.** Given to `animate` itself, or in a Segment of objects, it's an error that names `batch.at(i)`, and an object is one Batch's. Routing its keys to its Batch, as the DOM routes a member element's (ADR-0069 decision 17's latest driver), comes with `@wardic/three`, which needs the hold.
    - Rejected: routing it now, which moves more of `BatchMembers` into core before a scene asks for it.
+
+## Amendment (#883, 2026-11-22): step 2's build, and core's unit scale and `scaleZ`
+
+#883's build grill (Q1–Q8) settled how `@wardic/three` is built:
+1. **It reuses `@wardic/object`'s runtime** through `WardicObject.makeWith(environment, options)`: a Renderer, the gate's edges, the Subjects port, the Positional keys, the Interpolators, and extra Layers. `WardicObject.make` becomes `makeWith` of plain objects, and `WardicThree.make` is `makeWith` of three's, plus the scene's input.
+   - Rejected: a `WardicThree.make` of its own, which copies the pump, the gate, `afterWrites` and `batch`.
+2. **Five PRs:**
+   1. core's unit scale and `scaleZ`;
+   2. `@wardic/three`, private: keys and types, Euler rotations, the lookup, Key rules and the shared-material warning;
+   3. linear colours, after a probe (item 4);
+   4. the `InstancedMesh` writer and its bounds;
+   5. the scene's input, `TestStage`, `bench:three` and `examples/scene-lab`'s first cards.
+3. **The writer groups a frame's keys into one call per vector:** `position.set`, `rotation.set` (degrees to radians), `scale.setScalar` or `scale.set`. Any other key is the object's own property, else the lookup: the material, then a `ShaderMaterial` uniform's `.value`, then a TSL `<key>Node`'s `.value`, then a vector suffix. A material array is written in each material that has the key. Two Key rules apply:
+   - after a camera's projection keys, `updateProjectionMatrix()`;
+   - `opacity` below 1 sets `transparent`, with `needsUpdate` only when that flips.
+4. **Linear colours wait for a probe.** Core's `Values` are `number | string`, so a colour can't ride through as it is. The probe weighs (A), a colour as three numeric channel keys inside Wardic, against (B), core's value type widened to carry a linear colour. It measures each one's bytes a frame, its velocity on a retarget, its `#bc00bc` midpoint and its cost.
+5. **`three` is an optional peer, `>=0.160`,** its `Raycaster` imported at runtime with the input, and its types from `@types/three`. Duck typing stays (ADR-0069 decision 3).
+6. **The shared-material warning is dev-only,** through a `development` export condition, as Foldkit's `DEV` is (#791, Q10).
+7. **The scene's input** listens on the canvas and raycasts once per pointer per frame inside `frame(t)`, feeding core's Recognizers (ADR-0069 decisions 22 and 23). `TestStage` drives the same input with no canvas: `stage.pointer.over(mesh)` raycasts at the mesh's screen point.
+8. **`examples/scene-lab`** begins with PR 5, beside `bench:three`.
+
+**PR 1, as built:**
+- **The unit scale is core's `UnitScale`,** a `Context.Reference` with its default of 1, which an Environment gives with `UnitScale.layer(100)`. It's settled after the grill (ADR-0069 decision 8's `make({ unitScale })` amended).
+  - **How it's read:** core reads it from the runtime its spines and Batches already hold, once per runtime (a WeakMap). No binding passes it: the Solid bindings, Foldkit, dom's track and `createBatch` read nothing new.
+  - **Where it applies:** `x`, `y` and `z`'s springs rest at `restFor(spring, d * unitScale, unitScale)`, through `springValues`' and `Batch.make`'s `unitScale`. A threshold a spring is given is kept as it is.
+  - Rejected: a member on `PositionalKeys`, which every leg builder already gets, but which is reduced motion's service, not a key's units; a service every binding reads and passes on, about 12 places.
+  - **Measured** (US3–US5): a 5 m move at a scale of 100 rests within 5 mm, where Motion's thresholds snap it more than 5 mm short. The spine's legs, `springValues` and a Batch all agree.
+- **`scaleZ` is a transform key:** its identity is 1, it's positional, and it springs as a scale does. **The DOM draws it too,** as `scaleZ()`, unlike Q2's "#887 keeps the DOM's side". dom's tests pin that every key core gives an identity is one the DOM's renderer projects (D8, IT1), so core can't name a transform key the page doesn't draw. #887 keeps `transformPerspective`.
+- **Size:** core is +0.4–0.5 KB minified in every Slim app, the unit scale's read and its scaled thresholds. `s1-slim` is 95.2 of 95.2 and `f-slim` 196.5 of 196.5, at their budgets.
 

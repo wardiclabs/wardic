@@ -10,7 +10,7 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import * as Option from "effect/Option"
 import { expect, it } from "@effect/vitest"
 
-const SCALE_KEYS = ["scale", "scaleX", "scaleY"]
+const SCALE_KEYS = ["scale", "scaleX", "scaleY", "scaleZ"]
 // `pathRotation`: a Path's turn (#438), added onto `rotate` where the transform is built.
 const ZERO_KEYS = ["x", "y", "z", "translateX", "translateY", "translateZ", "rotate", "pathRotation", "rotateX", "rotateY", "rotateZ", "skewX", "skewY"]
 

@@ -75,6 +75,7 @@ import {
 import * as Inertia from "./Inertia.ts"
 import type * as Point from "./Point.ts"
 import * as Spring from "./Spring.ts"
+import * as UnitScale from "./UnitScale.ts"
 import type * as Supersede from "./Supersede.ts"
 import type * as Values from "./Values.ts"
 import { dual } from "./internal/dual.ts"
@@ -1071,6 +1072,9 @@ export interface SpringValuesStart {
    */
   // #663: a keyed store of a number allocates in V8 (about 12 B), an indexed one doesn't.
   readonly records?: "value"
+  /** The Environment's unit scale: `x`, `y` and `z`'s rest thresholds read at it (`UnitScale.forKey`). 1 when left out, Motion's own. */
+  // ADR-0069 decision 8 (#883).
+  readonly unitScale?: number | undefined
 }
 
 /** A start's values when it gives none. */
@@ -1188,7 +1192,7 @@ export const springValues = (
   options: SpringOptions = NO_OPTIONS,
   start: SpringValuesStart = NO_START,
 ): Machine<Frame.SpringValues> => {
-  const { from = NO_START_VALUES, velocity = NO_START_VALUES, records } = start
+  const { from = NO_START_VALUES, velocity = NO_START_VALUES, records, unitScale = 1 } = start
   const writesVelocity = Predicate.isUndefined(records)
   const keys = Rec.keys(target)
   /** A key's start: its own value, else the options', else 0. */
@@ -1209,8 +1213,8 @@ export const springValues = (
       const velocities = Arr.map(keys, (key) => startOf(velocity, key, options.velocity))
       const elapsed = Arr.map(keys, () => 0)
       // Each key's rest thresholds, by its own distance (#344), as Motion's are per value.
-      const restDeltas = Arr.map(keys, (_, i) => Spring.restDeltaFor(spring, targets[i] - positions[i]))
-      const restSpeeds = Arr.map(keys, (_, i) => Spring.restSpeedFor(spring, targets[i] - positions[i]))
+      const restDeltas = Arr.map(keys, (key, i) => Spring.restDeltaIn(spring, targets[i] - positions[i], UnitScale.forKey(unitScale, key)))
+      const restSpeeds = Arr.map(keys, (key, i) => Spring.restSpeedIn(spring, targets[i] - positions[i], UnitScale.forKey(unitScale, key)))
       // The Frame's records, built from `{}` a key at a time. Built with `Rec.fromEntries`, the
       // step allocated 0.38 MB a frame on Node's `springValues/loop`, against 0.14, and ran slower
       // (ADR-0030, *Implementation in #111*).

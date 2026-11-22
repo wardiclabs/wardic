@@ -212,6 +212,10 @@ _Avoid_: animation handle, controller, imperative layer.
 What one start or set of **Animation controls** makes of one element: its new `animate` entry and the transition of the change, if one was given. The element and the **Variant children** it reaches run their first animation for it on that transition, which then orchestrates them, and the change lands once they all have; their next animation, a gesture's, runs on their own transitions again.
 _Avoid_: command, controls update.
 
+**Unit scale**:
+How many of Motion's units an Environment's `x`, `y` and `z` count as, so a spring's rest thresholds fit the distances it moves: 1 on the page, Motion's own pixels; 100 in a scene measured in metres, where Motion's thresholds would snap a long move short. Other keys, and a threshold a spring is given, keep Motion's. An Environment gives it with its Layers; nothing that animates passes it.
+_Avoid_: unit (bare), scale (a transform key), rest scale.
+
 **Variant child**:
 A Wardic element with `variants` that names none of its variant props (`initial`, `animate`, the five `while*` gestures, `exit`), and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a name on any variant prop): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
 _Avoid_: registered child, orchestrated child.

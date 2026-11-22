@@ -306,7 +306,7 @@ const IMPERATIVE: Spine.Resolution = {
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
 // imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
 const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, given: Config.WardicTransition | undefined, head: Playback.Playhead, hooks: Spine.ImperativeHooks): Spine.ImperativeTrack => {
-  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
+  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, unitScale, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
   const runImperative = (running: Spine.Running, program: Effect.Effect<unknown, never, WardicServices.WardicServices>): void => {
@@ -350,7 +350,7 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   let measured: RetargetLegs.MeasuredPairs | undefined
   if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = Spine.measuredOf(measuredPairs, element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
   // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
-  const built = RetargetLegs.legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values, rests)
+  const built = RetargetLegs.legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values, rests, unitScale)
   const variables = Spine.holdsVariable(variableValues, from, to, stops)
   const legs = Arr.map(built, (leg) => RetargetLegs.mapMachine(leg, Playback.drive(head)))
   let runnings: ReadonlyArray<Spine.Running> = Spine.NO_RUNNING
