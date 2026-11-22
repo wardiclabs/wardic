@@ -16,7 +16,7 @@ const focused = createFocus()
 <p class="hint" hidden={!focused()}>Press Enter to search</p>
 ```
 
-On Solid 2, `createFocus()` is a sensor, given to the element's `ref`. On Solid 1, `createFocus(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does.
+On Solid 2, `createFocus()` is a sensor, given to the element's `ref`. Given an element or a ward first, `createFocus(card)` reads it instead, and gives back its reading alone: a ward's, the element the ward is on, following it to the next. On Solid 1, `createFocus(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does.
 
 It counts every focus, a pointer's click included. `whileFocus` counts only a focus the browser shows, as `:focus-visible` does: a keyboard's. On a server, and until the first focus, it's `false`.
 

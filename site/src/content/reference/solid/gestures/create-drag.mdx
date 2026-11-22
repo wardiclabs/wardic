@@ -16,7 +16,7 @@ const value = () => (drag()?.offset.x ?? 0) / 2
 <div class="track" ref={drag} />
 ```
 
-On Solid 2, `createDrag(options?)` is a sensor, given to the element's `ref`. On Solid 1, `createDrag(target, options?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On a server it's `null`.
+On Solid 2, `createDrag(options?)` is a sensor, given to the element's `ref`. Given an element first, `createDrag(element, options?)` reads it instead, and gives back its reading alone. Given a ward, `createDrag(card)` gives the samples of the ward's own drag, by the ward's config: `ward({ drag: "x" })` drags, and `createDrag(card)` reports it. A ward that doesn't drag gives none. On Solid 1, `createDrag(target, options?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On a server it's `null`.
 
 ## A sample
 
