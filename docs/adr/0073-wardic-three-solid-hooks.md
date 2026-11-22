@@ -432,7 +432,7 @@ What the owner decided:
 
    dom's `unstable/Imperative` fills them with its elements, selectors, `ElementSetup`'s start links and `BatchMembers`, and keeps every export it had. The track itself is unchanged.
    - **Measured:**
-     - **Size** (`bun run size`): Solid's apps are flat. Foldkit's `f-slim` is +0.1%, 196.1 → 196.3 KB gzip, its budget's limit: that's the ports' property names, which a minifier keeps.
+     - **Size** (`bun run size`): Solid's apps are flat. Foldkit's `f-slim`, which ships the track, is +0.1%, 196.1 → 196.3 KB gzip and a few bytes over its 196.3 budget: the ports' plumbing, their property names a minifier keeps. Its budget is raised to 196.5 by what it measured, as #672's Q23 raised the Slim apps' for its ports, keeping its 0.2 KB of room.
      - **Time** (`bench:solid --base main`, on the bench box: Chromium 147, 1,000 elements, 11 paired reps): every task passes. Warm mount, Retarget, rest Retarget and unmount are within −1.0% to +1.1% on both bindings, bytes per element +0.6% (Solid 1) and +0.7% (Solid 2), and the layout scenes are flat.
      - **Tests:** Solid 2's `animate` browser tests pass 38/38, Solid 1's 127/127 and Foldkit's 4/4.
    - Rejected: `@wardic/object` importing dom's track, which brings `ElementSetup` (Appear, the DOM Renderer, Style) and `BatchMembers` (the DOM Batch writer, Svg) into a scene's bundle, and `getComputedStyle` into Node; a smaller `animate` of `@wardic/object`'s own, which copies the controls, the delays and sequences.

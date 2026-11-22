@@ -26,7 +26,6 @@
 // elements, selectors and a Batch's handles), moved to dom for every DOM binding's `createAnimate`. #882
 // (ADR-0073, *Amendment (#882)*, Q1): the track is core's (`@wardic/core/unstable/Imperative`); this is
 // the DOM's ports into it, its elements, selectors and Batch members, and its types.
-import type * as Sequence from "@wardic/core/Sequence"
 import * as Imperative from "@wardic/core/unstable/Imperative"
 import * as BatchMembers from "./BatchMembers.ts"
 import * as ElementSetup from "./ElementSetup.ts"
@@ -55,13 +54,13 @@ export type {
 /** What `animate` animates: an element, a selector looked up inside the scope, or a list of elements. Motion's `ElementOrSelector`. */
 export type WardicAnimationSubject = Element | string | ArrayLike<Element> | Iterable<Element> | null | undefined
 
-/** The elements of `subject`: a selector's inside `scope`, else the page's. */
-const subjectsOf = (subject: WardicAnimationSubject, scope: Element | undefined): ReadonlyArray<Element> => {
+/** The elements of `subject`: a selector's inside `scope`, else the page's. Core's `Subjects.resolve`. */
+const subjectsOf = (subject: unknown, scope: unknown): ReadonlyArray<Element> => {
   if (Predicate.isNullish(subject)) return []
-  if (Predicate.isString(subject)) return Arr.fromIterable(UndefinedOr.match(scope, { onUndefined: () => document, onDefined: (el): ParentNode => el }).querySelectorAll(subject))
+  if (Predicate.isString(subject)) return Arr.fromIterable(UndefinedOr.match(scope as Element | undefined, { onUndefined: () => document, onDefined: (el): ParentNode => el }).querySelectorAll(subject))
   if (Predicate.hasProperty(subject, "nodeType")) return [subject as Element]
   // A list's missing members left out, as Motion's.
-  if (Predicate.isIterable(subject)) return Arr.filter(Arr.fromIterable(subject), Predicate.isNotNullish)
+  if (Predicate.isIterable(subject)) return Arr.filter(Arr.fromIterable(subject as Iterable<Element>), Predicate.isNotNullish)
   const list = subject as ArrayLike<Element>
   return Arr.filter(Arr.makeBy(list.length, (i) => list[i] as Element), Predicate.isNotNullish)
 }
@@ -130,20 +129,16 @@ const segmentSubjectsOf = (elements: ReadonlyArray<Element>, target: Readonly<Re
 /** The DOM's ports into the track: its elements and selectors, their start links, and its Batches' members. */
 const DOM: Imperative.Ports<Element> = {
   subjects: {
-    resolve: (given, scope) => subjectsOf(given as WardicAnimationSubject, scope as Element | undefined),
+    resolve: subjectsOf,
     startLinksOf: (element) => ElementSetup.startLinksOf(element as HTMLElement, undefined, undefined),
   },
   batches: {
     entryOf: BatchMembers.batchSubjectOf,
     hasMembers: (elements) => Arr.some(elements, BatchMembers.isMemberElement),
-    callPartsOf: (elements, target) => {
-      const parts = BatchMembers.callPartsOf(elements, target)
-      return { members: parts.members, subjects: Arr.map(parts.elements, (part) => ({ subject: part.element, index: part.index, target: part.target })) }
-    },
+    callPartsOf: BatchMembers.callPartsOf,
     segmentSubjectsOf,
-    // The members core hands back are the entries this port gave it: BatchMembers' own.
-    sequencePartsOf: <X,>(compiled: ReadonlyArray<readonly [X | Imperative.BatchMember, Sequence.Animation]>) =>
-      BatchMembers.sequencePartsOf<X>(compiled as ReadonlyArray<readonly [X | BatchMembers.BatchMemberEntry, Sequence.Animation]>),
+    // The members core hands back are the entries this port gave it, BatchMembers' own: a cast, no wrapper.
+    sequencePartsOf: BatchMembers.sequencePartsOf as Imperative.Batches<Element>["sequencePartsOf"],
   },
 }
 
