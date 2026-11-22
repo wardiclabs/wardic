@@ -1,6 +1,6 @@
 # `@wardic/three/solid` is hooks: a Stage in context, `ward` on any Subject, Scene objects by accessor, and Frame effects
 
-*Amended for #881 (2026-11-22), step 0's probes: a scene component joins its `<Loading>` and `<Reveal>` by returning its hook's `held`; a Scene object joins its scene once its ward can start; Solid's own effect, measured, lands a frame late in the Host loop; `TestStage` runs on Solid's client build (*Amendment (#881)*).*
+*Amended for #881 (2026-11-22), step 0's probes: a scene component joins its `<Loading>` and `<Reveal>` by returning its hook's `held`; a Scene object joins its scene once its ward can start; Solid's own effect, measured, lands a frame late in the Host loop; `TestStage` runs on Solid's client build (*Amendment (#881)*). Amended for #882 (2026-11-22), step 1's build: the Imperative track and Motion's defaults by key move into core, and the Frame effects' slot is a core list each Environment runs at its frame's end (*Amendment (#882)*).*
 
 ADR-0070 gave a scene's Solid 2 binding components: `<WardicScene>` hosts the canvas and provides the runtime, and `<SceneObject>` carries one object's motion props, the scene's Wardic element. None of it is built. Core's Batch and the DOM's `createBatch` shipped (#665, #712), and the spine and the Flush gate are in core (#672).
 
@@ -421,3 +421,54 @@ What the owner decided:
    - Rejected: joining at once, at its own values, then jumping to `initial` when the data lands. That shows the jump the DOM's held region hides.
 3. **`TestStage`'s node tier** (decision 26) is a Vitest project in the `node` environment that resolves Solid on the `browser` condition. `TestStage` mounts the tree itself, reading it inside a root as a renderer would, so a test needs no DOM.
 4. **Decision 19 is measured:** in the Host loop, Solid's own effect lands a frame late, and the docs say so beside `createFrameEffect`.
+
+## Amendment (#882, 2026-11-22): step 1's build, the track and the slot in core, and `@wardic/object`'s shape
+
+#882's build grill (Q1–Q8) settled how `@wardic/object` is built.
+
+1. **The Imperative track moves into core** (Q1), as `@wardic/core/unstable/Imperative`. It's generic in its Subject, with two ports for what an Environment knows:
+   - **`Subjects`:** `resolve`, what `animate`'s first argument names inside a scope, and `startLinksOf`, a plain Subject's Base-value links;
+   - **`Batches`:** a Batch's handles, members among the Subjects, and a sequence's Batch parts.
+
+   dom's `unstable/Imperative` fills them with its elements, selectors, `ElementSetup`'s start links and `BatchMembers`, and keeps every export it had. The track itself is unchanged.
+   - **Measured:**
+     - **Size** (`bun run size`): Solid's apps are flat. Foldkit's `f-slim` is +0.1%, 196.1 → 196.3 KB gzip, its budget's limit: that's the ports' property names, which a minifier keeps.
+     - **Time** (`bench:solid --base main`, on the bench box: Chromium 147, 1,000 elements, 11 paired reps): every task passes. Warm mount, Retarget, rest Retarget and unmount are within −1.0% to +1.1% on both bindings, bytes per element +0.6% (Solid 1) and +0.7% (Solid 2), and the layout scenes are flat.
+     - **Tests:** Solid 2's `animate` browser tests pass 38/38, Solid 1's 127/127 and Foldkit's 4/4.
+   - Rejected: `@wardic/object` importing dom's track, which brings `ElementSetup` (Appear, the DOM Renderer, Style) and `BatchMembers` (the DOM Batch writer, Svg) into a scene's bundle, and `getComputedStyle` into Node; a smaller `animate` of `@wardic/object`'s own, which copies the controls, the delays and sequences.
+2. **Motion's Default transition by key moves into core** (Q2): `DefaultTransition.byKey`, `KEYFRAMES_TWEEN` and `layerByKey`. dom's `DomDefaultTransition` is them, the same objects, so a plain object's and a scene's keys run on what the page's do (decision 22).
+3. **The Frame effects' slot is a core list each Environment runs at its frame's end** (Q3, refined while building it). `@wardic/core/unstable/FrameEffects`:
+   - `add(effect)`, in order, giving a remover;
+   - `request()`, for a frame nothing else asks for;
+   - `run(time)`, the Environment's call once Wardic's writes for the frame are done.
+
+   An effect added during a run waits for the next frame, and one that throws is reported while the rest run. `@wardic/object`'s `frame(t)` runs it after every callback the frame ran, the gate's flush included. The DOM runs it in step 3 (#884).
+   - **Not a phase of the Frame loop's or the gate's,** as Q3 first had it. The loop ticks only while an animation runs, and the gate flushes only what was written. So an idle frame where an effect's one input moved (`createTime()`, an every-frame `controls.update()`) has neither, and its effect would be skipped or land a frame late.
+4. **The host pumps frames in milliseconds** (Q4): `wardic.frame(t)` with rAF's time, as three's `setAnimationLoop` passes it, and `wardic.wantsFrame()` for a demand loop.
+   - `PumpedFrames` is core's `RefreshFrameSource`: `requestFrame` queues, and `frame(t)` runs what was queued before it.
+   - The Clock is core's `Clock.layer` over it. The Clock resumes inside the frame's callback (the canvas note's P5, case C), so `frame(t)`'s writes are on the object when it returns.
+5. **A plain object's keys and values** (Q5):
+   - **Keys:** any property, by its name, written `object[key] = value`.
+   - **Values:** core's default Interpolators (numbers, arrays of them, units, complex strings), with no colours.
+   - **Start values:** read from the object. A key the object lacks, or whose value is neither a number nor a string, is a dev error naming it.
+   - **Reduced motion and rest:** core's `transformsOnly` gives the positional keys, and `unitScale` defaults to 1.
+6. **The runtime's shape** (Q6):
+   ```ts
+   const wardic = WardicObject.make({ reducedMotion: "user", skipAnimations: false, unitScale: 1, registry })
+   wardic.animate(target, { x: 100 }, { type: "spring", bounce: 0.3 })   // PromiseLike Playback controls
+   wardic.animate([a, b], { y: 0 })                                       // an array is a list of Subjects
+   wardic.animate(sequence)
+   wardic.afterWrites((time) => controls.update())                        // the Frame effects' slot: its remover back
+   wardic.frame(t); wardic.wantsFrame(); wardic.dispose()
+   WardicObject.layer(options)                                            // the Effect form
+   ```
+   - **Its modules,** named as ADR-0041 names the DOM's: `ObjectRenderer`, `ObjectValues`, `PumpedFrames` and `ObjectBatch`.
+   - **`reducedMotion: "user"`** reads `matchMedia` where there is one, and is never on where there isn't.
+   - **A Subject** is any non-null object; anything else is a dev error naming what was given.
+7. **The profiling hooks wait for the performance viewer** (Q7, #562), which amends ADR-0068 decision 2. The canvas probe's profiler reaches core's internal `MetricsGiven` slot, which core doesn't export, and no 1.3 step needs a public profiling API: `bench:three` times `frame(t)` from outside.
+8. **Three PRs, staged as Foldkit's** (Q8):
+   1. the core moves (1–3);
+   2. `packages/object`, `private: true` at the group's version, with `PumpedFrames`, `ObjectRenderer`, `ObjectValues`, `WardicObject` and their Node tests;
+   3. `ObjectBatch`, `wardic.batch(objects)` and the README.
+
+   The fixed group, `publishConfig` and the docs pages wait for 1.3's release PR, as Foldkit's did at 1.2.
