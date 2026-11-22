@@ -30,7 +30,7 @@ const filesUnder = (dir: string, extensions: ReadonlyArray<string>, skip: Readon
     return []
   })
 
-const PACKAGES = ["core", "dom", "solid", "test", "foldkit"]
+const PACKAGES = ["core", "dom", "solid", "test", "foldkit", "object"]
 
 /** Reader-facing text: the sources, the site's hand-written pages (core's and dom's are generated from the sources), the READMEs. */
 const FILES = [
