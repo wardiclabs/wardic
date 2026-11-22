@@ -1,13 +1,13 @@
 {
-  "// note": "Test-only typecheck: includes test/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`.",
+  "// note": "Test-only typecheck: includes test/ and bench/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`. Its root is the repo's: the bench runs on bench:core's driver (packages/core/bench, #883's PR 5b).",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022"],
-    // The node tier runs these tests under Node, with its timers. `src` stays host-free.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // The node tier runs these tests under Node, with its timers; `src`'s scene input is the DOM's (#883's PR 5a).
     "types": ["node"],
     "noEmit": true,
     "composite": false,
-    "rootDir": "."
+    "rootDir": "../.."
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "bench"]
 }
