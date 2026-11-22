@@ -70,16 +70,21 @@ const inUniforms = (uniforms: unknown, key: string): readonly [Holder, string] |
   return undefined
 }
 
-/** The axes a vector key may end in: `positionX` is `position.x`. */
-const AXES: Readonly<Record<string, string>> = { X: "x", Y: "y", Z: "z", W: "w" }
+/** The axes a vector key may end in, `positionX` is `position.x`, and a colour's channels, `colorR` is `color.r`. */
+const AXES: Readonly<Record<string, string>> = { X: "x", Y: "y", Z: "z", W: "w", R: "r", G: "g", B: "b" }
 
-/** A key as a vector's axis at `holder`, `emissiveX` → `holder.emissive.x`, or a uniform's, `uOffsetX` → `uniforms.uOffset.value.x`. */
+/**
+ * A key as a vector's axis or a colour's channel at `holder`, `normalScaleX` → `holder.normalScale.x`,
+ * `colorR` → `holder.color.r`, or a uniform's, `uOffsetX` → `uniforms.uOffset.value.x`.
+ */
 const asAxis = (holder: Holder, key: string): readonly [Holder, string] | undefined => {
   const axis = AXES[key.slice(-1)]
   if (Predicate.isUndefined(axis)) return undefined
   const base = key.slice(0, -1)
   const vector = holder[base]
   if (Predicate.isObject(vector) && Predicate.isNumber((vector as Holder)[axis])) return [vector as Holder, axis]
+  // A bare uniforms object's: `uSkyR` → `uniforms.uSky.value.r`.
+  if (isUniform(vector) && Predicate.isObject(vector.value) && Predicate.isNumber((vector.value as Holder)[axis])) return [vector.value as Holder, axis]
   const uniforms = holder.uniforms
   if (!Predicate.isObject(uniforms)) return undefined
   const uniform = (uniforms as Holder)[base]
@@ -123,6 +128,34 @@ const find = (subject: Holder, key: string): Place | undefined => {
   const axis = placeIn([subject], asAxis, key, material)
   if (Predicate.isNotUndefined(axis)) return axis
   return placeIn(materials, asAxis, key, material)
+}
+
+/** Whether `value` is a three `Color`, by its flag. */
+const isColor = (value: unknown): boolean => Predicate.isObject(value) && (value as Holder).isColor === true
+
+/** The Color at `holder`'s `key`: its own, or a uniform's value it names. */
+const colourAt = (holder: Holder, key: string): Holder | undefined => {
+  const own = holder[key]
+  if (isColor(own)) return own as Holder
+  // A bare uniforms object's.
+  if (isUniform(own) && isColor(own.value)) return own.value as Holder
+  const uniforms = holder.uniforms
+  if (!Predicate.isObject(uniforms)) return undefined
+  const uniform = (uniforms as Holder)[key]
+  if (isUniform(uniform) && isColor(uniform.value)) return uniform.value as Holder
+  return undefined
+}
+
+/** The Color `key` names on `subject`: its own, else its material's (the first of an array that has one), its own uniform's or its material's. */
+export const colourOf = (subject: object, key: string): Holder | undefined => {
+  const holder = subject as Holder
+  const own = colourAt(holder, key)
+  if (Predicate.isNotUndefined(own)) return own
+  for (const material of materialsOf(holder)) {
+    const found = colourAt(material, key)
+    if (Predicate.isNotUndefined(found)) return found
+  }
+  return undefined
 }
 
 /** Each Subject's places, by key, as found. */

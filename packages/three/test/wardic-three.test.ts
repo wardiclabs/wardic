@@ -166,11 +166,12 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     wardic.dispose()
   })
 
-  it("WT11: a key found nowhere, and a Color, are errors naming them", () => {
+  it("WT11: a key found nowhere, and a colour given to a Batch of meshes, are errors naming them", () => {
     const wardic = WardicThree.make()
     const cube = box("crate")
     expect(() => wardic.animate(cube, { glow: 1 } as never)).toThrow(/"crate" has no "glow" to animate/)
-    expect(() => wardic.animate(cube, { color: 1 } as never)).toThrow(/"color" is a Color.*animate\(material\.color/)
+    // A Batch's colours come with the `InstancedMesh` writer (PR 4): its channels, `colorR`, work now.
+    expect(() => wardic.animate(wardic.batch([box(), box()]), { color: 1 } as never)).toThrow(/member 0's "color"/)
     wardic.dispose()
   })
 

@@ -49,7 +49,7 @@ const ownValueOf = (subject: object, key: string): Option.Option<number | string
   const value = Lookup.read(subject, key)
   if (Predicate.isNumber(value) || Predicate.isString(value)) return Option.some(value)
   if (isColorKey(subject, key)) {
-    throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" is a Color, which Wardic doesn't blend yet. Animate its channels as a plain object: animate(material.${key}, { r: 1, g: 0.5, b: 0 }).`)
+    throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" is a Color, which a Batch of meshes doesn't take as a colour yet. Give its channels in linear light, ${key}R, ${key}G and ${key}B, or animate each mesh: animate(mesh, { ${key}: "#ff8800" }).`)
   }
   if (Predicate.isUndefined(value)) {
     throw new Error(`wardic.animate: ${nameOf(subject)} has no "${key}" to animate: not its own, nor its material's, nor a uniform's, nor a vector's axis (positionX). Give a key it has; Wardic adds no property to a scene.`)

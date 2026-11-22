@@ -19,8 +19,16 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(cube, { x: 2, rotateY: 90, scaleZ: 2, opacity: 0.5, roughness: 0.2, emissiveIntensity: 2, normalScaleX: 1, positionY: 1 })
   // @ts-expect-error: a misspelt key.
   wardic.animate(cube, { rotatY: 90 })
-  // @ts-expect-error: a Color isn't a number key (linear colours are #883's PR 3).
-  wardic.animate(cube, { color: 1 })
+  // A colour: a CSS colour, a hex number or a Color, keyframes of them, and its channels in linear light.
+  wardic.animate(cube, { color: "#ff8800", emissive: 0x00ff00, emissiveIntensity: 2 })
+  wardic.animate(cube, { color: ["#f00", null, new THREE.Color("blue")], transitionEnd: { color: "red" } })
+  wardic.animate(cube, { colorR: 0.5, emissiveB: 1 })
+  // @ts-expect-error: a colour isn't a boolean.
+  wardic.animate(cube, { color: true })
+  // @ts-expect-error: a number key isn't a colour.
+  wardic.animate(cube, { opacity: "#fff" })
+  wardic.animate(light, { color: "white", intensity: 2 })
+  wardic.animate({ uTint: { value: new THREE.Color() } }, { uTint: "#f0f", uTintG: 0.5 })
   // @ts-expect-error: a key the mesh has nowhere.
   wardic.animate(cube, { fov: 30 })
 

@@ -39,6 +39,7 @@ import type * as InterpolatorRegistry from "../InterpolatorRegistry.ts"
 import * as Machine from "../Machine.ts"
 import * as ReducedMotion from "../ReducedMotion.ts"
 import * as Spring from "../Spring.ts"
+import * as UnitScale from "../UnitScale.ts"
 import * as Values from "../Values.ts"
 import type * as CoreMeasuredPairs from "./MeasuredPairs.ts"
 import type * as Stops from "./Stops.ts"
@@ -622,7 +623,7 @@ export const legsOf = (
   measured?: MeasuredPairs | undefined,
   current?: Values.Values | undefined,
   rests?: Values.Values | undefined,
-  unitScale = 1,
+  unitScale: UnitScale.Rule = UnitScale.MOTIONS,
 ): ReadonlyArray<Leg> => {
   // A Path (#438): `x` and `y` along it, on a leg of their own, and every other key as before.
   const pathed = pathOf(from, to, given, reducedMotion, skipped, defaults, stops, current, rests)
@@ -754,8 +755,8 @@ const legsOn = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
-  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, the rest thresholds' scale for `x`, `y` and `z`.
-  unitScale: number,
+  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, each key's units for its rest thresholds.
+  unitScale: UnitScale.Rule,
 ): ReadonlyArray<Leg> => {
   const run = runOf(given)
   if (Predicate.isNotUndefined(run)) {
@@ -827,8 +828,8 @@ const legsWith = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
-  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, the rest thresholds' scale for `x`, `y` and `z`.
-  unitScale: number,
+  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, each key's units for its rest thresholds.
+  unitScale: UnitScale.Rule,
 ): ReadonlyArray<Leg> => {
   // A **Skipped animation** (#468, Motion's `skipAnimations`): every key lands where its leg would end,
   // on its first tick, with no delay and whatever reduced motion says. Keyframes land on their last
@@ -990,8 +991,8 @@ const inertiaLegsOn = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
-  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, the rest thresholds' scale for `x`, `y` and `z`.
-  unitScale: number,
+  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, each key's units for its rest thresholds.
+  unitScale: UnitScale.Rule,
 ): ReadonlyArray<Leg> => {
   let followingKeys = NO_KEYS
   if (Predicate.isNotUndefined(follow)) followingKeys = follow.keysOf(to)

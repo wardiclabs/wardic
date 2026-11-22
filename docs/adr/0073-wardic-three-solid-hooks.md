@@ -547,3 +547,24 @@ What the owner decided:
 - **pack-check** gains `three-vite`: a mesh's shared material faded from npm's tarballs, its production build checked for no shared-material warning.
 - **Not measured:** the writer's cost a frame, which is `bench:three`'s (PR 5).
 
+**PR 3, as built:** linear colours, after Q4's probe (`.tmp/883-colour/`, three r187, Bun 1.3.13 and Node 22).
+- **The probe** ran five ways of moving a colour:
+  - (A) three linear channel keys on core's numeric springs, on Motion's thresholds, at 255 or 1000 of Motion's units, or relative to the distance;
+  - (B) a CSS string, blended in linear light by a colour kind and parsed by `color.set` (`motion/three`'s path);
+  - (B) a linear colour object as a widened value, from a Key rule, fresh each frame or reused.
+
+  | | Red→blue midpoint | Speed kept through a retarget | Worst snap at landing | ns per colour per frame, Node / Bun (1,000) | Bytes per colour per frame (Node) |
+  |---|---|---|---|---|---|
+  | A, Motion's thresholds | `#bc00bc` | yes, blue's step 1.22× the frame before | 8 levels: black→`#080808` never starts | 391 / 466 | 465 |
+  | A, relative | `#bc00bc` | yes | 0, every move in 62 frames | 400 / 516 | 465 |
+  | B, a CSS string | `#bc00bc` | no, −0.43×: from rest | 0 | 762 / 724 | 1,106 |
+  | B, a colour object | `#bc00bc` | no, −0.43× | 0 | 300–349 / 340–351 | 337–417 |
+
+  B's colour object also crashed at a retarget until the probe wrote a string back, because core's start links read only a number or a string: widening the value type reaches Own values, the gate, Live values and Sequence stops. One numeric key on the Imperative track allocates 350–385 bytes per moving Subject per frame (#895).
+- **Q1, A:** `color` is split at the call into `colorR`, `colorG` and `colorB`, in `@wardic/three` (`ThreeColours.splitCall`), so core's values stay numbers and strings. A target is a CSS colour, a hex number or a `Color`, copied, read by the Subject's own `Color` class: no import of three, and the app's colour management applies. Keyframes split per stop, a `null` stop for each channel. Its `transitionEnd`, and its own entry in the target's `transition` or the options, go to its channels. A sequence's Segments of Subjects split theirs too.
+  - **Where a colour is found:** the Subject's own `Color` (a light's `color`), its material's (each of an array of them), a `ShaderMaterial` uniform's, or a bare uniforms object's. The lookup's suffix rule reads `R`, `G` and `B` as a `Color`'s channels, so `{ colorR: 0.5 }` animates one channel.
+  - **A Batch's colours** wait for the `InstancedMesh` writer (PR 4). A Batch of meshes takes the channel keys now.
+- **Q2, the thresholds in core:** `UnitScale`'s Reference is a rule, `(key, distance) => unit`, read once per runtime as before. `UnitScale.layer(100)` keeps its meaning (`position(100)`), `layerWith(rule)` gives an Environment's own, and `relative(distance, floor)` is a key that rests by its share of the distance, as `springBlend`'s 0 → 100 progress does. Three's rule (`ThreeColours.unitScale`) gives a channel key (a name, then `R`, `G` or `B`) `relative(distance, 0.001)`. The rule is asked once per key per leg, at the three places PR 1 read the scale. `UnitScale` was unreleased, so its changeset describes the rule.
+- **Types:** a mesh's colour keys (its material's `Color`s, its uniforms') take a colour or keyframes of them, and their channel keys take numbers. A `ShaderMaterial`'s uniforms, which three types as any name of any value, take either.
+- **Found, not fixed here (#896):** core's Imperative track drops a target's own `transition` and `transitionEnd`. It reads only the target's values and the options' transition, on plain objects and in three, though `ObjectTarget`'s type offers both. The DOM's `animate` runs the same track; that's read from the code, not run.
+

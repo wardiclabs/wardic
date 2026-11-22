@@ -860,7 +860,7 @@ const splitLegsOf = (
   measured: RetargetLegs.MeasuredPairs | undefined,
   current: Values.Values,
   rests: Values.Values | undefined,
-  unitScale: number,
+  unitScale: UnitScale.Rule,
 ): SplitLegs => {
   let returnsAt = 0
   if (listed) returnsAt = resolution.layers.length
@@ -2028,7 +2028,7 @@ export interface SpineHost {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** The Environment's unit scale, its legs' rest thresholds' for `x`, `y` and `z` (ADR-0069 decision 8). */
-  readonly unitScale: number
+  readonly unitScale: UnitScale.Rule
   /** Each key's velocity, as of the take. */
   readonly readVelocity: RetargetLegs.Velocities
   readonly gate: FlushGate.Shape
@@ -2093,10 +2093,10 @@ export interface ElementSpine {
  */
 /** Each runtime's unit scale, read once: a mount reads a WeakMap, not a run of its own. */
 // Module state (#460, Q7): held weakly by the runtime, so it goes with it.
-const UNIT_SCALES = new WeakMap<object, number>()
+const UNIT_SCALES = new WeakMap<object, UnitScale.Rule>()
 
 /** `runtime`'s Environment's `UnitScale`, read at its first ask. */
-export const unitScaleOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): number => {
+export const unitScaleOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): UnitScale.Rule => {
   const known = UNIT_SCALES.get(runtime)
   if (Predicate.isNotUndefined(known)) return known
   const read = runtime.runSync(UnitScale.UnitScale)
