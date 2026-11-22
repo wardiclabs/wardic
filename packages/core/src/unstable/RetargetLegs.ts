@@ -622,17 +622,18 @@ export const legsOf = (
   measured?: MeasuredPairs | undefined,
   current?: Values.Values | undefined,
   rests?: Values.Values | undefined,
+  unitScale = 1,
 ): ReadonlyArray<Leg> => {
   // A Path (#438): `x` and `y` along it, on a leg of their own, and every other key as before.
   const pathed = pathOf(from, to, given, reducedMotion, skipped, defaults, stops, current, rests)
   if (Predicate.isNotUndefined(pathed)) {
-    return Arr.prepend(legsOf(from, pathed.rest, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured), pathed.leg)
+    return Arr.prepend(legsOf(from, pathed.rest, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured, undefined, undefined, unitScale), pathed.leg)
   }
   // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
   const entries = entriesOf(given)
-  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
+  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured, unitScale)
   // With no value's entry (`layout` and `default` alone), every key runs on one transition.
-  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
+  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured, unitScale)
   const byTransition = new Map<Config.WardicTransition, Record<string, number | string>>()
   Arr.forEach(Rec.keys(to), (key) => {
     const runsOn = forKey(entries, key)
@@ -643,7 +644,7 @@ export const legsOf = (
     }
     byTransition.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured))
+  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured, unitScale))
 }
 
 /** No legs: a Retarget with no key. */
@@ -753,18 +754,20 @@ const legsOn = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
+  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, the rest thresholds' scale for `x`, `y` and `z`.
+  unitScale: number,
 ): ReadonlyArray<Leg> => {
   const run = runOf(given)
   if (Predicate.isNotUndefined(run)) {
-    if (run.type === "inertia") return inertiaLegsOn(from, to, run as Run & InertiaRun, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
-    return legsWith(from, to, run, reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured)
+    if (run.type === "inertia") return inertiaLegsOn(from, to, run as Run & InertiaRun, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured, unitScale)
+    return legsWith(from, to, run, reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured, unitScale)
   }
   const keys = Rec.keys(to)
   if (keys.length === 0) return NO_LEGS
   // Nearly always one Default transition for every key (a fade, a move): no grouping.
   const first = defaultFor(defaults, UndefinedOr.getOrThrow(keys[0]), to, stops)
   if (Arr.every(keys, (key) => defaultFor(defaults, key, to, stops) === first)) {
-    return legsWith(from, to, carried(first, given), reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured)
+    return legsWith(from, to, carried(first, given), reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured, unitScale)
   }
   const byDefault = new Map<DefaultTransition.Transition | DefaultTransition.KeyframesTransition, Record<string, number | string>>()
   Arr.forEach(keys, (key) => {
@@ -776,7 +779,7 @@ const legsOn = (
     }
     byDefault.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured))
+  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured, unitScale))
 }
 
 /**
@@ -824,6 +827,8 @@ const legsWith = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
+  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, the rest thresholds' scale for `x`, `y` and `z`.
+  unitScale: number,
 ): ReadonlyArray<Leg> => {
   // A **Skipped animation** (#468, Motion's `skipAnimations`): every key lands where its leg would end,
   // on its first tick, with no delay and whatever reduced motion says. Keyframes land on their last
@@ -919,7 +924,8 @@ const legsWith = (
     // Each key's own velocity, read now; none when the transition gives one, which every key then starts with.
     let fromVelocity: Record<string, number> = NO_NUMBERS
     if (Predicate.isUndefined(springOpts.velocity)) fromVelocity = Rec.map(numeric, (_, key) => velocities(key))
-    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, { from: fromNumeric, velocity: fromVelocity, records: "value" }) })
+    // Its keys' rest thresholds at the Environment's unit scale (ADR-0069 decision 8).
+    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, { from: fromNumeric, velocity: fromVelocity, records: "value", unitScale }) })
   }
   if (hasKeys(strings)) {
     const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))
@@ -984,6 +990,8 @@ const inertiaLegsOn = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
+  // ADR-0069 decision 8 (#883): the Environment's `UnitScale`, the rest thresholds' scale for `x`, `y` and `z`.
+  unitScale: number,
 ): ReadonlyArray<Leg> => {
   let followingKeys = NO_KEYS
   if (Predicate.isNotUndefined(follow)) followingKeys = follow.keysOf(to)
@@ -992,8 +1000,8 @@ const inertiaLegsOn = (
   const numbers = Rec.filter(to, glides)
   const rest = Rec.filter(to, (target, key) => Bool.not(glides(target, key)))
   const legs: Array<Leg> = []
-  if (hasKeys(numbers)) Arr.forEach(legsWith(from, numbers, run, reducedMotion, skipped, positionalKeys, velocities, undefined, stops, undefined), (leg) => legs.push(leg))
-  if (hasKeys(rest)) Arr.forEach(legsOn(from, rest, definingNone(given), reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured), (leg) => legs.push(leg))
+  if (hasKeys(numbers)) Arr.forEach(legsWith(from, numbers, run, reducedMotion, skipped, positionalKeys, velocities, undefined, stops, undefined, unitScale), (leg) => legs.push(leg))
+  if (hasKeys(rest)) Arr.forEach(legsOn(from, rest, definingNone(given), reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured, unitScale), (leg) => legs.push(leg))
   return legs
 }
 

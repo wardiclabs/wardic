@@ -399,6 +399,22 @@ export const restDeltaFor = (spring: Resolved, distance: number, scale = 1): num
 export const restSpeedFor = (spring: Resolved, distance: number, scale = 1): number =>
   thresholdOf(spring.restSpeed, distance, GRANULAR_REST_SPEED, REST_SPEED) / scale
 
+/**
+ * A leg's distance threshold for a key whose units are `unit` of Motion's (`UnitScale.forKey`): the one
+ * the spring is given, as it is, else by `distance` read in Motion's units. Allocates nothing.
+ */
+// ADR-0069 decision 8: `restFor(spring, d * unitScale, unitScale)`, a given threshold winning.
+export const restDeltaIn = (spring: Resolved, distance: number, unit: number): number => {
+  if (Predicate.isNotUndefined(spring.restDelta)) return spring.restDelta
+  return restDeltaFor(spring, distance * unit, unit)
+}
+
+/** {@link restDeltaIn}'s speed. */
+export const restSpeedIn = (spring: Resolved, distance: number, unit: number): number => {
+  if (Predicate.isNotUndefined(spring.restSpeed)) return spring.restSpeed
+  return restSpeedFor(spring, distance * unit, unit)
+}
+
 /** A threshold given, else the granular one for a leg under {@link GRANULAR}, else the coarse one. Plain reads: a Retarget runs it per key. */
 const thresholdOf = (given: number | undefined, distance: number, granular: number, coarse: number): number => {
   if (Predicate.isNotUndefined(given)) return given

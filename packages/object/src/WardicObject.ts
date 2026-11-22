@@ -36,6 +36,7 @@ import * as InputFeed from "@wardic/core/InputFeed"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as UnitScale from "@wardic/core/UnitScale"
 import type * as Config from "@wardic/core/unstable/Config"
 import * as FlushGate from "@wardic/core/unstable/FlushGate"
 import * as FrameEffects from "@wardic/core/unstable/FrameEffects"
@@ -275,7 +276,7 @@ export const make = (options: Options = {}): WardicObject => {
     Iter.forEach(Arr.fromIterable(live), (controls) => controls.stop())
     void runtime.dispose()
   }
-  const batchContext: ObjectBatch.Context = { runFork: runtime.runFork, positionalKeys, defaultTransition }
+  const batchContext: ObjectBatch.Context = { runFork: runtime.runFork, positionalKeys, defaultTransition, unitScale: runtime.runSync(UnitScale.UnitScale) }
   return {
     animate,
     batch: (objects, options) => ObjectBatch.make(batchContext, objects, options),

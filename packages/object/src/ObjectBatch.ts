@@ -73,6 +73,8 @@ export interface Options<T> {
 /** What a runtime gives its Batches: its fork, and its Environment's Positional keys and Default transitions. */
 export interface Context {
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, FrameLoop.FrameLoop>) => Fiber.Fiber<A, E>
+  /** The Environment's unit scale: its Batches' rest thresholds for `x`, `y` and `z` (ADR-0069 decision 8). */
+  readonly unitScale: number
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
 }
@@ -148,7 +150,7 @@ export const make = <T extends object>(context: Context, objects: ReadonlyArray<
     keys = given
     keyIndex = new Map(Arr.map(keys, (key, k) => [key, k] as const))
     const transition = Rec.fromEntries(Arr.map(keys, (key) => [key, context.defaultTransition.transitionFor(key, 1) as Batch.Transition] as const))
-    const created = Batch.make({ keys, writer, transition })
+    const created = Batch.make({ keys, writer, transition, unitScale: context.unitScale })
     slots = Arr.map(objects, (object, i) => {
       const slot = Batch.enter(created, object as object, startOf(object, i))
       memberAt[slot] = i

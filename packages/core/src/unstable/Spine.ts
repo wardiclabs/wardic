@@ -26,6 +26,7 @@ import * as Machine from "../Machine.ts"
 import * as Override from "../Override.ts"
 import type * as ReducedMotion from "../ReducedMotion.ts"
 import * as Supersede from "../Supersede.ts"
+import * as UnitScale from "../UnitScale.ts"
 import * as Values from "../Values.ts"
 import * as Report from "./Report.ts"
 import type * as MeasuredPairs from "./MeasuredPairs.ts"
@@ -859,6 +860,7 @@ const splitLegsOf = (
   measured: RetargetLegs.MeasuredPairs | undefined,
   current: Values.Values,
   rests: Values.Values | undefined,
+  unitScale: number,
 ): SplitLegs => {
   let returnsAt = 0
   if (listed) returnsAt = resolution.layers.length
@@ -870,7 +872,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: RetargetLegs.Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = RetargetLegs.legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured, current, rests)
+    const groupLegs = RetargetLegs.legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured, current, rests, unitScale)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -2025,6 +2027,8 @@ export interface SpineHost {
   readonly element: Subject.Subject
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /** The Environment's unit scale, its legs' rest thresholds' for `x`, `y` and `z` (ADR-0069 decision 8). */
+  readonly unitScale: number
   /** Each key's velocity, as of the take. */
   readonly readVelocity: RetargetLegs.Velocities
   readonly gate: FlushGate.Shape
@@ -2087,8 +2091,24 @@ export interface ElementSpine {
  * *Amendment (#200)*). A leg the token didn't reach is interrupted (`endLeg`). The runtime's own
  * fiber Scope interrupts what's left when the provider ends.
  */
+/** Each runtime's unit scale, read once: a mount reads a WeakMap, not a run of its own. */
+// Module state (#460, Q7): held weakly by the runtime, so it goes with it.
+const UNIT_SCALES = new WeakMap<object, number>()
+
+/** `runtime`'s Environment's `UnitScale`, read at its first ask. */
+export const unitScaleOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): number => {
+  const known = UNIT_SCALES.get(runtime)
+  if (Predicate.isNotUndefined(known)) return known
+  const read = runtime.runSync(UnitScale.UnitScale)
+  UNIT_SCALES.set(runtime, read)
+  return read
+}
+
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
   const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, measuredPairs, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag, variableValues } = options
+  // The Environment's unit scale (ADR-0069 decision 8, #883): read from the runtime the spine already holds,
+  // so no binding passes it; 1, Motion's own, unless the Environment's Layers give another.
+  const unitScale = unitScaleOf(runtime)
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -2548,6 +2568,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         element,
         positionalKeys,
         defaultTransition,
+        unitScale,
         readVelocity,
         gate,
         forget,
@@ -2938,10 +2959,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isUndefined(groups) && hasKeys(fresh)) {
       // Where every key is now: a Path's axis the target leaves out starts there (#438), and ends where
       // it rests (#574).
-      retargetLegs = RetargetLegs.legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values, rests)
+      retargetLegs = RetargetLegs.legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values, rests, unitScale)
     }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values, rests)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values, rests, unitScale)
       retargetLegs = split.legs
       legGroups = split.tags
     }
