@@ -1,9 +1,9 @@
 /**
  * `bun run build` (#554): the packages' published output, one file per source module, never
  * bundled, so an app's bundler splits Wardic's modules as it splits its own (ADR-0067, *Amendment
- * (#548)*). `@wardic/foldkit` (#791) and `@wardic/object` (#882) build with them.
+ * (#548)*). `@wardic/foldkit` (#791), `@wardic/object` (#882) and `@wardic/three` (#883) build with them.
  *
- * 1. `tsc --build`: `core`, `dom`, `test`, `foldkit` and `object` into `dist/` (ESM `.js`, `.d.ts`, maps), and
+ * 1. `tsc --build`: `core`, `dom`, `test`, `foldkit`, `object` and `three` into `dist/` (ESM `.js`, `.d.ts`, maps), and
  *    `@wardic/solid`'s Solid 2 binding, its root (#566), into `dist/solid/`, its JSX kept as JSX: the
  *    `solid` export condition, which Vite and SolidStart compile with the app's own settings.
  * 2. `tsc --build tsconfig.v1.build.json`: the Solid 1 binding, `src/v1`, the same way.
@@ -94,7 +94,7 @@ run(["--build"])
 // The licence files, each package's copy of the root's (ignored by git; #555 writes the root's).
 for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
   if (!existsSync(join(ROOT, name))) continue
-  for (const pkg of ["core", "dom", "solid", "test", "foldkit", "object"]) copyFileSync(join(ROOT, name), join(ROOT, "packages", pkg, name))
+  for (const pkg of ["core", "dom", "solid", "test", "foldkit", "object", "three"]) copyFileSync(join(ROOT, name), join(ROOT, "packages", pkg, name))
 }
 run(["--build", join(SOLID, "tsconfig.v1.build.json")])
 for (const target of TARGETS) rmSync(join(SOLID, "dist", target.dir), { recursive: true, force: true })

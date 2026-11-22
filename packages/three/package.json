@@ -1,0 +1,90 @@
+{
+  "name": "@wardic/three",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Wardic for three.js: Motion's animate on a scene's meshes, materials, cameras and uniforms, with three's own types, on frames the Host loop pumps.",
+  "keywords": [
+    "animation",
+    "motion",
+    "spring",
+    "effect",
+    "three",
+    "threejs",
+    "webgl",
+    "webgpu"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/three"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "The Wardic contributors",
+    "email": "hello@wardic.dev",
+    "url": "https://wardic.dev"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.map",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@wardic/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./internal/dev": {
+      "development": {
+        "@wardic/source": "./src/internal/dev.ts",
+        "types": "./dist/internal/dev.d.ts",
+        "default": "./dist/internal/dev.js"
+      },
+      "@wardic/source": "./src/internal/dev.production.ts",
+      "types": "./dist/internal/dev.production.d.ts",
+      "default": "./dist/internal/dev.production.js"
+    },
+    "./*": {
+      "@wardic/source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./internal/*": null
+  },
+  "scripts": {
+    "build": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck:tests": "../../node_modules/typescript-7/bin/tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@wardic/core": "workspace:*",
+    "@wardic/object": "workspace:*"
+  },
+  "peerDependencies": {
+    "@types/three": ">=0.160.0",
+    "effect": "^4.1.4",
+    "three": ">=0.160.0"
+  },
+  "peerDependenciesMeta": {
+    "@types/three": {
+      "optional": true
+    },
+    "three": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/three": "0.187.0",
+    "three": "0.187.0"
+  }
+}

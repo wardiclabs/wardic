@@ -36,6 +36,8 @@ export default defineConfig({
             "packages/dom/test/**/*.node.test.ts",
             // @wardic/object: plain objects on frames the test pumps, with no DOM (#882).
             "packages/object/test/**/*.test.ts",
+            // @wardic/three: a scene's objects, real three.js in Node, with no canvas (#883).
+            "packages/three/test/**/*.test.ts",
             "examples/layout-lab/test/**/*.test.ts",
             // The storefront showcase's store, in Effect (#296).
             "examples/storefront/shared/test/**/*.test.ts",
