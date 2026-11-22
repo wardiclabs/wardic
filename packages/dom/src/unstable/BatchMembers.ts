@@ -26,7 +26,6 @@
 import * as Batch from "@wardic/core/Batch"
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
-import type * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Sequence from "@wardic/core/Sequence"
@@ -54,7 +53,9 @@ import type * as WardConfig from "./WardConfig.ts"
 import type * as GestureInfo from "./GestureInfo.ts"
 import type * as PresenceController from "./PresenceController.ts"
 import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
-import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
+// #882 (ADR-0073, *Amendment (#882)*, PR 3): the calls' environment-agnostic part, core's, shared with `@wardic/object`.
+import * as BatchCalls from "@wardic/core/unstable/BatchCalls"
+import { delayedBy, INSTANT, isFirstStop, isPair, type KeyPlan, memberTransitionsOf, staggerOf, unstaggered } from "@wardic/core/unstable/BatchCalls"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
@@ -511,9 +512,6 @@ export interface ElementPart<T> {
   readonly target: T
 }
 
-/** Whether `value` is a Batch's key's first stop through an element: a number, or `null` for where it is. */
-const isFirstStop: Predicate.Predicate<unknown> = /*#__PURE__*/ Predicate.or(Predicate.isNumber, Predicate.isNull)
-
 /** Whether `value` is a Batch's key's two stops through an element: a first stop, and a number. */
 const isElementStops = (value: unknown): value is readonly [number | null, number] => {
   if (!isPair(value)) return false
@@ -707,8 +705,6 @@ const keysFrom = (count: number, targetsAt: (i: number) => Readonly<Record<strin
 const keysOf = (config: BatchConfig): ReadonlyArray<string> =>
   keysFrom(config.count, (i) => config.animate(i) as Readonly<Record<string, unknown>>, (i) => initialOf(config, i))
 
-/** One change that lands every key at once: `skipAnimations`'. */
-const INSTANT: Batch.Transition = { type: "tween", duration: 0 }
 
 /** A key's index, -1 for a key the Batch hasn't. Built once. */
 const keyIndexOr: (k: number | undefined) => number = /*#__PURE__*/ UndefinedOr.match({ onUndefined: (): number => -1, onDefined: (k: number): number => k })
@@ -716,41 +712,9 @@ const keyIndexOr: (k: number | undefined) => number = /*#__PURE__*/ UndefinedOr.
 /** A Batch Reorder group's item in hand's change (#712): its `x` and `y` where it's held, at once. */
 const IN_HAND: Batch.RetargetOptions = { transition: { x: INSTANT, y: INSTANT } }
 
-/** A sequence's run that lands a key at once after `delay`: `skipAnimations`', and reduced motion's Snap of a positional key. */
-// Module state (#460, Q7): a cache built once, keyed by what it caches.
-const LANDINGS = new Map<number, Machine.KeyframesOptions>()
-
-const landingAfter = (delay: number): Machine.KeyframesOptions => {
-  const known = LANDINGS.get(delay)
-  if (Predicate.isNotUndefined(known)) return known
-  const made: Machine.KeyframesOptions = { duration: 0, delay }
-  LANDINGS.set(delay, made)
-  return made
-}
-
-/** A Batch key's stop in a sequence, as core's Batch takes it: a number, `NaN` for `null`. */
-const stopNumber = (stop: Sequence.Stop): number => {
-  if (Predicate.isNumber(stop)) return stop
-  return Number.NaN
-}
-
-/** A key's last stop that's a number, `NaN` (where it is) for none: what its `null`s after it hold. */
-const lastNumber = (stops: ReadonlyArray<number>): number =>
-  Option.getOrElse(Arr.findLast(stops, (stop) => !Number.isNaN(stop)), () => Number.NaN)
-
-/** Whether `value` is a Batch key's value in a sequence: a number, `null`, or stops of them. */
-const isSegmentStops = (value: unknown): boolean => {
-  if (isFirstStop(value)) return true
-  if (!Arr.isArray(value)) return false
-  return Arr.every(value, isFirstStop)
-}
-
-/** A Batch key's value in a sequence (Q38): a number, `null` or stops of them; else an error naming the key, and the member a function gave it. */
-const segmentValueOf = (key: string, value: unknown, memberName: string | undefined): Sequence.Stop | ReadonlyArray<Sequence.Stop> => {
-  if (isSegmentStops(value)) return value as Sequence.Stop | ReadonlyArray<Sequence.Stop>
-  const whose = UndefinedOr.match(memberName, { onUndefined: () => "", onDefined: (name) => `${name}'s ` })
-  return fail(`a sequence gives ${whose}"${key}" as ${JSON.stringify(value)}: a Batch's key takes a number, \`null\`, or stops of them`)
-}
+/** A Batch key's value in a sequence (Q38): core's, its error createBatch's. */
+const segmentValueOf = (key: string, value: unknown, memberName: string | undefined): Sequence.Stop | ReadonlyArray<Sequence.Stop> =>
+  BatchCalls.segmentValueOf(key, value, memberName, fail)
 
 /**
  * An `exit`, `whileHover` or `whileTap` given as an object, values with an optional `transition` (Q48,
@@ -926,123 +890,10 @@ const layoutOnMember = (element: Element): string =>
 /** No values: an exit with none, which moves nothing and lets its element go at once. */
 const NO_VALUES: Readonly<Record<string, unknown>> = {}
 
-/** Whether `value` is two stops. */
-const isPair = (value: unknown): value is readonly [unknown, unknown] => {
-  if (!Arr.isArray(value)) return false
-  return value.length === 2
-}
-
-/** Reduced motion's Snap after `delay`: a 0 s tween, kept by its delay so its keys share one. */
-// Module state (#460, Q7): a cache built once, keyed by what it caches.
-const SNAPS = new Map<number, Batch.Transition>()
-
-const snapAfter = (delay: number): Batch.Transition => {
-  const known = SNAPS.get(delay)
-  if (Predicate.isNotUndefined(known)) return known
-  const made: Batch.Transition = { type: "tween", duration: 0, delay }
-  SNAPS.set(delay, made)
-  return made
-}
-
-/**
- * A Default transition held by a key's own `delay`, as a Wardic element's is when its transition gives
- * only a delay (ADR-0051): one object for each transition and delay, so the members on it share it.
- */
-// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
-const DELAYED = new WeakMap<object, Map<number, Batch.Transition>>()
-
-const delayedBy = (transition: Batch.Transition, delay: number): Batch.Transition => {
-  if (delay === 0) return transition
-  let byDelay = DELAYED.get(transition)
-  if (Predicate.isUndefined(byDelay)) {
-    byDelay = new Map()
-    DELAYED.set(transition, byDelay)
-  }
-  const known = byDelay.get(delay)
-  if (Predicate.isNotUndefined(known)) return known
-  const made = { ...transition, delay } as Batch.Transition
-  byDelay.set(delay, made)
-  return made
-}
-
-/**
- * A transition without a `stagger()` delay, which a change gives each member by its place: one object
- * each. A `delay` in seconds stays, held by the keys the transition's own fields reach, as a Wardic
- * element's top-level delay is.
- */
-// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
-const UNSTAGGERED = new WeakMap<object, WardConfig.WardicTransition>()
-
-const unstaggered = (given: WardicBatchTransition | WardConfig.WardicTransition): WardConfig.WardicTransition => {
-  if (!Predicate.isFunction(given.delay)) return given as WardConfig.WardicTransition
-  const known = UNSTAGGERED.get(given)
-  if (Predicate.isNotUndefined(known)) return known
-  const made = { ...given, delay: undefined } as unknown as WardConfig.WardicTransition
-  UNSTAGGERED.set(given, made)
-  return made
-}
-
-/** A change's `stagger()` delay, for the members it moves; `undefined` for none. */
-const staggerOf = (given: WardConfig.WardicTransition | undefined): ((rank: number, n: number) => number) | undefined => {
-  if (Predicate.isUndefined(given)) return undefined
-  const delay: unknown = given.delay
-  if (Predicate.isFunction(delay)) return delay as (rank: number, n: number) => number
-  return undefined
-}
-
-/** A key's transition as a Batch runs it: its run, which can't be an inertia or repeat. */
-const batchRunOf = (run: RetargetLegs.Run, key: string): Batch.Transition => {
-  if (run.type === "inertia") fail(`"${key}" has an inertia transition, which a Batch can't run: give it a spring or a tween`)
-  if (Predicate.hasProperty(run, "repeat")) fail(`"${key}"'s transition repeats, which a Batch can't run`)
-  return run as Batch.Transition
-}
-
-/** A change's plan for one key: its own transition, or `undefined` for its Default transition held by `delay`. */
-interface KeyPlan {
-  readonly own: Batch.Transition | undefined
-  readonly delay: number
-}
-
-/**
- * Each key's plan for a change, by its index, as a Wardic element's keys run (#301): its entry, else
- * `default`, else the transition's own fields; reduced motion's Snap for a positional key that doesn't
- * opt out; its Default transition, held by its own `delay`, for a key whose transition isn't defined.
- */
+/** Each key's plan for a change (#301): core's, its errors createBatch's. */
 // Once a change, per key.
 const plannedOf = (positional: ReducedMotion.PositionalKeys["Service"], keys: ReadonlyArray<string>, given: WardConfig.WardicTransition | undefined, reduced: boolean): ReadonlyArray<KeyPlan> =>
-  Arr.map(keys, (key): KeyPlan => {
-    const transition = RetargetLegs.transitionForKey(given, key)
-    let delay = 0
-    let respects = true
-    if (Predicate.isNotUndefined(transition)) {
-      if (Predicate.isNumber(transition.delay)) delay = transition.delay
-      respects = transition.respectReducedMotion !== false
-    }
-    if (reduced && respects && positional.isPositional(key)) return { own: snapAfter(delay), delay }
-    const run = RetargetLegs.runOf(transition)
-    if (Predicate.isUndefined(run)) return { own: undefined, delay }
-    return { own: batchRunOf(run, key), delay }
-  })
-
-/**
- * A member's transitions on `keys` for a change planned as `planned`: each key's own, else its Default
- * transition (`defaultFor`) toward its target there, `targetAt(k)`; every key at once when it's skipped.
- * A server's Appear plan's (#706) and a client's check of it.
- */
-// Per member per key, at a server's render and at a hydrating client's first change (#706): statements.
-const memberTransitionsOf = (
-  keys: ReadonlyArray<string>,
-  planned: ReadonlyArray<KeyPlan>,
-  defaultFor: (key: string, target: number) => Batch.Transition,
-  targetAt: (k: number) => number,
-  skipped: boolean,
-): ReadonlyArray<Batch.Transition> =>
-  Arr.map(keys, (key, k) => {
-    if (skipped) return INSTANT
-    const plan = planned[k] as KeyPlan
-    if (Predicate.isNotUndefined(plan.own)) return plan.own
-    return delayedBy(defaultFor(key, targetAt(k)), plan.delay)
-  })
+  BatchCalls.plannedOf(positional, keys, given, reduced, fail)
 
 /** The Handoff's module, once it has loaded (#706, Q11): every Batch after the first takes its members over at once. */
 // Module state (#460, Q7): one module, loaded once for the page.
@@ -1643,6 +1494,12 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   // Its gestures as given (#665's PR 5): `whileHover` and `whileTap`, an object or a function.
   /** A key's Default transition toward `target`. */
   const defaultFor = (k: number, target: number): Batch.Transition => env.defaultTransition.transitionFor(keys[k], target) as Batch.Transition
+
+  /** What core's calls are told of the Batch (#882): its keys now, its Environment's, and createBatch's errors. */
+  const planningNow = (): BatchCalls.Planning => ({ keys, positionalKeys: env.positionalKeys, defaultFor, fail })
+  /** Its members as core's calls name them (#882): by slot, a call's, and by number, a Segment's; their place in the list, the count, an error's name. */
+  const bySlot: BatchCalls.Members = { indexOf: (slot) => indexOf[memberOf[slot]], count: () => form.size(), nameOf: (slot) => form.nameOf(memberOf[slot]) }
+  const byMember: BatchCalls.Members = { indexOf: (i) => indexOf[i], count: () => form.size(), nameOf: (i) => form.nameOf(i) }
 
   /** The Batch's keys, fixed from now on, and room for every member's targets on them. */
   const keysAre = (given: ReadonlyArray<string>): void => {
@@ -2825,14 +2682,6 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     enter(i, el)
   }
 
-  /** One stop's value for member `i`: a number, or a function's of its index and the count. */
-  const stopAt = (key: string, stop: unknown, i: number): number => {
-    let value = stop
-    if (Predicate.isFunction(stop)) value = stop(indexOf[i], form.size())
-    if (Predicate.isNumber(value)) return value
-    return fail(`an animate call's "${key}" gives ${form.nameOf(i)} ${JSON.stringify(value)}: a Batch takes numbers`)
-  }
-
   /** The slots an `animate` call moves: every member's there is, or the members it names, in order, whose elements have arrived. */
   const callSlotsOf = (named: ReadonlyArray<number> | undefined): ReadonlyArray<number> =>
     UndefinedOr.match(named, {
@@ -2859,39 +2708,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   const track = (call: BatchCall): BatchTrack => {
     if (Predicate.isUndefined(batch)) return landedTrack(call.settled)
     const slots = callSlotsOf(call.members)
-    // Each member's stops by key, its target and its first, `NaN` for none: worked out once, at the call.
-    const tos = new Float64Array(capacity * stride).fill(Number.NaN)
-    const froms = new Float64Array(capacity * stride).fill(Number.NaN)
-    let firsts = false
-    const given = call.target as Readonly<Record<string, unknown>>
-    Arr.forEach(Rec.keys(given), (key) => {
-      const k = keyIndex.get(key)
-      if (Predicate.isUndefined(k)) return fail(`an animate call gives "${key}", which isn't one of the Batch's keys (${keys.join(", ")})`)
-      const value = given[key]
-      // Per member per key at a call (#665): statements.
-      Arr.forEach(slots, (slot) => {
-        const i = memberOf[slot]
-        const at = i * stride + k
-        let stops = value
-        if (Predicate.isFunction(value)) stops = value(indexOf[i], form.size())
-        if (isPair(stops)) {
-          froms[at] = stopAt(key, stops[0], i)
-          tos[at] = stopAt(key, stops[1], i)
-          firsts = true
-          return
-        }
-        if (Predicate.isNumber(stops)) {
-          tos[at] = stops
-          return
-        }
-        return fail(`an animate call's "${key}" is ${JSON.stringify(stops)}: a Batch takes a number or two, its first and its target, or a function of a member's index that gives them`)
-      })
-    })
-    const fromOf = (slot: number, k: number): number => froms[memberOf[slot] * stride + k]
-    const toOf = (slot: number, k: number): number => tos[memberOf[slot] * stride + k]
+    // Each member's stops by key, its target and its first, `NaN` for none: worked out once, at the call (core's).
+    const { toOf, fromOf } = BatchCalls.callTargets(planningNow(), keyIndex, bySlot, slots, call.target as Readonly<Record<string, unknown>>)
     // The groups Wardic elements hold of its members that it moves come back first, from where they've left them (Q54).
     retakeFor(slots, givesGroup((slot, k) => !Number.isNaN(toOf(slot, k))))
-    return changeOn(slots, toOf, Bool.match(firsts, { onTrue: () => fromOf, onFalse: () => undefined }), call)
+    return changeOn(slots, toOf, fromOf, call)
   }
 
   /**
@@ -2904,25 +2725,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     targetOf: (slot: number, k: number) => number,
     fromOf: ((slot: number, k: number) => number) | undefined,
     call: Pick<BatchCall, "transition" | "reducedMotion" | "skipAnimations" | "head" | "settled"> & { readonly onMemberLanded?: (slot: number) => void },
-  ): BatchTrack => {
-    const transition = Bool.match(call.skipAnimations, {
-      onTrue: () => (): Batch.Transition => INSTANT,
-      onFalse: () => {
-        const planned = plannedOf(env.positionalKeys, keys, UndefinedOr.map(call.transition, unstaggered), call.reducedMotion)
-        return (slot: number, k: number): Batch.Transition => {
-          const plan = planned[k]
-          if (Predicate.isNotUndefined(plan.own)) return plan.own
-          return delayedBy(defaultFor(k, targetOf(slot, k)), plan.delay)
-        }
-      },
-    })
-    const options: { -readonly [K in keyof Batch.AnimateOptions]: Batch.AnimateOptions[K] } = { head: call.head, transition, onLanded: call.settled }
-    if (Predicate.isNotUndefined(fromOf)) options.from = fromOf
-    if (Predicate.isNotUndefined(call.onMemberLanded)) options.onMemberLanded = call.onMemberLanded
-    const delay = Bool.match(call.skipAnimations, { onTrue: () => undefined, onFalse: () => staggerOf(call.transition) })
-    if (Predicate.isNotUndefined(delay)) options.delay = delay
-    return controlsOf(Batch.animate(made(), slots, targetOf, options))
-  }
+  ): BatchTrack => controlsOf(Batch.animate(made(), slots, targetOf, BatchCalls.animateOptions(planningNow(), call, targetOf, fromOf)))
 
   /** Whether member `i`'s element has arrived. */
   const hasArrived = (i: number): boolean => slotOf[i] !== NO_SLOT
@@ -2935,17 +2738,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   const segmentOf = (named: ReadonlyArray<number> | undefined, target: Readonly<Record<string, unknown>>): BatchSegment => {
     if (Predicate.isUndefined(batch)) return { subjects: [], values: {} }
     const moving = membersOf(named)
-    const values: Record<string, Sequence.Value> = {}
-    Arr.forEach(Rec.keys(target), (key) => {
-      const value = target[key]
-      if (Predicate.isUndefined(value)) return
-      if (!keyIndex.has(key)) return fail(`a sequence's Segment of a Batch gives "${key}", which isn't one of its keys (${keys.join(", ")})`)
-      if (Predicate.isFunction(value)) {
-        values[key] = (index: number) => segmentValueOf(key, value(indexOf[moving[index]], form.size()), form.nameOf(moving[index]))
-        return
-      }
-      values[key] = segmentValueOf(key, value, undefined)
-    })
+    const values = BatchCalls.segmentValues(planningNow(), (key) => keyIndex.has(key), byMember, moving, target)
     return { subjects: Arr.map(moving, (i) => UndefinedOr.getOrThrow(entries[i])), values }
   }
 
@@ -2974,23 +2767,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     })
     // The groups Wardic elements hold of its members that it moves come back first (Q54).
     retakeFor(slots, givesGroup((slot, k) => Predicate.isNotUndefined(UndefinedOr.getOrThrow(animations[slot]).keyframes[keys[k]])))
-    // Per member per key, once at its first play (#665): statements.
-    const keyframesOf = (slot: number, k: number): Batch.Keyframes | undefined => {
-      const key = keys[k]
-      const animation = UndefinedOr.getOrThrow(animations[slot])
-      const given = animation.keyframes[key]
-      if (Predicate.isUndefined(given)) return undefined
-      const transition = UndefinedOr.getOrThrow(animation.transition[key])
-      const stops = Arr.map(given, stopNumber)
-      const snaps = call.reducedMotion && env.positionalKeys.isPositional(key)
-      if (!call.skipAnimations && !snaps) return { stops, transition }
-      // Where its run would end, from where it is: after its delay for reduced motion's Snap, at once when
-      // skipped. Its last stop is its last number: a sequence ends a key with a `null` when its last Segment ends first.
-      const end = ReducedMotion.endOf(stops[0], lastNumber(stops), transition)
-      let delay = 0
-      if (!call.skipAnimations && Predicate.isNotUndefined(transition.delay)) delay = transition.delay
-      return { stops: [Number.NaN, end], transition: landingAfter(delay) }
-    }
+    // Each member's key's stops, once at its first play (core's).
+    const keyframesOf = BatchCalls.keyframesFor(planningNow(), call, (slot) => UndefinedOr.getOrThrow(animations[slot]))
     return controlsOf(Batch.keyframes(made(), slots, keyframesOf, { head: call.head, onLanded: call.settled }))
   }
 
