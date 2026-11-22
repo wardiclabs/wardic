@@ -472,3 +472,11 @@ What the owner decided:
    3. `ObjectBatch`, `wardic.batch(objects)` and the README.
 
    The fixed group, `publishConfig` and the docs pages wait for 1.3's release PR, as Foldkit's did at 1.2.
+
+## Note (#882's PR 2, 2026-11-22): `@wardic/object` as built
+
+`packages/object`, `private: true` at the group's version, is *Amendment (#882)*'s items 4–6. It has `PumpedFrames`, `ObjectRenderer`, `ObjectValues` and `WardicObject` (`make`, `animate`, `afterWrites`, `frame`, `wantsFrame`, `dispose` and `layer`). Three things settled while building it:
+- **`frame(t)`'s writes are on the object when it returns,** in Node with no DOM as in Chromium. Every render in the tests reads the value its frame computed. A run asks for its first frame a microtask after `animate()` (the canvas note's P5), so `wantsFrame()` turns true then.
+- **No `unitScale` option yet** (item 6): nothing in core scales a rest threshold today, so the option would do nothing at 1. It comes with `@wardic/three` (step 2), whose metres need it.
+- **An array in a target is keyframes,** as Motion's, so an array-valued property isn't a plain target (item 5's "arrays of numbers"). Numbers, units and complex strings are.
+
