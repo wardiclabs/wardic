@@ -10,6 +10,9 @@
  *   material's (`opacity`, `roughness`: on every mesh that shares the material), a uniform's, or a
  *   vector's axis (`emissiveIntensity`, `uProgress`, `positionX`). The types are three's own:
  *   `animate(mesh, { rotatY: 90 })` is an error.
+ * - **Colours** (`color`, `emissive`, a uniform's `Color`) take a CSS colour, a hex number or a
+ *   `Color`, and blend in linear light, three's: red to blue passes `#bc00bc`. A spring keeps a
+ *   colour's speed through a change of target, as it keeps a position's.
  * - **Units:** `x`, `y` and `z` are metres, so springs rest within millimetres (`unitScale`).
  * - **three's rules after a write:** a camera's projection keys update its projection matrix, and an
  *   `opacity` below 1 draws its material transparent.
@@ -27,14 +30,18 @@
  */
 // `@wardic/three/WardicThree` (#883; ADR-0069 decisions 3–9 and 21, ADR-0073 *Amendment (#883)*, Q1–Q3):
 // `@wardic/object`'s runtime through `WardicObject.makeWith`, on three's Environment. The scene's input
-// (`hover`, `press`, the raycast) is #883's PR 5, colours its PR 3 and `InstancedMesh` its PR 4.
+// (`hover`, `press`, the raycast) is #883's PR 5 and `InstancedMesh` its PR 4; colours are PR 3's
+// (`ThreeColours`), split at the call into their channels.
 import * as UnitScale from "@wardic/core/UnitScale"
 import type * as Config from "@wardic/core/unstable/Config"
-import type * as Imperative from "@wardic/core/unstable/Imperative"
-import type * as ObjectBatch from "@wardic/object/ObjectBatch"
+import * as Imperative from "@wardic/core/unstable/Imperative"
+import * as ObjectBatch from "@wardic/object/ObjectBatch"
 import * as ObjectValues from "@wardic/object/ObjectValues"
 import * as WardicObject from "@wardic/object/WardicObject"
+import * as Arr from "effect/Array"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as ThreeColours from "./ThreeColours.ts"
 import * as ThreeRenderer from "./ThreeRenderer.ts"
 import * as ThreeValues from "./ThreeValues.ts"
 
@@ -50,32 +57,61 @@ type AxesOf<V> = V extends { readonly isVector4: true } ? "X" | "Y" | "Z" | "W" 
 /** `T`'s vectors' axes as keys: `positionX`, `uOffsetY`. */
 type VectorKey<T> = { readonly [K in keyof T]-?: K extends string ? `${K}${AxesOf<T[K]>}` : never }[keyof T]
 
-/** The names of `T`'s uniforms that hold a number, or a vector's axes. */
-type UniformKey<U> = { readonly [K in keyof U]-?: U[K] extends { value: number } ? K : U[K] extends { value: infer V } ? (K extends string ? `${K}${AxesOf<V>}` : never) : never }[keyof U] & string
+/** A three `Color`, by its flag. */
+type IsColor = { readonly isColor: true }
 
-/** The keys of `M`, a material: its numbers, its vectors' axes, and its uniforms'. */
-type MaterialKey<M> = NumberKey<M> | VectorKey<M> | (M extends { readonly uniforms: infer U } ? UniformKey<U> : never)
+/** `T`'s keys that hold a three `Color`. */
+type ColourKeyOf<T> = { readonly [K in keyof T]-?: T[K] extends IsColor ? K : never }[keyof T] & string
 
-/** The keys a mesh's material gives it: of each of an array of them. */
-type MaterialKeyOf<T> = T extends { readonly material: infer M } ? (M extends ReadonlyArray<infer E> ? MaterialKey<E> : MaterialKey<M>) : never
+/** A colour's channel keys, in linear light: `colorR`, `colorG`, `colorB`. */
+type ChannelKey<K extends string> = `${K}${(typeof ThreeColours.CHANNELS)[number]}`
 
-/** The keys of a three Subject `T`: a scene object's transforms, numbers and vectors' axes, and its material's; a material's own. */
-export type SceneKey<T> = T extends { readonly isObject3D: true } ? TransformKey | NumberKey<T> | VectorKey<T> | MaterialKeyOf<T> : T extends { readonly isMaterial: unknown } ? MaterialKey<T> : never
+/** The names of `U`'s uniforms that hold a number, a vector's axes, or a colour's channels. */
+type UniformKey<U> = {
+  readonly [K in keyof U]-?: U[K] extends { value: number } ? K : U[K] extends { value: IsColor } ? (K extends string ? ChannelKey<K> : never) : U[K] extends { value: infer V } ? (K extends string ? `${K}${AxesOf<V>}` : never) : never
+}[keyof U] & string
+
+/** The names of `U`'s uniforms that hold a `Color`. */
+type UniformColourKey<U> = { readonly [K in keyof U]-?: U[K] extends { value: IsColor } ? K : never }[keyof U] & string
+
+/** The uniforms `M` holds, a `ShaderMaterial`'s. */
+type UniformsOf<M> = M extends { readonly uniforms: infer U } ? U : never
+
+/** The number keys of `M`, a material: its numbers, its vectors' axes, its colours' channels, and its uniforms'. */
+type MaterialKey<M> = NumberKey<M> | VectorKey<M> | ChannelKey<ColourKeyOf<M>> | UniformKey<UniformsOf<M>>
+
+/** The colour keys of `M`, a material: its `Color`s and its uniforms'. */
+type MaterialColourKey<M> = ColourKeyOf<M> | UniformColourKey<UniformsOf<M>>
+
+/** The material a mesh's `material` gives it: each of an array of them. */
+type MaterialOf<T> = T extends { readonly material: infer M } ? (M extends ReadonlyArray<infer E> ? E : M) : never
+
+/** The number keys of a three Subject `T`: a scene object's transforms, numbers and vectors' axes, and its material's; a material's own. */
+export type SceneKey<T> = T extends { readonly isObject3D: true } ? TransformKey | NumberKey<T> | VectorKey<T> | MaterialKey<MaterialOf<T>> : T extends { readonly isMaterial: unknown } ? MaterialKey<T> : never
+
+/** The colour keys of a three Subject `T`: its material's `Color`s for a scene object, a material's own, a uniforms object's. */
+export type ColourKey<T> = T extends { readonly isObject3D: true } ? ColourKeyOf<T> | MaterialColourKey<MaterialOf<T>> : T extends { readonly isMaterial: unknown } ? MaterialColourKey<T> : UniformColourKey<T>
 
 /** A key's value in a scene: a number, or keyframes of them. */
 type SceneValue = number | Config.WardicKeyframes<number>
 
-/** A target for a scene's Subject `T`, by its keys. */
-type SceneTarget<K extends string> = { readonly [Key in K]?: SceneValue } & {
+/** A colour key's value: a colour, or keyframes of them. */
+type ColourTargetValue = ThreeColours.ColourValue | Config.WardicKeyframes<ThreeColours.ColourValue>
+
+/** A key's value among number keys `K` and colour keys `C`: either, for a key in both (a `ShaderMaterial`'s uniforms, which three types as any name of any value). */
+type ValueOf<Key, K, C, N, Colour> = Key extends C ? (Key extends K ? N | Colour : Colour) : N
+
+/** A target for a scene's Subject, by its number keys `K` and its colour keys `C`. */
+type SceneTarget<K extends string, C extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, SceneValue, ColourTargetValue> } & {
   readonly transition?: Config.WardicTransition | undefined
-  readonly transitionEnd?: { readonly [Key in K]?: number } | undefined
+  readonly transitionEnd?: { readonly [Key in K | C]?: ValueOf<Key, K, C, number, ThreeColours.ColourValue> } | undefined
 }
 
 /**
- * A target for `T`: a scene object's or a material's by its scene keys; a uniforms object's by its
- * uniforms' names; any other object's (a `Vector3`, a plain `{ x }`) by its own keys, as `@wardic/object`'s.
+ * A target for `T`: a scene object's or a material's by its scene keys and colours; a uniforms object's
+ * by its uniforms' names; any other object's (a `Vector3`, a plain `{ x }`) by its own keys, as `@wardic/object`'s.
  */
-export type ThreeTarget<T> = [SceneKey<T>] extends [never] ? WardicObject.ObjectTarget<T> & SceneTarget<UniformKey<T>> : SceneTarget<SceneKey<T>>
+export type ThreeTarget<T> = [SceneKey<T>] extends [never] ? WardicObject.ObjectTarget<T> & SceneTarget<UniformKey<T>, UniformColourKey<T>> : SceneTarget<SceneKey<T>, ColourKey<T>>
 
 /** The keys a Batch of `T` takes: a scene object's scene keys, any other object's numbers. */
 export type BatchKey<T> = [SceneKey<T>] extends [never] ? ObjectBatch.NumberKey<T> : SceneKey<T>
@@ -124,15 +160,42 @@ export const environment = (unitScale: number = UNIT_SCALE): WardicObject.Enviro
   positionalKeys: ThreeValues.positionalKeys,
   batchWriter: ThreeRenderer.writer,
   batchRead: ThreeValues.read,
-  layers: UnitScale.layer(unitScale),
+  layers: UnitScale.layerWith(ThreeColours.unitScale(unitScale)),
 })
+
+/** A Segment of a sequence with its colour keys split: a Segment of a Subject, `[subject, target, options?]`; any other as it is. */
+const splitSegment = (segment: unknown): unknown => {
+  if (!Arr.isArray(segment)) return segment
+  const [subject, target, options] = segment as ReadonlyArray<unknown>
+  if (Predicate.isNotUndefined(ObjectBatch.entryOf(subject)) || Predicate.isFunction(subject)) return segment
+  const [split, splitOptions] = ThreeColours.splitCall(firstOf(subject), target, options)
+  if (split === target) return segment
+  if (segment.length < 3) return [subject, split]
+  return [subject, split, splitOptions]
+}
+
+/** The Subject a call's target is read for: the first of a list. */
+const firstOf = (subject: unknown): unknown => {
+  if (Arr.isArray(subject)) return (subject as ReadonlyArray<unknown>)[0]
+  return subject
+}
+
+/** `animate` with each colour key split into its channels at the call, for a Subject, a list of them, or a sequence's Segments of them. */
+const withColours = (animate: (first: unknown, second?: unknown, third?: unknown) => Imperative.WardicPlaybackControls) =>
+  (first: unknown, second?: unknown, third?: unknown): Imperative.WardicPlaybackControls => {
+    if (Imperative.isSequence(first)) return animate(Arr.map(first, splitSegment), second)
+    // A Batch's colours are its instances', with the `InstancedMesh` writer (PR 4).
+    if (Predicate.isNotUndefined(ObjectBatch.entryOf(first))) return animate(first, second, third)
+    const [split, options] = ThreeColours.splitCall(firstOf(first), second, third)
+    return animate(first, split, options)
+  }
 
 /** A runtime on frames the Host loop pumps: `frame(time)` once a frame, before it renders. */
 export const make = (options: Options = {}): WardicThree => {
   const unitScale = UndefinedOr.match(options.unitScale, { onUndefined: () => UNIT_SCALE, onDefined: (given) => given })
   const runtime = WardicObject.makeWith(environment(unitScale), options)
   return {
-    animate: runtime.animate as unknown as ThreeAnimate,
+    animate: withColours(runtime.animate as never) as unknown as ThreeAnimate,
     batch: runtime.batch as unknown as WardicThree["batch"],
     afterWrites: runtime.afterWrites,
     frame: runtime.frame,
