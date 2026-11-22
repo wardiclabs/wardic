@@ -57,7 +57,7 @@ bun run test:browser   # the DOM and the bindings, in Chromium
 As the change needs:
 
 - **`bun run size --base main`,** for any change to a package's `src`: it fails an app whose gzipped size grows more than 1% over `main`'s, or a Slim element's app past its budget. It runs in seconds, and CI runs it on every PR (#654).
-- **`bun run bench:core --base main` / `bun run bench:solid --base main` / `bun run bench:foldkit --base main`,** for a change on the per-frame path or to an element's mount, on either binding. Run them on a quiet machine.
+- **`bun run bench:core --base main` / `bun run bench:solid --base main` / `bun run bench:foldkit --base main`,** for a change on the per-frame path or to an element's mount, on either binding, and **`bun run bench:three --base main`** for one to `@wardic/object` or `@wardic/three`. Run them on a quiet machine.
 - **`bun run bench:motion`,** to measure Wardic against Motion for React, for the numbers [Why Wardic](https://wardic.dev/why) quotes: it prints that page's table. Run it on a quiet machine.
 - **`bun run pack:check`,** for a change to how the packages build or what they ship: it installs the packed packages into fresh apps and opens them.
 - **The storefront smokes,** for a change to the examples: `bun run test:storefront`, and `bun run smoke:dev` in `examples/storefront/solid2` for a change to the Solid 2 binding.

@@ -618,3 +618,31 @@ What the owner decided:
 - **`TestStage`:** `frame(ms?)` makes the scene's matrices current before Wardic's frame (what a test built since, as though the page had drawn it) and after it (what Wardic wrote, as a render does); `pointer.over(target)` projects a target's bounding-sphere middle (an instance's through its matrix) to the stand-in canvas. Its events reach the stand-in window, then the canvas, as a page's capture phase does.
 - **Tests:** IN1–IN11 and TS1, real three.js in Node: a hover's start and end with the hit, a hover that follows what moves under a still pointer (a mesh and an instance), the nearest drawn object blocking, hidden and other layers left out, a child's hit on its parent, a press's success on the object and off it, a cancel and a release off the canvas, a down cast at once, an `InstancedMesh`'s and a Batch of meshes' members, no casting without a gesture, `hitTest`, the errors, a throwing callback reported, and `dispose`.
 - **Not done here:** a real browser's pointer path, which 5c's lab test drives; the raycast's cost a frame in the gate, which is 5b's.
+
+**PR 5b, as built:** `bench:three` (`bun run bench:three --base main`), on bench:core's driver.
+- **The driver:** bench:core's runner moved into `packages/core/bench/driver.ts`, whose `run(bench)` takes a bench's packages, its harness, its noise control and its default engines. bench:core's `run.ts` calls it with core, `ticksOnly` and Bun, Node and Chromium, as before. Each side is its packages' `src` and `package.json` at its ref, each package's `node_modules` links copied as links: they're relative, so a side's three resolves `@wardic/core` and `@wardic/object` to the side's own, and its other dependencies to the repo's or a commit's own install. The bundle takes the `@wardic/source` condition.
+- **Its workloads** time `wardic.frame(t)`, every animation a tween long enough to move every member through every measured frame. A workload under 0.1 ms at N runs at ten times N, or a hundred, as bench:core's do (#545).
+  - `three/matrices x10`, the noise control: 10,000 meshes' own matrices, `rotation.y` and `scene.updateMatrixWorld()`, three's code alone.
+  - `meshes/batch` and `meshes/each`, at N and ten times N: a Batch of meshes against a run each, moving `y` and `rotateY`.
+  - `instances/batch`, at N and ten times N: an `InstancedMesh`'s Batch.
+  - `raycast/meshes x10` and `raycast/instances x10`: the scene's input, a hover watched and the pointer still over the middle.
+  - `afterWrites x100`: 100,000 empty Frame effects, nothing moving.
+- **The gate run** (the bench box, `wardic-quiet`, 11 paired reps, base `main` 352a4a9 against this branch), ms a frame:
+
+  | Workload | Bun 1.3.13 | Node 24.15 | Gate |
+  |---|---|---|---|
+  | `three/matrices x10` | 0.64, −0.8% | 0.45, −0.3% | noise control |
+  | `meshes/batch` | 0.14, −0.3% | 0.16, −0.7% | ok |
+  | `meshes/batch x10` | 0.77, +0.2% | 1.52, −0.7% | ok |
+  | `meshes/each` | 0.34, −1.8% | 0.27, +2.7% | ok |
+  | `meshes/each x10` | 8.93, +2.9% | 8.94, +1.4% | ok |
+  | `instances/batch` | 0.07, −0.8% | 0.14, +0.8% | ok |
+  | `instances/batch x10` | 0.64, −0.7% | 1.37, −1.2% | ok |
+  | `raycast/meshes x10` | 0.22 | 0.24 | new |
+  | `raycast/instances x10` | 0.33 | 0.54 | new |
+  | `afterWrites x100` | 0.10, −9.0% | 0.10, −0.2% | ok |
+
+  - **A Batch against a run each:** at 1,000 meshes 2.4× cheaper a frame on Bun and 1.7× on Node; at 10,000, 11.6× and 5.9×.
+  - **Instances:** 10,000 instances moving cost what three's own matrices for 10,000 meshes do on Bun (0.64 ms); 3× on Node, where core's Batch step is slower (#898).
+  - **Bytes a frame (Node):** none for the empty Frame effects, the target; about 10 KB for the raycast at 10,000, three's intersections.
+- **No browser engine:** the bench box draws WebGL in software, so the partial upload (PR 4's Q4) stays unmeasured.
