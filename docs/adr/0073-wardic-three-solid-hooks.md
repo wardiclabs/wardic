@@ -1,5 +1,7 @@
 # `@wardic/three/solid` is hooks: a Stage in context, `ward` on any Subject, Scene objects by accessor, and Frame effects
 
+*Amended for #881 (2026-11-22), step 0's probes: a scene component joins its `<Loading>` and `<Reveal>` by returning its hook's `held`; a Scene object joins its scene once its ward can start; Solid's own effect, measured, lands a frame late in the Host loop; `TestStage` runs on Solid's client build (*Amendment (#881)*).*
+
 ADR-0070 gave a scene's Solid 2 binding components: `<WardicScene>` hosts the canvas and provides the runtime, and `<SceneObject>` carries one object's motion props, the scene's Wardic element. None of it is built. Core's Batch and the DOM's `createBatch` shipped (#665, #712), and the spine and the Flush gate are in core (#672).
 
 The owner asked (2026-11-22) to move 3D up the roadmap and to rethink the Solid side after the shape of solid-primitives' animation primitives (`createTween`, `createSpring`, `createPresence`): signals in, signals out, `create*` hooks that end with their owner, no components and no context. The brief: keep the simplicity, never force a new component on the user to handle animation or SSR (though SSR matters less for 3D), and build for how Solid 2 works, as Motion was built for how React works.
@@ -113,7 +115,7 @@ function Crate(props: { open: boolean }) {
     createSceneObject(() => (props.tab === "a" ? meshA : meshB), { exit })     // another object: the old exits as the new enters
     ward(() => active(), { animate: () => VIEWS[props.view] })                 // on ward: the new Subject takes the ward over, with no exit
     ```
-    This reverses ADR-0070 decision 6, which rejected a reactive `object` as "a hidden exit and enter inside one component". Presence as state and assets under `<Loading>` (decision 21's 8g and 8d) need it. A swap plays its exit and its entry at once. ADR-0068 decision 11's `mode: "wait"`, where the next enters only once the last has left, stays a later slice.
+    This reverses ADR-0070 decision 6, which rejected a reactive `object` as "a hidden exit and enter inside one component". Presence as state and assets under `<Loading>` (decision 21's 8g and 8d) need it. A swap plays its exit and its entry at once. ADR-0068 decision 11's `mode: "wait"`, where the next enters only once the last has left, stays a later slice. *Amended by* *Amendment (#881)*: a Scene object joins once its ward can start, and its component joins `<Loading>` only by returning `held`.
 
 ### The Stage
 
@@ -162,7 +164,7 @@ function Crate(props: { open: boolean }) {
     })
     ```
     - **A camera or a material never joins a scene,** and a Scene object always does.
-    - **Carried over:** from ADR-0070 decision 5, `initial` is written before it joins, so its first drawn frame shows it, and `initial: false` starts it at `animate`. From ADR-0068, its exit lands before it leaves (decision 8), its disposal is opt-in (decision 9), and its exit events are on its handle (decision 10).
+    - **Carried over:** from ADR-0070 decision 5, `initial` is written before it joins, so its first drawn frame shows it, and `initial: false` starts it at `animate`. *Amendment (#881)*: it joins only once its ward can start, its Subject and every pending key landed. From ADR-0068, its exit lands before it leaves (decision 8), its disposal is opt-in (decision 9), and its exit events are on its handle (decision 10).
     - **Its parent** is the one it's given, else the parent it already has (a node of a loaded model stays where it is, and its exit removes it from there), else the Stage's scene. ADR-0070 decision 5's "the nearest `<SceneObject>` above it" needed a component to provide a context, and a hook can't provide one to its children.
     - Rejected: one hook with a join option, `ward(mesh, { join: group, exit })`.
 15. **`createSceneObject` returns one handle: its ward, plus the membership's events** (Q25):
@@ -240,7 +242,7 @@ function Crate(props: { open: boolean }) {
     - **When it runs:** after Wardic's writes for the frame, before the render. So `lookAt` sees where Wardic put the camera this frame, and the app's own write wins for that frame. Frame effects run in the order they were made.
     - **ADR-0069's "Left out of v1" `lookAt` recipe** (animate a plain target, then call `camera.lookAt(target)` after `frame(t)`) is the first example, in Solid.
     - **On the DOM:** it runs after the Flush gate's commit, before paint. That makes it the tracked form of `createAnimationFrame`.
-    - **Solid's own effect** runs on Solid's schedule. That's after the Host loop's callback has rendered, so a write there lands a frame late (an inference, which step 0's probes check).
+    - **Solid's own effect** runs on Solid's schedule. That's after the Host loop's callback has rendered, so a write there lands a frame late (measured: *Amendment (#881)*).
     - Rejected: Frame effects running before Wardic's writes, where Wardic overwrites any key it animates and `lookAt` aims from last frame's camera; `createRenderEffect`, Solid's render-phase effect; `onFrame`; `createSceneEffect`, which suggests scenes only.
 
 ### Where things live
@@ -263,7 +265,7 @@ function Crate(props: { open: boolean }) {
     |---|---|---|
     | 8a | **Sequences as actions.** `animate()`'s controls are `PromiseLike`, so `action(function* () { setOpening(true); yield stage.animate(lid, { rotateX: -110 }); yield stage.animate(gem, { y: 1.2 }) })` works, with a `createOptimistic` flag for the busy UI (`isPending` reports only reads `affects()` declares). Solid holds the transition's other writes until the animation lands. | in: a guide and a test |
     | 8b | **`isPending(() => card.settled())`** on every scene hook, as the DOM's ward has it (#257) | in |
-    | 8c | **Targets that wait for async data:** given `animate: () => slots()[props.i]` over an async memo, the object holds still while it's pending, then flies there | in: probe first |
+    | 8c | **Targets that wait for async data:** given `animate: () => slots()[props.i]` over an async memo, the object holds still while it's pending, then flies there | in: confirmed in the scene's shape (*Amendment (#881)*) |
     | 8d | **Assets under `<Loading>`:** `createSceneObject(() => gltf().scene, …)` enters when the load resolves (decision 10) | in |
     | 8e | **Sensors on objects** (decision 18) | in |
     | 8f | **A frame hook in the Host loop**: folded into the Frame effect (decision 19) | in |
@@ -271,7 +273,7 @@ function Crate(props: { open: boolean }) {
     | 8h | **DOM Live values driving a scene:** `ward(camera, { style: { rotateY: createTransform(scrollYProgress, [0, 1], [0, 360]) } })`, through the `AtomRegistry` the DOM and the Stage share (ADR-0069, decision 21) | in |
     | 8i | **Ref arrays:** `<div ref={[hovered, pressed]} />` | docs only, with a test |
     | 8j | **Optimistic targets:** with `createOptimisticStore`, a target animates at once and springs back, keeping its velocity, if the action fails | later, as a demo |
-    | 8k | **Entering when ready:** a scene hook adds its object in `onSettled`, so a model under `<Loading>` enters once its data and assets have arrived, and, if `<Reveal>` holds `onSettled` back too, siblings enter in reveal order | in: probe first |
+    | 8k | **Entering when ready:** a scene hook adds its object in `onSettled`, so a model under `<Loading>` enters once its data and assets have arrived, and, if `<Reveal>` holds `onSettled` back too, siblings enter in reveal order | in, through `held`: `onSettled` doesn't wait in a component that renders nothing (*Amendment (#881)*) |
     | 8l | **An exit before a navigation, through transitions:** `action(function* (to) { yield animate(panel, { opacity: 0 }); navigate(to) })` | later: a guide and a test against Solid Router's transitions |
     | 8m | **Writable springs,** solid-primitives' `[y, setY]` tuple | later: `jump` covers the need |
     | 8n | **An Effect form of the scene's `animate`,** for Effect apps and Foldkit | later, with a Foldkit scene binding |
@@ -308,7 +310,7 @@ function Crate(props: { open: boolean }) {
     expect(mesh.scale.x).toBeCloseTo(1.08)
     stage.ward(mesh, { … })        // decision 12's explicit form: a test with no Solid at all
     ```
-    It sits beside `@wardic/test`'s `TestClock`, `TestRenderer`, `TestProbe`, `TestInput` and `testLayer`. Probe P6 already drove an `Object3D` in Bun. The browser tier covers only the renderer, the canvas's sizing and one real pointer path.
+    It sits beside `@wardic/test`'s `TestClock`, `TestRenderer`, `TestProbe`, `TestInput` and `testLayer`. Probe P6 already drove an `Object3D` in Bun. The browser tier covers only the renderer, the canvas's sizing and one real pointer path. *Amended by* *Amendment (#881)*: its node tier resolves Solid on the `browser` condition, and `TestStage` mounts the tree itself.
 27. **A `bench:three` from step 2, gated as `bench:core` and `bench:solid` are** (Q36). Its cases:
     - one Batch run against a run per object, at 1,000 and 10,000;
     - `InstancedMesh` writes against matrix updates per object;
@@ -364,8 +366,8 @@ These can go at any time:
 - **Scene object** follows decisions 10, 14 and 17: its motion is its Ward's, it can be given as an accessor, and its variants pass down the scene's graph.
 
 **Inferred, not measured:**
-- Solid's effect landing a frame late under a pumped loop (step 0);
-- the spine's handling of a pending read (8c), and `onSettled`'s order under `<Reveal>` (8k);
+- Solid's effect landing a frame late under a pumped loop (step 0): measured, *Amendment (#881)*;
+- the spine's handling of a pending read (8c), and `onSettled`'s order under `<Reveal>` (8k): measured, *Amendment (#881)*;
 - a Frame effect's cost, about one compute call per effect per frame while its inputs move;
 - under `frameloop: "demand"`, a change to a signal a Frame effect's compute reads asking for a frame. That's how it would be built, not yet a design checked in code.
 
@@ -375,3 +377,47 @@ These can go at any time:
 - presence as state on the DOM. It meets Wardic's `createPresence()`, `<AnimatePresence>`'s event handle, whose name clashes with solid-primitives' `createPresence(show)`;
 - components as sugar over the hooks (decision 5);
 - `whileInView` in a scene (ADR-0069's "Left out of v1").
+
+## Amendment (#881, 2026-11-22): step 0's probes, `held`, and joining when ready
+
+Step 0's four probes ran with no product code (#881; `.tmp/564-step0/README.md` on `probe/564-step0`). They used Solid 2.0.1, in Chromium through Vitest's browser mode, and in Node through its `node` environment.
+- **A pending `animate`, in the scene's shape** (8c), holds its Subject still, then flies once the data lands. The ward was made in a component that renders nothing, on a Subject outside the region.
+  - No throw, no `undefined`, no second retarget (P1a–P1d).
+  - An index changed while its list refetched waits for both, with no stop at the old list's value at the new index.
+  - While it waits, the Subject sits at its own values: `initial` is written only when the ward starts (P1e).
+- **A component that renders nothing doesn't join its boundary** (8k), whatever its hooks read:
+  - `onSettled` runs at once, before the data;
+  - `<Loading>` shows no fallback;
+  - `<Reveal>` doesn't order it (P2b, P2e, P2f).
+
+  A component that renders a read that draws nothing joins all three (P2g).
+- **In Node with no DOM, a context over `null` components runs on Solid's client build.** That takes two things:
+  - Solid resolved on the `browser` condition;
+  - the tree read inside a root, as a renderer would.
+
+  Then effects, `onSettled`, cleanups and async under `<Loading>` all run, and `@wardic/solid` imports. Node's own conditions give the server build, where no effect runs (probe 3).
+- **Solid's own effect, in the Host loop's one callback, lands a frame late,** on 30 frames of 30 (P4a). `flush()` before `render()` lands it in the same frame (P4b). three's `setAnimationLoop` calls its callback from `requestAnimationFrame`, so the probe's rAF callback is that loop.
+
+What the owner decided:
+
+1. **`held`, on a scene hook's handle** (decision 21's 8k; decisions 10 and 15). `createSceneObject`'s handle, and a ward made Subject first, have `held`, which renders nothing. It reads the hook's pending Subject and config, so a component that returns it joins its boundary (P2g):
+   - the fallback shows;
+   - `onSettled` waits for the data;
+   - `<Reveal>` orders the siblings.
+   ```tsx
+   function Model(props: { readonly url: string }) {
+     const card = createSceneObject(() => gltf(props.url).scene, { initial: { scale: 0 }, animate: { scale: 1 } })
+     return card.held
+   }
+   <Reveal>
+     <Loading fallback={<Spinner />}><Model url="/a.glb" /></Loading>
+     <Loading fallback={<Spinner />}><Model url="/b.glb" /></Loading>
+   </Reveal>
+   ```
+   `return null` still works: the object enters once its data lands (P1), but with no fallback and no reveal order. A ward itself can't be returned, since it's a ref callback, which Solid would call.
+   - Rejected: no boundaries in v1, with a fallback only from rendering the data or from `isPending`; probing first for a join with nothing rendered, through Solid's own owner API.
+2. **A Scene object joins when its ward can start** (decision 14). `createSceneObject` adds its object only once its Subject and every pending key of its config (`animate`, `style`, `transition` and the rest) have landed. `initial` is written in the same frame, so the object's first drawn frame shows it.
+   - **`ward(mesh, …)` on an object already drawn** keeps its own pose until its data lands. The docs say so, and point to `createSceneObject` or to an `initial` that matches its pose.
+   - Rejected: joining at once, at its own values, then jumping to `initial` when the data lands. That shows the jump the DOM's held region hides.
+3. **`TestStage`'s node tier** (decision 26) is a Vitest project in the `node` environment that resolves Solid on the `browser` condition. `TestStage` mounts the tree itself, reading it inside a root as a renderer would, so a test needs no DOM.
+4. **Decision 19 is measured:** in the Host loop, Solid's own effect lands a frame late, and the docs say so beside `createFrameEffect`.
