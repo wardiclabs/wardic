@@ -30,11 +30,14 @@ const snapOf = (step: (dt: number) => { readonly value: number; readonly done: b
   throw new Error("never rested")
 }
 
-it.effect("US1: the unit scale is 1 unless the Environment's Layers give another; forKey counts x, y and z alone", () =>
+it.effect("US1: the unit scale is Motion's, 1 for every key, unless the Environment's Layers give a rule; layer(100) counts x, y and z alone", () =>
   Effect.gen(function* () {
-    expect(yield* UnitScale.UnitScale).toBe(1)
-    expect(yield* UnitScale.UnitScale.pipe(Effect.provide(UnitScale.layer(100)))).toBe(100)
-    expect([UnitScale.forKey(100, "x"), UnitScale.forKey(100, "z"), UnitScale.forKey(100, "rotateY"), UnitScale.forKey(100, "opacity")]).toEqual([100, 100, 1, 1])
+    const motions = yield* UnitScale.UnitScale
+    expect([motions("x", 5), motions("opacity", 1)]).toEqual([1, 1])
+    const scene = yield* UnitScale.UnitScale.pipe(Effect.provide(UnitScale.layer(100)))
+    expect([scene("x", 5), scene("z", 5), scene("rotateY", 90), scene("opacity", 1)]).toEqual([100, 100, 1, 1])
+    const own = yield* UnitScale.UnitScale.pipe(Effect.provide(UnitScale.layerWith((key, distance) => key.length * distance)))
+    expect(own("abc", 2)).toBe(6)
   }),
 )
 
@@ -49,7 +52,7 @@ it("US2: a scaled threshold is the old one at 1, a given one as it is, and by di
 })
 
 it("US3: a 5 m move on springValues at a unit scale of 100 rests within millimetres, where Motion's thresholds snap it short", () => {
-  const run = (unitScale?: number) => {
+  const run = (unitScale?: UnitScale.Rule) => {
     const step = Machine.springValues({ x: 5 }, SPRING, { from: { x: 0 }, unitScale }).start()
     return snapOf((dt) => {
       const frame = step(dt)
@@ -57,13 +60,13 @@ it("US3: a 5 m move on springValues at a unit scale of 100 rests within millimet
     })
   }
   const motions = run()
-  const metres = run(100)
+  const metres = run(UnitScale.position(100))
   expect(motions).toBeGreaterThan(0.005)
   expect(metres).toBeLessThan(0.005)
 })
 
 it("US4: the spine's leg builder reads its keys at the unit scale it's given", () => {
-  const legOf = (unitScale: number) => {
+  const legOf = (unitScale: UnitScale.Rule) => {
     const legs = RetargetLegs.legsOf({ x: 0 }, { x: 5 }, { type: "spring", ...SPRING }, false, false, { isPositional: ReducedMotion.isTransform }, { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }, () => 0, undefined, undefined, undefined, undefined, undefined, unitScale)
     const leg = legs[0]!
     // A numeric leg's machine is `springValues`' own.
@@ -74,13 +77,13 @@ it("US4: the spine's leg builder reads its keys at the unit scale it's given", (
       return { value: frame.value.x as number, done: frame.done }
     })
   }
-  expect(legOf(1)).toBeGreaterThan(0.005)
-  expect(legOf(100)).toBeLessThan(0.005)
+  expect(legOf(UnitScale.MOTIONS)).toBeGreaterThan(0.005)
+  expect(legOf(UnitScale.position(100))).toBeLessThan(0.005)
 })
 
 it("US5: a Batch's member's key rests at its unit scale too", () => {
   const writer: Batch.Writer<{ x: number }> = { writes: () => true, forKeys: () => (subject, positions, base) => void (subject.x = positions[base]!) }
-  const run = (unitScale?: number) => {
+  const run = (unitScale?: UnitScale.Rule) => {
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring", ...SPRING }, unitScale })
     const dot = { x: 0 }
     const slot = Batch.enter(batch, dot, { x: 0 })
@@ -92,7 +95,7 @@ it("US5: a Batch's member's key rests at its unit scale too", () => {
     })
   }
   expect(run()).toBeGreaterThan(0.005)
-  expect(run(100)).toBeLessThan(0.005)
+  expect(run(UnitScale.position(100))).toBeLessThan(0.005)
 })
 
 it("US6: scaleZ is a transform key: its identity 1, positional, and a scale's spring by default", () => {
@@ -101,3 +104,27 @@ it("US6: scaleZ is a transform key: its identity 1, positional, and a scale's sp
   expect(DefaultTransition.byKey("scaleZ", 0)).toBe(DefaultTransition.byKey("scale", 0))
   expect(DefaultTransition.byKey("scaleZ", 2)).toBe(DefaultTransition.byKey("scaleX", 2))
 })
+
+it("US7: a key on the relative scale rests by its share of the distance: a tiny move animates, and every leg lands in the same time", () => {
+  /** A spring from 0 to `to` on `rule`: its frames to rest, and its last frame's gap as a share of `to`. */
+  const land = (to: number, rule?: UnitScale.Rule) => {
+    const step = Machine.springValues({ r: to }, SPRING, { from: { r: 0 }, unitScale: rule }).start()
+    let before = 0
+    for (let frames = 1; frames < 2000; frames++) {
+      const frame = step(FRAME)
+      if (frame.done) return { frames, gap: Math.abs(to - before) / to }
+      before = frame.value.r as number
+    }
+    throw new Error("never rested")
+  }
+  const relative: UnitScale.Rule = (_, distance) => UnitScale.relative(distance, 0.001)
+  // Motion's thresholds: a move of 0.0024 (a colour channel, black to #080808) is at rest at once.
+  expect(land(0.0024).frames).toBe(1)
+  const tiny = land(0.0024, relative)
+  const whole = land(1, relative)
+  expect(tiny.frames).toBe(whole.frames)
+  expect(tiny.gap).toBeLessThan(0.01)
+  // A distance under the floor counts as the floor.
+  expect(UnitScale.relative(0, 0.001)).toBe(UnitScale.relative(0.001, 0.001))
+})
+

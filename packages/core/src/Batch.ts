@@ -115,11 +115,11 @@ export interface Options<S> {
   // ADR-0069 decision 16: never per member.
   readonly onFrame?: () => void
   /**
-   * The Environment's unit scale: `x`, `y` and `z`'s springs' rest thresholds read at it (`UnitScale.forKey`),
-   * a threshold a spring is given kept as it is. 1 when left out, Motion's own.
+   * The Environment's unit scale: each key's springs' rest thresholds read at the units it gives for the
+   * key and its leg's distance, a threshold a spring is given kept as it is. Motion's own when left out.
    */
-  // ADR-0069 decision 8 (#883): an Environment in metres gives 100.
-  readonly unitScale?: number | undefined
+  // ADR-0069 decision 8 (#883): an Environment in metres gives `x`, `y` and `z` 100.
+  readonly unitScale?: UnitScale.Rule | undefined
 }
 
 /** A Batch of Subjects `S`: built by `make`, never as a literal. */
@@ -195,8 +195,8 @@ interface State<S> {
   readonly stride: number
   /** Each key's index, by its name. */
   readonly indexOfKey: Readonly<Record<string, number>>
-  /** Each key's rest thresholds' scale, by its index: 1 for Motion's units (#883). */
-  readonly scales: Float64Array
+  /** Each key's units for its rest thresholds, by its name and a leg's distance (#883). */
+  readonly unitScale: UnitScale.Rule
   capacity: number
   /** How many slots have ever been entered: every slot below is a member's. */
   used: number
@@ -432,7 +432,7 @@ export const make = <S>(options: Options<S>): Batch<S> => {
       indices[key] = k
       return indices
     }),
-    scales: Float64Array.from(Arr.map(options.keys, (key) => UnitScale.forKey(UndefinedOr.match(options.unitScale, { onUndefined: () => 1, onDefined: identity }), key))),
+    unitScale: UndefinedOr.match(options.unitScale, { onUndefined: () => UnitScale.MOTIONS, onDefined: identity }),
     capacity,
     used: 0,
     subjects: [],
@@ -651,7 +651,7 @@ const turn = <S>(state: State<S>, at: number, rule: number, goal: number, start:
   state.originVelocities[at] = speed
   state.delays[at] = entry.delay + wait
   const distance = goal - start
-  const unit = state.scales[at % state.stride]
+  const unit = state.unitScale(state.keys[at % state.stride], distance)
   state.restDeltas[at] = Spring.restDeltaIn(entry.spring, distance, unit)
   state.restSpeeds[at] = Spring.restSpeedIn(entry.spring, distance, unit)
   // A spring that ends at its duration starts from rest, as Motion's (#359).
@@ -767,7 +767,7 @@ export const retarget: {
       state.elapsed[at] = fresh
       state.delays[at] = entry.delay + wait
       const distance = target - state.positions[at]
-      const unit = state.scales[at % state.stride]
+      const unit = state.unitScale(state.keys[at % state.stride], distance)
       state.restDeltas[at] = Spring.restDeltaIn(entry.spring, distance, unit)
       state.restSpeeds[at] = Spring.restSpeedIn(entry.spring, distance, unit)
       // A spring that ends at its duration starts from rest, as Motion's (#359).
@@ -2087,7 +2087,7 @@ export const durationOf = (self: Animation): number => {
       longest = Math.max(longest, framesUntil(entry.spring.duration, delay))
       continue
     }
-    const unit = state.scales[animation.ats[i] % state.stride]
+    const unit = state.unitScale(state.keys[animation.ats[i] % state.stride], distance)
     const restDelta = Spring.restDeltaIn(entry.spring, distance, unit)
     const restSpeed = Spring.restSpeedIn(entry.spring, distance, unit)
     let position = animation.starts[i]

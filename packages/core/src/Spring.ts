@@ -400,7 +400,7 @@ export const restSpeedFor = (spring: Resolved, distance: number, scale = 1): num
   thresholdOf(spring.restSpeed, distance, GRANULAR_REST_SPEED, REST_SPEED) / scale
 
 /**
- * A leg's distance threshold for a key whose units are `unit` of Motion's (`UnitScale.forKey`): the one
+ * A leg's distance threshold for a key whose units are `unit` of Motion's (an Environment's `UnitScale`): the one
  * the spring is given, as it is, else by `distance` read in Motion's units. Allocates nothing.
  */
 // ADR-0069 decision 8: `restFor(spring, d * unitScale, unitScale)`, a given threshold winning.

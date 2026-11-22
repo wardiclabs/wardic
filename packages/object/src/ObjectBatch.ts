@@ -22,6 +22,7 @@ import * as Batch from "@wardic/core/Batch"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as UnitScale from "@wardic/core/UnitScale"
 import * as BatchCalls from "@wardic/core/unstable/BatchCalls"
 import type * as Imperative from "@wardic/core/unstable/Imperative"
 import type * as Spine from "@wardic/core/unstable/Spine"
@@ -74,8 +75,8 @@ export interface Options<T, Key extends string = NumberKey<T>> {
 /** What a runtime gives its Batches: its fork, and its Environment's Positional keys and Default transitions. */
 export interface Context {
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, FrameLoop.FrameLoop>) => Fiber.Fiber<A, E>
-  /** The Environment's unit scale: its Batches' rest thresholds for `x`, `y` and `z` (ADR-0069 decision 8). */
-  readonly unitScale: number
+  /** The Environment's unit scale: each key's units for its Batches' rest thresholds (ADR-0069 decision 8). */
+  readonly unitScale: UnitScale.Rule
   /** How the Environment draws a Batch's members: plain objects' {@link writer}, or another Environment's. */
   readonly writer: Batch.Writer<object>
   /** How it reads a member's key before the Batch moves it: plain objects' {@link read}, the property. */
