@@ -1,6 +1,6 @@
 ---
 title: Roadmap
-description: "What 1.0, 1.1 and 1.2 brought, Solid 2 by default in @wardic/solid 2.0, and what comes next, in order: a performance viewer, a Timeline, then Environments beyond the DOM."
+description: "What 1.0, 1.1 and 1.2 brought, Solid 2 by default in @wardic/solid 2.0, and what comes next, in order: three.js scenes, a performance viewer, a Timeline, then the terminal."
 ---
 
 # Roadmap
@@ -42,28 +42,44 @@ A Wardic binding for [Foldkit](https://www.npmjs.com/package/foldkit), the Effec
 
 [The 1.2 milestone](https://github.com/wardiclabs/wardic/milestone/3): [#561](https://github.com/wardiclabs/wardic/issues/561)
 
-## 1.3: a performance viewer
+## 1.3: 3D
+
+Three.js scenes, animated with Wardic's springs, variants and gestures. You make your objects however you like, in code, from a loader or through another library, and Wardic animates them: it has no scene components and no renderer of its own. Its writes land in the frame your scene's loop draws, never a frame late.
+
+- **Any object's numeric properties,** whatever draws them, as Motion's `animate(object, …)` does: `@wardic/object`, the base for canvas and WebGL.
+- **Three.js,** in `@wardic/three`:
+  - `x`, `rotateY` and `scale` keys, as on the page;
+  - colours blended in linear light;
+  - a pointer's hover and press, found by raycasting the whole scene.
+- **Many objects as one Batch,** an `InstancedMesh`'s instances among them, as `createBatch` moves many elements on the page.
+- **Hooks for Solid 2,** in `@wardic/three/solid`, with no component to add:
+  - `createStage` runs the canvas and its loop;
+  - `ward(mesh, config)` gives an object a `w.div`'s targets, variants and transitions;
+  - `createSceneObject` adds an object to the scene and plays its exit before it leaves;
+  - `createFrameEffect` runs your own code in the frame, before it's drawn.
+
+[The 1.3 milestone](https://github.com/wardiclabs/wardic/milestone/8): [#564](https://github.com/wardiclabs/wardic/issues/564), [#881](https://github.com/wardiclabs/wardic/issues/881), [#882](https://github.com/wardiclabs/wardic/issues/882), [#883](https://github.com/wardiclabs/wardic/issues/883), [#884](https://github.com/wardiclabs/wardic/issues/884), [#885](https://github.com/wardiclabs/wardic/issues/885)
+
+## 1.4: a performance viewer
 
 A panel in the page, in development only, so you can see what each animation costs: every running animation, the element it's on, and its cost each frame, in JavaScript time, style writes and layout reads, from the spans Wardic already emits. A dropped or long frame shows which animations ran in it.
 
-[The 1.3 milestone](https://github.com/wardiclabs/wardic/milestone/4): [#562](https://github.com/wardiclabs/wardic/issues/562)
+[The 1.4 milestone](https://github.com/wardiclabs/wardic/milestone/4): [#562](https://github.com/wardiclabs/wardic/issues/562)
 
-## 1.4: Timeline
+## 1.5: Timeline
 
 A Timeline you can scrub, in the style of GSAP, for choreography that Motion's sequences can't nest, reverse or seek: animations placed at times or at labels, Timelines inside Timelines, and the whole played, paused, sought, reversed and sped up as one, or scrubbed by the scroll or any value. It builds on core's Sequence, which matches Motion's sequences today.
 
-[The 1.4 milestone](https://github.com/wardiclabs/wardic/milestone/5): [#563](https://github.com/wardiclabs/wardic/issues/563)
+[The 1.5 milestone](https://github.com/wardiclabs/wardic/milestone/5): [#563](https://github.com/wardiclabs/wardic/issues/563)
 
-## 1.5: beyond the DOM
+## 1.6: beyond the DOM
 
-Environments other than the browser's DOM:
+More Environments beyond the browser's DOM, after 3D:
 
-- **Any object's numeric properties,** whatever draws them, as Motion's `animate(object, …)` does: the base for canvas and WebGL, with the library you draw with, Three.js, PixiJS or Canvas 2D, say.
 - **The terminal,** through [OpenTUI](https://github.com/sst/opentui)'s Solid renderer.
+- **Layout animations there,** which need the Projection system moved into core, behind a service each Environment provides.
 
-Layout animations there need the Projection system moved into core, behind a service each Environment provides.
-
-[The 1.5 milestone](https://github.com/wardiclabs/wardic/milestone/6): [#564](https://github.com/wardiclabs/wardic/issues/564), [#565](https://github.com/wardiclabs/wardic/issues/565), [#16](https://github.com/wardiclabs/wardic/issues/16)
+[The 1.6 milestone](https://github.com/wardiclabs/wardic/milestone/6): [#565](https://github.com/wardiclabs/wardic/issues/565), [#16](https://github.com/wardiclabs/wardic/issues/16)
 
 ## Not planned
 
