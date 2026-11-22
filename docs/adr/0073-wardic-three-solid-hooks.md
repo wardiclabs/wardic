@@ -480,3 +480,20 @@ What the owner decided:
 - **No `unitScale` option yet** (item 6): nothing in core scales a rest threshold today, so the option would do nothing at 1. It comes with `@wardic/three` (step 2), whose metres need it.
 - **An array in a target is keyframes,** as Motion's, so an array-valued property isn't a plain target (item 5's "arrays of numbers"). Numbers, units and complex strings are.
 
+## Note (#882's PR 3, 2026-11-22): `ObjectBatch`, and a Batch call's rules in core
+
+*Amendment (#882)*'s item 8, its third PR. `wardic.batch(objects, { keys? })` makes a Batch of plain objects: core's `Batch`, with a property writer. Every member moves with `animate(batch, target)`, member `i` alone with `animate(batch.at(i), target)`, and a sequence's Segment of either works too. `get` and `velocity` read a member's key. Three things were decided while building it:
+1. **A Batch call's environment-agnostic rules move into core**, as the track did, in `@wardic/core/unstable/BatchCalls`:
+   - each member's targets (a number, two stops, or a function of its index and the count);
+   - each key's transition under reduced motion and `skipAnimations`;
+   - the `stagger()` that counts the movers;
+   - a Segment's values and its keyframes;
+   - a sequence's grouping by Batch.
+
+   dom's `BatchMembers` runs them, with createBatch's errors and the routing of a member element's other keys as its hook. `ObjectBatch` runs them with its own. The Batch browser suites pass unchanged: 66/66 on Solid 2, 94/94 on Solid 1, and 16/16 and 17/17 hydrating.
+   - Rejected: a copy in `@wardic/object`, against "extend, don't copy".
+2. **Its keys are fixed by its first call, or by `keys` up front,** the DOM's keyed `createBatch` rule (#665's PR 3a). A later key outside them is an error that names it and the `keys` option. Each member starts from its own values, numbers each, or an error naming the member and the key.
+   - Rejected: always giving `keys`, which repeats what the first call says.
+3. **An object of a Batch reaches the track through the Batch alone.** Given to `animate` itself, or in a Segment of objects, it's an error that names `batch.at(i)`, and an object is one Batch's. Routing its keys to its Batch, as the DOM routes a member element's (ADR-0069 decision 17's latest driver), comes with `@wardic/three`, which needs the hold.
+   - Rejected: routing it now, which moves more of `BatchMembers` into core before a scene asks for it.
+

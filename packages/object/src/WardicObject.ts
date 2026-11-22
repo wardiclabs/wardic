@@ -39,6 +39,7 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Config from "@wardic/core/unstable/Config"
 import * as FlushGate from "@wardic/core/unstable/FlushGate"
 import * as FrameEffects from "@wardic/core/unstable/FrameEffects"
+import * as BatchCalls from "@wardic/core/unstable/BatchCalls"
 import * as Imperative from "@wardic/core/unstable/Imperative"
 import * as Report from "@wardic/core/unstable/Report"
 import * as WardicServices from "@wardic/core/unstable/WardicServices"
@@ -51,11 +52,13 @@ import { constUndefined } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as ObjectBatch from "./ObjectBatch.ts"
 import * as ObjectRenderer from "./ObjectRenderer.ts"
 import * as ObjectValues from "./ObjectValues.ts"
 import * as PumpedFrames from "./PumpedFrames.ts"
@@ -76,14 +79,20 @@ export type ObjectSegment =
   | readonly [subject: object | ReadonlyArray<object>, target: Readonly<Record<string, number | string | Config.WardicKeyframes<number | string>>>]
   | readonly [subject: object | ReadonlyArray<object>, target: Readonly<Record<string, number | string | Config.WardicKeyframes<number | string>>>, options: Imperative.WardicSegmentOptions]
 
-/** A sequence of objects: Segments of objects, function Segments and labels. Motion's `AnimationSequence`. */
-export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | ObjectSegment | Imperative.WardicFunctionSegment>
+/** A Segment of a Batch, `[batch, target, options?]`: every member, or a member's handle, `batch.at(i)`. */
+export type ObjectBatchSegment =
+  | readonly [batch: ObjectBatch.ObjectBatch<any> | ObjectBatch.Member<any>, target: Readonly<Record<string, ObjectBatch.SegmentValue>>]
+  | readonly [batch: ObjectBatch.ObjectBatch<any> | ObjectBatch.Member<any>, target: Readonly<Record<string, ObjectBatch.SegmentValue>>, options: Imperative.WardicSegmentOptions]
+
+/** A sequence of objects: Segments of objects and of Batches, function Segments and labels. Motion's `AnimationSequence`. */
+export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | ObjectSegment | ObjectBatchSegment | Imperative.WardicFunctionSegment>
 
 /**
  * `animate(subject, target, options?)` animates an object, or each of a list of them, to `target`;
  * `animate(sequence, options?)` plays a sequence. Either returns its Playback controls. Motion's.
  */
 export interface ObjectAnimate {
+  <T extends object>(batch: ObjectBatch.ObjectBatch<T> | ObjectBatch.Member<T>, target: ObjectBatch.Target<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
   <T extends object>(subject: T | ReadonlyArray<T>, target: ObjectTarget<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
   (sequence: ObjectSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
@@ -107,6 +116,11 @@ export interface Options {
 /** A runtime: what animates objects on one Host loop. */
 export interface WardicObject {
   readonly animate: ObjectAnimate
+  /**
+   * A Batch of `objects`: one run for all of them, on the keys of its first `animate` (or `keys`).
+   * `animate(batch, target)` moves every member; `animate(batch.at(i), target)` member `i`.
+   */
+  readonly batch: <T extends object>(objects: ReadonlyArray<T>, options?: ObjectBatch.Options<T>) => ObjectBatch.ObjectBatch<T>
   /**
    * Run `effect` at the end of each frame from now on, after Wardic's writes for it and the effects
    * added before it, with the frame's time in ms: an app's own code before the render. Returns its remover.
@@ -199,10 +213,25 @@ const resolve = (given: unknown): ReadonlyArray<object> => {
   return [objectOf(given)]
 }
 
+/** An object of a Batch given to `animate` itself: an error naming its handle. */
+const memberGiven = (subjects: ReadonlyArray<object>): never => {
+  const member = Option.match(Arr.findFirst(Arr.map(subjects, ObjectBatch.memberOf), Predicate.isNotUndefined), { onNone: () => "?", onSome: String })
+  throw new Error(`wardic.animate: an object given is member ${member} of a Batch, whose run draws it: animate it through its Batch, batch.at(${member})`)
+}
+
+/** The object Environment's Batches: `ObjectBatch`'s handles; a member object is reached through them alone. */
+const BATCHES: Imperative.Batches<object> = {
+  entryOf: ObjectBatch.entryOf,
+  hasMembers: (subjects) => Arr.some(subjects, (subject) => Predicate.isNotUndefined(ObjectBatch.memberOf(subject))),
+  callPartsOf: memberGiven,
+  segmentSubjectsOf: memberGiven,
+  sequencePartsOf: (compiled) => BatchCalls.sequencePartsOf(compiled),
+}
+
 /** The object Environment's ports into core's track: its Subjects any object, each starting from its own values. */
 const PORTS: Imperative.Ports<object> = {
   subjects: { resolve, startLinksOf: ObjectValues.startLinksOf },
-  batches: Imperative.noBatches,
+  batches: BATCHES,
 }
 
 /** A runtime on frames the host pumps: `frame(time)` once a frame, before it renders. */
@@ -246,8 +275,10 @@ export const make = (options: Options = {}): WardicObject => {
     Iter.forEach(Arr.fromIterable(live), (controls) => controls.stop())
     void runtime.dispose()
   }
+  const batchContext: ObjectBatch.Context = { runFork: runtime.runFork, positionalKeys, defaultTransition }
   return {
     animate,
+    batch: (objects, options) => ObjectBatch.make(batchContext, objects, options),
     afterWrites: effects.add,
     frame,
     wantsFrame: () => Bool.or(frames.wantsFrame(), effects.requested()),

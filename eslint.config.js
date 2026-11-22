@@ -238,7 +238,7 @@ const DOM_PER_FRAME = [
  * `@wardic/object`'s per-frame files (#882), by dom's rule: the host's frame, which runs its callbacks,
  * and the property writer's commit, once a frame over a patch's keys.
  */
-const OBJECT_PER_FRAME = ["packages/object/src/PumpedFrames.ts", "packages/object/src/ObjectRenderer.ts"]
+const OBJECT_PER_FRAME = ["packages/object/src/PumpedFrames.ts", "packages/object/src/ObjectRenderer.ts", "packages/object/src/ObjectBatch.ts"]
 
 /**
  * The mount-path files whose per-element mount code keeps a loop (#540, ADR-0025, *Amendment (#540)*):
