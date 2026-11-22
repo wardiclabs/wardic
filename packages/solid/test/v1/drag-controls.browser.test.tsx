@@ -13,8 +13,9 @@
 //   the drag goes on from there.
 // - DCS4: `distanceThreshold: 30`: a 20 px move starts nothing; past 30 px the drag starts, at the
 //   pointer's offset from the press.
-// - DCS5: `stop()` mid-drag ends it as a release: `onDragEnd` told, the Fling carries it on to its
-//   constraint, `whileDrag` off at its rest; the still-pressed pointer's moves move it no more.
+// - DCS5: `stop()` mid-drag ends it as a release: `onDragEnd` told with the moves' velocity, the Fling
+//   carries it on to its constraint, `whileDrag` off at its rest; the still-pressed pointer's moves
+//   move it no more.
 // - DCS6: `cancel()` ends it where it is: no `onDragEnd`, no release (a `dragSnapToOrigin` element stays
 //   put), `whileDrag` off.
 // - DCS7: an element leaving an `<AnimatePresence>` starts none, and doesn't snap to the cursor.
@@ -200,7 +201,10 @@ describe("drag controls on Solid 1 (#431)", () => {
           whileDrag={{ opacity: 0.5 }}
           transition={{ duration: 0.05 }}
           onDragStart={() => calls.push("start")}
-          onDragEnd={(_, info) => calls.push(`end ${String(info.velocity.x > 100)}`)}
+          // Above 0, not 100 (#819): a release carries the moves' velocity, a cancel none (DCS6). The
+          // moves are the real mouse's, and a loaded runner's late one slows it (46 px/s with 150–220 ms
+          // before the last), but never stops it.
+          onDragEnd={(_, info) => calls.push(`end ${String(info.velocity.x > 0)}`)}
           style={boxAt(120)}
         />
       </WardicProvider>

@@ -75,7 +75,7 @@ export const inlineTransformAtRest = async (el: HTMLElement): Promise<string> =>
 export const hover = (el: Element): Promise<void> => mouse.move(centreOf(el))
 export const leave = (): Promise<void> => mouse.move(PARK)
 
-/** Hover `el` until `read` reaches `reached`, then leave until it's back within 0.004 of `base`. */
+/** Hover `el` until `read` reaches `reached`, then leave until it rests within 0.004 of `base`: 4 frames in a row. */
 export const hoverAndLeave = async (el: Element, read: (el: Element) => number, reached: (v: number) => boolean, base: number) => {
   const rec = recorder(el, read)
   await settle()
@@ -85,7 +85,14 @@ export const hoverAndLeave = async (el: Element, read: (el: Element) => number, 
   await wait(100)
   rec.phase = "leave"
   await leave()
-  await until(() => Math.abs(read(el) - base) < 0.004, 3000)
+  // A rest, not a crossing (#819): a spring's return overshoots its base, and a leave that lands late,
+  // from the hover's rest, puts a frame within 0.004 of the base mid-swing; one frame passed M23 there,
+  // four frames before its read of the overshoot, +0.454.
+  let near = 0
+  await until(() => {
+    near = Bool.match(Math.abs(read(el) - base) < 0.004, { onTrue: () => near + 1, onFalse: () => 0 })
+    return near >= 4
+  }, 3000)
   await settle()
   return rec.stop()
 }
