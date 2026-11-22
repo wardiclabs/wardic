@@ -243,9 +243,10 @@ const OBJECT_PER_FRAME = ["packages/object/src/PumpedFrames.ts", "packages/objec
 /**
  * `@wardic/three`'s per-frame files (#883), by dom's rule: the scene writer's commit and Batch write,
  * and the lookup they write through, once a frame over a patch's keys; an `InstancedMesh`'s writer, its
- * bounds over the instances' matrices, and their start read once (#883's PR 4).
+ * bounds over the instances' matrices, and their start read once (#883's PR 4); the scene's input, its raycast
+ * once a frame and its pointer events over the targets they reach (#883's PR 5a).
  */
-const THREE_PER_FRAME = ["packages/three/src/ThreeRenderer.ts", "packages/three/src/internal/lookup.ts", "packages/three/src/ThreeInstances.ts"]
+const THREE_PER_FRAME = ["packages/three/src/ThreeRenderer.ts", "packages/three/src/internal/lookup.ts", "packages/three/src/ThreeInstances.ts", "packages/three/src/ThreeInput.ts"]
 
 /**
  * The mount-path files whose per-element mount code keeps a loop (#540, ADR-0025, *Amendment (#540)*):
