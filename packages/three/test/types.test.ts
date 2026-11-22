@@ -51,6 +51,28 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   swarm.get(0, "rotateY")
   // @ts-expect-error: a key its members have nowhere.
   swarm.get(0, "fov")
+  // A Batch's colours: one for all, two stops, or a function of a member's index; its keys up front.
+  wardic.animate(swarm, { color: (i) => ["#f00", "#00f"][i % 2] as string, emissive: ["#000", 0xffffff] })
+  wardic.animate(swarm.at(1), { color: "#0f0", emissiveG: 1 })
+  wardic.batch([cube], { keys: ["x", "color"] })
+  // @ts-expect-error: a number key isn't a colour.
+  wardic.animate(swarm, { opacity: "#fff" })
+
+  // An InstancedMesh's instances: their transforms and their colour, by index.
+  const instanced = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 100)
+  const instances = wardic.batch(instanced, { keys: ["x", "rotateY", "color"] })
+  wardic.animate(instances, { x: (i) => i, rotateY: [0, 90], color: (i) => new THREE.Color().setHSL(i / 100, 1, 0.5) })
+  wardic.animate(instances.at(3), { scale: 1.4, colorR: 1 })
+  instances.get(3, "colorG")
+  // @ts-expect-error: the instances share one material: its keys aren't an instance's.
+  wardic.animate(instances, { opacity: 0 })
+  // @ts-expect-error: nor in its keys.
+  wardic.batch(new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 4), { keys: ["roughness"] })
+  // A sequence's Segment of a Batch takes colours.
+  wardic.animate([
+    [instances, { color: ["#000", "#fff"], y: 1 }],
+    [swarm.at(0), { color: "#f0f" }, { at: 0 }],
+  ])
 }
 
 it("TY1: the typed calls compile", () => {

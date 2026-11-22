@@ -183,6 +183,34 @@ describe("ThreeColours: colours in linear light, as channel keys", () => {
     wardic.dispose()
   })
 
+  it("TC12: a Batch of meshes takes colours: one for all, two stops, a function of a member's index read once each, and in its keys", async () => {
+    const wardic = WardicThree.make()
+    const [a, b, c] = [box(), box(), box()]
+    const swarm = wardic.batch([a, b, c], { keys: ["color", "x"] })
+    let calls = 0
+    const palette = ["#00ff00", "#0000ff"]
+    await Promise.all([
+      wardic.animate(
+        swarm,
+        {
+          color: (i) => {
+            calls++
+            return palette[i % 2]!
+          },
+        },
+        LINEAR,
+      ),
+      tick().then(() => pump(wardic, 9)),
+    ])
+    expect(calls).toBe(3)
+    expect([a, b, c].map((mesh) => hexOf(mesh.material.color))).toEqual(["#00ff00", "#0000ff", "#00ff00"])
+    await Promise.all([wardic.animate(swarm.at(2), { color: ["#000000", 0xff8800] }, LINEAR), tick().then(() => pump(wardic, 9))])
+    expect(hexOf(c.material.color)).toBe("#ff8800")
+    await Promise.all([wardic.animate([[swarm, { color: "#ffffff", x: 1 }, LINEAR]]), tick().then(() => pump(wardic, 9))])
+    expect([a, b, c].map((mesh) => hexOf(mesh.material.color))).toEqual(["#ffffff", "#ffffff", "#ffffff"])
+    wardic.dispose()
+  })
+
   it("TC11: split gives a target with no colour back as it is, and a colour as its channels", () => {
     const cube = box()
     const plain = { x: 1, opacity: 0 }

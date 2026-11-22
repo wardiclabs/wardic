@@ -13,6 +13,8 @@
  * - **Colours** (`color`, `emissive`, a uniform's `Color`) take a CSS colour, a hex number or a
  *   `Color`, and blend in linear light, three's: red to blue passes `#bc00bc`. A spring keeps a
  *   colour's speed through a change of target, as it keeps a position's.
+ * - **A Batch** (`batch`) moves many objects as one run, or an `InstancedMesh`'s instances: each by
+ *   its transforms and its instance colour, its matrix written in place.
  * - **Units:** `x`, `y` and `z` are metres, so springs rest within millimetres (`unitScale`).
  * - **three's rules after a write:** a camera's projection keys update its projection matrix, and an
  *   `opacity` below 1 draws its material transparent.
@@ -30,8 +32,8 @@
  */
 // `@wardic/three/WardicThree` (#883; ADR-0069 decisions 3–9 and 21, ADR-0073 *Amendment (#883)*, Q1–Q3):
 // `@wardic/object`'s runtime through `WardicObject.makeWith`, on three's Environment. The scene's input
-// (`hover`, `press`, the raycast) is #883's PR 5 and `InstancedMesh` its PR 4; colours are PR 3's
-// (`ThreeColours`), split at the call into their channels.
+// (`hover`, `press`, the raycast) is #883's PR 5; colours are PR 3's (`ThreeColours`), split at the call
+// into their channels; an `InstancedMesh`'s instances PR 4's (`ThreeInstances`, its Environment's `batchSource`).
 import * as UnitScale from "@wardic/core/UnitScale"
 import type * as Config from "@wardic/core/unstable/Config"
 import * as Imperative from "@wardic/core/unstable/Imperative"
@@ -39,9 +41,11 @@ import * as ObjectBatch from "@wardic/object/ObjectBatch"
 import * as ObjectValues from "@wardic/object/ObjectValues"
 import * as WardicObject from "@wardic/object/WardicObject"
 import * as Arr from "effect/Array"
+import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as ThreeColours from "./ThreeColours.ts"
+import * as ThreeInstances from "./ThreeInstances.ts"
 import * as ThreeRenderer from "./ThreeRenderer.ts"
 import * as ThreeValues from "./ThreeValues.ts"
 
@@ -113,20 +117,53 @@ type SceneTarget<K extends string, C extends string> = { readonly [Key in K | C]
  */
 export type ThreeTarget<T> = [SceneKey<T>] extends [never] ? WardicObject.ObjectTarget<T> & SceneTarget<UniformKey<T>, UniformColourKey<T>> : SceneTarget<SceneKey<T>, ColourKey<T>>
 
-/** The keys a Batch of `T` takes: a scene object's scene keys, any other object's numbers. */
-export type BatchKey<T> = [SceneKey<T>] extends [never] ? ObjectBatch.NumberKey<T> : SceneKey<T>
+/** An `InstancedMesh`, by its flag. */
+type IsInstancedMesh = { readonly isInstancedMesh: true }
 
-/** A Batch of a scene's objects: one run for all of them. `@wardic/object`'s, on scene keys. */
+/** The keys a Batch of `T` takes: an `InstancedMesh`'s instance's, a scene object's scene keys, any other object's numbers. */
+export type BatchKey<T> = T extends ThreeInstances.Instance<IsInstancedMesh> ? ThreeInstances.InstanceKey : [SceneKey<T>] extends [never] ? ObjectBatch.NumberKey<T> : SceneKey<T>
+
+/** The colour keys a Batch of `T` takes: an instance's `color`, a scene object's colours. */
+export type BatchColourKey<T> = T extends ThreeInstances.Instance<IsInstancedMesh> ? "color" : T extends { readonly isObject3D: true } ? ColourKey<T> : never
+
+/** A Batch of a scene's objects, or of an `InstancedMesh`'s instances: one run for all of them. `@wardic/object`'s, on scene keys. */
 export type ThreeBatch<T extends object> = ObjectBatch.ObjectBatch<T, BatchKey<T>>
+
+/** A Batch's stop of a colour: one for every member, or a function of a member's index and the count. */
+type ColourStop = ThreeColours.ColourValue | ((i: number, n: number) => ThreeColours.ColourValue)
+
+/** A Batch's value for a number key: a stop, two (its first and its target), or a function giving them. `@wardic/object`'s. */
+type BatchNumberValue = ObjectBatch.Stop | readonly [ObjectBatch.Stop, ObjectBatch.Stop] | ((i: number, n: number) => number | readonly [number, number])
+
+/** A Batch's value for a colour key: a stop, two, or a function giving them. */
+type BatchColourValue = ColourStop | readonly [ColourStop, ColourStop] | ((i: number, n: number) => ThreeColours.ColourValue | readonly [ThreeColours.ColourValue, ThreeColours.ColourValue])
+
+/** A Batch of `T`'s targets for an `animate` call: each number key and colour key a stop, two, or a function of a member's index giving them. */
+export type ThreeBatchTarget<T> = { readonly [Key in BatchKey<T> | BatchColourKey<T>]?: ValueOf<Key, BatchKey<T>, BatchColourKey<T>, BatchNumberValue, BatchColourValue> }
+
+/** A Batch's colour key in a sequence's Segment of it: a colour, `null` for where it is, stops of them, or a function giving them. */
+type ColourSegmentValue =
+  | ThreeColours.ColourValue
+  | null
+  | ReadonlyArray<ThreeColours.ColourValue | null>
+  | ((i: number, n: number) => ThreeColours.ColourValue | null | ReadonlyArray<ThreeColours.ColourValue | null>)
+
+/** A Segment of a Batch, `[batch, target, options?]`, its colour keys taking colours: every member, or a member's handle, `batch.at(i)`. */
+export type ThreeBatchSegment =
+  | readonly [batch: ObjectBatch.ObjectBatch<any, any> | ObjectBatch.Member<any, any>, target: Readonly<Record<string, ObjectBatch.SegmentValue | ColourSegmentValue>>]
+  | readonly [batch: ObjectBatch.ObjectBatch<any, any> | ObjectBatch.Member<any, any>, target: Readonly<Record<string, ObjectBatch.SegmentValue | ColourSegmentValue>>, options: Imperative.WardicSegmentOptions]
+
+/** A sequence of a scene: `@wardic/object`'s Segments, its Segments of Batches taking colours. Motion's `AnimationSequence`. */
+export type ThreeSequence = ReadonlyArray<WardicObject.ObjectSequence[number] | ThreeBatchSegment>
 
 /**
  * `animate(subject, target, options?)` animates a scene's Subject, or each of a list of them, to
  * `target`; `animate(sequence, options?)` plays a sequence. Either returns its Playback controls. Motion's.
  */
 export interface ThreeAnimate {
-  <T extends object>(batch: ThreeBatch<T> | ObjectBatch.Member<T, BatchKey<T>>, target: ObjectBatch.Target<T, BatchKey<T>>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
+  <T extends object>(batch: ThreeBatch<T> | ObjectBatch.Member<T, BatchKey<T>>, target: ThreeBatchTarget<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
   <T extends object>(subject: T | ReadonlyArray<T>, target: ThreeTarget<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
-  (sequence: WardicObject.ObjectSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
+  (sequence: ThreeSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
 
 /** A runtime's options: `@wardic/object`'s, and the scene's unit scale. */
@@ -138,14 +175,24 @@ export interface Options extends WardicObject.Options {
   readonly unitScale?: number | undefined
 }
 
+/**
+ * `batch(objects, options?)` makes a Batch of a list of objects; `batch(instanced, options?)` one of an
+ * `InstancedMesh`'s instances, a member each. Either runs on the keys of its first `animate` (or `keys`).
+ */
+export interface ThreeBatchOf {
+  <M extends IsInstancedMesh>(instanced: M, options?: ObjectBatch.Options<ThreeInstances.Instance<M>, ThreeInstances.InstanceKey | "color">): ThreeBatch<ThreeInstances.Instance<M>>
+  <T extends object>(objects: ReadonlyArray<T>, options?: ObjectBatch.Options<T, BatchKey<T> | BatchColourKey<T>>): ThreeBatch<T>
+}
+
 /** A runtime: what animates a scene on one Host loop. */
 export interface WardicThree extends Omit<WardicObject.WardicObject, "animate" | "batch"> {
   readonly animate: ThreeAnimate
   /**
-   * A Batch of `objects`: one run for all of them, on the keys of its first `animate` (or `keys`).
-   * `animate(batch, target)` moves every member; `animate(batch.at(i), target)` member `i`.
+   * A Batch of `objects`, or of an `InstancedMesh`'s instances: one run for all of them, on the keys of
+   * its first `animate` (or `keys`). `animate(batch, target)` moves every member; `animate(batch.at(i),
+   * target)` member `i`. An instance takes its transforms and its colour.
    */
-  readonly batch: <T extends object>(objects: ReadonlyArray<T>, options?: ObjectBatch.Options<T, BatchKey<T>>) => ThreeBatch<T>
+  readonly batch: ThreeBatchOf
 }
 
 /** A scene's unit scale when the app gives none: a metre counts as 100 of Motion's units (ADR-0069 decision 8). */
@@ -160,34 +207,54 @@ export const environment = (unitScale: number = UNIT_SCALE): WardicObject.Enviro
   positionalKeys: ThreeValues.positionalKeys,
   batchWriter: ThreeRenderer.writer,
   batchRead: ThreeValues.read,
+  batchSource: ThreeInstances.batchSource(),
   layers: UnitScale.layerWith(ThreeColours.unitScale(unitScale)),
 })
 
-/** A Segment of a sequence with its colour keys split: a Segment of a Subject, `[subject, target, options?]`; any other as it is. */
+/** A Segment of a sequence with its colour keys split: a Segment of a Subject or of a Batch, `[subject, target, options?]`; any other as it is. */
 const splitSegment = (segment: unknown): unknown => {
   if (!Arr.isArray(segment)) return segment
   const [subject, target, options] = segment as ReadonlyArray<unknown>
-  if (Predicate.isNotUndefined(ObjectBatch.entryOf(subject)) || Predicate.isFunction(subject)) return segment
-  const [split, splitOptions] = ThreeColours.splitCall(firstOf(subject), target, options)
+  if (Predicate.isFunction(subject)) return segment
+  const [split, splitOptions] = ThreeColours.splitCall(subjectOf(subject), target, options)
   if (split === target) return segment
   if (segment.length < 3) return [subject, split]
   return [subject, split, splitOptions]
 }
 
-/** The Subject a call's target is read for: the first of a list. */
-const firstOf = (subject: unknown): unknown => {
+/** A Batch's handle, or a member's, as a call names it. */
+interface BatchHandle {
+  readonly members?: ReadonlyArray<object>
+  readonly i?: number
+  readonly batch?: { readonly members: ReadonlyArray<object> }
+}
+
+/** A Batch's member a call's colours are read by: a member handle's own, else the Batch's first. */
+const memberOf = (handle: BatchHandle): unknown => {
+  if (Predicate.isNumber(handle.i) && Predicate.isNotUndefined(handle.batch)) return handle.batch.members[handle.i]
+  return UndefinedOr.match(handle.members, { onUndefined: constUndefined, onDefined: (members) => members[0] })
+}
+
+/** The Subject a call's target is read for: a Batch's member, the first of a list, or the Subject itself. */
+const subjectOf = (subject: unknown): unknown => {
+  if (Predicate.isNotUndefined(ObjectBatch.entryOf(subject))) return memberOf(subject as BatchHandle)
   if (Arr.isArray(subject)) return (subject as ReadonlyArray<unknown>)[0]
   return subject
 }
 
-/** `animate` with each colour key split into its channels at the call, for a Subject, a list of them, or a sequence's Segments of them. */
+/** `animate` with each colour key split into its channels at the call, for a Subject, a list of them, a Batch, or a sequence's Segments of them. */
 const withColours = (animate: (first: unknown, second?: unknown, third?: unknown) => Imperative.WardicPlaybackControls) =>
   (first: unknown, second?: unknown, third?: unknown): Imperative.WardicPlaybackControls => {
     if (Imperative.isSequence(first)) return animate(Arr.map(first, splitSegment), second)
-    // A Batch's colours are its instances', with the `InstancedMesh` writer (PR 4).
-    if (Predicate.isNotUndefined(ObjectBatch.entryOf(first))) return animate(first, second, third)
-    const [split, options] = ThreeColours.splitCall(firstOf(first), second, third)
+    const [split, options] = ThreeColours.splitCall(subjectOf(first), second, third)
     return animate(first, split, options)
+  }
+
+/** `batch` with each colour key in its `keys` given as its channels. */
+const withChannelKeys = (batch: (given: unknown, options?: ObjectBatch.Options<object, string>) => unknown) =>
+  (given: unknown, options?: ObjectBatch.Options<object, string>): unknown => {
+    if (Predicate.isUndefined(options) || Predicate.isUndefined(options.keys)) return batch(given, options)
+    return batch(given, { ...options, keys: ThreeColours.splitBatchKeys(given, options.keys) })
   }
 
 /** A runtime on frames the Host loop pumps: `frame(time)` once a frame, before it renders. */
@@ -196,7 +263,7 @@ export const make = (options: Options = {}): WardicThree => {
   const runtime = WardicObject.makeWith(environment(unitScale), options)
   return {
     animate: withColours(runtime.animate as never) as unknown as ThreeAnimate,
-    batch: runtime.batch as unknown as WardicThree["batch"],
+    batch: withChannelKeys(runtime.batch as never) as unknown as ThreeBatchOf,
     afterWrites: runtime.afterWrites,
     frame: runtime.frame,
     wantsFrame: runtime.wantsFrame,
