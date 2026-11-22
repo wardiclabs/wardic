@@ -646,3 +646,11 @@ What the owner decided:
   - **Instances:** 10,000 instances moving cost what three's own matrices for 10,000 meshes do on Bun (0.64 ms); 3× on Node, where core's Batch step is slower (#898).
   - **Bytes a frame (Node):** none for the empty Frame effects, the target; about 10 KB for the raycast at 10,000, three's intersections.
 - **No browser engine:** the bench box draws WebGL in software, so the partial upload (PR 4's Q4) stays unmeasured.
+
+**PR 5c, as built:** `examples/scene-lab`, `@wardic/example-scene-lab`, a Solid 2 Vite app on `solid2()`, as layout-lab's v2 build is.
+- **Its cards:** transforms on a spring and a tween; colours, red to blue through `#bc00bc`; a camera's `fov` and `z`; a Batch of 144 meshes with a stagger by rank; 10,000 instances of an `InstancedMesh` (positions, rotations, instance colour, Wardic's frame time on its readout); hover and press on meshes and on instances. Each card has its own canvas, `WebGLRenderer`, scene, camera and `WardicThree` runtime, its Host loop `renderer.setAnimationLoop`, and a readout polled four times a second.
+- **Its browser test** (`scene-lab-browser`, in the root's browser tier):
+  - SL1: a card for every scenario, each canvas drawn by its own renderer (headless Chromium's WebGL), with no console error;
+  - SL2: decision 26's real pointer path, `userEvent.hover` then `userEvent.click` at a mesh's screen point, through the scene's input on a real canvas and window. Five runs of five passed.
+- **Served on the box's tailnet:** `vite --host <its Tailscale address>`, and `server.allowedHosts: ["wardic-bench", ".ts.net"]`, the bench box's short MagicDNS name and the full ones, since Vite 6 refuses a host name it isn't told of.
+- **Not here:** the Solid hooks' cards (the Stage, `ward`, a Scene object, presence, drag, a Frame effect, the sensors), which steps 3 and 4 add.

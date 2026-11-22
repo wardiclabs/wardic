@@ -1,0 +1,71 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #0b0d12;
+  color: #e6e9ef;
+}
+body {
+  margin: 0;
+  padding: 24px;
+}
+.page h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+.page p {
+  margin: 0 0 20px;
+  color: #a7adbb;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  gap: 20px;
+}
+.card {
+  background: #151922;
+  border: 1px solid #262c38;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.card p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #a7adbb;
+}
+.card canvas {
+  width: 100%;
+  aspect-ratio: 480 / 300;
+  border-radius: 6px;
+  display: block;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.controls button {
+  background: #232a37;
+  color: inherit;
+  border: 1px solid #333c4d;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.controls button:hover {
+  background: #2c3545;
+}
+output {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: #8fd3c8;
+}
