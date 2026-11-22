@@ -169,6 +169,20 @@ const probeLayer = (query: MediaQuery | undefined): Layer.Layer<Probe.Probe> =>
   })
 
 /**
+ * A Batch of something that isn't a list of Subjects, an `InstancedMesh`'s instances: a handle per
+ * member, and how they're drawn and read.
+ */
+// #883's PR 4 (ADR-0073, *Amendment (#883)*, PR 4's Q1): one writer per source, since its `flush` is the source's.
+export interface BatchSource {
+  /** Its members, in order: what the writer and the read are given for each. */
+  readonly members: ReadonlyArray<object>
+  /** How its members are drawn. */
+  readonly writer: Batch.Writer<object>
+  /** How it reads a member's key before the Batch moves it. */
+  readonly read: (subject: object, key: string) => unknown
+}
+
+/**
  * What an Environment of objects gives the runtime: how its Subjects are written and read, which of its
  * keys are positional, how a Batch of them is drawn, and any Layers of its own. `OBJECTS` is plain
  * objects'; `@wardic/three` gives three's.
@@ -189,6 +203,11 @@ export interface Environment {
   readonly batchWriter: Batch.Writer<object>
   /** How a Batch reads a member's key before it moves it. */
   readonly batchRead: (subject: object, key: string) => unknown
+  /**
+   * A Batch of `given`, something other than a list (an `InstancedMesh`): its members, drawn and read
+   * its own way. `undefined` for anything it doesn't make a Batch of.
+   */
+  readonly batchSource?: ((given: object) => BatchSource | undefined) | undefined
   /** Layers of its own: its `UnitScale`, say. */
   readonly layers?: Layer.Layer<never> | undefined
 }
@@ -322,9 +341,21 @@ export const makeWith = (environment: Environment, options: Options = {}): Wardi
     void runtime.dispose()
   }
   const batchContext: ObjectBatch.Context = { runFork: runtime.runFork, positionalKeys, defaultTransition, unitScale: runtime.runSync(UnitScale.UnitScale), writer: environment.batchWriter, read: environment.batchRead }
+  /** What the Environment makes a Batch of `given`, a Batch's source other than a list: `undefined` where it makes none. */
+  const sourceOf = (given: unknown): BatchSource | undefined => {
+    if (!Predicate.isObject(given) || Predicate.isUndefined(environment.batchSource)) return undefined
+    return environment.batchSource(given)
+  }
+  /** A Batch of a list of Subjects, or of what the Environment's `batchSource` makes one of. */
+  const batch = <T extends object>(given: ReadonlyArray<T>, options?: ObjectBatch.Options<T>): ObjectBatch.ObjectBatch<T> => {
+    if (Arr.isArray(given)) return ObjectBatch.make<T>(batchContext, given as ReadonlyArray<T>, options)
+    const source = sourceOf(given)
+    if (Predicate.isUndefined(source)) throw new Error("wardic.batch: a Batch is made of a list of objects, and it was given something else. Give a list: wardic.batch([a, b, c]).")
+    return ObjectBatch.make<T>({ ...batchContext, writer: source.writer, read: source.read }, source.members as ReadonlyArray<T>, options)
+  }
   return {
     animate,
-    batch: (objects, options) => ObjectBatch.make(batchContext, objects, options),
+    batch,
     afterWrites: effects.add,
     frame,
     wantsFrame: () => Bool.or(frames.wantsFrame(), effects.requested()),
