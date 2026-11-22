@@ -39,35 +39,36 @@ export type Stop = number | ((i: number, n: number) => number)
 export type NumberKey<T> = { readonly [K in keyof T]-?: T[K] extends number ? K : never }[keyof T] & string
 
 /** A Batch's targets for an `animate` call: each key a stop, two (its first and its target), or a function giving them. */
-export type Target<T> = {
-  readonly [K in NumberKey<T>]?: Stop | readonly [Stop, Stop] | ((i: number, n: number) => number | readonly [number, number])
+export type Target<T, Key extends string = NumberKey<T>> = {
+  readonly [K in Key]?: Stop | readonly [Stop, Stop] | ((i: number, n: number) => number | readonly [number, number])
 }
 
 /** A Batch's key in a sequence's Segment of it: a number, `null` for where it is, stops of them, or a function giving them. */
 export type SegmentValue = number | null | ReadonlyArray<number | null> | ((i: number, n: number) => number | null | ReadonlyArray<number | null>)
 
 /** A member's handle: `animate` and a sequence's Segment move member `i` alone. */
-export interface Member<T extends object> {
+export interface Member<T extends object, Key extends string = NumberKey<T>> {
   readonly i: number
-  readonly batch: ObjectBatch<T>
+  readonly batch: ObjectBatch<T, Key>
 }
 
 /** A Batch of objects `T`. */
-export interface ObjectBatch<T extends object> {
+// `Key`: the keys its members take, their own numbers for plain objects; `@wardic/three`'s scene keys (#883).
+export interface ObjectBatch<T extends object, Key extends string = NumberKey<T>> {
   /** Its members, in order. */
   readonly members: ReadonlyArray<T>
   /** Member `i`'s handle, for `animate` and a sequence's Segment. */
-  readonly at: (i: number) => Member<T>
+  readonly at: (i: number) => Member<T, Key>
   /** Member `i`'s value for `key` now: as drawn, once the Batch has moved; its own before. */
-  readonly get: (i: number, key: NumberKey<T>) => number
+  readonly get: (i: number, key: Key) => number
   /** Member `i`'s velocity for `key` now, per second: 0 before the Batch has moved. */
-  readonly velocity: (i: number, key: NumberKey<T>) => number
+  readonly velocity: (i: number, key: Key) => number
 }
 
 /** `wardic.batch`'s options. */
-export interface Options<T> {
+export interface Options<T, Key extends string = NumberKey<T>> {
   /** Its keys, fixed now: else its first `animate`'s, or its first Segment's. */
-  readonly keys?: ReadonlyArray<NumberKey<T>> | undefined
+  readonly keys?: ReadonlyArray<Key> | undefined
 }
 
 /** What a runtime gives its Batches: its fork, and its Environment's Positional keys and Default transitions. */
@@ -75,6 +76,10 @@ export interface Context {
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, FrameLoop.FrameLoop>) => Fiber.Fiber<A, E>
   /** The Environment's unit scale: its Batches' rest thresholds for `x`, `y` and `z` (ADR-0069 decision 8). */
   readonly unitScale: number
+  /** How the Environment draws a Batch's members: plain objects' {@link writer}, or another Environment's. */
+  readonly writer: Batch.Writer<object>
+  /** How it reads a member's key before the Batch moves it: plain objects' {@link read}, the property. */
+  readonly read: (subject: object, key: string) => unknown
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
 }
@@ -88,6 +93,9 @@ export const writer: Batch.Writer<object> = {
     for (let k = 0; k < keys.length; k++) object[keys[k]] = positions[base + k]
   },
 }
+
+/** A plain object's key, as a Batch reads it before moving it: the property. */
+export const read = (subject: object, key: string): unknown => (subject as Readonly<Record<string, unknown>>)[key]
 
 /** Each Batch's and member handle's entry, so `animate` knows them. */
 // Module state (#460, Q7): held weakly by the handle, so it goes with it.
@@ -138,7 +146,7 @@ export const make = <T extends object>(context: Context, objects: ReadonlyArray<
   const startOf = (object: T, i: number): Readonly<Record<string, number>> =>
     Rec.fromEntries(
       Arr.map(keys, (key) => {
-        const value = (object as Readonly<Record<string, unknown>>)[key]
+        const value = context.read(object, key)
         if (!Predicate.isNumber(value)) fail(`member ${i}'s "${key}" is ${JSON.stringify(value)}: a Batch's keys are numbers on each of its objects`)
         return [key, value as number] as const
       }),
@@ -150,7 +158,7 @@ export const make = <T extends object>(context: Context, objects: ReadonlyArray<
     keys = given
     keyIndex = new Map(Arr.map(keys, (key, k) => [key, k] as const))
     const transition = Rec.fromEntries(Arr.map(keys, (key) => [key, context.defaultTransition.transitionFor(key, 1) as Batch.Transition] as const))
-    const created = Batch.make({ keys, writer, transition, unitScale: context.unitScale })
+    const created = Batch.make({ keys, writer: context.writer, transition, unitScale: context.unitScale })
     slots = Arr.map(objects, (object, i) => {
       const slot = Batch.enter(created, object as object, startOf(object, i))
       memberAt[slot] = i
@@ -237,7 +245,7 @@ export const make = <T extends object>(context: Context, objects: ReadonlyArray<
     },
     get: (i, key) =>
       UndefinedOr.match(batch, {
-        onUndefined: () => (objects[i] as unknown as Readonly<Record<string, number>>)[key] as number,
+        onUndefined: () => context.read(objects[i] as object, key) as number,
         onDefined: (running) => Batch.get(running, slots[i] as number, key),
       }),
     velocity: (i, key) =>
