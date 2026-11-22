@@ -213,7 +213,7 @@ What one start or set of **Animation controls** makes of one element: its new `a
 _Avoid_: command, controls update.
 
 **Unit scale**:
-How many of Motion's units an Environment's `x`, `y` and `z` count as, so a spring's rest thresholds fit the distances it moves: 1 on the page, Motion's own pixels; 100 in a scene measured in metres, where Motion's thresholds would snap a long move short. Other keys, and a threshold a spring is given, keep Motion's. An Environment gives it with its Layers; nothing that animates passes it.
+How many of Motion's units a key counts as, so a spring's rest thresholds fit the distances it moves: the Environment's rule, by the key and how far its leg goes. On the page every key is 1, Motion's own pixels. A scene measured in metres gives its `x`, `y` and `z` 100, where Motion's thresholds would snap a long move short, and a colour's channels rest by their share of the distance, so a move to a near black still animates. A threshold a spring is given keeps its own. An Environment gives it with its Layers; nothing that animates passes it.
 _Avoid_: unit (bare), scale (a transform key), rest scale.
 
 **Variant child**:
