@@ -504,8 +504,9 @@ export interface MembersPart {
 }
 
 /** An element call's part for one element: its index in the list, and what a plain animation of it takes. */
+// `subject`: the shape core's Imperative track takes its plain Subjects' parts in (#882).
 export interface ElementPart<T> {
-  readonly element: Element
+  readonly subject: Element
   readonly index: number
   readonly target: T
 }
@@ -623,13 +624,13 @@ export const sequencePartsOf = <S>(compiled: ReadonlyArray<readonly [S | BatchMe
  * An element call's parts (#665, Q14, Q35): each Batch's member elements as one part, in list order,
  * with the Batch's keys; each element, a member's with the keys left, as one of its own.
  */
-export const callPartsOf = <T extends object>(elements: ReadonlyArray<Element>, target: T): { readonly members: ReadonlyArray<MembersPart>; readonly elements: ReadonlyArray<ElementPart<T>> } => {
+export const callPartsOf = <T extends object>(elements: ReadonlyArray<Element>, target: T): { readonly members: ReadonlyArray<MembersPart>; readonly subjects: ReadonlyArray<ElementPart<T>> } => {
   const byBinding = new Map<BatchBinding, { readonly members: Array<number>; readonly split: MembersSplit<T> }>()
   const parts: Array<ElementPart<T>> = []
   Arr.forEach(elements, (element, index) => {
     const entry = MEMBER_ELEMENTS.get(element)
     if (Predicate.isUndefined(entry)) {
-      parts.push({ element, index, target })
+      parts.push({ subject: element, index, target })
       return
     }
     let part = byBinding.get(entry.binding)
@@ -640,13 +641,13 @@ export const callPartsOf = <T extends object>(elements: ReadonlyArray<Element>, 
     part.members.push(entry.member)
     // Its other keys by its place in the list, as a plain element's (Motion's `delay(i, n)`).
     const rest = part.split.rest
-    if (Predicate.isNotUndefined(rest)) parts.push({ element, index, target: rest })
+    if (Predicate.isNotUndefined(rest)) parts.push({ subject: element, index, target: rest })
   })
   const members = Arr.filter(
     Arr.map(Arr.fromIterable(byBinding), ([binding, part]): MembersPart => ({ binding, members: part.members, target: part.split.batch })),
     (part) => !Rec.isEmptyRecord(part.target as Readonly<Record<string, unknown>>),
   )
-  return { members, elements: parts }
+  return { members, subjects: parts }
 }
 
 /** The props an element gives a member's handle: its own `ref`, and its own `style`, as an object. */

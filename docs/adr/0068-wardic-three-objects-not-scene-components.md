@@ -28,7 +28,7 @@ What they found that decides the shape:
    - a plain property writer;
    - `animate(object, …)`;
    - the batch;
-   - the profiling hooks.
+   - the profiling hooks. *Amended by ADR-0073, *Amendment (#882)*: they wait for the performance viewer, #562.*
 
    `@wardic/three` adds three's keys, colours, Key rules, InstancedMesh targets, GPU springs and the scene's input.
    - Rejected: folding it into core (`RefreshFrameSource.pumped`, a spring batch Primitive) and `@wardic/three`, which leaves Pixi, Canvas 2D and plain objects with less.

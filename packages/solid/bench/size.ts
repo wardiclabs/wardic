@@ -62,8 +62,10 @@ const GATE = 1.01
  * code grew 1.5 KB in every app that makes a ward (ADR-0067, *Note (#566)*). The Foldkit binding's Slim app,
  * `f-slim`, holds 196.3 from its first number, 195.8, with the same room (#795, ADR-0071 decision 38): a budget
  * on the first number, no target, which is a follow-up's with what the Handle ships that a Slim element doesn't.
+ * #882 raised it to 196.5 by what it measured, as #672's Q23 did: the Imperative track's two ports into core
+ * (ADR-0073, *Amendment (#882)*), which Foldkit's Slim app ships and Solid's don't.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.3 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

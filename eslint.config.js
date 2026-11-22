@@ -190,8 +190,8 @@ const ALIASES = [
  * The per-frame files whose per-frame code keeps a counted loop or a loop over a stream's keys
  * (ADR-0025, decision 3): `Spring.step`'s substeps, `Machine`'s `blendAt` and `springValues`'
  * step, a keyframes run's Segment search and keys (#429), `Interpolator`'s `complex` blend (number
- * by number), `Scalar.snapTo`, `Projection.applyTreeDeltas`, the Frame loop's tick (ADR-0027), and a
- * Batch's step and change over its typed arrays (#665).
+ * by number), `Scalar.snapTo`, `Projection.applyTreeDeltas`, the Frame loop's tick (ADR-0027), a
+ * Batch's step and change over its typed arrays (#665), and a frame's Frame effects (#882).
  */
 const PER_FRAME_LOOPS = [
   "packages/core/src/Batch.ts",
@@ -203,6 +203,7 @@ const PER_FRAME_LOOPS = [
   "packages/core/src/Scalar.ts",
   "packages/core/src/Projection.ts",
   "packages/core/src/unstable/FlushGate.ts",
+  "packages/core/src/unstable/FrameEffects.ts",
 ]
 
 /**
