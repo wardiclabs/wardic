@@ -68,6 +68,14 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(instances, { opacity: 0 })
   // @ts-expect-error: nor in its keys.
   wardic.batch(new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 4), { keys: ["roughness"] })
+  // Gestures: the hit on the event, a press's end told its success.
+  wardic.hover(cube, (event) => {
+    const hit: THREE.Object3D | undefined = event.object
+    return (end) => void [hit, end.point, end.distance]
+  })
+  wardic.press(instances, (event) => (end, { success }) => void [event.member, event.instanceId, end.nativeEvent, success])
+  // @ts-expect-error: an event has no such field.
+  wardic.hover(cube, (event) => event.button)
   // A sequence's Segment of a Batch takes colours.
   wardic.animate([
     [instances, { color: ["#000", "#fff"], y: 1 }],

@@ -18,6 +18,8 @@
  * - **Units:** `x`, `y` and `z` are metres, so springs rest within millimetres (`unitScale`).
  * - **three's rules after a write:** a camera's projection keys update its projection matrix, and an
  *   `opacity` below 1 draws its material transparent.
+ * - **Hover and press** (`hover`, `press`), given `make`'s `canvas`, `camera` and `scene`: a pointer hits
+ *   the nearest drawn object under it, cast once a frame (`ThreeInput`).
  *
  * @example
  * import * as WardicThree from "@wardic/three/WardicThree"
@@ -32,7 +34,7 @@
  */
 // `@wardic/three/WardicThree` (#883; ADR-0069 decisions 3–9 and 21, ADR-0073 *Amendment (#883)*, Q1–Q3):
 // `@wardic/object`'s runtime through `WardicObject.makeWith`, on three's Environment. The scene's input
-// (`hover`, `press`, the raycast) is #883's PR 5; colours are PR 3's (`ThreeColours`), split at the call
+// (`hover`, `press`, the raycast) is #883's PR 5a (`ThreeInput`); colours are PR 3's (`ThreeColours`), split at the call
 // into their channels; an `InstancedMesh`'s instances PR 4's (`ThreeInstances`, its Environment's `batchSource`).
 import * as UnitScale from "@wardic/core/UnitScale"
 import type * as Config from "@wardic/core/unstable/Config"
@@ -44,7 +46,9 @@ import * as Arr from "effect/Array"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type { Camera, Object3D } from "three"
 import * as ThreeColours from "./ThreeColours.ts"
+import * as ThreeInput from "./ThreeInput.ts"
 import * as ThreeInstances from "./ThreeInstances.ts"
 import * as ThreeRenderer from "./ThreeRenderer.ts"
 import * as ThreeValues from "./ThreeValues.ts"
@@ -166,13 +170,23 @@ export interface ThreeAnimate {
   (sequence: ThreeSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
 
-/** A runtime's options: `@wardic/object`'s, and the scene's unit scale. */
+/** A runtime's options: `@wardic/object`'s, the scene's unit scale, and its input. */
 export interface Options extends WardicObject.Options {
   /**
    * How many of Motion's units a metre is, for `x`, `y` and `z`'s springs' rest: 100 (a scene in
    * metres), so a 10 m move rests within 5 mm. Give 1 for a scene in pixels.
    */
   readonly unitScale?: number | undefined
+  /** The canvas the scene is drawn on, whose pointer events `hover` and `press` hear: with `camera` and `scene`. */
+  readonly canvas?: ThreeInput.CanvasLike | undefined
+  /** The camera the scene is drawn with, or a function giving the one active now: a pointer's ray is cast from it. */
+  readonly camera?: Camera | (() => Camera) | undefined
+  /** The scene a pointer hits. */
+  readonly scene?: Object3D | undefined
+  /** What a pointer hits, in the raycast's place: a BVH's, or a GPU pick's. */
+  readonly hitTest?: ThreeInput.HitTest | undefined
+  /** Where a held pointer's events are heard once it leaves the canvas: the canvas's window when left out. */
+  readonly window?: EventTarget | undefined
 }
 
 /**
@@ -193,6 +207,17 @@ export interface WardicThree extends Omit<WardicObject.WardicObject, "animate" |
    * target)` member `i`. An instance takes its transforms and its colour.
    */
   readonly batch: ThreeBatchOf
+  /**
+   * `hover(subject, onStart)`: `onStart` runs as a pointer comes over `subject` (a scene object, a Batch's
+   * member, or each member of a Batch), and what it returns, as the pointer goes off. Returns its cancel.
+   * Needs `make`'s `canvas`, `camera` and `scene`.
+   */
+  readonly hover: (subject: object, onStart: ThreeInput.HoverStart) => () => void
+  /**
+   * `press(subject, onStart)`: `onStart` runs as a press starts on `subject`, and what it returns, as it
+   * ends, told whether it ended on it. Returns its cancel. Needs `make`'s `canvas`, `camera` and `scene`.
+   */
+  readonly press: (subject: object, onStart: ThreeInput.PressStart) => () => void
 }
 
 /** A scene's unit scale when the app gives none: a metre counts as 100 of Motion's units (ADR-0069 decision 8). */
@@ -257,16 +282,53 @@ const withChannelKeys = (batch: (given: unknown, options?: ObjectBatch.Options<o
     return batch(given, { ...options, keys: ThreeColours.splitBatchKeys(given, options.keys) })
   }
 
+/** The scene's input `options` give: `undefined` without a canvas, an error naming what's missing with one. */
+const inputOf = (options: Options): ThreeInput.SceneInput | undefined => {
+  const { canvas, camera, scene } = options
+  if (Predicate.isUndefined(canvas)) return undefined
+  if (Predicate.isUndefined(camera) || Predicate.isUndefined(scene)) {
+    throw new Error("WardicThree.make: a canvas's input needs its camera and its scene too, to cast a pointer's ray: make({ canvas, camera, scene }).")
+  }
+  return ThreeInput.make({ canvas, camera, scene, hitTest: options.hitTest, window: options.window })
+}
+
+/** A gesture's call on a runtime with no input: an error naming the options it needs. */
+const noInput = (name: string) => (): never => {
+  throw new Error(`wardic.${name}: this runtime has no scene input. Give make the canvas the scene is drawn on, its camera and the scene: WardicThree.make({ canvas: renderer.domElement, camera, scene }).`)
+}
+
 /** A runtime on frames the Host loop pumps: `frame(time)` once a frame, before it renders. */
 export const make = (options: Options = {}): WardicThree => {
   const unitScale = UndefinedOr.match(options.unitScale, { onUndefined: () => UNIT_SCALE, onDefined: (given) => given })
   const runtime = WardicObject.makeWith(environment(unitScale), options)
+  const input = inputOf(options)
+  if (Predicate.isUndefined(input)) {
+    return {
+      animate: withColours(runtime.animate as never) as unknown as ThreeAnimate,
+      batch: withChannelKeys(runtime.batch as never) as unknown as ThreeBatchOf,
+      afterWrites: runtime.afterWrites,
+      frame: runtime.frame,
+      wantsFrame: runtime.wantsFrame,
+      dispose: runtime.dispose,
+      hover: noInput("hover"),
+      press: noInput("press"),
+    }
+  }
   return {
     animate: withColours(runtime.animate as never) as unknown as ThreeAnimate,
     batch: withChannelKeys(runtime.batch as never) as unknown as ThreeBatchOf,
     afterWrites: runtime.afterWrites,
-    frame: runtime.frame,
-    wantsFrame: runtime.wantsFrame,
-    dispose: runtime.dispose,
+    // The raycast first, against what was last drawn, then Wardic's writes.
+    frame: (time) => {
+      input.frame()
+      runtime.frame(time)
+    },
+    wantsFrame: () => runtime.wantsFrame() || input.wantsFrame(),
+    dispose: () => {
+      input.dispose()
+      runtime.dispose()
+    },
+    hover: input.hover,
+    press: input.press,
   }
 }
