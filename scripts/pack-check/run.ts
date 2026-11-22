@@ -34,7 +34,7 @@ import { chromium } from "playwright"
 
 const ROOT = join(import.meta.dirname, "..", "..")
 const FIXTURES = join(import.meta.dirname, "fixtures")
-const PACKAGES = ["core", "dom", "solid", "test", "foldkit"] as const
+const PACKAGES = ["core", "dom", "solid", "test", "foldkit", "object"] as const
 
 interface Fixture {
   readonly name: string
@@ -60,6 +60,8 @@ const ALL: ReadonlyArray<Fixture> = [
   { name: "foldkit-vite", installs: ["core", "dom", "foldkit"], ssr: false, drag: false },
   // `@wardic/foldkit` server-rendered and hydrated (#794, Q12): Node's import reads the package's `node` condition.
   { name: "foldkit-ssr", installs: ["core", "dom", "foldkit"], ssr: true, nodeImport: { spec: "@wardic/foldkit/internal/server", dist: "/dist/internal/server.node.js" }, drag: false, appear: true },
+  // `@wardic/object` on Vite (#882): a plain object on frames the page pumps, drawn onto `#enter` after each frame's writes.
+  { name: "object-vite", installs: ["core", "object"], ssr: false, drag: false },
 ]
 
 const asked = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))

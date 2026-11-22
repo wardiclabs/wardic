@@ -1,0 +1,63 @@
+{
+  "name": "@wardic/object",
+  "version": "1.2.0",
+  "private": true,
+  "description": "Wardic for any object's properties: Motion's animate on plain objects, on frames the host pumps, for canvas and WebGL.",
+  "keywords": [
+    "animation",
+    "motion",
+    "spring",
+    "effect",
+    "canvas",
+    "webgl"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/object"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "The Wardic contributors",
+    "email": "hello@wardic.dev",
+    "url": "https://wardic.dev"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.map",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@wardic/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "@wardic/source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./internal/*": null
+  },
+  "scripts": {
+    "build": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck": "../../node_modules/typescript-7/bin/tsc --build",
+    "typecheck:tests": "../../node_modules/typescript-7/bin/tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@wardic/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "effect": "^4.1.4"
+  }
+}

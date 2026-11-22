@@ -34,6 +34,8 @@ export default defineConfig({
             "packages/core/test/**/*.test.ts",
             "packages/test/test/**/*.test.ts",
             "packages/dom/test/**/*.node.test.ts",
+            // @wardic/object: plain objects on frames the test pumps, with no DOM (#882).
+            "packages/object/test/**/*.test.ts",
             "examples/layout-lab/test/**/*.test.ts",
             // The storefront showcase's store, in Effect (#296).
             "examples/storefront/shared/test/**/*.test.ts",

@@ -198,6 +198,16 @@
         "foldkit": "~0.170.0 || ~0.171.0",
       },
     },
+    "packages/object": {
+      "name": "@wardic/object",
+      "version": "1.2.0",
+      "dependencies": {
+        "@wardic/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "effect": "^4.1.4",
+      },
+    },
     "packages/solid": {
       "name": "@wardic/solid",
       "version": "2.0.1",
@@ -1145,6 +1155,8 @@
     "@wardic/example-storefront-solid2": ["@wardic/example-storefront-solid2@workspace:examples/storefront/solid2"],
 
     "@wardic/foldkit": ["@wardic/foldkit@workspace:packages/foldkit"],
+
+    "@wardic/object": ["@wardic/object@workspace:packages/object"],
 
     "@wardic/site": ["@wardic/site@workspace:site"],
 

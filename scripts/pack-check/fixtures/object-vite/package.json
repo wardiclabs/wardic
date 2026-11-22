@@ -1,0 +1,12 @@
+{
+  "name": "pack-check-object-vite",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "effect": "4.1.4"
+  },
+  "devDependencies": {
+    "vite": "6.4.2"
+  }
+}
