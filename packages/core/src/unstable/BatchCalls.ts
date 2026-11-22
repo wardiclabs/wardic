@@ -19,6 +19,7 @@ import type * as Playback from "../Playback.ts"
 import * as ReducedMotion from "../ReducedMotion.ts"
 import type * as Sequence from "../Sequence.ts"
 import type * as Config from "./Config.ts"
+import type * as Imperative from "./Imperative.ts"
 import * as RetargetLegs from "./RetargetLegs.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -361,3 +362,40 @@ export const keyframesFor = (planning: Planning, call: SequenceCall, animationAt
     if (!call.skipAnimations && Predicate.isNotUndefined(transition.delay)) delay = transition.delay
     return { stops: [Number.NaN, end], transition: landingAfter(delay) }
   }
+
+/** Whether a sequence's subject is a Batch member's entry: a binding and its member's number. */
+export const isMember: Predicate.Refinement<unknown, Imperative.BatchMember> = /*#__PURE__*/ Predicate.and(
+  /*#__PURE__*/ Predicate.hasProperty("binding"),
+  /*#__PURE__*/ Predicate.hasProperty("member"),
+) as Predicate.Refinement<unknown, Imperative.BatchMember>
+
+/**
+ * A compiled sequence's parts (Q40): each Batch's members as one part, in the order they first appear,
+ * with their animations; every other subject as it is. `restOf` gives what of a member's animation its
+ * Subject takes itself (the DOM's member element's keys the Batch doesn't draw), when it takes any.
+ */
+export const sequencePartsOf = <X, S>(
+  compiled: ReadonlyArray<readonly [X | Imperative.BatchMember, Sequence.Animation]>,
+  restOf?: (member: Imperative.BatchMember, animation: Sequence.Animation) => readonly [S, Sequence.Animation] | undefined,
+): { readonly batches: ReadonlyArray<Imperative.SequencePart>; readonly others: ReadonlyArray<readonly [X | S, Sequence.Animation]> } => {
+  const byBinding = new Map<Imperative.BatchCalls, { readonly members: Array<number>; readonly animations: Array<Sequence.Animation> }>()
+  const others: Array<readonly [X | S, Sequence.Animation]> = []
+  Arr.forEach(compiled, ([subject, animation]) => {
+    if (!isMember(subject)) {
+      others.push([subject as X, animation])
+      return
+    }
+    let part = byBinding.get(subject.binding)
+    if (Predicate.isUndefined(part)) {
+      part = { members: [], animations: [] }
+      byBinding.set(subject.binding, part)
+    }
+    part.members.push(subject.member)
+    part.animations.push(animation)
+    if (Predicate.isUndefined(restOf)) return
+    const rest = restOf(subject, animation)
+    if (Predicate.isNotUndefined(rest)) others.push(rest)
+  })
+  return { batches: Arr.map(Arr.fromIterable(byBinding), ([binding, part]): Imperative.SequencePart => ({ binding, ...part })), others }
+}
+

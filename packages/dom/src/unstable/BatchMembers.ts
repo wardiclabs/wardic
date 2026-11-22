@@ -594,29 +594,15 @@ const keysKept = (animation: Sequence.Animation, keep: (key: string) => boolean)
 export const sequencePartsOf = <S>(compiled: ReadonlyArray<readonly [S | BatchMemberEntry, Sequence.Animation]>): {
   readonly batches: ReadonlyArray<SequencePart>
   readonly others: ReadonlyArray<readonly [S | Element, Sequence.Animation]>
-} => {
-  const byBinding = new Map<BatchBinding, { readonly members: Array<number>; readonly animations: Array<Sequence.Animation> }>()
-  const others: Array<readonly [S | Element, Sequence.Animation]> = []
-  Arr.forEach(compiled, ([subject, animation]) => {
-    if (!isMemberEntry(subject)) {
-      others.push([subject as S, animation])
-      return
-    }
-    const { binding, member } = subject
-    let part = byBinding.get(binding)
-    if (Predicate.isUndefined(part)) {
-      part = { members: [], animations: [] }
-      byBinding.set(binding, part)
-    }
-    part.members.push(member)
-    part.animations.push(animation)
-    // Its keys the Batch doesn't have, its element's: a member element's Segment gave them.
+} =>
+  // Core's grouping (#882), a member's keys the Batch doesn't have its element's: a member element's Segment gave them.
+  BatchCalls.sequencePartsOf<S, Element>(compiled, (member, animation) => {
+    const { binding } = member as BatchMemberEntry
     const rest = keysKept(animation, (key) => binding.routeOf(key) !== "batch")
-    const element = binding.elementOf(member)
-    if (Bool.and(Predicate.isNotUndefined(rest), Predicate.isNotUndefined(element))) others.push([element as Element, rest as Sequence.Animation])
-  })
-  return { batches: Arr.map(Arr.fromIterable(byBinding), ([binding, part]): SequencePart => ({ binding, ...part })), others }
-}
+    const element = binding.elementOf(member.member)
+    if (Bool.and(Predicate.isNotUndefined(rest), Predicate.isNotUndefined(element))) return [element as Element, rest as Sequence.Animation]
+    return undefined
+  }) as { readonly batches: ReadonlyArray<SequencePart>; readonly others: ReadonlyArray<readonly [S | Element, Sequence.Animation]> }
 
 /**
  * An element call's parts (#665, Q14, Q35): each Batch's member elements as one part, in list order,
