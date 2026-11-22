@@ -7,6 +7,8 @@
 
 *ADR-0069 decides what this one left open, below under "Not decided here", and moves the spine and the Flush gate into core. The batch moves into core too: decision 2's Amendment (#665). ADR-0070 decides the Solid 2 binding: a Scene object carries its motion, and `createBatch` replaces `createInstances` (*Amendment (#564, Solid 2)*).*
 
+*ADR-0073 (#564, 2026-11-22) makes the Solid 2 binding hooks, with no scene components: `createStage` and `createSceneObject` in `@wardic/three/solid`, and `ward(subject, config)`, `createFrameEffect` and the `WardicStage` context in `@wardic/solid`. Decisions 5, 6, 8, 10 and 13 and the *Amendment (#564, Solid 2)* are marked where they change; the amendment's `createBatch` stands.*
+
 What they found that decides the shape:
 - **The spine already runs on a Three.js object** (probe P6). In Bun with no DOM, `imperative.ts`'s plain-element path drove an `Object3D` through latest-wins, velocity across a Retarget, Keyframes, `transitionEnd` and the Playback controls. Its only DOM reads are Own values, Measured pairs and the gate's inline read, plus subject resolution's `nodeType` check.
 - **Writes land a frame late on window rAF** whenever the scene's loop asked for its frame first, Motion's `motion/three` included. Frames the host pumps are never late (P5, Chromium 147).
@@ -40,19 +42,19 @@ What they found that decides the shape:
 
 ### Frames
 
-5. **A scene's Refresh frames are its Host loop's, never window rAF** (Q3). `wardic.frame(time)` is the primitive: the host calls it once a frame, before it renders, so writes land in the frame that draws them. `<WardicScene renderer scene camera>` is optional sugar that runs `renderer.setAnimationLoop` around it.
+5. **A scene's Refresh frames are its Host loop's, never window rAF** (Q3). `wardic.frame(time)` is the primitive: the host calls it once a frame, before it renders, so writes land in the frame that draws them. `<WardicScene renderer scene camera>` is optional sugar that runs `renderer.setAnimationLoop` around it. *Superseded by ADR-0073 decision 11: `createStage`.*
    - Rejected: window rAF by default with pumping opt-in, which is a frame late whenever the app's loop asked first.
-6. **`<WardicScene>` renders every frame by default** (Q11): `frameloop="always"`, as r3f's. Under `frameloop="demand"`, a running Wardic animation keeps asking for frames by itself, and `invalidate()` is for the app's own changes. An app that runs its own loop reads `wardic.wantsFrame()`.
+6. **`<WardicScene>` renders every frame by default** (Q11): `frameloop="always"`, as r3f's. Under `frameloop="demand"`, a running Wardic animation keeps asking for frames by itself, and `invalidate()` is for the app's own changes. An app that runs its own loop reads `wardic.wantsFrame()`. *Now `createStage`'s `frameloop` (ADR-0073, decision 11).*
    - Rejected: demand by default (Threlte's), where every change Wardic doesn't make needs an `invalidate()`.
 7. **No XR mode** (Q12). The renderer's loop is the only frame source. Three.js moves `setAnimationLoop` onto an XR session's frames while presenting, and an app's own loop calls `frame(t)` from its XR loop, so nothing ticks twice.
 
 ### Scene membership and exits
 
-8. **A Scene object holds a Subject in the scene for its owner** (Q4). `createSceneObject(object, { parent })` adds it to its parent when it enters. When its owner is disposed, it plays the Ward's `exit` and removes it once the exit has landed. `<SceneObject object parent?>` is the component over it, so exits work under Solid's own `<Show>` and `<For>`. Nothing else in the scene disposes the object behind it, so this is simpler than the DOM presence, which has to put a leaver back.
+8. **A Scene object holds a Subject in the scene for its owner** (Q4). `createSceneObject(object, { parent })` adds it to its parent when it enters. When its owner is disposed, it plays the Ward's `exit` and removes it once the exit has landed. `<SceneObject object parent?>` is the component over it, so exits work under Solid's own `<Show>` and `<For>`. Nothing else in the scene disposes the object behind it, so this is simpler than the DOM presence, which has to put a leaver back. *Amended by ADR-0073 decisions 10 and 14: there's no `<SceneObject>`, and `createSceneObject` takes its object as a value or an accessor.*
    - Rejected: the app removing objects itself after `next("settled")`.
 9. **Resources are freed only on request** (Q9): `dispose`, off by default, disposes the subtree's geometries and materials once it leaves. Shared geometries and materials are the norm in a scene: every instanced or cloned mesh shares them.
    - Rejected: disposing by default (solid-three's `autodispose`, r3f's opt-out `dispose={null}`), where a shared resource goes the first time any of its users leaves; never disposing.
-10. **A Scene object's exit events are on its handle, not on its Ward** (Q13), as `createPresence`'s are: `when("exitComplete")` and `next("exitComplete")`, with `onExitComplete` as `<SceneObject>`'s prop form. A Ward doesn't know it's leaving; its membership does.
+10. **A Scene object's exit events are on its handle, not on its Ward** (Q13), as `createPresence`'s are: `when("exitComplete")` and `next("exitComplete")`, with `onExitComplete` as `<SceneObject>`'s prop form. A Ward doesn't know it's leaving; its membership does. *Amended by ADR-0073 decision 15: there's no prop form.*
     - Rejected: an `exitComplete` `WardEvent`, which would grow every binding's `WardEvents`.
 11. **Each Scene object exits on its own** (Q10), with `initial` and `onExitComplete`. `<ScenePresence mode="wait">`, where the next enters once the last has left, comes in a later slice. `popLayout` has no meaning without layout.
 
@@ -60,7 +62,7 @@ What they found that decides the shape:
 
 12. **Gestures come from the scene's own input** (Q6). It listens on the canvas and raycasts once per pointer per frame, inside `frame(t)`. It captures the pointer and hits an instance by its `instanceId`. Its pointer events feed core's Recognizers unchanged. An app can give its own `hitTest`, for BVH or GPU picking.
     - Rejected: the app supplying the events, which leaves capture, hover sets and cancellation to every app.
-13. **The scene's Solid 2 pieces live in `@wardic/three/solid`, for Solid 2 only** (Q8, Q9a): `<WardicScene>`, `<SceneObject>` / `createSceneObject` and `createInstances`. `solid-js` 2 is an optional peer. `ward` and `createAnimate` stay in `@wardic/solid/unstable/v2`.
+13. **The scene's Solid 2 pieces live in `@wardic/three/solid`, for Solid 2 only** (Q8, Q9a): `<WardicScene>`, `<SceneObject>` / `createSceneObject` and `createInstances`. `solid-js` 2 is an optional peer. `ward` and `createAnimate` stay in `@wardic/solid/unstable/v2`. *Amended by ADR-0073 decision 20.*
     - Rejected: a `@wardic/solid/three` subpath, which makes `@wardic/solid` depend on Three.js code; a Solid 1 scene binding.
 
 ## Consequences
@@ -98,6 +100,6 @@ Decision 2 put the batch in `@wardic/object` and rejected folding it into core, 
 ## Amendment (#564, Solid 2, 2026-11-08): a Scene object carries its motion, and `createBatch` replaces `createInstances`
 
 The grill on the Solid 2 binding (ADR-0070) found that, with no scene components (decision 1), nothing carried a scene object's motion props. A config ward was the only form, against the owner's preference that the ward listens and the element animates (ADR-0046, *Amendment (#398)*).
-- **Decision 8's `<SceneObject>` carries its motion props:** `initial`, `animate`, `while*`, `exit`, `transition`, `variants`, `style` and `drag`. A ward given through `wardRef` listens, as on a Wardic element. It's the scene's Wardic element, though it doesn't make its object (ADR-0070, decisions 1 and 5–9).
+- **Decision 8's `<SceneObject>` carries its motion props:** `initial`, `animate`, `while*`, `exit`, `transition`, `variants`, `style` and `drag`. A ward given through `wardRef` listens, as on a Wardic element. It's the scene's Wardic element, though it doesn't make its object (ADR-0070, decisions 1 and 5–9). *Superseded by ADR-0073.*
 - **Decision 13's `createInstances` goes.** `createBatch`, in `@wardic/solid` on both bindings, takes an `InstancedMesh`, scene meshes or DOM elements, with the Environment in context giving the writer (ADR-0070, decision 10).
-- **`@wardic/three/solid` keeps** `<WardicScene>`, `<SceneObject>` and `createSceneObject`, adds `useWardicScene`, and stays Solid 2 only.
+- **`@wardic/three/solid` keeps** `<WardicScene>`, `<SceneObject>` and `createSceneObject`, adds `useWardicScene`, and stays Solid 2 only. *Superseded by ADR-0073 decision 20.*

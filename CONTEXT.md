@@ -521,7 +521,7 @@ What an Environment draws and a **Ward** binds: in the DOM an element, in a scen
 _Avoid_: target (an animation's target values), element (the DOM's kind of Subject), node.
 
 **Scene object**:
-A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice. Its motion is set on it, as a **Wardic element**'s is: it's the scene's Wardic element, though it doesn't make its object. Its parent is the nearest Scene object above it, else the scene. An object that already has a parent, such as a node of a loaded model, stays where it is. Variants pass down nested Scene objects as they do down Wardic elements.
+A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice. Its motion is its **Ward**'s, set where it's made, since a scene has no markup to carry it: it's the scene's Wardic element, though it doesn't make its object. Its parent is the one it's given, else the parent it already has (a node of a loaded model stays where it is), else the **Stage**'s scene. Given as an accessor, it enters when the accessor gives an object, and exits when it gives none or another. Variants pass down the scene's graph, not the app's components: a Ward with variants and no `animate` of its own follows the nearest Ward up its object's parents, as a Wardic element follows the one above it in the page.
 _Avoid_: entity, presence child (the DOM's), node.
 
 **Presence**:
@@ -536,8 +536,16 @@ _Avoid_: presence item, exiting node.
 The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, then renders. A scene Environment's Refresh frames are the host loop's, wherever they come from (the display, an XR session, a game loop), so Wardic's writes land in the frame that draws them.
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
 
+**Stage**:
+What runs a scene for its owner: its **Host loop**, its input and its canvas's size, ended with its owner. `createStage` makes one on Solid, and the hooks under its Solid context, `WardicStage`, find it there, or are called on it directly. It draws the app's renderer, scene and camera and never makes them. A runtime made outside Solid, a game loop's, can be adopted, its disposal left to its maker.
+_Avoid_: canvas (the element it sizes; r3f's component), scene (three's `Scene`, which it draws), runtime (bare: what `WardicThree.make` returns, which a Stage holds).
+
+**Frame effect**:
+An app's own code, run in Wardic's frame before the frame is drawn: in a scene, in the **Host loop** before it renders; on the DOM, before paint. As Solid's effect, it's two functions: a compute that reads **Live values** and signals, and an apply that runs after each re-run, untracked, whose cleanup runs before the next apply and when its owner is disposed. It re-runs on a frame where something it read has changed, so one that reads the time runs every frame. Solid's own effect runs on Solid's schedule instead, outside the frame.
+_Avoid_: frame callback, render effect (Solid's `createRenderEffect`, a render-phase effect), `useFrame` (r3f's).
+
 **Ward**:
-One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid 2's binding has two ways to put one on an element: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Solid 1's has three: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the **Bundle**, `w.attributes(config)`, on any other element (ADR-0071).
+One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid 2's binding has two ways to put one on an element: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). On a scene's Subject, which has no markup to take a ref, it's `ward(subject, config)`, its Subject first: the same ward as `ward(config)(subject)`, as a `dual` operation's two forms are (#564). Solid 1's has three: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the **Bundle**, `w.attributes(config)`, on any other element (ADR-0071).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
 
 **Spine**:
