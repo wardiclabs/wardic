@@ -8,15 +8,27 @@ import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Focus from "@wardic/dom/unstable/features/Focus"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import { isServer } from "@solidjs/web"
+import * as Predicate from "effect/Predicate"
+import { type Accessor, createEffect } from "solid-js"
 import { useBrought } from "./provider.tsx"
-import { type Sensor, watchSensorOf } from "./sensors.tsx"
+import { type Sensor, type SensorTarget, watchSensorOf } from "./sensors.tsx"
+import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { isWard, sensedOf } from "./ward.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
 const FOCUS: ReadonlyArray<Feature.Feature> = [Focus.focus]
 
+/** `createFocus`'s forms: a sensor to give to a `ref`; or, given its element or a ward first, its reading. */
+export interface CreateFocus {
+  (): Sensor<boolean>
+  (target: SensorTarget): Accessor<boolean>
+}
+
 /**
  * `true` while the element it's given to as a `ref` has focus, `false` once it loses it, however it
- * got it: a pointer's click counts, where `whileFocus` counts only a focus the browser shows.
+ * got it: a pointer's click counts, where `whileFocus` counts only a focus the browser shows. Given its
+ * element first, it reads that one; given a ward, the element the ward is on.
  *
  * @example
  * const focused = createFocus()
@@ -24,8 +36,23 @@ const FOCUS: ReadonlyArray<Feature.Feature> = [Focus.focus]
  * <p class="hint" hidden={!focused()}>Press Enter to search</p>
  * @see https://wardic.dev/reference/solid/gestures/create-focus
  */
-// The core focus watch, not `visible` only.
-export const createFocus = (): Sensor<boolean> => {
+// The core focus watch, not `visible` only. Given a ward (#884), it watches the ward's element, following
+// it: a ward tells no focus events, so its own focus recognizer, run for `whileFocus` alone, can't be asked.
+export const createFocus: CreateFocus = ((target?: SensorTarget): Sensor<boolean> | Accessor<boolean> => {
   const services = useBrought(FOCUS)
-  return watchSensorOf<boolean>((target, handlers) => GestureFeatures.serviceOf(services(), Keys.FocusGesture).watch(target, {}, handlers), false)
-}
+  if (isWard(target)) {
+    const sensor = watchSensorOf<boolean>((element, handlers) => GestureFeatures.serviceOf(services(), Keys.FocusGesture).watch(element, {}, handlers), false)
+    if (isServer) return () => sensor()
+    const sensed = sensedOf(target)
+    if (Predicate.isUndefined(sensed)) return () => sensor()
+    createEffect(
+      sensed.element,
+      (element) => {
+        if (Predicate.isNotUndefined(element)) sensor(element)
+      },
+      CLIENT_ONLY,
+    )
+    return () => sensor()
+  }
+  return watchSensorOf<boolean>((element, handlers) => GestureFeatures.serviceOf(services(), Keys.FocusGesture).watch(element, {}, handlers), false, target)
+}) as CreateFocus

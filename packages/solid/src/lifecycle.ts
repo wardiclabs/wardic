@@ -26,6 +26,7 @@
  * @module
  */
 import * as Bool from "effect/Boolean"
+import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import { constUndefined, identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -298,6 +299,8 @@ export class Lifecycle implements Spine.AnimationHooks {
   private tapWaiting: ((tap: WardPressInfo | undefined) => void) | undefined = undefined
   // The `next(name)` calls waiting, made at the first; and whether the ward is gone.
   private events: Waiters<WardEvents> | undefined = undefined
+  // The drag sensors given the ward (#884), made at the first.
+  private samples: Set<(sample: Drag.Sample) => void> | undefined = undefined
   private disposed = false
   // The gestures a `next` has asked for, whose recognizers the ward runs from then on.
   private hover = false
@@ -415,6 +418,8 @@ export class Lifecycle implements Spine.AnimationHooks {
    * (#431) isn't, as Motion's `cancel` tells no `onDragEnd`.
    */
   dragged(sample: Drag.Sample, locked: boolean, element: WardElement): void {
+    // A sensor given the ward reads every sample, as one on its element would (#884).
+    UndefinedOr.map(this.samples, (heard) => Iter.forEach(heard, (listener) => listener(sample)))
     if (sample.cancelled === true) return
     if (Bool.and(locked, sample.phase === "start")) this.tell("directionLock", () => sample.axis as "x" | "y")
     this.moved(DRAG_EVENT[sample.phase], "drag", sample, element)
@@ -563,6 +568,14 @@ export class Lifecycle implements Spine.AnimationHooks {
     const gesture = GESTURE_OF[name]
     if (Bool.and(Predicate.isNotUndefined(gesture), Bool.not(this.disposed))) this.wanted(gesture as WantedGesture)
     return stop
+  }
+
+  /** Every drag sample from the call on, as a drag sensor given the ward reads them (#884): until the returned stop. */
+  readonly listenSamples = (listener: (sample: Drag.Sample) => void): (() => void) => {
+    if (Predicate.isUndefined(this.samples)) this.samples = new Set()
+    const heard = this.samples
+    heard.add(listener)
+    return () => void heard.delete(listener)
   }
 
   /** `when(name)` (#355): every `name`, as a memo for an effect: see `whenOf`. */
