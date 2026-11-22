@@ -168,6 +168,39 @@ describe("ObjectBatch: many objects as one run", () => {
     wardic.dispose()
   })
 
+  it("OB13: an Environment's batchSource makes a Batch of what isn't a list, drawn and read its own way; anything else is an error", async () => {
+    const strip = { cells: [0, 0, 0] }
+    const flushes: Array<number> = []
+    const environment: WardicObject.Environment = {
+      ...WardicObject.OBJECTS,
+      batchSource: (given) => {
+        if (given !== strip) return undefined
+        return {
+          members: [0, 1, 2].map((index) => ({ index })),
+          writer: {
+            writes: (key) => key === "level",
+            forKeys: () => (subject, positions, base) => {
+              strip.cells[(subject as { readonly index: number }).index] = positions[base]!
+            },
+            flush: () => void flushes.push(strip.cells[2]!),
+          },
+          read: (subject) => strip.cells[(subject as { readonly index: number }).index],
+        }
+      },
+    }
+    const wardic = WardicObject.makeWith(environment)
+    // Typed for lists: an Environment's own `batch` types what its source takes (`@wardic/three`'s).
+    const cells = wardic.batch(strip as never)
+    const controls = wardic.animate(cells, { level: (i: number) => i + 1 } as never, LINEAR)
+    await tick()
+    pump(wardic, 9)
+    await controls
+    expect(strip.cells).toEqual([1, 2, 3])
+    expect(flushes.at(-1)).toBe(3)
+    expect(() => WardicObject.make().batch({ cells: [] } as never)).toThrow(/a Batch is made of a list of objects/)
+    wardic.dispose()
+  })
+
   it("OB12: a member whose key isn't a number is an error naming it, at the Batch's first call", () => {
     const wardic = WardicObject.make()
     const swarm = wardic.batch([{ x: 0 }, { x: "far" as unknown as number }])

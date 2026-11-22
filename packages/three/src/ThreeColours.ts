@@ -8,6 +8,9 @@
  * A channel rests by its share of the distance it goes, as a blended key's progress does, so a move
  * from black to a near black animates, and every colour lands in the same time.
  *
+ * A Batch's colours split the same way: one for every member, two stops, or a function of a member's
+ * index, each member's colour read once. An `InstancedMesh`'s instance's `color` is its instance colour.
+ *
  * @example
  * import * as ThreeColours from "@wardic/three/ThreeColours"
  *
@@ -15,8 +18,8 @@
  * // { opacity: 1, colorR: 0, colorG: 0, colorB: 1 }
  */
 // `@wardic/three/ThreeColours` (#883, PR 3; ADR-0069 decision 7; ADR-0073 *Amendment (#883)*, PR 3's
-// Q1–Q3): probe `.tmp/883-colour/` measured channel keys keeping a retarget's velocity, where a colour
-// blended on a progress (Motion's) starts from rest. Split at the call, so core's values stay numbers
+// Q1–Q3, a Batch's PR 4's Q5): probe `.tmp/883-colour/` measured channel keys keeping a retarget's
+// velocity, where a colour blended on a progress (Motion's) starts from rest. Split at the call, so core's values stay numbers
 // and strings. A target is read by the Subject's own `Color` class: no import of three, and the app's
 // colour management applies.
 import * as UnitScale from "@wardic/core/UnitScale"
@@ -25,6 +28,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as Lookup from "./internal/lookup.ts"
+import * as ThreeInstances from "./ThreeInstances.ts"
 
 /** A three `Color`, as Wardic reads one: its linear channels, and its own way to read a colour. */
 interface ColorLike {
@@ -70,20 +74,50 @@ const channelsOfStop = (colour: ColorLike, value: unknown): readonly [number | n
   return [read.r, read.g, read.b]
 }
 
-/** A colour key's value, as its three channels' values: a stop each, or keyframes of them. */
+/** A Batch's function value, `(i, n) => …`, as its three channels' functions: each member's colour read once, its channels from it. */
+const channelsOfFunction = (colour: ColorLike, value: (i: number, n: number) => unknown): readonly [unknown, unknown, unknown] => {
+  // Called key by key over the members (core's `BatchCalls`): each member's read kept for its other channels.
+  const read: Array<readonly [unknown, unknown, unknown]> = []
+  const at = (i: number, n: number): readonly [unknown, unknown, unknown] => {
+    const known = read[i]
+    if (Predicate.isNotUndefined(known)) return known
+    const channels = channelsOf(colour, value(i, n))
+    read[i] = channels
+    return channels
+  }
+  return [(i: number, n: number) => at(i, n)[0], (i: number, n: number) => at(i, n)[1], (i: number, n: number) => at(i, n)[2]]
+}
+
+/**
+ * A colour key's value, as its three channels' values: a stop each, or keyframes of them (a Batch's two
+ * stops, a Segment's stops). A Batch's function of a member's index gives each channel a function.
+ */
 const channelsOf = (colour: ColorLike, value: unknown): readonly [unknown, unknown, unknown] => {
+  if (Predicate.isFunction(value)) return channelsOfFunction(colour, value as (i: number, n: number) => unknown)
   if (!Arr.isArray(value)) return channelsOfStop(colour, value)
-  const stops = Arr.map(value as ReadonlyArray<unknown>, (stop) => channelsOfStop(colour, stop))
+  const stops = Arr.map(value as ReadonlyArray<unknown>, (stop) => channelsOf(colour, stop))
   return [Arr.map(stops, (stop) => stop[0]), Arr.map(stops, (stop) => stop[1]), Arr.map(stops, (stop) => stop[2])]
+}
+
+/**
+ * The Color `key` names on `subject`, by whose class a colour is read: the lookup's, or, for an
+ * `InstancedMesh`'s instance, its material's for `color`, the instance's colour.
+ */
+const colourFor = (subject: object, key: string): ColorLike | undefined => {
+  if (ThreeInstances.isInstance(subject)) {
+    if (key !== "color") return undefined
+    return Lookup.colourOf(subject.mesh, "color") as unknown as ColorLike | undefined
+  }
+  return Lookup.colourOf(subject, key) as unknown as ColorLike | undefined
 }
 
 /** The keys of `target` that name a Color on `subject`, with it. */
 const coloursIn = (subject: object, target: Readonly<Record<string, unknown>>): ReadonlyArray<readonly [string, ColorLike]> =>
   Arr.filterMap(Rec.keys(target), (key) => {
     if (key === "transition" || key === "transitionEnd") return Result.failVoid
-    const colour = Lookup.colourOf(subject, key)
+    const colour = colourFor(subject, key)
     if (Predicate.isUndefined(colour)) return Result.failVoid
-    return Result.succeed([key, colour as unknown as ColorLike] as const)
+    return Result.succeed([key, colour] as const)
   })
 
 /** `values` with each of `colours`' keys given as its three channels' values. */
@@ -120,7 +154,8 @@ const splitEntries = (transition: unknown, colours: ReadonlyArray<readonly [stri
 /**
  * A call's target and options on `subject`, each colour key split into its channels: its value or
  * keyframes, its `transitionEnd`, and its own entry in the target's `transition` or the options. A
- * target with no colour key comes back as it is.
+ * target with no colour key comes back as it is. For a Batch, `subject` is a member, and a value may be
+ * two stops or a function of a member's index.
  */
 export const splitCall = (subject: unknown, target: unknown, options: unknown): readonly [target: unknown, options: unknown] => {
   if (!Predicate.isObject(subject) || !Predicate.isObject(target)) return [target, options]
@@ -135,3 +170,18 @@ export const splitCall = (subject: unknown, target: unknown, options: unknown): 
 
 /** `target` on `subject`, each colour key split into its channels. */
 export const split = (subject: object, target: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => splitCall(subject, target, undefined)[0] as Readonly<Record<string, unknown>>
+
+/** Whether `key` is a colour key of a Batch made of `given`: `color` on an `InstancedMesh`'s instances, a Color on a list's first member. */
+const isBatchColour = (given: unknown, key: string): boolean => {
+  if (ThreeInstances.isInstancedMesh(given)) return key === "color"
+  if (!Arr.isArray(given)) return false
+  const first = (given as ReadonlyArray<unknown>)[0]
+  return Predicate.isObject(first) && Predicate.isNotUndefined(colourFor(first, key))
+}
+
+/** The `keys` of a Batch made of `given` (an `InstancedMesh`, or a list), each colour key given as its three channels. */
+export const splitBatchKeys = (given: unknown, keys: ReadonlyArray<string>): ReadonlyArray<string> =>
+  Arr.flatMap(keys, (key) => {
+    if (!isBatchColour(given, key)) return [key]
+    return Arr.map(CHANNELS, (channel) => `${key}${channel}`)
+  })

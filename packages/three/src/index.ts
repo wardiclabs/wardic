@@ -20,6 +20,7 @@
  */
 // #883 (ADR-0068, ADR-0069, ADR-0073): private until 1.3, with `@wardic/object`.
 export * as ThreeColours from "./ThreeColours.ts"
+export * as ThreeInstances from "./ThreeInstances.ts"
 export * as ThreeRenderer from "./ThreeRenderer.ts"
 export * as ThreeValues from "./ThreeValues.ts"
 export * as WardicThree from "./WardicThree.ts"
