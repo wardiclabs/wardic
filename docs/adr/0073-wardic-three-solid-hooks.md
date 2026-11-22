@@ -568,3 +568,32 @@ What the owner decided:
 - **Types:** a mesh's colour keys (its material's `Color`s, its uniforms') take a colour or keyframes of them, and their channel keys take numbers. A `ShaderMaterial`'s uniforms, which three types as any name of any value, take either.
 - **Found, not fixed here (#896):** core's Imperative track drops a target's own `transition` and `transitionEnd`. It reads only the target's values and the options' transition, on plain objects and in three, though `ObjectTarget`'s type offers both. The DOM's `animate` runs the same track; that's read from the code, not run.
 
+
+**PR 4, as built:** an `InstancedMesh`'s instances as a Batch (`ThreeInstances`), after probe `.tmp/883-instanced/` (three r187, Bun 1.3.13 and Node 22) and PR 4's grill (Q1–Q5).
+- **Q1, `wardic.batch(instanced)`:** `@wardic/object`'s `Environment` gains `batchSource(given)`, which turns something other than a list into a Batch's members, a writer and a read. `makeWith`'s `batch` asks it for anything that isn't an array; anything it doesn't take is an error naming the list form.
+  - **three's source:** one member handle per instance of the mesh's capacity (`instanceMatrix.count`), `{ mesh, index }`, and a writer of its own, because its `flush` is that mesh's. A function value's `n` is the capacity, and the mesh's `count` stays the app's (decision 13). A mesh is one Batch's in a runtime: a second `wardic.batch` of it is an error, and a runtime made after one is disposed (a hot reload's) takes it.
+  - Rejected: `makeWith` exposing its Batch context so that `WardicThree` builds a second `batch`; a `writer` option on `wardic.batch`, an app-facing option for one Environment's need.
+- **Q2, the writer:**
+  - **The start:** each instance's matrix is decomposed once when the Batch is made: its position, its Euler XYZ rotation in degrees (three's default order) and its scale. That's 0.9–1.1 ms at 10,000, and compose(decompose(M)) is within 1.3e-7 of M. An axis scaled to 0 reads no rotation, where three's `decompose` gives NaN. A mirrored matrix keeps its sign on its x scale, as three's does.
+  - **Keys the Batch doesn't take** keep their start values. Each rotation axis it doesn't take keeps its cos and sin, so a frame's trig is only for the rotation keys it takes. A Batch of `x`, `y` and `z` alone writes the translation alone.
+  - **The matrices are the Batch's:** an app's `setMatrixAt` after the Batch is made is drawn over at that instance's next write.
+
+  | Every member moving, 10,000 (probe) | µs a frame |
+  |---|---|
+  | three's way (an `Object3D`, `updateMatrix()`, `setMatrixAt`) | 561–584 |
+  | in place, all three axes' trig | 555–560 |
+  | `rotateY` alone, the other axes kept | 205–239 |
+  | scale alone | 25–57 |
+  | translation alone | 14–23 |
+
+  Memory: 15 floats per instance, 1.2 MB at 10,000, beside the Batch's own ~10 arrays per key.
+- **Q3, the bounds:** computed in the writer's `flush`, each frame a transform was written, over the drawn instances (`count`), with two passes over their matrices. Each instance's geometry sphere goes through its matrix into an AABB, then the sphere takes the farthest reach from the box's middle. It's written into the mesh's own `boundingSphere` in place; three's `computeBoundingSphere()` makes it the first time. 6–7 µs at 1,000 and 68–73 µs at 10,000, against three's 36–39 and 370–373, and tighter. The mesh's `boundingBox` is set to `null`, so three computes it again when it's asked for.
+  - This amends decision 19's "from the Batch's position arrays": a writer sees only the members it writes, and the matrices hold every one, rotation and scale too. The fallback (`frustumCulled = false`) isn't needed.
+  - Rejected: one pass, the AABB's circumsphere, 46–50 µs but looser.
+- **Q4, partial uploads:** the writer keeps the lowest and highest instance it wrote a frame, and `flush` gives three that span, `addUpdateRange(start, count)` with `needsUpdate`, for the matrices and the colours alike. One instance moving of 1,000 uploads 16 floats; moves far apart cover the span between them, at worst the whole buffer, as before. Both of r187's renderers read `updateRanges`. The upload isn't measured: Node has no GPU, and `bench:three`'s browser case (PR 5) can.
+- **Q5, colours:**
+  - **An instance's `color`** is its instance colour, which three multiplies into the material's. It's split into `colorR`, `colorG` and `colorB` as PR 3's are, parsed by the material's own `Color` class; a material with none is an error naming the channel keys. `instanceColor` is made white when a Batch with a colour key is made, by three's own `setColorAt`, and both renderers recompile the material for it.
+  - **Any other material key on an instance** (`opacity`, `emissive`) is an error, at the Batch's make: the instances share one material, so the message names `animate(instanced.material, …)`.
+  - **A Batch of meshes takes `color` too.** Every Batch form splits: one colour for every member, two stops, a function of `(i, n)` called once per member per call, its three channels read from that one result, and a Segment's stops and `null`s. A colour key in `keys` is given as its channels.
+- **End to end** (`e2e.ts`, `split.ts`: `wardic.frame(t)`, every member on a long tween, 10,000): on Bun, instances moving `y` cost 209–294 µs a frame against 76–91 for plain objects on the same keys, the bounds 40–150 µs of it. All seven transform keys cost 1,134–1,145 against 570–644. On Node, core's Batch step is most of it: plain objects cost 407–531 µs for `y` and 2,782–4,018 µs for seven keys, about 5× Bun's, which `bench:core` (Bun only) doesn't track.
+- **Not done here:** keyed instances (members entering and leaving, the swap that `Batch.move` would make) are step 4's, with `createBatch`'s scene writers. Hover and press on an instance, by the raycast's `instanceId`, are PR 5's.

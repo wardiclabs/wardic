@@ -67,7 +67,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
     - Rejected: designing it now as every spring leg's engine, with per-member transitions, members added at each Retarget and landing callbacks per member.
 11. **Springs and tweens on numbers** (Q8), with Value transitions per key. No keyframes beyond a start (decision 14), and no inertia or decay. A tween restarts from where it is; an additive blend (anime's `composition: "blend"`) can come later. The writer names the keys it writes:
     - the DOM's: transforms and `opacity`;
-    - an `InstancedMesh`'s: transforms and instance colour;
+    - an `InstancedMesh`'s: transforms and instance colour (*done in #883's PR 4, ADR-0073, *Amendment (#883)*: `ThreeInstances`, its matrices written in place*);
     - `@wardic/object`'s: any numeric property.
 12. **The ordinary `animate` takes a Batch** (Q9), as anime's `animate(getInstances(mesh), …)` does, with springs that keep velocity:
     ```ts
@@ -81,7 +81,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
     - **At 1,000 members** a Batch costs 0.03–0.06 ms a frame and retargets every member in 0.1–0.3 ms. A run per mesh costs 0.49–0.56 ms and 29–32 ms (canvas note, P7 and Q2).
     - Rejected: a method on the batch, `swarm.animate((i, to) => …)`; #665's `animateMany(elements, …)`.
 13. **What a Batch is made from** (Q22): an `InstancedMesh`, whose members are its capacity, with its `count` setting how many are drawn; or an array of Subjects of one kind. Mixed kinds are a type error, since a Batch has one writer. Its membership doesn't change: a new array is a new Batch, and keyed membership (ids, members entering and leaving) is the bindings'.
-14. **Where members start** (Q23). Their Own values are read when the Batch is made: an object's properties, or an `InstancedMesh`'s matrices, decomposed once. Motion's two-stop form sets a start, for every member or per member: `{ y: (i) => [-2, rowY(i)] }`. For any Subject, a key it can't read needs `[from, to]`, else a dev error names the key, as Motion's does.
+14. **Where members start** (Q23). Their Own values are read when the Batch is made: an object's properties, or an `InstancedMesh`'s matrices, decomposed once (*done in #883's PR 4: Euler XYZ in degrees, 0.9–1.1 ms at 10,000; a key the Batch doesn't take keeps its value*). Motion's two-stop form sets a start, for every member or per member: `{ y: (i) => [-2, rowY(i)] }`. For any Subject, a key it can't read needs `[from, to]`, else a dev error names the key, as Motion's does.
 15. **The same Playback controls** (Q24) as one Subject's animation (ADR-0061, decision 5). Seeking `time` is exact for a Batch's springs, from the closed form, where the spine simulates one. A Batch can be a Sequence's segment. A member another driver takes leaves the controls.
 16. **Values read back by index** (Q25): `swarm.get(i, key)` and `swarm.velocity(i, key)`, and `onUpdate` once a frame for the whole Batch, never per member.
 17. **The latest driver takes a key** (Q11), as GSAP's `overwrite: "auto"`, anime's `"replace"` and Motion's per-key values have it:
@@ -91,7 +91,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
     - **On the DOM**, the transform keys move together, since they're written as one `transform`.
     - Rejected: a dev-only error; the batch yielding, checked every frame.
 18. **Reduced motion, `skipAnimations` and stagger** (Q12). Reduced motion Snaps a Batch's Positional keys after their delay. `skipAnimations` lands every member on its next frame. `delay: stagger(…)` is a per-member delay in Frame time.
-19. **An `InstancedMesh`'s bounds follow its Batch** (Q20). While it moves, its bounding sphere is computed each frame from the Batch's position arrays, so culling and the raycast's first test stay right. That's one pass over N floats with no matrix work (*inferred*: tens of µs at 10,000). If measurement disappoints, the fallback is `frustumCulled = false` while it moves and one `computeBoundingSphere()` once it settles.
+19. **An `InstancedMesh`'s bounds follow its Batch** (Q20). While it moves, its bounding sphere is computed each frame from the Batch's position arrays, so culling and the raycast's first test stay right. That's one pass over N floats with no matrix work (*inferred*: tens of µs at 10,000). If measurement disappoints, the fallback is `frustumCulled = false` while it moves and one `computeBoundingSphere()` once it settles. *Amended by ADR-0073, *Amendment (#883)*, PR 4's Q3: computed from the instances' matrices, not the Batch's positions, since a writer sees only the members it writes. Two passes in the writer's `flush`, each frame a transform moved: 68–73 µs at 10,000, against three's `computeBoundingSphere()` at 370 µs. The fallback isn't needed.*
     - Rejected: a sphere at each retarget around every start and target, with a margin guessed for overshoot.
 20. **GPU springs come in a later slice** (Q13), opt-in per Batch, after the CPU Batch and the `InstancedMesh` writer, with their time uniform fed by Wardic's Clock rather than TSL's `time`. The CPU Batch at 10,000 moving costs 0.28–0.40 ms a frame, inside ADR-0027's 4 ms.
 
@@ -154,7 +154,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
 - drag in a scene.
 
 **Not measured:**
-- the bounds computed each frame;
+- the bounds computed each frame (*measured in #883's PR 4: 6–7 µs at 1,000, 68–73 µs at 10,000*);
 - the registry's cost at a driver's start;
 - a Batch's tweens;
 - a function value per key per member at a retarget (*inferred*: about 5,000 calls at 1,000 members × 5 keys).

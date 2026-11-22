@@ -23,8 +23,16 @@ wardic.animate(camera, { fov: 35, z: 8 })
 - **three's rules after a write:** a camera's projection keys update its projection matrix, and an `opacity` below 1 draws its material transparent.
 - **Units:** `x`, `y` and `z` are metres, so a spring rests within millimetres. Give `make({ unitScale: 1 })` for a scene in pixels.
 - **Reduced motion** snaps the transforms and a camera's `fov` and `zoom`, and fades the rest.
-- **A Batch** moves many objects on the same keys as one run: `wardic.batch(meshes)`.
+- **Colours** (`color`, `emissive`, a uniform's `Color`) take a CSS colour, a hex number or a `Color`, and blend in linear light, three's: red to blue passes `#bc00bc`. A spring keeps a colour's speed through a change of target.
+- **A Batch** moves many objects on the same keys as one run: `wardic.batch(meshes)`. A value can be a function of a member's index: `animate(swarm, { y: (i) => i * 2, color: (i) => palette[i % 5] })`.
+- **An `InstancedMesh`'s instances** are a Batch too, `wardic.batch(instanced)`, each moved by its transforms and its instance colour. Each frame, Wardic writes the matrices of the instances that moved, uploads only that span, and keeps the mesh's bounding sphere around them, so culling and picking stay right.
 
-Colours, an `InstancedMesh`'s instances, and hover and press in a scene come next.
+```ts
+const swarm = wardic.batch(instanced)
+wardic.animate(swarm, { y: (i) => rowY(i), rotateY: 90 }, { type: "spring", delay: stagger(0.002) })
+wardic.animate(swarm.at(42), { scale: 1.4, color: "#ff8800" })
+```
+
+Hover and press in a scene come next.
 
 Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).
