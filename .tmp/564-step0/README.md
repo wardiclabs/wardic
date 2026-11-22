@@ -67,5 +67,10 @@ ADR-0073 decision 19's inference holds, now measured: in the Host loop's one cal
 
 - **Decision 19:** "an inference" becomes measured (P4a), with `flush()` as the way Solid lands it now (P4b).
 - **Decision 21's 8c:** confirmed in the scene's shape (P1a–P1d).
-- **Decision 21's 8k, and decision 10's "pending: it waits":** a scene hook rendering nothing doesn't join `<Loading>` or `<Reveal>` (P2b, P2e, P2f), and an object already drawn shows its own pose until its data lands (P1e). It joins only through what the component renders (P2g). A decision for the owner.
+- **Decision 21's 8k, and decision 10's "pending: it waits":** a scene hook rendering nothing doesn't join `<Loading>` or `<Reveal>` (P2b, P2e, P2f), and an object already drawn shows its own pose until its data lands (P1e). It joins only through what the component renders (P2g).
 - **Decision 26:** `TestStage`'s node tier on the `browser` condition, with a mount of its own (probe 3).
+
+## The owner's decisions (2026-11-22)
+
+- **An opt-in renderable, `held`:** a scene hook's handle (`createSceneObject`'s, a scene `ward`'s) has `held`, which renders nothing and reads the hook's pending Subject and config. A component that returns it (`return card.held`) joins its `<Loading>` and `<Reveal>`: the fallback, `onSettled` after the data, the reveal order (P2g). `return null` still works: the object enters once its data lands (P1), with no fallback or reveal order. A ward itself can't be returned: it's a ref callback, which Solid would call.
+- **A Scene object joins when ready:** `createSceneObject` adds its object once its ward can start, its Subject and every pending config key landed, `initial` written in the same frame, so its first drawn frame shows `initial`. A `ward(mesh, …)` on an object already drawn keeps its own pose until its data lands, which the docs say.
