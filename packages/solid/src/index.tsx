@@ -244,6 +244,8 @@ export {
   createWillChange,
 } from "./live-value.tsx"
 export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.tsx"
+/** Frame effects (#884, ADR-0073 decision 19): an app's own code in Wardic's frame, after its writes and before paint. */
+export { createFrameEffect } from "./frame-effect.tsx"
 export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "@wardic/dom/unstable/LiveStyle"
 
 /**
