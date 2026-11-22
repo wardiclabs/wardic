@@ -14,37 +14,15 @@
  *
  * @module
  */
+// #882 (ADR-0073, *Amendment (#882)*, Q2): core's table, `DefaultTransition.byKey`, the same objects.
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
-import * as ReducedMotion from "@wardic/core/ReducedMotion"
-import * as Bool from "effect/Boolean"
-import * as Layer from "effect/Layer"
-
-/** A transform's but a scale's: Motion's `underDampedSpring`. */
-const TRANSFORM: DefaultTransition.Transition = { type: "spring", stiffness: 500, damping: 25, restSpeed: 10 }
-
-/** A scale's toward 0: Motion's `criticallyDampedSpring`, critically damped, so it doesn't overshoot past 0. */
-const SCALE_TO_ZERO: DefaultTransition.Transition = { type: "spring", stiffness: 550, damping: 2 * Math.sqrt(550), restSpeed: 10 }
-
-/** A scale's toward anything else: Motion's `criticallyDampedSpring`, with its damping of 30. */
-const SCALE: DefaultTransition.Transition = { type: "spring", stiffness: 550, damping: 30, restSpeed: 10 }
-
-/** Every other key's: Motion's `ease`. */
-const EASE: DefaultTransition.Transition = { type: "tween", duration: 0.3, ease: [0.25, 0.1, 0.35, 1] }
+import type * as Layer from "effect/Layer"
 
 /** The transition through more than two keyframes, as Motion's `keyframesTransition`: a 0.8 s tween, eased out. */
-// #429: on its `animateMotionValue`'s `easeOut`.
-export const keyframes: DefaultTransition.KeyframesTransition = { type: "tween", duration: 0.8, ease: "easeOut" }
-
-/** A transform's: a scale's, by its target, or the rest's. */
-const transformFor = (key: string, target: number | string): DefaultTransition.Transition =>
-  Bool.match(key.startsWith("scale"), {
-    onTrue: () => Bool.match(target === 0, { onTrue: () => SCALE_TO_ZERO, onFalse: () => SCALE }),
-    onFalse: () => TRANSFORM,
-  })
+export const keyframes: DefaultTransition.KeyframesTransition = DefaultTransition.KEYFRAMES_TWEEN
 
 /** The transition `key` runs on toward `target` when its own isn't defined, in the DOM: Motion's. */
-export const transitionFor = (key: string, target: number | string): DefaultTransition.Transition =>
-  Bool.match(ReducedMotion.isTransform(key), { onTrue: () => transformFor(key, target), onFalse: () => EASE })
+export const transitionFor: (key: string, target: number | string) => DefaultTransition.Transition = DefaultTransition.byKey
 
 /** The DOM Environment's `DefaultTransition.DefaultTransition`. */
-export const DefaultTransitionDomLive: Layer.Layer<DefaultTransition.DefaultTransition> = Layer.succeed(DefaultTransition.DefaultTransition, { transitionFor, keyframes })
+export const DefaultTransitionDomLive: Layer.Layer<DefaultTransition.DefaultTransition> = DefaultTransition.layerByKey
