@@ -37,7 +37,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
      - `scale` sets all three scales, and `scaleX`/`scaleY`/`scaleZ` set one each.
    - **Other keys:** any other key is the object's own property. There are no dotted paths and no vector values: a `Vector3` animates as a plain object, `animate(mesh.position, { x: 2 })`.
    - **What the names bring:** Motion's Default transitions, by name. With degrees, Motion's rest thresholds stay meaningful.
-   - **`scaleZ`** joins core's transform keys, which gives the DOM Motion's `scaleZ` too.
+   - **`scaleZ`** joins core's transform keys, which gives the DOM Motion's `scaleZ` too. *Done in #883 (ADR-0073, *Amendment (#883)*), the DOM drawing it as `scaleZ()`.*
    - **Own values:** in a scene, a transform key's Own value is what the object holds, not core's identity.
    - **The types come from three's own.** `animate(mesh, { rotatY: 90 })` is a type error. A mesh suggests the transforms, its material's keys and its own numbers; a camera adds `fov`, `zoom`, `near` and `far`; a uniforms object its names. Motion's `ObjectTarget` accepts any string. Theatre and DOTween are the typed precedents.
    - Rejected: three's paths (`position.x`, radians), which every library in the survey that uses paths leaves untyped; vector values.
@@ -50,7 +50,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
    - **Why not the DOM's:** Wardic's DOM blends sRGB as CSS does (ADR-0024), giving `#800080`. On a lit, tone-mapped material, a div's midpoint never matches the screen anyway.
    - Rejected: sRGB channels (the DOM's and anime's); Motion's mix.
 8. **A scene reads `x`/`y`/`z` at a unit scale** (Q7).
-   - **The option:** `make({ unitScale })`, 100 in a scene and 1 in `@wardic/object` (Pixi's pixels). Any Subject's `x`/`y`/`z` count as that many of Motion's units: `restFor(spring, d * unitScale, unitScale)`, as layout's progress counts 1000 (ADR-0050, decision 2).
+   - **The option:** `make({ unitScale })`, 100 in a scene and 1 in `@wardic/object` (Pixi's pixels). *Amended by ADR-0073, *Amendment (#883)*: it's core's `UnitScale`, a `Context.Reference` an Environment's Layers give (1 by default), read by core from the runtime its spines and Batches hold.* Any Subject's `x`/`y`/`z` count as that many of Motion's units: `restFor(spring, d * unitScale, unitScale)`, as layout's progress counts 1000 (ADR-0050, decision 2).
    - **What it does:** a 10 m move rests within 5 mm, and a 4 cm move within 0.05 mm. Other keys keep Motion's thresholds, and a given `restDelta` or `restSpeed` wins.
    - Rejected: Motion's thresholds as they are, which stop a move of 5 units or more 4–5% short and snap it (P4, `motion/three` too); one absolute threshold (maath's `eps`, Svelte's `precision`), which at 0.005 stops a 1 cm move 5 mm short.
 9. **A scene's Positional keys** (Q12) are the transform keys on any Subject, plus a camera's `fov` and `zoom`: a camera's move is the vestibular case.
