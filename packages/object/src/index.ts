@@ -7,6 +7,7 @@
  */
 // #882 (ADR-0068 decision 2; ADR-0073, *Amendment (#882)*): its modules named as ADR-0041 names an
 // Environment's.
+export * as ObjectBatch from "./ObjectBatch.ts"
 export * as ObjectRenderer from "./ObjectRenderer.ts"
 export * as ObjectValues from "./ObjectValues.ts"
 export * as PumpedFrames from "./PumpedFrames.ts"
