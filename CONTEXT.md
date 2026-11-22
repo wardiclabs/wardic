@@ -439,7 +439,7 @@ A target's input as an Environment gives it (#318): started with a callback, it 
 _Avoid_: listener (the platform's), subscription (a Stream's).
 
 **Held pointer**:
-A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's pointer **Input feed** wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its kind. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's pointer **Input feed** wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its kind. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest, and a **Scene input** its canvas's window's. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:
@@ -539,6 +539,10 @@ _Avoid_: presence item, exiting node.
 **Host loop**:
 The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, then renders. A scene Environment's Refresh frames are the host loop's, wherever they come from (the display, an XR session, a game loop), so Wardic's writes land in the frame that draws them.
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
+
+**Scene input**:
+A scene's pointer input, as core's `InputSource`: its canvas's pointer events, each hitting the nearest drawn object under the pointer, cast once a **Refresh frame** per pointer while a gesture is watched, and at once for a press or a release. A hit on an object is a hit on each object above it, and an `InstancedMesh`'s instance is hit by its index. Hover follows what moves under a still pointer (#883, ADR-0069 decisions 22 and 23).
+_Avoid_: picking (a GPU pick is one way to hit), raycaster (three's, which casts it).
 
 **Stage**:
 What runs a scene for its owner: its **Host loop**, its input and its canvas's size, ended with its owner. `createStage` makes one on Solid, and the hooks under its Solid context, `WardicStage`, find it there, or are called on it directly. It draws the app's renderer, scene and camera and never makes them. A runtime made outside Solid, a game loop's, can be adopted, its disposal left to its maker.

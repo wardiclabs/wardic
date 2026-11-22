@@ -33,6 +33,19 @@ wardic.animate(swarm, { y: (i) => rowY(i), rotateY: 90 }, { type: "spring", dela
 wardic.animate(swarm.at(42), { scale: 1.4, color: "#ff8800" })
 ```
 
-Hover and press in a scene come next.
+- **Hover and press:** given its canvas, camera and scene, a runtime's `hover(subject, onStart)` and `press(subject, onStart)` work on the scene's objects, a Batch's members and an `InstancedMesh`'s instances. The pointer hits the nearest drawn object under it, cast once a frame, so hover follows what moves under a still pointer.
+
+```ts
+const wardic = WardicThree.make({ canvas: renderer.domElement, camera, scene })
+wardic.hover(crate, () => {
+  wardic.animate(crate, { scale: 1.1 })
+  return () => wardic.animate(crate, { scale: 1 })
+})
+wardic.press(swarm, (event) => (end, { success }) => {
+  if (success) select(event.member)
+})
+```
+
+- **Tests:** `@wardic/three/TestStage` runs a scene with no renderer and no page, in Node: `stage.pointer.over(crate)`, then `stage.frame()`.
 
 Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).

@@ -106,7 +106,7 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
     wardic.frame(time); wardic.wantsFrame(); wardic.dispose()
     const { animate, batch, hover, press } = wardic
     ```
-    - **`WardicObject.make`** is the same without the input.
+    - **`WardicObject.make`** is the same without the input. *The input's options, `canvas`, `camera` (or `() => active`), `scene` and `hitTest`, are done in #883's PR 5a (ADR-0073, *Amendment (#883)*).*
     - **Frames are always pumped:** a Canvas 2D app calls `frame(t)` in its draw loop.
     - **`ThreeLive.layer`** takes the same options, for Effect code.
     - **The page's DOM keeps its own Clock.** Live values reach it through a shared `registry`. The prior art's worst bugs are one engine for every canvas: react-spring#1586, anime#1178, r3f#3852.
@@ -116,10 +116,12 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
     - **On a Batch:** a member is found by the hit's `instanceId`.
     - **The event** carries the screen point and the hit: world `point`, `distance`, `object`, `instanceId`.
     - **Drag** comes only through the Solid ward.
+    - *Done in #883's PR 5a (ADR-0073, *Amendment (#883)*): `ThreeInput`, on core's own recognizers through three's `InputSource`; `onStart` gets the scene event (`object`, `point`, `distance`, `instanceId`, a Batch's `member`, `x`, `y`, `nativeEvent`).*
     - Rejected: top-level imports, which would need an ambient runtime; Wardic's is per Host loop.
 23. **A pointer hits the whole scene** (Q21, Q26):
     - **What it hits:** raycast once per pointer every frame while it's over the canvas, inside `frame(t)`. The nearest hit wins, so an object with no gestures still blocks what's behind it, and hover follows what moves under a still pointer.
     - **Opting out:** three's `layers` exclude objects, and a `hitTest` hook takes a BVH. That's `@pmndrs/pointer-events`' and r3f v10's model.
+    - *Done in #883's PR 5a: the camera's layers, a hidden object or parent skipped, cast only while a gesture is watched, a down and a release at once.*
     - Rejected: raycasting only the Subjects with gestures, and only on frames with a pointer event, which is r3f v9's model: "If the camera moves a hoverable object underneath the cursor it will not trigger a hover event."
 24. **A run ends with its owner** (Q19): its controls' `stop()`, the runtime's `dispose()`, a Solid owner, an Effect Scope, or a Scene object once it has left. It doesn't pause while its Subject is out of the scene.
     - Rejected: pausing it there, as Godot's `bind_node` does. three tells only the removed object, not its descendants, and "under a scene" has no answer for a root drawn by `renderer.render(group, camera)`, a HUD on a camera, or a material.
