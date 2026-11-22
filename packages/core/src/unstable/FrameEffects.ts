@@ -20,6 +20,11 @@
 // effects, one for every Environment. Not a phase of the Frame loop or of the gate: the loop ticks only
 // while an animation runs, and the gate flushes only what was written, so a frame where an effect's only
 // input moved (`createTime()`, an every-frame `controls.update()`) has neither.
+import * as Effect from "effect/Effect"
+import type * as Scope from "effect/Scope"
+import * as Clock from "../Clock.ts"
+import * as FrameLoop from "../FrameLoop.ts"
+import * as RefreshFrameSource from "../RefreshFrameSource.ts"
 
 /** What an Environment gives its Frame effects. */
 export interface FrameEffectsOptions {
@@ -116,3 +121,52 @@ export const make = (options: FrameEffectsOptions): FrameEffects => {
 
   return { add, request, requested: () => asked, run }
 }
+
+/**
+ * Frame effects for an Environment on core's Frame loop and Refresh frames, the DOM's: run at the end
+ * of each tick, after the tick's hooks added before them (the Flush gate's flush, so after Wardic's
+ * writes for the frame), and, on a frame with no tick, on a Refresh frame of their own that `request()`
+ * asks for, which a tick withdraws. For as long as the Scope is open.
+ *
+ * @example
+ * const effects = yield* FrameEffects.onFrameLoop((defect) => console.error(defect))
+ * effects.add(() => camera.lookAt(target))
+ */
+// #884's PR 1 (ADR-0073 decision 19, *Amendment (#882)*'s Q3): the DOM's slot, as `@wardic/object`'s
+// `frame(t)` runs its own. The tick's hook as the gate's `flushTicked` is: its own frame withdrawn, run now.
+export const onFrameLoop = (report: (defect: unknown) => void): Effect.Effect<FrameEffects, never, FrameLoop.FrameLoop | RefreshFrameSource.RefreshFrameSource | Clock.Clock | Scope.Scope> =>
+  Effect.gen(function* () {
+    const loop = yield* FrameLoop.FrameLoop
+    const { requestFrame, cancelFrame } = yield* RefreshFrameSource.RefreshFrameSource
+    const clock = yield* Clock.Clock
+    // The Refresh frame a request asked for, while it's pending.
+    let pending = false
+    let frame: unknown = undefined
+    const effects: FrameEffects = make({
+      requestFrame: () => {
+        pending = true
+        frame = requestFrame((time) => {
+          pending = false
+          effects.run(time)
+        })
+      },
+      report,
+    })
+    const ticked = (): undefined => {
+      if (pending) {
+        cancelFrame(frame)
+        pending = false
+      }
+      effects.run(clock.frameAt())
+      return undefined
+    }
+    yield* loop.afterTick(ticked)
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (pending) cancelFrame(frame)
+        pending = false
+      })
+    )
+    return effects
+  })
+

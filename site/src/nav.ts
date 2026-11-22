@@ -156,6 +156,7 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/live-values/create-time", title: "createTime" },
           { path: "/reference/solid/live-values/create-scroll", title: "createScroll" },
           { path: "/reference/solid/live-values/create-animation-frame", title: "createAnimationFrame" },
+          { path: "/reference/solid/live-values/create-frame-effect", title: "createFrameEffect" },
           { path: "/reference/solid/live-values/create-will-change", title: "createWillChange" },
         ],
       },

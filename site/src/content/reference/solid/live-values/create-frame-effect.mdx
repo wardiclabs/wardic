@@ -1,0 +1,35 @@
+---
+title: createFrameEffect
+description: Runs your own code in Wardic's frame, after its writes and before paint, each time what it reads changes.
+api: [createFrameEffect]
+---
+
+# createFrameEffect
+
+Runs your own code in Wardic's frame: after Wardic's writes for the frame, and before the frame is painted. It's two functions, as Solid's effect is: a compute that reads Live values and signals, and an apply that runs at the end of the frame after each run of the compute.
+
+```tsx
+import { createFrameEffect, ward } from "@wardic/solid"
+
+const card = ward({ animate: () => ({ x: props.open ? 240 : 0 }) })
+let label!: HTMLSpanElement
+createFrameEffect(card.read("x"), (x) => {
+  label.textContent = `${Math.round(x)}px`
+})
+<div {...card} />
+<span ref={label} />
+```
+
+- **The compute** is tracked. It runs again once something it read changes: a Live value that moved in this frame, or a signal written since the last one.
+- **The apply** gets the compute's value, untracked. Whatever it returns runs before its next apply, and when its owner is disposed.
+- **When:** in the frame that moved what it read. On the page, that's after the gate has written every element's styles for the frame, so the apply reads them as they'll be painted. With nothing animating, a change still gets a frame of its own.
+- **Order:** Frame effects run in the order they were made.
+- **Every frame:** read `createTime()` in the compute.
+
+Solid's own `createEffect` runs on Solid's schedule. For a value that moves in Wardic's frame, that's after the frame has been painted, so a write there shows a frame late. `createFrameEffect` runs in the frame itself.
+
+A throw from the apply is logged, and the other Frame effects still run. Make it in a component's body, under a `<WardicProvider>`; it stops with its owner. Nothing runs on a server. Solid 2 only.
+
+## Coming from Motion
+
+Motion has no tracked frame hook: `useAnimationFrame` calls a function every frame, as `createAnimationFrame` does. r3f's `useFrame` is `createFrameEffect` reading `createTime()`.

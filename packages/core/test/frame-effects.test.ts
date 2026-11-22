@@ -2,8 +2,14 @@
  * Frame effects' slot (#882, ADR-0073 *Amendment (#882)*, Q3; decision 19): an ordered list an
  * Environment runs at its frame's end, after Wardic's writes. Pure, so node-tier.
  */
+import * as Clock from "@wardic/core/Clock"
+import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as FrameEffects from "@wardic/core/unstable/FrameEffects"
 import { expect, it } from "@effect/vitest"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Scope from "effect/Scope"
 
 /** Frame effects whose frame requests and reports are counted. */
 const counted = () => {
@@ -90,4 +96,91 @@ it("FE6: an effect that removes itself in its run runs no more, and the next run
   effects.run(0)
   effects.run(16)
   expect(heard).toEqual(["once", "always", "always"])
+})
+
+/**
+ * `onFrameLoop`'s Environment, by hand: a Frame loop whose ticks the test calls (its hooks, in the order
+ * added), a Refresh frame source the test fires, and a Clock whose last frame is the tick's time.
+ */
+const onLoop = () => {
+  const hooks: Array<(dt: number) => undefined> = []
+  const frames = new Map<number, (time: number) => void>()
+  let handle = 0
+  let frameAt = Number.NaN
+  const loop = {
+    afterTick: (hook: (dt: number) => undefined) =>
+      Effect.acquireRelease(
+        Effect.sync(() => void hooks.push(hook)),
+        () => Effect.sync(() => void hooks.splice(hooks.indexOf(hook), 1)),
+      ),
+  }
+  const source = {
+    requestFrame: (callback: (time: number) => void) => {
+      handle++
+      frames.set(handle, callback)
+      return handle
+    },
+    cancelFrame: (given: unknown) => void frames.delete(given as number),
+  }
+  const reports: Array<unknown> = []
+  const scope = Scope.makeUnsafe()
+  const effects = Effect.runSync(
+    FrameEffects.onFrameLoop((defect) => void reports.push(defect)).pipe(
+      Effect.provideService(FrameLoop.FrameLoop, loop as never),
+      Effect.provideService(RefreshFrameSource.RefreshFrameSource, source as never),
+      Effect.provideService(Clock.Clock, { frameAt: () => frameAt } as never),
+      Scope.provide(scope),
+    ),
+  )
+  /** A tick at `time`: its hooks, in the order added. */
+  const tick = (time: number): void => {
+    frameAt = time
+    for (const hook of [...hooks]) hook(16)
+  }
+  /** Every pending Refresh frame, at `time`. */
+  const fire = (time: number): void => {
+    const due = [...frames.values()]
+    frames.clear()
+    for (const callback of due) callback(time)
+  }
+  return { effects, hooks, frames, tick, fire, reports, scope }
+}
+
+it("FE7: on a Frame loop, a request with no tick runs the effects on a Refresh frame of their own, at its time", () => {
+  const env = onLoop()
+  const heard: Array<number> = []
+  env.effects.add((time) => void heard.push(time))
+  env.effects.request()
+  expect(env.frames.size).toBe(1)
+  env.fire(100)
+  expect(heard).toEqual([100])
+  // Nothing asked: no frame.
+  expect(env.frames.size).toBe(0)
+})
+
+it("FE8: a tick runs them at its end, after the hooks added before them (the gate's flush), and withdraws their own frame", () => {
+  const env = onLoop()
+  const heard: Array<string> = []
+  // The gate's hook, added before the effects' slot was: a hook at the front of the tick's list.
+  env.hooks.unshift(() => {
+    heard.push("flush")
+    return undefined
+  })
+  env.effects.add((time) => void heard.push(`effect ${time}`))
+  env.effects.request()
+  env.tick(200)
+  expect(heard).toEqual(["flush", "effect 200"])
+  expect(env.frames.size).toBe(0)
+  // A tick with no request runs them too: an input moved in it, which each effect checks.
+  env.tick(216)
+  expect(heard).toEqual(["flush", "effect 200", "flush", "effect 216"])
+})
+
+it("FE9: closing the Scope takes the slot off the loop and withdraws a pending frame", () => {
+  const env = onLoop()
+  env.effects.add(() => undefined)
+  env.effects.request()
+  Effect.runSync(Scope.close(env.scope, Exit.void))
+  expect(env.hooks).toEqual([])
+  expect(env.frames.size).toBe(0)
 })
