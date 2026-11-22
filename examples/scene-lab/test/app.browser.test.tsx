@@ -3,10 +3,11 @@
  * scenario, each canvas drawn by its own WebGL renderer, and one real pointer path, a real mouse over a
  * mesh and a click on it, through the scene's input on a real canvas and window.
  */
-import { render } from "@solidjs/web"
+import { type JSX, render } from "@solidjs/web"
 import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { App } from "../src/App.tsx"
+import { Card } from "../src/Card.tsx"
 import { scenarios } from "../src/scenarios.ts"
 
 /** Waits until `check` holds, polling each frame, else fails naming `what`. */
@@ -24,11 +25,11 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-/** The page, mounted in a host of its own. */
-const mounted = (): HTMLElement => {
+/** `view`, mounted in a host of its own. */
+const mounted = (view: () => JSX.Element): HTMLElement => {
   const host = document.createElement("div")
   document.body.append(host)
-  disposers.push(render(() => <App />, host))
+  disposers.push(render(view, host))
   return host
 }
 
@@ -41,7 +42,7 @@ describe("the scene lab's page (#883's PR 5c)", () => {
       error(...args)
     }
     try {
-      const host = mounted()
+      const host = mounted(() => <App />)
       await until(() => host.querySelectorAll("canvas[data-drawn]").length === scenarios.length, "every canvas to draw")
       expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual(scenarios.map((scenario) => scenario.id))
       expect(errors).toEqual([])
@@ -51,7 +52,10 @@ describe("the scene lab's page (#883's PR 5c)", () => {
   })
 
   it("SL2: a real mouse over a mesh hovers it, and a click on it taps it", async () => {
-    const host = mounted()
+    // Its card alone: the page's six render loops on CI's software WebGL kept Playwright's scroll from
+    // ever running on #902's CI (`locator.hover` stuck at "scrolling into view if needed").
+    const gestures = scenarios.find((scenario) => scenario.id === "gestures")!
+    const host = mounted(() => <Card scenario={gestures} />)
     const card = host.querySelector('[data-scenario="gestures"]') as HTMLElement
     const canvas = card.querySelector("canvas") as HTMLCanvasElement
     const output = card.querySelector("output") as HTMLOutputElement
