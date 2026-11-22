@@ -2,6 +2,8 @@
 
 *Amended for #665 (2026-11-10): the writer comes from the scene or the DOM, a member takes its element's own `style` and `ref`, every target can be a function, a Batch can be a sequence's Segment, and its members hover and press (*Amendment (#665)*).*
 
+*Superseded in part by ADR-0073 (#564, 2026-11-22): `@wardic/three/solid` is hooks, and `<WardicScene>`, `<SceneObject>` and `useWardicScene` don't ship. Decisions 1–9 and 16 are replaced, each marked with what carries over, and decision 6 is reversed. Decisions 10–15 and the Amendments stand, with the nearest `<WardicScene>`'s writer read as the nearest Stage's.*
+
 ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneObject>` / `createSceneObject` and `createInstances`, in `@wardic/three/solid`. ADR-0069 left them their follow-ups: keyed Batches, #665's Solid primitive, and drag in a scene. The owner asked to rethink how Solid 2 connects to a scene.
 
 **What the grill found** (2026-11-08): with no scene components (ADR-0068 decision 1), nothing carried a scene object's motion props. A config ward was the only form, against the owner's preference that the ward listens and the element animates (ADR-0046, *Amendment (#398)*). So the `<SceneObject>` that already holds an object in the scene now carries its motion too, and is the scene's Wardic element without making its object.
@@ -11,6 +13,7 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 ### The surface and the runtime
 
 1. **Both surfaces, on one runtime** (Q1):
+   - *Superseded by ADR-0073: hooks. A scene's Subject takes `ward(subject, config)` (decision 8), and a Stage's own calls replace `useWardicScene` (decision 12).*
    - **The DOM's surface.** A `<SceneObject>` takes an object, holds it in the scene and carries its motion props. `ward()` listens through `wardRef`, as on a `w.div`. A Subject with no `<SceneObject>` takes a config ward: the canvas's camera, a material, a uniform, a post-processing pass.
    - **The runtime's own calls,** beside it: `useWardicScene()` gives ADR-0069's `animate`, `batch`, `hover`, `press` and `invalidate`, and each ends with its component's owner.
    ```tsx
@@ -36,29 +39,33 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
      - config wards alone;
      - the runtime's calls alone. Then what each gesture returns to is the app's to work out, with no variants and nothing to `await` or test with `isPending`.
 2. **`<WardicScene>` provides `WardicThree.make`'s runtime** (Q2), ADR-0069's, as Solid's Wardic context:
+   - *Superseded by ADR-0073 decisions 11 and 12: `createStage`, in the `WardicStage` context, adopting with `wardic: made`.*
    - there's one way to build a scene runtime;
    - `<WardicScene wardic={made}>` adopts one made outside Solid, a game loop's say, and leaves its disposal to its maker;
    - it takes the DOM provider's `AtomRegistry` from context by itself, so `card.read("y")` shows in DOM UI.
    - Rejected: `<WardicProvider env={ThreeLive.layer(…)}>`, a second way to build the same runtime.
 3. **`<WardicScene>` hosts the canvas** (Q3):
+   - *Superseded by ADR-0073 decision 11: `createStage`, given as a ref, with this resizing.*
    - it renders a `<div>` holding `renderer.domElement`;
    - a ResizeObserver keeps it sized: `renderer.setSize`, and a perspective camera's `aspect` with `updateProjectionMatrix()`;
    - `resize={false}` opts out;
    - it takes the app's renderer, so the renderer stays the app's choice (WebGL or WebGPU).
    - Rejected: the loop alone, which leaves every app writing the same resize code; making the renderer, scene and camera as r3f's `<Canvas>` does, which mirrors three's constructors in props, against ADR-0068 decision 1.
-4. **Config flows through `<WardicScene>`, and its `camera` is tracked** (Q16). A `<WardicConfig>` above it (its `transition`, `reducedMotion` and `skipAnimations`) applies to the scene's wards, Scene objects and Batches, since it's the same context. `make`'s options stay the defaults for the runtime's own calls. Raycasts and resizes follow the current camera.
+4. **Config flows through `<WardicScene>`, and its `camera` is tracked** (Q16). A `<WardicConfig>` above it (its `transition`, `reducedMotion` and `skipAnimations`) applies to the scene's wards, Scene objects and Batches, since it's the same context. `make`'s options stay the defaults for the runtime's own calls. Raycasts and resizes follow the current camera. *Kept by ADR-0073 decision 11, on `createStage`.*
 
 ### Scene objects
 
 5. **Where a Scene object joins** (Q6):
+   - *Superseded by ADR-0073 decisions 14 and 17: its parent is the one it's given, else its own, else the Stage's scene, and variants pass down the three.js graph. `initial`'s rules carry over.*
    - **Its parent** is the nearest `<SceneObject>` above it, else `<WardicScene>`'s `scene`.
    - **An object that already has a parent** (a node of a loaded model) stays where it is, and its exit removes it from there. `parent={…}` reparents explicitly.
    - **`initial`** is written onto the object before it joins, so its first drawn frame shows it. `initial={false}` starts it at `animate`.
    - **Variants, `staggerChildren` and `when`** pass down nested Scene objects, through the variant context Wardic elements use.
    - **`createSceneObject(object, props)`** takes the same props.
-6. **`object` is read once** (Q7), as a `w.div`'s element is fixed. A new object is a new `<SceneObject>` (a keyed `<Show>` or `<For>`): the old one exits and the new one enters.
+6. **`object` is read once** (Q7), as a `w.div`'s element is fixed. A new object is a new `<SceneObject>` (a keyed `<Show>` or `<For>`): the old one exits and the new one enters. *Reversed by ADR-0073 decision 10: a Subject can be an accessor.*
    - Rejected: a reactive `object`, a hidden exit and enter inside one component.
 7. **`style` holds a Scene object's Base and Live values** (Q8), as a `w.div`'s does:
+   - *Kept by ADR-0073 decision 7, on a ward's `style`, with this table.*
    - a plain value is the key's Base value;
    - an uncalled accessor or an Atom is followed each frame in the gate (ADR-0045, decision 7).
 
@@ -73,9 +80,10 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 
    Every per-frame write lands in the pump, before the render, never through Solid.
    - Rejected: a new name (`values`); the object's own props (`position={[…]}`), which ADR-0069 decision 4 rules out.
-8. **A Scene object brings the Features its props use** (Q17), as `Reorder`'s items do (ADR-0067): `whileHover` brings hover, and `drag` brings drag. A scene app already ships three.
+8. **A Scene object brings the Features its props use** (Q17), as `Reorder`'s items do (ADR-0067): `whileHover` brings hover, and `drag` brings drag. A scene app already ships three. *Superseded by ADR-0073: there's no `<SceneObject>`, and a scene's ward is `ward`, which brings every Feature (ADR-0067).*
    - Rejected: Slim Scene objects that take their Features from `<WardicScene features>`.
 9. **Drag in 3D** (Q4). A pointer moves in 2D, so the binding projects each move into the scene:
+   - *Kept by ADR-0073 decision 18, as `ward`'s config.*
    - **`drag`** moves the object on a plane facing the camera, through the point grabbed, as three's `DragControls` and drei's do.
    - **`drag="x" | "y" | "z"`** moves it along that axis of its parent's space, matching the `x`/`y`/`z` keys.
    - **`dragPlane`** drags on a fixed plane, such as the ground.
@@ -135,13 +143,13 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 
 ### Across runtimes
 
-16. **DOM code changes state, and the scene animates** (Q18). A "Reset view" button sets a signal that the camera's config ward reads. A DOM provider's `animate` given a scene object is a dev error that names this. Code that wants imperative control from outside the scene makes the runtime there and adopts it (`<WardicScene wardic={made}>`), then calls `made.animate`.
+16. **DOM code changes state, and the scene animates** (Q18). A "Reset view" button sets a signal that the camera's config ward reads. A DOM provider's `animate` given a scene object is a dev error that names this. Code that wants imperative control from outside the scene makes the runtime there and adopts it (`<WardicScene wardic={made}>`), then calls `made.animate`. *Superseded by ADR-0073 decisions 11 and 12: `createStage({ wardic: made })` adopts, and code outside the tree calls the Stage.*
     - Rejected: `animate` routing a Subject to whichever runtime claims it, where two canvases would both claim a shared material.
 
 ## Consequences
 
 **Packages:**
-- **`@wardic/three/solid`** (Solid 2 only, as ADR-0068 decision 13 has it): `<WardicScene>`, `<SceneObject>`, `createSceneObject` and `useWardicScene`.
+- **`@wardic/three/solid`** (Solid 2 only, as ADR-0068 decision 13 has it): `<WardicScene>`, `<SceneObject>`, `createSceneObject` and `useWardicScene`. *Superseded by ADR-0073 decision 20.*
 - **`@wardic/solid`** (both bindings): `createBatch`, beside Solid 2's `ward` and `createAnimate`, which work in a scene by ADR-0068 decision 3.
 
 **The build order** (ADR-0069's):

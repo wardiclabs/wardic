@@ -2,6 +2,8 @@
 
 *Amended for #665 (2026-11-10): the DOM's Batch is built first, with slots, a table of transitions and a stagger that counts the members that move, and a Sequence's segment of a Batch runs each member through its own stops (*Amendment (#665)*).*
 
+*ADR-0073 (#564, 2026-11-22) reopened only the decisions copied from Motion (4, 5, 12 and 22) and kept all four, decision 5 with a dev warning at a ward's first write to a material other meshes share. "Left out of v1"'s `lookAt` recipe is a Frame effect, decision 20's GPU springs sit outside the 1.3 milestone, and the Consequences' build order, step 6 above all, is ADR-0073's.*
+
 ADR-0068 settled what `@wardic/three` is: Wardic animates a scene's objects and doesn't build the scene, on frames the Host loop pumps. It left the framework-free API open: key names, units, the batch, GPU springs and colours. Two issues added to it:
 - **#665** wants the batch for the DOM's big lists, grids and charts.
 - **#663** (PR #664) gave `springValues` its keys by index (`Frame.SpringValues`), which is the batch's state shape too.
