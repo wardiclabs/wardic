@@ -654,6 +654,22 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".compare-handle",
   },
   {
+    id: "leaning-bar",
+    area: "live",
+    docs: "/guides/live-values",
+    title: "An announcement bar that leans with your scroll",
+    summary: "The studio's news runs across the page; scroll, and the bar leans into it and runs faster, backwards as you scroll up.",
+    why: [
+      "How fast the page is scrolling is a value like any other: `createVelocity(scrollY)` is the scroll's speed in pixels a second, and a spring over it turns a flick into a lean that eases off rather than stopping dead. `createTransform` maps that speed to the bar's `skewX`, and to how much faster the news runs, so the bar answers the hand without a scroll listener of the page's own.",
+      "The news runs on `createAnimationFrame`: each frame it moves by its pace times the frame's own `delta`, quicker as the scroll is, and turns round as the scroll does. Its `x` is a signal in the track's `style`, which the track follows without a render. The lean and the run are on two elements, so the lean settles when the scroll stops while the news runs on.",
+    ],
+    reducedMotion: "The bar stays still and upright: the news is there to read, and scrolling moves nothing.",
+    uses: ["createScroll", "createVelocity", "createSpring", "createTransform", "createAnimationFrame", "a signal in style"],
+    apps: ["solid2"],
+    interact: "scroll:html:600",
+    watch: ".leaning-bar",
+  },
+  {
     id: "reading-progress",
     foldkit: {
       note: "Where the Solid apps call `createScroll` in the component, the panel's Mount asks `Wardic.scroll({ container })` and feeds an Atom at module scope that the bar binds.",

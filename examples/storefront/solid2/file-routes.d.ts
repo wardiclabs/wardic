@@ -149,6 +149,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/live/leaning-bar";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/leaning-bar")>;
+      $$route?: undefined;
+    },
+    {
       path: "/live/magnifier";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/live/magnifier")>;
@@ -378,6 +384,14 @@ declare module "virtual:file-routes" {
       id: "/presence/toasts";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/presence/toasts")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/leaning-bar";
+      id: "/live/leaning-bar";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/leaning-bar")>;
       $$route?: undefined;
       children?: undefined;
     },
