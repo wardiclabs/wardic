@@ -27,7 +27,8 @@
 import { isServer } from "@solidjs/web"
 import * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
-import { type Stage, type StageGraph, type StageWard, stageWard, type StageWardEnvironment } from "@wardic/solid"
+import * as Spine from "@wardic/core/unstable/Spine"
+import { type Stage, type StageDrag, type StageGraph, type StageWard, stageWard, type StageWardEnvironment } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined, constVoid } from "effect/Function"
@@ -38,6 +39,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { onCleanup, onSettled, untrack } from "solid-js"
 import type { Camera, Object3D } from "three"
 import * as ThreeColours from "../ThreeColours.ts"
+import * as ThreeDrag from "../ThreeDrag.ts"
 import * as ThreeInput from "../ThreeInput.ts"
 import * as WardicThree from "../WardicThree.ts"
 
@@ -198,13 +200,30 @@ export type SceneStage = Stage & { readonly [SCENE]: SceneOf }
 export const landExits = (stage: { readonly [SCENE]: SceneOf }): void =>
   Arr.forEach(Arr.fromIterable(stage[SCENE].exits), (land) => land())
 
+/** What a Stage drags with: its camera and its canvas, once there is one. A Stage adopting a runtime has neither. */
+export interface StageView {
+  readonly camera: Camera | (() => Camera)
+  readonly canvas: () => ThreeDrag.CanvasRect | undefined
+}
+
 /**
  * The Stage over `runtime`: its Subjects three's, its ward the Stage ward on the runtime, each colour of
  * its config split into its channels in linear light as three's `animate` splits a call's, its input
- * `input`. `scene` is what a Scene object with no parent joins.
+ * `input`. `scene` is what a Scene object with no parent joins. With `view`, it drags (#885's PR 4):
+ * `ThreeDrag` on its camera and canvas.
  */
-export const stageOver = (runtime: WardicThree.WardicThree, input: InputSource.InputSource["Service"], scene: Object3D | undefined): SceneStage => {
-  const environment: StageWardEnvironment = { ...runtime.stageEnvironment, input, graph: THREE_GRAPH }
+export const stageOver = (runtime: WardicThree.WardicThree, input: InputSource.InputSource["Service"], scene: Object3D | undefined, view: StageView | undefined): SceneStage => {
+  const drag = UndefinedOr.map(
+    view,
+    (given): StageDrag =>
+      ThreeDrag.make({
+        animate: runtime.animate as unknown as ThreeDrag.Options["animate"],
+        camera: given.camera,
+        canvas: given.canvas,
+        unitScale: Spine.unitScaleOf(runtime.stageEnvironment.runtime),
+      }) as unknown as StageDrag,
+  )
+  const environment: StageWardEnvironment = { ...runtime.stageEnvironment, input, graph: THREE_GRAPH, drag }
   const ward = stageWard(environment)
   const split = <C,>(subject: unknown, config: C): C => ThreeColours.splitConfig(subjectNowOf(subject), config as Readonly<Record<string, unknown>>) as C
   return {
@@ -213,6 +232,7 @@ export const stageOver = (runtime: WardicThree.WardicThree, input: InputSource.I
     animate: runtime.animate as unknown as Stage["animate"],
     frameEffects: runtime.stageEnvironment.frameEffects,
     input,
+    drag,
     [SCENE]: {
       environment,
       split,
@@ -271,7 +291,7 @@ const cameraOf = (camera: StageOptions["camera"]): Camera => {
 
 /** A Stage over `made`, a runtime made outside Solid: its maker pumps its frames and draws; it adopts no loop. */
 const adopted = (made: WardicThree.WardicThree): ThreeStage =>
-  Object.assign((_element: HTMLElement) => undefined, stageOver(made, UndefinedOr.match(made.input, { onUndefined: () => NO_INPUT, onDefined: (given) => given }), undefined), {
+  Object.assign((_element: HTMLElement) => undefined, stageOver(made, UndefinedOr.match(made.input, { onUndefined: () => NO_INPUT, onDefined: (given) => given }), undefined, undefined), {
     invalidate: constVoid,
     wardic: made,
   }) as ThreeStage
@@ -342,7 +362,7 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
     onFalse: () => start(given as RendererLike),
   })
 
-  const over = stageOver(runtime, late.source, scene)
+  const over = stageOver(runtime, late.source, scene, { camera, canvas: () => UndefinedOr.map(renderer, (made) => made.domElement) })
   onCleanup(() => {
     // Exits still in flight land first: their Subjects leave the scene, which stays the app's.
     landExits(over)

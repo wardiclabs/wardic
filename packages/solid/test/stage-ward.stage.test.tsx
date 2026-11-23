@@ -8,7 +8,7 @@
 // - SW3: `whileHover` and `whileTap` through the Stage's input; `next("tap")` and `tapped()` hear the tap.
 // - SW4: an accessor Subject: a new one takes the ward over from its `initial`, and the last keeps its values.
 // - SW5: its own `variants`, named by `animate`.
-// - SW6: a key of the page's (`whileFocus`), or an element's (`drag`), is an error naming it; so are
+// - SW6: a key of the page's (`whileFocus`) is an error naming it, and `drag` on a Stage with no `drag` (#885) is one; so are
 //   Animation controls as its `animate`.
 // - SW7: the Stage's `animate` on its Subject goes through the ward's spine, and the ward's next change takes it back.
 // - SW8: `createHover(box)` and `createPress(box)` read the box through the Stage's input; with no Stage
@@ -234,7 +234,7 @@ describe("a ward on a Stage's Subject (#884's PR 4)", () => {
     expect(crate.x).toBe(40)
   })
 
-  it("SW6: a key of the page's, or of an element's, is an error naming it", () => {
+  it("SW6: a key of the page's is an error naming it, and so is drag on a Stage that drags nothing", () => {
     const { stage } = makeStage()
     const errors: Array<string> = []
     const Crate = () => {
@@ -261,7 +261,7 @@ describe("a ward on a Stage's Subject (#884's PR 4)", () => {
       </WardicStage>
     ))
     expect(errors[0]).toMatch(/`whileFocus` is the page's/)
-    expect(errors[1]).toMatch(/`drag` is a ward on an element's/)
+    expect(errors[1]).toMatch(/the Stage above it drags nothing/)
     expect(errors[2]).toMatch(/doesn't follow Animation controls/)
   })
 

@@ -47,7 +47,7 @@ import { type Accessor, createEffect, createMemo, createSignal, DEV, getOwner, o
 import { followAtom } from "./bridge.tsx"
 import { Lifecycle, type WardElement } from "./lifecycle.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED } from "./solid-reactivity.ts"
-import type { SceneObjectEvents, SceneWard, Stage, StageWard } from "./stage.ts"
+import type { SceneObjectEvents, SceneWard, Stage, StageDrag, StageDragConfig, StageWard, StageWardConfig } from "./stage.ts"
 import { GraphParent, provide, type StageGraph } from "./stage-graph.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { configAtSetup, configuredView, gateOf, sameTarget, STARTS_AT_PENDING, WARD_VIEW, type WardConfig, type WardConfigValues, type WardRead } from "./ward.tsx"
@@ -69,6 +69,8 @@ export interface StageWardEnvironment extends Imperative.AnimateEnv {
    * ward above its Subject. None: each ward has only its own variants.
    */
   readonly graph?: StageGraph | undefined
+  /** What drags its Subjects (#885's PR 4): a `drag` with none is an error in development. */
+  readonly drag?: StageDrag | undefined
 }
 
 /**
@@ -90,7 +92,42 @@ export interface StageMembership {
 }
 
 /** The keys a ward on a Stage's Subject takes: any other is the page's, or a Scene object's (decision 5). */
-const STAGE_KEYS: ReadonlySet<string> = new Set(["initial", "animate", "transition", "variants", "whileHover", "whileTap", "custom", "inherit"])
+const STAGE_KEYS: ReadonlySet<string> = new Set([
+  "initial",
+  "animate",
+  "transition",
+  "variants",
+  "whileHover",
+  "whileTap",
+  "custom",
+  "inherit",
+  // A scene's drag (#885's PR 4): its Stage's `drag` reads them.
+  "whileDrag",
+  "drag",
+  "dragPlane",
+  "dragConstraints",
+  "dragElastic",
+  "dragMomentum",
+  "dragTransition",
+  "dragSnapToOrigin",
+])
+
+/** A scene's drag keys, read from its config as given, at each gesture's start. */
+const DRAG_KEYS = ["drag", "dragPlane", "dragConstraints", "dragElastic", "dragMomentum", "dragTransition", "dragSnapToOrigin"] as const
+
+/** A `drag` on a Stage with nothing to drag with. */
+const NO_DRAG = "ward(subject, { drag }): the Stage above it drags nothing, as its Environment gives no `drag`. `@wardic/three/solid`'s `createStage` gives one."
+
+/** `config`'s drag keys now, each an accessor's value as it's read. */
+const dragConfigOf = (config: StageWardConfig): StageDragConfig => {
+  const given = config as Readonly<Record<string, unknown>>
+  const out: Record<string, unknown> = {}
+  Arr.forEach(DRAG_KEYS, (key) => {
+    const value = given[key]
+    out[key] = Bool.match(Predicate.isFunction(value), { onTrue: () => (value as () => unknown)(), onFalse: () => value })
+  })
+  return out as StageDragConfig
+}
 
 /** A Scene object's own key: its ward's, plus its `exit`. */
 const SCENE_KEYS: ReadonlySet<string> = new Set([...STAGE_KEYS, "exit"])
@@ -102,12 +139,14 @@ const PAGE_ONLY: ReadonlySet<string> = new Set(["whileFocus", "whileInView", "vi
 const NO_CONTROLS = "ward(subject, config): a ward on a Stage's Subject doesn't follow Animation controls. Give its `animate` a target, or call the Stage's `animate`."
 
 /** In development: a key a ward on a Stage's Subject doesn't take, named; `exit` is a Scene object's. */
-const checkKeys = (config: WardConfig, scene: boolean): void =>
+const checkKeys = (config: StageWardConfig, scene: boolean): void =>
   Arr.forEach(Rec.keys(config as Readonly<Record<string, unknown>>), (key) => {
     if (Bool.match(scene, { onTrue: () => SCENE_KEYS.has(key), onFalse: () => STAGE_KEYS.has(key) })) return
     if (PAGE_ONLY.has(key)) throw new Error(`ward(subject, config): \`${key}\` is the page's: a scene has no focus or viewport. Give it to a ward on an element.`)
     if (key === "exit") throw new Error("ward(subject, config): `exit` is a Scene object's: `createSceneObject(mesh, { exit })` plays it as the object leaves the scene.")
-    throw new Error(`ward(subject, config): a ward on a Stage's Subject takes initial, animate, transition, variants, whileHover, whileTap and custom; \`${key}\` is a ward on an element's.`)
+    throw new Error(
+      `ward(subject, config): a ward on a Stage's Subject takes initial, animate, transition, variants, whileHover, whileTap, whileDrag, custom and the drag keys; \`${key}\` is a ward on an element's.`,
+    )
   })
 
 /** No gesture on: what a Scene object's exit resolves with. */
@@ -122,13 +161,14 @@ const EXITS_GONE = "The Scene object was gone before its next exit."
 /** Whether `name` is a Scene object's exit event, its own waits', not its ward's. */
 const isExitEvent = (name: string): name is "exitStart" | "exitComplete" => Bool.or(name === "exitStart", name === "exitComplete")
 
-/** Its hover and press, on the Subject they were heard on: a state recorded on another reads as none. */
+/** Its hover, press and drag, on the Subject they were heard on: a state recorded on another reads as none. */
 interface Gestures {
   readonly subject: object | undefined
   readonly hovered: boolean
   readonly pressed: boolean
+  readonly dragged: boolean
 }
-const NO_GESTURES: Gestures = { subject: undefined, hovered: false, pressed: false }
+const NO_GESTURES: Gestures = { subject: undefined, hovered: false, pressed: false, dragged: false }
 
 /** The Subject it's on: its spine, its gate registration, and which of its recognizers run. */
 interface Mounted {
@@ -138,6 +178,7 @@ interface Mounted {
   readonly snapshot: Spine.Snapshot
   hover: boolean
   press: boolean
+  drag: boolean
   /** A Scene object's exit starts: `land` lands it once its spine settles, a failed exit too; none, it's taken back. */
   readonly exitWith: (land: (() => void) | undefined) => void
   readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>) => void
@@ -351,7 +392,7 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
 const wardOn = (
   environment: StageWardEnvironment,
   given: unknown,
-  config: WardConfig,
+  config: StageWardConfig,
   sideOf: ((parts: WardParts) => SceneSide) | undefined,
   joinsUnder: ((subject: object) => object | undefined) | undefined,
 ): SceneWard => {
@@ -410,7 +451,7 @@ const wardOn = (
     }
 
     const [gestureState, setGestureState] = createSignal<Gestures>(NO_GESTURES)
-    const setGesture = (subject: object, layer: "hovered" | "pressed", on: boolean): void => {
+    const setGesture = (subject: object, layer: "hovered" | "pressed" | "dragged", on: boolean): void => {
       setGestureState((g) => {
         if (g.subject !== subject) return Bool.match(on, { onTrue: (): Gestures => ({ ...NO_GESTURES, subject, [layer]: true }), onFalse: () => g })
         if (g[layer] === on) return g
@@ -425,11 +466,17 @@ const wardOn = (
     }
     const wantsHover = (): boolean => Predicate.isNotUndefined(cfg().whileHover)
     const wantsPress = (): boolean => Predicate.isNotUndefined(cfg().whileTap)
+    const wantsDrag = (): boolean => {
+      const drag = cfg().drag
+      return Bool.and(Predicate.isNotUndefined(drag), drag !== false)
+    }
+    if (DEV && Bool.and(Predicate.isUndefined(environment.drag), untrack(wantsDrag))) throw new Error(NO_DRAG)
 
     const target = createMemo<Spine.Resolution>(
       () => {
         const g = gestures()
-        return Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: false, dragging: false }, snapshot, undefined)
+        // `dragging` stays off: a scene's drag holds its keys as the Stage's `animate` does (#433), `z` among them.
+        return Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined)
       },
       { equals: sameTarget, transparent: true },
     )
@@ -474,6 +521,23 @@ const wardOn = (
             { keys: false },
           ),
         )
+      }
+      // Its drag, its Stage's (#885's PR 4): each sample told as a ward's, `whileDrag` on from its start to its end.
+      if (Bool.and(untrack(wantsDrag), Bool.not(m.drag))) {
+        UndefinedOr.map(environment.drag, (drags) => {
+          m.drag = true
+          m.watch(
+            drags.watch(m.subject, () => untrack(() => dragConfigOf(config)), {
+              sample: (sample) => {
+                if (sample.phase === "start") setGesture(m.subject, "dragged", true)
+                lifecycle.dragged(sample, false, asElement(m.subject))
+                if (sample.phase === "end") setGesture(m.subject, "dragged", false)
+              },
+              released: () => lifecycle.released(),
+              onDefect,
+            }),
+          )
+        })
       }
     }
 
@@ -535,6 +599,7 @@ const wardOn = (
         snapshot: own.snapshot,
         hover: false,
         press: false,
+        drag: false,
         exitWith: (land) => {
           exiting = land
         },
@@ -544,6 +609,7 @@ const wardOn = (
           unregisterAnimatable = Imperative.registerAnimatable(subject, spine)
           m.hover = false
           m.press = false
+          m.drag = false
         },
         dispose: () => {
           quiet()
@@ -576,7 +642,7 @@ const wardOn = (
 
     // A `whileHover` or `whileTap` set later starts its recognizer then (#87).
     createEffect(
-      () => Bool.or(wantsHover(), wantsPress()),
+      () => Bool.some([wantsHover(), wantsPress(), wantsDrag()]),
       () => {
         UndefinedOr.map(mounted, startRecognizers)
       },
@@ -704,5 +770,5 @@ export const stageWard =
  */
 export const stageSceneObject =
   (environment: StageWardEnvironment) =>
-  (given: unknown, config: WardConfig, membership: StageMembership): SceneWard =>
+  (given: unknown, config: StageWardConfig, membership: StageMembership): SceneWard =>
     wardOn(environment, given, config, (parts) => sceneSideOf(parts, membership), membership.parentOf)

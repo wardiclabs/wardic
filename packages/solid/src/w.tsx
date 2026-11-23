@@ -21,7 +21,7 @@ import type { WardCheckedConfig } from "./ward-keys.ts"
 import type { PerKeyApart } from "./config-view.ts"
 import { createOf, type CreateFor, type FeatureProps, formOf, type OwnPropsFor, type WardicComponentFor } from "./element.tsx"
 import type { Accessor } from "solid-js"
-import type { StageSubject, StageWard } from "./stage.ts"
+import type { StageSubject, StageWard, StageWardChecked, StageWardConfig } from "./stage.ts"
 import { SLIM, type Ward, type WardCallbackKey, type WardChecked, type WardConfig, type WardFor, type WardInternals, type WardOptions, type WardStyle } from "./ward.tsx"
 import { type HeldWard, wardFrom } from "./ward-first.ts"
 
@@ -30,7 +30,7 @@ interface SlimWard {
   /** Its Subject first (#884): `w.ward(el, config)` is `w.ward(config)(el)`, with `held`. */
   <const C extends WardConfig>(subject: Element, config: WardChecked<C>, options?: WardOptions): HeldWard<Ward<C>>
   /** A Stage's Subject first, under a `<WardicStage>` (#884): the Stage's ward. */
-  <const C extends WardConfig>(subject: StageSubject | Accessor<StageSubject | undefined>, config: WardChecked<C>, options?: WardOptions): StageWard<C>
+  <const C extends WardConfig | StageWardConfig>(subject: StageSubject | Accessor<StageSubject | undefined>, config: StageWardChecked<C>, options?: WardOptions): StageWard<C>
   // The config first, last of the generic forms, so `ReturnType` of an instantiation is still a DOM ward.
   <const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
   (): Ward<{}>
@@ -79,7 +79,7 @@ interface MakeInstanceWard<FN extends string> {
     options?: WardOptions,
   ): HeldWard<WardFor<C, FN>>
   /** A Stage's Subject first, under a `<WardicStage>` (#884): the Stage's ward. */
-  <const C extends WardConfig>(subject: StageSubject | Accessor<StageSubject | undefined>, config: WardChecked<C>, options?: WardOptions): StageWard<C>
+  <const C extends WardConfig | StageWardConfig>(subject: StageSubject | Accessor<StageSubject | undefined>, config: StageWardChecked<C>, options?: WardOptions): StageWard<C>
   // The config first, last of the generic forms, so `ReturnType` of an instantiation is still a DOM ward.
   <const C extends WardConfig>(config: WardCheckedConfig<C, PerKeyApart<InstanceValues<FN>, WardCallbackKey & keyof InstanceValues<FN>>>, options?: WardOptions): WardFor<C, FN>
   (): WardFor<{}, FN>
