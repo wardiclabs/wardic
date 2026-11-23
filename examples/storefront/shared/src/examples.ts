@@ -396,7 +396,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     uses: ["createStage", "ward(mesh, …)", "createDrag(mesh)", "inertia", "createFrameEffect", "colours in linear light"],
     apps: ["solid2"],
     release: "1.3",
-    watch: ".vase-canvas",
+    watch: ".scene-canvas",
   },
   {
     id: "notifications",

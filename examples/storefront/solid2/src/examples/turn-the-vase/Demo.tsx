@@ -1,11 +1,10 @@
 import { FAMILIES, familyName, GLAZES, type Glaze } from "@wardic/example-storefront-shared/glazes"
-import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { createReducedMotion } from "@wardic/solid"
 import { createDrag, createFrameEffect, createStage, ward, WardicStage } from "@wardic/three/solid"
-import { type Accessor, createSignal, For, onSettled, Show, untrack } from "solid-js"
+import { type Accessor, createSignal, For, untrack } from "solid-js"
 import * as THREE from "three"
-import { canDrawWebGL, contactShadow, FINISH, hexOf, lightStudio, moonVase } from "~/lib/pottery.ts"
-import { w } from "~/lib/wardic.ts"
+import { contactShadow, FINISH, hexOf, lightStudio, moonVase } from "~/lib/pottery.ts"
+import { onFirstDraw, SceneView } from "~/lib/scene-view.tsx"
 
 /** The vase's own satin white, then the middle gloss of each of the glaze library's families, under the family's name. */
 const MOON_WHITE: Glaze = { id: "moon-white", name: "Moon white", family: "ash", finish: "satin", hue: 80, saturation: 10, lightness: 90 }
@@ -42,10 +41,7 @@ function Scene(props: { readonly glaze: Accessor<Glaze>; readonly lean: Accessor
   lean.add(turntable)
   const shadow = contactShadow(1.5)
   scene.add(lean, shadow)
-  body.onAfterRender = () => {
-    body.onAfterRender = () => undefined
-    props.onDrawn()
-  }
+  onFirstDraw(body, props.onDrawn)
 
   const stage = createStage({
     renderer: () => {
@@ -96,7 +92,7 @@ function Scene(props: { readonly glaze: Accessor<Glaze>; readonly lean: Accessor
 
   return (
     <WardicStage value={stage}>
-      <div class="vase-stage" ref={stage} />
+      <div class="scene-stage" ref={stage} />
       <Vase />
     </WardicStage>
   )
@@ -104,31 +100,18 @@ function Scene(props: { readonly glaze: Accessor<Glaze>; readonly lean: Accessor
 
 /** The Moon Vase in 3D: drag it round, and pick a glaze. */
 export default function TurnTheVase() {
-  const photo = photoOf("moon-vase")
   const [glaze, setGlaze] = createSignal(MOON_WHITE)
   const [lean, setLean] = createSignal<Lean>({ x: 0, y: 0 })
-  // The scene, once the page has settled in a browser that can draw it; the photo until it has drawn.
-  const [webgl, setWebgl] = createSignal(false)
-  const [drawn, setDrawn] = createSignal(false)
-  onSettled(() => {
-    setWebgl(canDrawWebGL())
-  })
-
   const onPointerMove = (event: PointerEvent) => {
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
     setLean({ x: ((event.clientX - box.left) / box.width) * 2 - 1, y: ((event.clientY - box.top) / box.height) * 2 - 1 })
   }
 
   return (
-    <div class="vase-demo">
-      <div class="vase-view" onPointerMove={onPointerMove} onPointerLeave={() => setLean({ x: 0, y: 0 })}>
-        <w.img class="vase-poster" src={photo.small} srcset={srcsetOf(photo)} sizes="(min-width: 760px) 640px, 100vw" alt="The Moon Vase" animate={{ opacity: 1 - Number(drawn()) }} transition={{ duration: 0.5 }} />
-        <Show when={webgl()}>
-          <w.div class="vase-canvas" initial={{ opacity: 0 }} animate={{ opacity: Number(drawn()) }} transition={{ duration: 0.5 }}>
-            <Scene glaze={glaze} lean={lean} onDrawn={() => setDrawn(true)} />
-          </w.div>
-        </Show>
-      </div>
+    <div class="scene-demo">
+      <SceneView piece="moon-vase" alt="The Moon Vase" onPointerMove={onPointerMove} onPointerLeave={() => setLean({ x: 0, y: 0 })}>
+        {(drawn) => <Scene glaze={glaze} lean={lean} onDrawn={drawn} />}
+      </SceneView>
       <div class="chips" role="group" aria-label="Glaze">
         <For each={CHOICES}>
           {(choice) => (
@@ -139,7 +122,7 @@ export default function TurnTheVase() {
           )}
         </For>
       </div>
-      <p class="vase-readout">
+      <p class="scene-readout">
         {glaze().name}, {glaze().finish} · <span class="muted">drag the vase to turn it</span>
       </p>
     </div>

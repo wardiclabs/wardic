@@ -3413,41 +3413,41 @@ button.product-card:hover .photo {
   display: none;
 }
 
-/* Turn the vase (#934): a three.js scene over the vase's photo, which it fades in over once drawn. */
+/* The 3D scenes (#934): a three.js scene over the piece's photo, which it fades in over once drawn. */
 .release-note {
   border-left: 3px solid var(--accent);
   padding-left: var(--space-3);
 }
-.vase-demo {
+.scene-demo {
   display: grid;
   gap: var(--space-4);
 }
-.vase-view {
+.scene-view {
   position: relative;
   aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: var(--radius-l);
   background: radial-gradient(ellipse at 50% 30%, var(--surface), var(--tile));
-  /* A touch turns the vase rather than scrolling the page. */
+  /* A touch works the scene rather than scrolling the page. */
   touch-action: none;
   cursor: grab;
 }
-.vase-view:active {
+.scene-view:active {
   cursor: grabbing;
 }
-.vase-poster,
-.vase-canvas,
-.vase-stage {
+.scene-poster,
+.scene-canvas,
+.scene-stage {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
 }
-.vase-poster {
+.scene-poster {
   object-fit: contain;
   mix-blend-mode: multiply;
 }
-.vase-stage canvas {
+.scene-stage canvas {
   display: block;
 }
 .swatch {
@@ -3459,6 +3459,6 @@ button.product-card:hover .photo {
   border-radius: 50%;
   vertical-align: -2px;
 }
-.vase-readout {
+.scene-readout {
   margin: 0;
 }
