@@ -10,7 +10,9 @@
  *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
  *   And the Foldkit binding's (#795, ADR-0071 decision 38): `f-plain`, Foldkit alone with one `h.div`
  *   and an opacity style, and `f-slim`, one `w.div` fading in under `w.Provider()` on a Handle with no
- *   Features, the binding's Slim app, with a budget of its own.
+ *   Features, the binding's Slim app, with a budget of its own. And `@wardic/three/solid`'s (#885,
+ *   ADR-0073 *Amendment (#885)* Q12): `t2-three`, three.js alone with a mesh drawn, and `t2-stage`, a
+ *   `createStage` scene and one `ward(mesh, …)` under `<WardicStage>`, with a budget of its own.
  * - **Each side is built as an app ships it** (`sides.ts`): a Vite app build, production mode,
  *   minified, tree-shaken, for the browsers an app ships to by default (`APP_TARGET`, #525); Solid 1
  *   through vite-plugin-solid, Solid 2 through the repo's `solid2({ dev: false })`, Foldkit as plain
@@ -63,9 +65,11 @@ const GATE = 1.01
  * `f-slim`, holds 196.3 from its first number, 195.8, with the same room (#795, ADR-0071 decision 38): a budget
  * on the first number, no target, which is a follow-up's with what the Handle ships that a Slim element doesn't.
  * #882 raised it to 196.5 by what it measured, as #672's Q23 did: the Imperative track's two ports into core
- * (ADR-0073, *Amendment (#882)*), which Foldkit's Slim app ships and Solid's don't.
+ * (ADR-0073, *Amendment (#882)*), which Foldkit's Slim app ships and Solid's don't. `@wardic/three/solid`'s
+ * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
+ * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 298.8 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -250,6 +254,37 @@ const wardic = Wardic.make({ env: DomLive })
 }`,
   )
 
+/** three.js alone (#885): a mesh in a scene, drawn by a WebGL renderer into the page. The `t2-stage` app's baseline. */
+const threePlain = (): string => `import { render } from "@solidjs/web"
+import { BoxGeometry, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, WebGLRenderer } from "three"
+const scene = new Scene()
+scene.add(new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ff8a3d" })))
+const camera = new PerspectiveCamera(45, 1, 0.1, 100)
+const renderer = new WebGLRenderer()
+renderer.setAnimationLoop(() => renderer.render(scene, camera))
+render(() => <div ref={(el) => el.append(renderer.domElement)} />, document.body)
+`
+
+/**
+ * `@wardic/three/solid`'s base app (#885, ADR-0073 *Amendment (#885)* Q12): a `createStage` scene on
+ * a WebGL renderer, and one `ward(mesh, …)` rising the mesh in under `<WardicStage>`. A budget of its own.
+ */
+const threeStage = (): string => `import { render } from "@solidjs/web"
+import { ward } from "@wardic/solid"
+import { createStage, WardicStage } from "@wardic/three/solid"
+import { BoxGeometry, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, WebGLRenderer } from "three"
+const scene = new Scene()
+const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ff8a3d" }))
+scene.add(mesh)
+const camera = new PerspectiveCamera(45, 1, 0.1, 100)
+const Crate = () => ward(mesh, { initial: { scale: 0 }, animate: { scale: 1 }, transition: { duration: 0.3 } }).held
+const App = () => {
+  const stage = createStage({ renderer: () => new WebGLRenderer(), scene, camera })
+  return <WardicStage value={stage}><div ref={stage} /><Crate /></WardicStage>
+}
+render(() => <App />, document.body)
+`
+
 const APPS: ReadonlyArray<App> = [
   { name: "s1-plain", binding: "solid1", source: plain("solid-js/web") },
   { name: "s1-complete", binding: "solid1", source: complete("solid-js/web", "@wardic/solid/v1", false) },
@@ -283,19 +318,22 @@ const APPS: ReadonlyArray<App> = [
   routes("@solidjs/web", "@wardic/solid", "s2-routes"),
   { name: "f-plain", binding: "foldkit", source: foldkitPlain() },
   { name: "f-slim", binding: "foldkit", source: foldkitSlim() },
+  { name: "t2-three", binding: "three-solid2", source: threePlain() },
+  { name: "t2-stage", binding: "three-solid2", source: threeStage() },
 ]
 
-/** What a source map's sources are counted under: the packages, then the frameworks (`foldkit-lib` is the Foldkit framework, `foldkit` the binding). */
-const GROUPS = ["core", "dom", "solid", "foldkit", "effect", "solid-js", "foldkit-lib", "culori", "other"] as const
+/** What a source map's sources are counted under: the packages, then the frameworks (`foldkit-lib` is the Foldkit framework, `foldkit` the binding; `three-lib` three.js, `three` Wardic's). */
+const GROUPS = ["core", "dom", "solid", "foldkit", "object", "three", "effect", "solid-js", "foldkit-lib", "three-lib", "culori", "other"] as const
 type Group = (typeof GROUPS)[number]
 
 const groupOf = (source: string): Group => {
-  const own = /packages\/(core|dom|solid|foldkit)\/src\//.exec(source)
+  const own = /packages\/(core|dom|solid|foldkit|object|three)\/src\//.exec(source)
   if (own !== null) return own[1] as Group
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?effect\//.test(source)) return "effect"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(solid-js|solid-js-1|solid-js-2|@solidjs)\//.test(source)) return "solid-js"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?(foldkit|@foldkit)\//.test(source)) return "foldkit-lib"
   if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?culori\//.test(source)) return "culori"
+  if (/node_modules\/(\.bun\/[^/]+\/node_modules\/)?three\//.test(source)) return "three-lib"
   return "other"
 }
 

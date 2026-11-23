@@ -171,6 +171,65 @@ export const splitCall = (subject: unknown, target: unknown, options: unknown): 
 /** `target` on `subject`, each colour key split into its channels. */
 export const split = (subject: object, target: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => splitCall(subject, target, undefined)[0] as Readonly<Record<string, unknown>>
 
+/** A ward's config's keys that hold a target: values, variant names, or an accessor of either. */
+const TARGET_KEYS: ReadonlySet<string> = new Set(["initial", "animate", "exit", "whileHover", "whileTap", "whileDrag", "whileFocus", "whileInView"])
+
+/** A target's value on the Subject now, its colour keys split: values split, names and `false` as they are. */
+const splitTargetValue = (subjectNow: () => unknown, value: unknown): unknown => {
+  const subject = subjectNow()
+  if (!Predicate.isObject(subject) || !Predicate.isObject(value) || Arr.isArray(value)) return value
+  return splitCall(subject, value, undefined)[0]
+}
+
+/** `transition` on the Subject now, each colour key's own entry given to its channels. */
+const splitTransition = (subjectNow: () => unknown, transition: unknown): unknown => {
+  const subject = subjectNow()
+  if (!Predicate.isObject(subject) || !Predicate.isObject(transition)) return transition
+  const colours = Arr.filterMap(Rec.keys(transition as Readonly<Record<string, unknown>>), (key) => {
+    const colour = colourFor(subject, key)
+    if (Predicate.isUndefined(colour)) return Result.failVoid
+    return Result.succeed([key, colour] as const)
+  })
+  if (colours.length === 0) return transition
+  return splitEntries(transition, colours)
+}
+
+/** `value` through `f`: an accessor's value as it's read, any other's now. */
+const throughAccessor = (value: unknown, f: (given: unknown) => unknown): unknown => {
+  if (Predicate.isFunction(value)) return () => f((value as () => unknown)())
+  return f(value)
+}
+
+/** A variant through `f`: a function's values as it's called, any other's now. */
+const throughVariant = (variant: unknown, f: (given: unknown) => unknown): unknown => {
+  if (Predicate.isFunction(variant)) return (...args: ReadonlyArray<unknown>) => f((variant as (...given: ReadonlyArray<unknown>) => unknown)(...args))
+  return f(variant)
+}
+
+/**
+ * A ward's config on a scene's Subject (#885), each colour key split into its channels in linear light,
+ * as a call's are (`splitCall`): each target's values, an accessor's as it's read, each variant's (a
+ * function's as it's called), and the transition's colour entries. `subjectNow` is the Subject now, read
+ * as each is split, so an accessor Subject's colours are its current one's. Every other key is as given.
+ */
+export const splitConfig = (subjectNow: () => unknown, config: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
+  const out: Record<string, unknown> = { ...config }
+  Arr.forEach(Rec.keys(config), (key) => {
+    const value = config[key]
+    if (TARGET_KEYS.has(key)) {
+      out[key] = throughAccessor(value, (given) => splitTargetValue(subjectNow, given))
+      return
+    }
+    if (key === "transition") {
+      out[key] = throughAccessor(value, (given) => splitTransition(subjectNow, given))
+      return
+    }
+    if (key !== "variants" || !Predicate.isObject(value)) return
+    out[key] = Rec.map(value as Readonly<Record<string, unknown>>, (variant) => throughVariant(variant, (given) => splitTargetValue(subjectNow, given)))
+  })
+  return out
+}
+
 /** Whether `key` is a colour key of a Batch made of `given`: `color` on an `InstancedMesh`'s instances, a Color on a list's first member. */
 const isBatchColour = (given: unknown, key: string): boolean => {
   if (ThreeInstances.isInstancedMesh(given)) return key === "color"

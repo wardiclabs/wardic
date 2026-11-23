@@ -1,7 +1,7 @@
 /// <reference types="node" />
 /**
  * A side of a comparison, built as an app ships it: a commit's (or the working tree's)
- * `packages/{core,dom,solid,foldkit}/src`, its bare imports resolved in that commit's dependencies.
+ * `packages/{core,dom,solid,foldkit,object,three}/src`, its bare imports resolved in that commit's dependencies.
  * `bench:solid` (`run.ts`), `bench:foldkit` (`packages/foldkit/bench/run.ts`, #795) and `bun run size`
  * (`size.ts`, #511) build their base and head this way.
  */
@@ -17,8 +17,8 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { solid1 } from "../vite.solid1.ts"
 import { solid2 } from "../vite.solid2.ts"
 
-/** The packages a side builds from: a commit from before one of them (#795's `foldkit`) builds from the ones it has. */
-export const PACKAGES = ["core", "dom", "solid", "foldkit"] as const
+/** The packages a side builds from: a commit from before one of them (#795's `foldkit`, #882's `object`, #883's `three`) builds from the ones it has. */
+export const PACKAGES = ["core", "dom", "solid", "foldkit", "object", "three"] as const
 export type Package = (typeof PACKAGES)[number]
 
 /**
@@ -89,18 +89,25 @@ export const sourcesInto = (root: string, commit: string | undefined, manifests 
 const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index", v1: "v1/index" }
 
 /**
- * `@wardic/foldkit`'s subpath whose module a production browser build gets from its `exports`'
- * conditions, not by its name (#795): `internal/dev` is `dev.production` (`DEV` false). `internal/server`
- * needs no entry: its name is the browser's module, `server` (`IS_SERVER` false).
+ * A package's subpaths whose module a production browser build gets from its `exports`' conditions, not by
+ * its name: `@wardic/foldkit`'s (#795) and `@wardic/three`'s (#885) `internal/dev` is `dev.production`
+ * (`DEV` false). Foldkit's `internal/server` needs no entry: its name is the browser's module, `server`
+ * (`IS_SERVER` false).
  */
-const FOLDKIT_SUBPATHS: Readonly<Record<string, string>> = { "internal/dev": "internal/dev.production" }
+const PRODUCTION_SUBPATHS: Readonly<Partial<Record<Package, Readonly<Record<string, string>>>>> = {
+  foldkit: { "internal/dev": "internal/dev.production" },
+  three: { "internal/dev": "internal/dev.production" },
+}
 
 /** A package's module for `sub`, its root's for none: the module itself, or a folder's index. */
 const subpathModuleOf = (sub: string | undefined, pkg?: Package): string =>
   UndefinedOr.match(sub, {
     onUndefined: () => "index",
-    onDefined: (name) =>
-      Option.getOrElse(Option.fromUndefinedOr(Bool.match(pkg === "foldkit", { onTrue: () => FOLDKIT_SUBPATHS[name], onFalse: () => SUBPATHS[name] })), () => name),
+    onDefined: (name) => {
+      const own = UndefinedOr.match(pkg, { onUndefined: () => undefined, onDefined: (given) => PRODUCTION_SUBPATHS[given] })
+      const mapped = UndefinedOr.match(own, { onUndefined: () => SUBPATHS[name], onDefined: (subpaths) => subpaths[name] })
+      return Option.getOrElse(Option.fromUndefinedOr(mapped), () => name)
+    },
   })
 
 /**
@@ -120,8 +127,8 @@ const solidModuleOf = (root: string, sub: string | undefined): string => {
 export const bindingPluginsOf = (v2: boolean): PluginOption =>
   Bool.match(v2, { onTrue: () => solid2({ dev: false }), onFalse: () => [solid1(), solid()] })
 
-/** The bindings an app is built on (#795): the two Solid ones, and Foldkit's. */
-export type Binding = "solid1" | "solid2" | "foldkit"
+/** The bindings an app is built on (#795): the two Solid ones, Foldkit's, and `@wardic/three/solid` on Solid 2 (#885). */
+export type Binding = "solid1" | "solid2" | "foldkit" | "three-solid2"
 
 /** What an app's build takes from its binding: its compile plugins, the package whose dependencies resolve its own bare imports, and its entry's extension. */
 export interface BindingBuild {
@@ -135,6 +142,8 @@ export const BINDINGS: Readonly<Record<Binding, BindingBuild>> = {
   solid1: { plugins: () => bindingPluginsOf(false), importing: "solid", ext: "tsx" },
   solid2: { plugins: () => bindingPluginsOf(true), importing: "solid", ext: "tsx" },
   foldkit: { plugins: () => [], importing: "foldkit", ext: "ts" },
+  // Solid 2's compile, and the app's bare imports (`three`, `effect`) as `@wardic/three`'s: `solid-js` is solid2()'s.
+  "three-solid2": { plugins: () => bindingPluginsOf(true), importing: "three", ext: "tsx" },
 }
 
 /**
@@ -161,7 +170,7 @@ export const sideResolver = (root: string, deps: string, importing: Package = "s
   name: "bench-solid-resolve",
   enforce: "pre",
   async resolveId(source, importer, options) {
-    const wardic = /^@wardic\/(core|dom|solid|foldkit)(?:\/(.+))?$/.exec(source)
+    const wardic = /^@wardic\/(core|dom|solid|foldkit|object|three)(?:\/(.+))?$/.exec(source)
     if (wardic !== null) {
       const pkg = wardic[1] as Package
       const sub = wardic[2]
@@ -176,7 +185,7 @@ export const sideResolver = (root: string, deps: string, importing: Package = "s
     }
     if (importer === undefined || !importer.startsWith(root)) return null
     if (source.startsWith(".") || source.startsWith("/") || source.startsWith("\0")) return null
-    const pkg = /\/packages\/(core|dom|solid|foldkit)\/src\//.exec(importer)?.[1] ?? importing
+    const pkg = /\/packages\/(core|dom|solid|foldkit|object|three)\/src\//.exec(importer)?.[1] ?? importing
     return this.resolve(source, join(deps, "packages", pkg, "src/index.ts"), { ...options, skipSelf: true })
   },
 })

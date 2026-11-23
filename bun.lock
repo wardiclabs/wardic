@@ -53,6 +53,7 @@
       "dependencies": {
         "@wardic/core": "workspace:*",
         "@wardic/object": "workspace:*",
+        "@wardic/solid": "workspace:*",
         "@wardic/three": "workspace:*",
         "effect": "4.1.4",
         "three": "0.187.0",
@@ -275,17 +276,24 @@
         "@wardic/object": "workspace:*",
       },
       "devDependencies": {
+        "@solidjs/web": "2.0.1",
         "@types/three": "0.187.0",
+        "@wardic/solid": "workspace:*",
+        "solid-js": "2.0.1",
         "three": "0.187.0",
       },
       "peerDependencies": {
+        "@solidjs/web": ">=2.0.1",
         "@types/three": ">=0.160.0",
+        "@wardic/solid": "workspace:*",
         "effect": "^4.1.4",
+        "solid-js": ">=2.0.1",
         "three": ">=0.160.0",
       },
       "optionalPeers": [
-        "@types/three",
-        "three",
+        "@solidjs/web",
+        "@wardic/solid",
+        "solid-js",
       ],
     },
     "site": {
@@ -2881,6 +2889,8 @@
 
     "@wardic/solid/solid-js": ["solid-js@2.0.1", "", { "dependencies": { "@solidjs/signals": "^2.0.1", "seroval": "^1.8.0", "seroval-plugins": "^1.8.0" } }, "sha512-5bBwRCblIZ672y2H2aB5KIOfeP/N+acx1YoCjNCWYFc4ZI/Y7y7n/6N1kei8AgWmcJJQ1m5SV90rs3V8CPAnYQ=="],
 
+    "@wardic/three/solid-js": ["solid-js@2.0.1", "", { "dependencies": { "@solidjs/signals": "^2.0.1", "seroval": "^1.8.0", "seroval-plugins": "^1.8.0" } }, "sha512-5bBwRCblIZ672y2H2aB5KIOfeP/N+acx1YoCjNCWYFc4ZI/Y7y7n/6N1kei8AgWmcJJQ1m5SV90rs3V8CPAnYQ=="],
+
     "anymatch/picomatch": ["picomatch@2.3.2", "", {}, "sha512-V7+vQEJ06Z+c5tSye8S+nHUfI51xoXIXjHQ99cQtKUkQqqO1kO/KCJUfZXuB47h/YBlDhah2H3hdUGXn8ie0oA=="],
 
     "archiver-utils/glob": ["glob@10.5.0", "", { "dependencies": { "foreground-child": "^3.1.0", "jackspeak": "^3.1.2", "minimatch": "^9.0.4", "minipass": "^7.1.2", "package-json-from-dist": "^1.0.0", "path-scurry": "^1.11.1" }, "bin": { "glob": "dist/esm/bin.mjs" } }, "sha512-DfXN8DfhJ7NH3Oe7cFmu3NCu1wKbkReJ8TorzSAFbSKrlNaQSKfIzqYqVY8zlbs2NLBbWpRiU52GX2PbaBVNkg=="],
@@ -3362,6 +3372,10 @@
     "@wardic/solid/solid-js/seroval": ["seroval@1.8.2", "", {}, "sha512-zmMxi/9MdLK1MKazLmIP6Rk39RuK0Xydd+QHeOYntS37olJeTjB3+nwVj4ce/ZWiZJeRhcO5htfxt0mUzQBscQ=="],
 
     "@wardic/solid/solid-js/seroval-plugins": ["seroval-plugins@1.8.0", "", { "peerDependencies": { "seroval": "^1.8.0" } }, "sha512-96vBb12rDvPPwdKUgWw1op3fGq8AVBFOr0IllbnM72yR5J9WWXF18cQ4g1XfDO7HCyh2dt70P3XdtyRayP8FWg=="],
+
+    "@wardic/three/solid-js/seroval": ["seroval@1.8.2", "", {}, "sha512-zmMxi/9MdLK1MKazLmIP6Rk39RuK0Xydd+QHeOYntS37olJeTjB3+nwVj4ce/ZWiZJeRhcO5htfxt0mUzQBscQ=="],
+
+    "@wardic/three/solid-js/seroval-plugins": ["seroval-plugins@1.8.0", "", { "peerDependencies": { "seroval": "^1.8.0" } }, "sha512-96vBb12rDvPPwdKUgWw1op3fGq8AVBFOr0IllbnM72yR5J9WWXF18cQ4g1XfDO7HCyh2dt70P3XdtyRayP8FWg=="],
 
     "archiver-utils/glob/minimatch": ["minimatch@9.0.9", "", { "dependencies": { "brace-expansion": "^2.0.2" } }, "sha512-OBwBN9AL4dqmETlpS2zasx+vTeWclWzkblfZk7KTA5j3jeOONz/tRCnZomUyvNg83wL5Zv9Ss6HMJXAgL8R2Yg=="],
 
