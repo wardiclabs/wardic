@@ -838,6 +838,24 @@ button {
   margin: 0;
 }
 
+/* The wall (#916): the archive's tiles placed by a CSS grid, the Batch moving only their entrance. */
+.wall-demo {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(22px, 1fr));
+  gap: 5px;
+}
+
+.wall-tile {
+  aspect-ratio: 1;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
 /* The docs' page on what an example shows (#908), under its why. */
 .guide-link {
   color: var(--muted);
