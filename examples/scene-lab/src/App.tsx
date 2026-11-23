@@ -5,6 +5,7 @@
  */
 import { For } from "solid-js"
 import { Card } from "./Card.tsx"
+import { SceneObjectCard } from "./hooks/SceneObjectCard.tsx"
 import { StageCard } from "./hooks/StageCard.tsx"
 import { scenarios } from "./scenarios.ts"
 
@@ -27,6 +28,7 @@ export const App = () => (
     </header>
     <section class="cards">
       <StageCard />
+      <SceneObjectCard />
     </section>
   </main>
 )

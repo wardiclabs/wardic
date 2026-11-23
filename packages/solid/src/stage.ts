@@ -70,6 +70,30 @@ export interface StageWard<C extends WardConfig = WardConfig> {
   readonly atom: (key: string) => Atom.Atom<unknown>
 }
 
+/** An event a Scene object tells beside its ward's: its exit's start, and its landing, once the Subject has left. */
+export type SceneObjectEvent = StageEvent | "exitStart" | "exitComplete"
+
+/** A Scene object's exit: the Subject leaving, as `element`, as a Stage ward's events carry it. */
+export interface SceneObjectExit {
+  readonly element: object
+}
+
+/** Each {@link SceneObjectEvent}'s info. */
+export type SceneObjectEvents = StageEvents & { readonly exitStart: SceneObjectExit; readonly exitComplete: SceneObjectExit }
+
+/**
+ * A Scene object's handle (ADR-0073 decision 15): its ward, with its membership's events, `exitStart` and
+ * `exitComplete`, which only this handle has. `next("exitComplete")` resolves after its owner has ended.
+ */
+export interface SceneWard<C extends WardConfig = WardConfig> extends Omit<StageWard<C>, "next" | "each" | "when"> {
+  /** The next `name`: a ward's event, or its exit's. */
+  readonly next: <E extends SceneObjectEvent>(name: E) => Promise<SceneObjectEvents[E]>
+  /** Every `name` from now on. */
+  readonly each: <E extends SceneObjectEvent>(name: E) => AsyncIterable<SceneObjectEvents[E]>
+  /** Every `name`, as a memo for an effect. */
+  readonly when: <E extends SceneObjectEvent>(name: E) => Accessor<SceneObjectEvents[E]>
+}
+
 /** What runs a scene for its owner, as the shared hooks read it: its Subjects, its ward, `animate`, its Frame effects and its input. */
 export interface Stage {
   /** Whether `value` is one of its Environment's Subjects: a three.js object, by its `is*` flags. */

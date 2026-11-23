@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { App } from "../src/App.tsx"
 import { Card } from "../src/Card.tsx"
+import { SceneObjectCard } from "../src/hooks/SceneObjectCard.tsx"
 import { StageCard } from "../src/hooks/StageCard.tsx"
 import { scenarios } from "../src/scenarios.ts"
 
@@ -47,8 +48,8 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     try {
       const host = mounted(() => <App />)
       await until(() => host.querySelectorAll("canvas[data-drawn]").length === scenarios.length, "every canvas to draw")
-      await until(() => host.querySelector('[data-scenario="stage"] .viewport canvas') !== null, "the Stage card's canvas")
-      expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual([...scenarios.map((scenario) => scenario.id), "stage"])
+      await until(() => host.querySelectorAll(".viewport canvas").length === 2, "the Solid hooks cards' canvases")
+      expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual([...scenarios.map((scenario) => scenario.id), "stage", "scene-objects"])
       expect(errors).toEqual([])
     } finally {
       console.error = error
@@ -94,5 +95,21 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     await until(() => output.textContent?.startsWith("over the crate") === true, `a hover, not "${output.textContent}"`, 4000)
     await userEvent.click(canvas, { position })
     await until(() => output.dataset.taps === "1", `a tap, not ${output.dataset.taps} taps`, 4000)
+  })
+
+  it("SL4: createSceneObject: a crate added joins the scene; one removed stays in it while its exit plays, then leaves", async () => {
+    const host = mounted(() => <SceneObjectCard />)
+    const card = host.querySelector('[data-scenario="scene-objects"]') as HTMLElement
+    const output = card.querySelector("output") as HTMLOutputElement
+    const button = (name: string) => Array.from(card.querySelectorAll("button")).find((one) => one.textContent?.trim() === name) as HTMLButtonElement
+    const state = () => `${output.dataset.listed} listed, ${output.dataset.inScene} in the scene`
+    await until(() => card.querySelector(".viewport canvas") !== null, "the renderer's canvas in the viewport", 4000)
+    await until(() => output.dataset.inScene === "3", `three crates in the scene, not ${state()}`, 4000)
+    await userEvent.click(button("Add a crate"))
+    await until(() => output.dataset.inScene === "4", `a fourth crate joining, not ${state()}`, 2000)
+    await userEvent.click(button("Remove the last"))
+    // Its exit runs 0.35 s, and the readout reads the scene every 0.1 s.
+    await until(() => output.dataset.listed === "3" && output.dataset.inScene === "4", `the last crate exiting, not ${state()}`, 2000)
+    await until(() => output.dataset.inScene === "3", `the last crate gone once its exit landed, not ${state()}`, 4000)
   })
 })

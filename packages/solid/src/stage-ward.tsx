@@ -10,6 +10,11 @@
  * A Stage over `@wardic/object`'s runtime gives it the runtime's `stageEnvironment` and its scene's input:
  * `stageWard({ ...runtime.stageEnvironment, input })`.
  *
+ * `stageSceneObject(environment)` makes the same ward with a **membership** (#885, ADR-0073 decisions 10,
+ * 14 and 15): an Environment's `createSceneObject` gives it what joins its Subject to the scene and what
+ * takes it out. It joins once the ward can start, and leaves once its `exit` lands, run on its own spine
+ * past its owner, as it ends or as an accessor gives another Subject, or none.
+ *
  * @module
  */
 // #884's PR 4 (ADR-0073 decisions 8, 10 and 20; *Amendment (#884)*, Q2, Q3 and Q5): a second, smaller ward
@@ -20,10 +25,12 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as AnimationControls from "@wardic/core/unstable/AnimationControls"
+import type * as Config from "@wardic/core/unstable/Config"
 import * as Imperative from "@wardic/core/unstable/Imperative"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import * as Report from "@wardic/core/unstable/Report"
 import * as Spine from "@wardic/core/unstable/Spine"
+import type * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -40,9 +47,10 @@ import { type Accessor, createEffect, createMemo, createSignal, DEV, getOwner, o
 import { followAtom } from "./bridge.tsx"
 import { Lifecycle, type WardElement } from "./lifecycle.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED } from "./solid-reactivity.ts"
-import type { Stage, StageWard } from "./stage.ts"
+import type { SceneObjectEvents, SceneWard, Stage, StageWard } from "./stage.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { configAtSetup, configuredView, gateOf, sameTarget, STARTS_AT_PENDING, WARD_VIEW, type WardConfig, type WardConfigValues, type WardRead } from "./ward.tsx"
+import { eachOf, Waiters, whenOf } from "./waiters.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /**
@@ -57,8 +65,27 @@ export interface StageWardEnvironment extends Imperative.AnimateEnv {
   readonly input: InputSource.InputSource["Service"]
 }
 
+/**
+ * A Scene object's membership of its scene (#885; ADR-0073 decisions 10 and 14): what an Environment's
+ * `createSceneObject` gives `stageSceneObject`'s ward.
+ */
+export interface StageMembership {
+  /** Its Subject joins the scene: the ward can start, its `initial` written for the next frame drawn. */
+  readonly join: (subject: object) => void
+  /** Its Subject leaves the scene: its exit has landed, or it had none. */
+  readonly leave: (subject: object) => void
+  /**
+   * An exit in flight: `land` ends it now, the Subject taken out, as the Stage ends before it lands
+   * (*Amendment (#885)* Q5). The call returned says it has landed.
+   */
+  readonly exiting: (land: () => void) => () => void
+}
+
 /** The keys a ward on a Stage's Subject takes: any other is the page's, or a Scene object's (decision 5). */
 const STAGE_KEYS: ReadonlySet<string> = new Set(["initial", "animate", "transition", "variants", "whileHover", "whileTap", "custom", "inherit"])
+
+/** A Scene object's own key: its ward's, plus its `exit`. */
+const SCENE_KEYS: ReadonlySet<string> = new Set([...STAGE_KEYS, "exit"])
 
 /** A key of the page's alone: a scene has no focus or viewport. */
 const PAGE_ONLY: ReadonlySet<string> = new Set(["whileFocus", "whileInView", "viewport"])
@@ -66,13 +93,26 @@ const PAGE_ONLY: ReadonlySet<string> = new Set(["whileFocus", "whileInView", "vi
 /** Animation controls given as its `animate`, which a ward on a Stage's Subject doesn't follow. */
 const NO_CONTROLS = "ward(subject, config): a ward on a Stage's Subject doesn't follow Animation controls. Give its `animate` a target, or call the Stage's `animate`."
 
-/** In development: a key a ward on a Stage's Subject doesn't take, named. */
-const checkKeys = (config: WardConfig): void =>
+/** In development: a key a ward on a Stage's Subject doesn't take, named; `exit` is a Scene object's. */
+const checkKeys = (config: WardConfig, scene: boolean): void =>
   Arr.forEach(Rec.keys(config as Readonly<Record<string, unknown>>), (key) => {
-    if (STAGE_KEYS.has(key)) return
+    if (Bool.match(scene, { onTrue: () => SCENE_KEYS.has(key), onFalse: () => STAGE_KEYS.has(key) })) return
     if (PAGE_ONLY.has(key)) throw new Error(`ward(subject, config): \`${key}\` is the page's: a scene has no focus or viewport. Give it to a ward on an element.`)
+    if (key === "exit") throw new Error("ward(subject, config): `exit` is a Scene object's: `createSceneObject(mesh, { exit })` plays it as the object leaves the scene.")
     throw new Error(`ward(subject, config): a ward on a Stage's Subject takes initial, animate, transition, variants, whileHover, whileTap and custom; \`${key}\` is a ward on an element's.`)
   })
+
+/** No gesture on: what a Scene object's exit resolves with. */
+const NOTHING_ACTIVE: Spine.Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
+
+/** A Scene object's own events: its exit's. */
+type ExitEvents = Pick<SceneObjectEvents, "exitStart" | "exitComplete">
+
+/** What a Scene object's exit waits reject with once it's gone and its last exit has landed. */
+const EXITS_GONE = "The Scene object was gone before its next exit."
+
+/** Whether `name` is a Scene object's exit event, its own waits', not its ward's. */
+const isExitEvent = (name: string): name is "exitStart" | "exitComplete" => Bool.or(name === "exitStart", name === "exitComplete")
 
 /** Its hover and press, on the Subject they were heard on: a state recorded on another reads as none. */
 interface Gestures {
@@ -86,9 +126,17 @@ const NO_GESTURES: Gestures = { subject: undefined, hovered: false, pressed: fal
 interface Mounted {
   readonly subject: object
   readonly spine: Spine.ElementSpine
+  /** Its spine's record of what it drew: a Scene object's own each Subject, as the last exits beside the next. */
+  readonly snapshot: Spine.Snapshot
   hover: boolean
   press: boolean
+  /** A Scene object's exit starts: `land` lands it once its spine settles, a failed exit too; none, it's taken back. */
+  readonly exitWith: (land: (() => void) | undefined) => void
   readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>) => void
+  /** Its recognizers stop, and the Stage's `animate` no longer goes through it: an exit's start. */
+  readonly quiet: () => void
+  /** What `quiet` stopped goes again: a Scene object's Subject taken back while it exits. */
+  readonly wake: () => void
   readonly dispose: () => void
 }
 
@@ -126,14 +174,175 @@ const subjectAccessorOf = (given: unknown): Accessor<object | undefined> => {
   return () => given as object
 }
 
+/** A mount's own gate id, its spine's snapshot, and its transitions' reuse. */
+interface Own {
+  readonly id: string
+  readonly snapshot: Spine.Snapshot
+  readonly reuse: ReturnType<typeof Spine.makeReuse>
+}
+
+/** What a Scene object's side reads of the ward it's part of: its exit resolves on them. */
+interface WardParts {
+  readonly id: string
+  readonly cfg: () => WardConfigValues
+  readonly inherited: VariantTree.WardicVariantContextValue | undefined
+  readonly start: Spine.Start
+  readonly lifecycle: Lifecycle
+  readonly gate: StageWardEnvironment["gate"]
+  readonly registry: ReturnType<typeof Spine.registryOf>
+}
+
 /**
- * The `ward` a Stage on `environment` hands out: `ward(subject, config, options?)` under a `<WardicStage>`
- * comes here, in the component that called it.
+ * A Scene object's own part of its ward (#885): made only by {@link stageSceneObject}, so a Stage ward
+ * that isn't one carries none of it.
  */
-export const stageWard =
-  (environment: StageWardEnvironment): Stage["ward"] =>
-  (given, config): StageWard => {
-    if (DEV) checkKeys(config)
+interface SceneSide {
+  /** A mount's own gate id, snapshot and reuse: the last Subject may still be exiting beside the next. */
+  readonly own: (begun: Spine.Start) => Own
+  /** Its spine's hooks: the ward's lifecycle while it's on its Subject, its exit's landing once it's leaving. */
+  readonly hooks: (landingOf: () => (() => void) | undefined) => Spine.AnimationHooks
+  /** Its Subject has joined the scene, on gate id `id`. */
+  readonly joined: (subject: object, id: string) => void
+  /** `m` leaves, through its exit. */
+  readonly leave: (m: Mounted) => void
+  /**
+   * `subject`'s mount, taken back while its exit is in flight: its exit stops where it is, and it stays in
+   * the scene. None when it isn't exiting.
+   */
+  readonly reclaim: (subject: object) => Mounted | undefined
+  /** Its owner has ended: its exit waits end once its last exit has landed. */
+  readonly ended: () => void
+  /** Its value for `key`, on the Subject it's on now. */
+  readonly atom: (key: string) => Atom.Atom<unknown>
+  /** Its exit events' waits, which outlive its owner until its last exit lands. */
+  readonly exits: Waiters<ExitEvents>
+}
+
+/**
+ * A Scene object's side of its ward, joining and leaving through `membership` (Q5, Q6). Each Subject
+ * mounts on a gate id of its own, as one exits beside the next: the last mounted is the one `read` and
+ * `atom` follow.
+ */
+const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide => {
+  const { id, cfg, lifecycle, gate, registry } = parts
+  let mounts = 0
+  // Kept alive: it's set before anything reads it, and a registry drops an Atom no one holds.
+  const currentId = Atom.keepAlive(Atom.make(id))
+  const exits = new Waiters<ExitEvents>(EXITS_GONE)
+  let leaving = 0
+  let gone = false
+  const endExits = (): void => {
+    if (Bool.and(gone, leaving === 0)) exits.dispose()
+  }
+  // Each Subject whose exit is in flight, with what stops it there: given again, it's taken back.
+  const inFlight = new Map<object, { readonly m: Mounted; readonly id: string; readonly stop: () => void }>()
+  // Each Subject's gate id, as it joined.
+  const ids = new WeakMap<object, string>()
+
+  /** Its `exit`, as a Retarget's target on `m`'s spine: none when it has no `exit`. */
+  const exitOf = (m: Mounted): Spine.Resolution | undefined =>
+    untrack(() => {
+      const values = cfg()
+      const exit = values.exit
+      if (Predicate.isUndefined(exit)) return undefined
+      const exitConfig = { animate: exit, variants: values.variants, custom: values.custom, transition: values.transition } as Config.SpineConfig
+      return Spine.resolutionOf(exitConfig, parts.inherited, parts.start.initialLink, NOTHING_ACTIVE, m.snapshot)
+    })
+
+  /**
+   * `m` leaves (Q5, a): its gestures stop, its `exit` runs on its own spine from where it is, at the
+   * speed it has, past its owner, then its Subject leaves the scene. The Stage's end lands it at once.
+   */
+  const leave = (m: Mounted): void => {
+    m.quiet()
+    leaving++
+    exits.tell("exitStart", () => ({ element: m.subject }))
+    let landed = false
+    let untracked: () => void = constVoid
+    const land = (): void => {
+      if (landed) return
+      landed = true
+      inFlight.delete(m.subject)
+      untracked()
+      m.dispose()
+      membership.leave(m.subject)
+      exits.tell("exitComplete", () => ({ element: m.subject }))
+      leaving--
+      endExits()
+    }
+    const exit = exitOf(m)
+    if (Predicate.isUndefined(exit)) return land()
+    m.exitWith(land)
+    untracked = membership.exiting(land)
+    inFlight.set(m.subject, {
+      m,
+      id: ids.get(m.subject) as string,
+      stop: () => {
+        landed = true
+        untracked()
+        leaving--
+      },
+    })
+    untrack(() => m.spine.retarget(exit))
+  }
+
+  // Taken back: its exit stops, and the ward's next Retarget runs from where the exit left it.
+  const reclaim = (subject: object): Mounted | undefined =>
+    UndefinedOr.map(inFlight.get(subject), (known) => {
+      inFlight.delete(subject)
+      known.stop()
+      known.m.exitWith(undefined)
+      known.m.wake()
+      registry().set(currentId, known.id)
+      return known.m
+    })
+
+  return {
+    own: (begun) => {
+      mounts++
+      return { id: `${id}.${mounts}`, snapshot: Spine.snapshotOf(begun), reuse: Spine.makeReuse() }
+    },
+    // The ward's lifecycle while it's on its Subject; once it's leaving, its exit's landing, a failed one
+    // too (the spine reports the failure).
+    hooks: (landingOf) => ({
+      started: (resolution) => {
+        if (Predicate.isUndefined(landingOf())) lifecycle.started(resolution)
+      },
+      settled: (resolution, previous) =>
+        UndefinedOr.match(landingOf(), {
+          onUndefined: () => lifecycle.settled(resolution, previous),
+          onDefined: (land) => land(),
+        }),
+      failed: (resolution, error) =>
+        UndefinedOr.match(landingOf(), {
+          onUndefined: () => lifecycle.failed(resolution, error),
+          onDefined: (land) => land(),
+        }),
+    }),
+    joined: (subject, mountId) => {
+      ids.set(subject, mountId)
+      registry().set(currentId, mountId)
+      // It joins its scene now, the ward able to start: its `initial` is the frame's to write.
+      membership.join(subject)
+    },
+    leave,
+    reclaim,
+    ended: () => {
+      gone = true
+      endExits()
+    },
+    atom: (key) => Atom.make((get) => get(gate.valueOf(get(currentId), key))),
+    exits,
+  }
+}
+
+/**
+ * A ward on `given` on `environment`: a Stage's, or, with `sideOf`, a Scene object's, which joins its
+ * Subject once it can start and plays its `exit` before its Subject leaves.
+ */
+const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardConfig, sideOf: ((parts: WardParts) => SceneSide) | undefined): SceneWard => {
+    const scene = Predicate.isNotUndefined(sideOf)
+    if (DEV) checkKeys(config, scene)
     const { runtime, gate } = environment
     const owner = getOwner()
     const registry = Spine.registryOf(runtime)
@@ -152,9 +361,11 @@ export const stageWard =
     const snapshot = Spine.snapshotOf(start)
     const reuse = Spine.makeReuse()
     // Where its Subject starts: the ward's start, or a fresh one for the next Subject an accessor gives.
+    // A Scene object's next Subject gets a snapshot of its own, since the last may still be exiting.
     let begun = start
     const beginFresh = (): void => {
       begun = Spine.startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
+      if (scene) return
       snapshot.values = { ...begun.initialValues }
       snapshot.velocities = {}
       snapshot.drawnAt = {}
@@ -189,6 +400,7 @@ export const stageWard =
     const lifecycle = new Lifecycle(owner, () => {
       UndefinedOr.map(mounted, startRecognizers)
     })
+    const side = UndefinedOr.map(sideOf, (of) => of({ id, cfg, inherited: node.inherited, start, lifecycle, gate, registry }))
     /** A handler's throw, reported as a fiber's failure is (ADR-0030, decision 4); the watch goes on. */
     const onDefect = (cause: Cause.Cause<never>): void => {
       runtime.runFork(Report.failure("wardic.ward: a gesture handler failed", cause))
@@ -228,13 +440,16 @@ export const stageWard =
     }
 
     const mount = (subject: object): Mounted => {
-      const unregister = gate.register(id, { target: subject })
+      const own = UndefinedOr.match(side, { onUndefined: (): Own => ({ id, snapshot, reuse }), onDefined: (s) => s.own(begun) })
+      const mountId = own.id
+      const unregister = gate.register(mountId, { target: subject })
       // Its `initial`, written before its first frame is drawn (ADR-0070 decision 5).
-      if (Bool.not(Rec.isEmptyRecord(begun.initialValues))) gate.write(id, begun.initialValues)
+      if (Bool.not(Rec.isEmptyRecord(begun.initialValues))) gate.write(mountId, begun.initialValues)
+      let exiting: (() => void) | undefined
       const spine = Spine.makeElementSpine({
         runtime,
         gate,
-        id,
+        id: mountId,
         element: subject,
         tag: undefined,
         config: cfg,
@@ -251,8 +466,8 @@ export const stageWard =
         measuredPairs: environment.measuredPairs,
         variableValues: environment.variableValues,
         start: begun,
-        snapshot,
-        reuse,
+        snapshot: own.snapshot,
+        reuse: own.reuse,
         links: baseHeld(environment.startLinksOf(subject), environment.ownValues),
         styleNow: undefined,
         live: undefined,
@@ -260,39 +475,63 @@ export const stageWard =
         projected: false,
         dragAxis: undefined,
         handoff: undefined,
-        animation: lifecycle,
+        animation: UndefinedOr.match(side, { onUndefined: (): Spine.AnimationHooks => lifecycle, onDefined: (s) => s.hooks(() => exiting) }),
       })
       // The Stage's `animate` on its Subject goes through its spine while it's on it (#433).
-      const unregisterAnimatable = Imperative.registerAnimatable(subject, spine)
+      let unregisterAnimatable: () => void = Imperative.registerAnimatable(subject, spine)
       // Its recognizers' Scope, made at the first: a ward with no gesture makes none.
       let watchScope: Scope.Closeable | undefined
       const watch = (made: Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>): void => {
         if (Predicate.isUndefined(watchScope)) watchScope = OwnerScope.open(runtime)
         runtime.runSync(made.pipe(Effect.provideService(InputSource.InputSource, environment.input), Scope.provide(watchScope)))
       }
+      const quiet = (): void => {
+        unregisterAnimatable()
+        unregisterAnimatable = constVoid
+        UndefinedOr.map(watchScope, (scope) => OwnerScope.close(runtime, scope, "wardic.ward: a finalizer failed"))
+        watchScope = undefined
+      }
       const m: Mounted = {
         subject,
         spine,
+        snapshot: own.snapshot,
         hover: false,
         press: false,
+        exitWith: (land) => {
+          exiting = land
+        },
         watch,
+        quiet,
+        wake: () => {
+          unregisterAnimatable = Imperative.registerAnimatable(subject, spine)
+          m.hover = false
+          m.press = false
+        },
         dispose: () => {
-          unregisterAnimatable()
+          quiet()
           spine.dispose()
-          UndefinedOr.map(watchScope, (scope) => OwnerScope.close(runtime, scope, "wardic.ward: a finalizer failed"))
           unregister()
         },
       }
       startRecognizers(m)
+      UndefinedOr.map(side, (s) => s.joined(subject, mountId))
       return m
     }
-    const unmount = (): void => {
-      UndefinedOr.map(mounted, (m) => m.dispose())
+
+    /** Off its Subject: a Stage ward's ends now, a Scene object's leaves through its exit. */
+    const off = (): void => {
+      const m = mounted
       mounted = undefined
+      if (Predicate.isUndefined(m)) return
+      UndefinedOr.match(side, {
+        onUndefined: () => m.dispose(),
+        onDefined: (s) => s.leave(m),
+      })
     }
     onCleanup(() => {
-      unmount()
+      off()
       lifecycle.dispose()
+      UndefinedOr.map(side, (s) => s.ended())
     })
 
     // A `whileHover` or `whileTap` set later starts its recognizer then (#87).
@@ -302,33 +541,6 @@ export const stageWard =
         UndefinedOr.map(mounted, startRecognizers)
       },
       CLIENT_ONLY_SYNC_DEFERRED,
-    )
-
-    // Mount on its Subject, then Retarget on each change of its target or its `when` gate; a new Subject
-    // takes the ward over, starting as the ward did, and the last keeps what it shows (decision 10).
-    const open = gateOf(node)
-    createEffect(
-      () => {
-        const subject = subjectOf()
-        if (Predicate.isUndefined(subject)) return undefined
-        return { subject, resolution: target(), open: open() }
-      },
-      (mounting) => {
-        if (Predicate.isUndefined(mounting)) {
-          unmount()
-          return
-        }
-        const { subject, resolution } = mounting
-        if (Predicate.isUndefined(mounted) || mounted.subject !== subject) {
-          const wasOn = Predicate.isNotUndefined(mounted)
-          unmount()
-          if (wasOn) beginFresh()
-          mounted = untrack(() => mount(subject))
-        }
-        const spine = mounted.spine
-        untrack(() => spine.retarget(resolution))
-      },
-      CLIENT_ONLY_SYNC,
     )
 
     // Its keys still loading at setup, and its Subject, read where `held` renders: its component's
@@ -347,6 +559,52 @@ export const stageWard =
         }
       },
     })
+
+    // Mount on its Subject, then Retarget on each change of its target or its `when` gate; a new Subject
+    // takes the ward over, starting as the ward did, and the last keeps what it shows (decision 10).
+    // A Scene object joins once every key still loading at setup has landed, not only its target's
+    // (*Amendment (#881)*, item 2): read in the compute, so the effect waits for them.
+    const open = gateOf(node)
+    let mountedOnce = false
+    createEffect(
+      () => {
+        const subject = subjectOf()
+        if (Predicate.isUndefined(subject)) return undefined
+        if (scene) loaded()
+        return { subject, resolution: target(), open: open() }
+      },
+      (mounting) => {
+        if (Predicate.isUndefined(mounting)) {
+          off()
+          return
+        }
+        const { subject, resolution } = mounting
+        if (Predicate.isUndefined(mounted) || mounted.subject !== subject) {
+          // A Stage ward's next Subject starts as the ward did; a Scene object's each enters afresh.
+          const fresh = Bool.match(scene, { onTrue: () => mountedOnce, onFalse: () => Predicate.isNotUndefined(mounted) })
+          off()
+          // A Scene object's Subject still exiting is taken back, from where it is; any other mounts.
+          mounted = UndefinedOr.match(
+            UndefinedOr.map(side, (s) => s.reclaim(subject)),
+            {
+              onDefined: (taken) => {
+                startRecognizers(taken)
+                return taken
+              },
+              onUndefined: () => {
+                if (fresh) beginFresh()
+                return untrack(() => mount(subject))
+              },
+            },
+          )
+          mountedOnce = true
+        }
+        const spine = mounted.spine
+        untrack(() => spine.retarget(resolution))
+      },
+      CLIENT_ONLY_SYNC,
+    )
+
     const held = (() => {
       subjectOf()
       loaded()
@@ -355,7 +613,8 @@ export const stageWard =
 
     // Its value per key: the gate's output while it holds the key, else its start. One accessor a key.
     const reads = new Map<string, Accessor<unknown>>()
-    const atom = (key: string): Atom.Atom<unknown> => gate.valueOf(id, key)
+    // A Scene object's follows the gate id of the Subject it's on now.
+    const atom = (key: string): Atom.Atom<unknown> => UndefinedOr.match(side, { onUndefined: () => gate.valueOf(id, key), onDefined: (s) => s.atom(key) })
     const read = (key: string): Accessor<unknown> => {
       const known = reads.get(key)
       if (Predicate.isNotUndefined(known)) return known
@@ -366,14 +625,40 @@ export const stageWard =
       return made
     }
 
+    // A Scene object's exit events are its own waits', which outlive its owner until its last exit lands.
+    const exitsFor = (name: string): Waiters<ExitEvents> | undefined => {
+      if (Bool.not(isExitEvent(name))) return undefined
+      return UndefinedOr.map(side, (s) => s.exits)
+    }
     return {
       held,
       settled: () => lifecycle.read(),
       tapped: () => lifecycle.tapped(),
-      next: (name) => lifecycle.wait(name),
-      each: (name) => lifecycle.each(name),
-      when: (name) => lifecycle.when(name),
+      next: (name) => UndefinedOr.match(exitsFor(name), { onUndefined: () => lifecycle.wait(name as never), onDefined: (exits) => exits.wait(name as "exitStart") }),
+      each: (name) =>
+        UndefinedOr.match(exitsFor(name), { onUndefined: () => lifecycle.each(name as never), onDefined: (exits) => eachOf<ExitEvents, "exitStart">(exits, name as "exitStart") }),
+      when: (name) =>
+        UndefinedOr.match(exitsFor(name), { onUndefined: () => lifecycle.when(name as never), onDefined: (exits) => whenOf<ExitEvents, "exitStart">(exits, name as "exitStart") }),
       read: read as WardRead<WardConfig>,
       atom,
-    } as StageWard
+    } as SceneWard
   }
+
+/**
+ * The `ward` a Stage on `environment` hands out: `ward(subject, config, options?)` under a `<WardicStage>`
+ * comes here, in the component that called it.
+ */
+export const stageWard =
+  (environment: StageWardEnvironment): Stage["ward"] =>
+  (given, config): StageWard =>
+    wardOn(environment, given, config, undefined) as unknown as StageWard
+
+/**
+ * A Scene object's ward on `environment` (#885): `stageWard`'s, joining its Subject through `membership`
+ * once it can start and playing its `exit` before its Subject leaves. An Environment's
+ * `createSceneObject` calls it, with its scene's own membership.
+ */
+export const stageSceneObject =
+  (environment: StageWardEnvironment) =>
+  (given: unknown, config: WardConfig, membership: StageMembership): SceneWard =>
+    wardOn(environment, given, config, (parts) => sceneSideOf(parts, membership))

@@ -27,7 +27,7 @@
 import { isServer } from "@solidjs/web"
 import * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
-import { type Stage, type StageWard, stageWard } from "@wardic/solid"
+import { type Stage, type StageWard, stageWard, type StageWardEnvironment } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined, constVoid } from "effect/Function"
@@ -129,18 +129,52 @@ const subjectNowOf = (subject: unknown): (() => unknown) => {
   return () => subject
 }
 
+/** Where a three.js Stage keeps what `createSceneObject` needs of it: not the `Stage` interface's. */
+export const SCENE: unique symbol = Symbol.for("@wardic/three/solid/scene")
+
+/**
+ * What `createSceneObject` needs of a Stage (#885): what its wards run on, its scene, and its exits in
+ * flight. `createSceneObject` makes its own ward on it, so a Stage app that never calls it carries none.
+ */
+export interface SceneOf {
+  /** What its wards run on. */
+  readonly environment: StageWardEnvironment
+  /** A config's colours split into their channels on `subject`, as the Stage's ward splits them. */
+  readonly split: <C>(subject: unknown, config: C) => C
+  /** The scene a Scene object with no parent joins: none on a Stage adopting a runtime. */
+  readonly scene: Object3D | undefined
+  /** Each exit in flight, by what lands it now: the Stage lands them as it ends. */
+  readonly exits: Set<() => void>
+}
+
+/** A three.js Stage, with what `createSceneObject` needs of it. */
+export type SceneStage = Stage & { readonly [SCENE]: SceneOf }
+
+/** Every exit still in flight landed: its Subject taken out, as the Stage ends (*Amendment (#885)* Q5). */
+export const landExits = (stage: { readonly [SCENE]: SceneOf }): void =>
+  Arr.forEach(Arr.fromIterable(stage[SCENE].exits), (land) => land())
+
 /**
  * The Stage over `runtime`: its Subjects three's, its ward the Stage ward on the runtime, each colour of
- * its config split into its channels in linear light as three's `animate` splits a call's, its input `input`.
+ * its config split into its channels in linear light as three's `animate` splits a call's, its input
+ * `input`. `scene` is what a Scene object with no parent joins.
  */
-export const stageOver = (runtime: WardicThree.WardicThree, input: InputSource.InputSource["Service"]): Stage => {
-  const ward = stageWard({ ...runtime.stageEnvironment, input })
+export const stageOver = (runtime: WardicThree.WardicThree, input: InputSource.InputSource["Service"], scene: Object3D | undefined): SceneStage => {
+  const environment: StageWardEnvironment = { ...runtime.stageEnvironment, input }
+  const ward = stageWard(environment)
+  const split = <C,>(subject: unknown, config: C): C => ThreeColours.splitConfig(subjectNowOf(subject), config as Readonly<Record<string, unknown>>) as C
   return {
     isSubject: isThreeSubject,
-    ward: (subject, config, options) => ward(subject, ThreeColours.splitConfig(subjectNowOf(subject), config as Readonly<Record<string, unknown>>) as typeof config, options),
+    ward: (subject, config, options) => ward(subject, split(subject, config), options),
     animate: runtime.animate as unknown as Stage["animate"],
     frameEffects: runtime.stageEnvironment.frameEffects,
     input,
+    [SCENE]: {
+      environment,
+      split,
+      scene,
+      exits: new Set(),
+    },
   }
 }
 
@@ -152,8 +186,8 @@ const NO_INPUT: InputSource.InputSource["Service"] = {
   adoptPointer: () => Option.none(),
 }
 
-/** A ward that does nothing: a server's. */
-const INERT_WARD: StageWard = {
+/** A ward that does nothing: a server's, and a server's Scene object's. */
+export const INERT_WARD: StageWard = {
   held: undefined,
   settled: constUndefined,
   tapped: constUndefined,
@@ -193,7 +227,7 @@ const cameraOf = (camera: StageOptions["camera"]): Camera => {
 
 /** A Stage over `made`, a runtime made outside Solid: its maker pumps its frames and draws; it adopts no loop. */
 const adopted = (made: WardicThree.WardicThree): ThreeStage =>
-  Object.assign((_element: HTMLElement) => undefined, stageOver(made, UndefinedOr.match(made.input, { onUndefined: () => NO_INPUT, onDefined: (given) => given })), {
+  Object.assign((_element: HTMLElement) => undefined, stageOver(made, UndefinedOr.match(made.input, { onUndefined: () => NO_INPUT, onDefined: (given) => given }), undefined), {
     invalidate: constVoid,
     wardic: made,
   }) as ThreeStage
@@ -264,7 +298,10 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
     onFalse: () => start(given as RendererLike),
   })
 
+  const over = stageOver(runtime, late.source, scene)
   onCleanup(() => {
+    // Exits still in flight land first: their Subjects leave the scene, which stays the app's.
+    landExits(over)
     UndefinedOr.map(renderer, (made) => {
       made.setAnimationLoop(null)
       made.domElement.remove()
@@ -278,7 +315,7 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
     host = element
     UndefinedOr.map(renderer, (made) => mount(element, made))
   }
-  return Object.assign(ref, stageOver(runtime, late.source), {
+  return Object.assign(ref, over, {
     invalidate: () => {
       invalidated = true
     },

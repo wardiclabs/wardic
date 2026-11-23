@@ -755,3 +755,38 @@ What the owner decided:
 
   The scene lab's SL3 runs in Chromium: `createStage`'s canvas mounted and sized to its viewport, then a real mouse hovering and tapping the crate, each step on a 4-second budget. It passed 10 of 10 runs.
 - **The scene lab:** a "Solid hooks" section, and its first card, a crate a `ward` raises in, lifts and tints under the pointer and squashes while pressed, with `createHover`, `createPress` and its taps read out. Its dev server runs the lab's own Vite, which resolves `@wardic/*` from source.
+
+**PR 2, as built:** `createSceneObject`.
+- **`createSceneObject(object, config)`** takes an object, or an accessor of one, and its ward's keys with `exit`, plus `parent` and `dispose`, which are the membership's. `omit` keeps the rest read per key, as a ward reads them. Its handle, `SceneObject`, is a ward that also tells `exitStart` and `exitComplete` (decision 15). With no three.js Stage above it, it's an error; on a server, it does nothing.
+- **In `@wardic/solid`:** `stageSceneObject(environment)` is the Stage ward with a `StageMembership`: `join`, `leave`, and `exiting`, which hands the Stage what lands an exit at once. `ward(mesh, { exit })` is a dev error naming `createSceneObject`.
+  - **What it costs a Stage that doesn't use it:** the Scene object's code is a side (`sceneSideOf`) that only `stageSceneObject` makes, and `createSceneObject` alone imports it. Built into the ward itself, it put `t2-stage` at 299.2 KB, over its 298.8 budget. As a side, `t2-stage` is 298.8 KB: the ward's branches for a side it doesn't have, and the Stage's exits. Taking back a Subject given again mid-exit (below) took it just past 298.8, so its budget is raised by the 0.1 measured, to 298.9, as #672's Q23 and #882 did.
+- **Joining** (*Amendment (#881)*, item 2): it joins when the ward mounts on its Subject. A Scene object's mount also waits for every key still loading at setup, not only its target's.
+  - **Parent:** the one given, else the one it has (a model's node stays where it is), else the Stage's scene. A Stage adopting a runtime has no scene, so an object with neither is an error naming `parent`.
+  - **First frame:** its `initial` goes through the gate before the first frame is drawn. If its run starts as it joins, that frame draws one step from `initial` (SO2's 0.08 of 1), never its own pose.
+- **Leaving** (Q5, a): its recognizers stop, and the Stage's `animate` no longer goes through it. Its `exit` resolves as a target, `animate` replaced by `exit` with its `variants`, `custom` and `transition` and no gesture on. It runs as a Retarget on the leaving Subject's own spine, from where the Subject is, at the speed it has, past its owner.
+  - **Once it lands,** a failed exit too, the spine is disposed and the object leaves its parent of the moment. With `dispose: true`, its geometries and materials and its descendants' are disposed. Then `exitComplete` is told.
+  - **With no `exit`,** it leaves at once.
+  - **Its exit waits** outlive its owner until its last exit has landed.
+- **Each Subject mounts on its own gate id, snapshot and reuse,** so an accessor's next object enters, afresh from `initial`, as the last one exits. `read` and `atom` follow the current one's id through an Atom kept alive. A registry drops an Atom no one holds, and SO7 found `read` back on the first id.
+- **A Subject given again while its exit plays is taken back** (`reclaim`): its exit stops where it is, it stays in the scene, and the ward's next Retarget runs on its spine from there.
+  - **What it fixed:** spamming the scene lab's swap left no shape. A shape given back mid-exit joined as a new mount, where it already was, and then its old exit landed and took it out.
+  - **Measured on the page:** bursts of 2 to 12 swaps, 40 to 300 ms apart, left no shape on the commit before and one after each burst.
+  - `exitComplete` isn't told for an exit taken back.
+- **The Stage's end lands the exits still in flight,** before its runtime is disposed: `createStage`'s cleanup, and `TestStage`'s `dispose`. Their objects leave the scene, which stays the app's.
+- **Tests,** in `three-solid`, SO1–SO11:
+  - SO1: it joins with its `initial` drawn;
+  - SO2: an `animate` still loading keeps it out, with `held` holding `<Loading>`;
+  - SO3: the parent rules;
+  - SO4: the exit from where it was, then it leaves, with its events;
+  - SO5: no `exit`;
+  - SO6: an accessor's `undefined`, then its re-entry;
+  - SO7: a swap, both in the scene at once, with `read` following;
+  - SO8: `dispose: true`;
+  - SO9: the Stage's end;
+  - SO10: an exit as a variant name, on its own transition;
+  - SO11: the two errors;
+  - SO12: a Subject given again mid-exit taken back, after a swap and after `undefined`, then still leaving when let go.
+
+  The Stage ward's SW1–SW8 pass unchanged. The scene lab's SL4 adds a crate, then sees a removed one stay in the scene while its exit plays and leave once it lands.
+- **The scene lab:** a second card. Crates in a `<For>` drop in, sink away as they're removed, and the rest close up. A shape given as an accessor swaps, the next entering as the last exits; sampled every 50 ms after a swap, two shapes were in the scene for 0.8 s.
+- **A changeset** for `@wardic/solid`'s `stageSceneObject`, `StageMembership` and `SceneWard`.
