@@ -1,7 +1,8 @@
 /**
  * `@wardic/three/solid` (ADR-0073 decision 20): a three.js scene for Solid 2's hooks. `createStage` makes
  * the Stage that runs a scene for its owner; under `<WardicStage value={stage}>`, `@wardic/solid`'s `ward`,
- * `createFrameEffect` and the sensors run in that scene. Importing it types three's objects as a Stage's
+ * `createFrameEffect` and the sensors run in that scene, and `createSceneObject` adds an object to it,
+ * with an exit as it leaves. Importing it types three's objects as a Stage's
  * Subjects, so `ward(mesh, config)` and `ward(material, config)` typecheck.
  *
  * @example
@@ -20,6 +21,7 @@
 import type { Material, Object3D } from "three"
 
 export { WardicStage } from "@wardic/solid"
+export { createSceneObject, type SceneObject, type SceneObjectConfig } from "./solid/scene-object.ts"
 export { type AdoptOptions, createStage, isThreeSubject, type RendererLike, type StageOptions, type ThreeStage } from "./solid/stage.ts"
 export * as TestStage from "./solid/test-stage.ts"
 

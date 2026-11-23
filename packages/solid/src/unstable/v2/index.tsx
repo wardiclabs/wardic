@@ -98,11 +98,23 @@ export {
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type HeldWard,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type SceneObjectEvent,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type SceneObjectEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type SceneObjectExit,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type SceneWard,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type Stage,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageEvent,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageEvents,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  stageSceneObject,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type StageMembership,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageSubject,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
