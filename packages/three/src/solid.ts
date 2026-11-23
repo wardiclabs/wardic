@@ -1,13 +1,13 @@
 /**
  * `@wardic/three/solid` (ADR-0073 decision 20): a three.js scene for Solid 2's hooks. `createStage` makes
- * the Stage that runs a scene for its owner; under `<WardicStage value={stage}>`, `@wardic/solid`'s `ward`,
+ * the Stage that runs a scene for its owner; under `<WardicStage value={stage}>`, `ward`, `createBatch`,
  * `createFrameEffect` and the sensors run in that scene, and `createSceneObject` adds an object to it,
- * with an exit as it leaves. Importing it types three's objects as a Stage's
- * Subjects, so `ward(mesh, config)` and `ward(material, config)` typecheck.
+ * with an exit as it leaves. Its hooks are a scene's alone, with none of the page's code (#927):
+ * `@wardic/solid`'s own take a mesh too, for a page that has both. Importing it types three's objects as
+ * a Stage's Subjects, so `ward(mesh, config)` and `ward(material, config)` typecheck.
  *
  * @example
- * import { createStage, WardicStage } from "@wardic/three/solid"
- * import { ward } from "@wardic/solid"
+ * import { createStage, ward, WardicStage } from "@wardic/three/solid"
  *
  * const stage = createStage({ renderer: () => new WebGLRenderer({ antialias: true }), scene, camera })
  * <WardicStage value={stage}>
@@ -20,7 +20,17 @@
 // #885 (ADR-0073, *Amendment (#885)*): step 4 of #564, Solid 2 only.
 import type { Material, Object3D, Plane } from "three"
 
-export { WardicStage } from "@wardic/solid"
+// A scene's hooks alone (#927): `@wardic/solid`'s Stage halves under the hooks' own names, so a scene with
+// no page wards carries none of the page's ward, Batch or gesture Features (57.6 KB gzipped for `ward`).
+export {
+  createBatchOnStage as createBatch,
+  createDragOnStage as createDrag,
+  createFrameEffect,
+  createHoverOnStage as createHover,
+  createPressOnStage as createPress,
+  wardOnStage as ward,
+  WardicStage,
+} from "@wardic/solid"
 export type { StageFeature, StageParts, StageView } from "./solid/feature.ts"
 export { createSceneObject, type SceneObject, type SceneObjectConfig } from "./solid/scene-object.ts"
 export { stageBatches } from "./solid/stage-batches.ts"

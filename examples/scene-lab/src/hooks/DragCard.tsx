@@ -5,8 +5,7 @@
  *
  * @module
  */
-import { ward } from "@wardic/solid"
-import { createStage, stageDrag, WardicStage } from "@wardic/three/solid"
+import { createStage, stageDrag, ward, WardicStage } from "@wardic/three/solid"
 import { createSignal, onSettled } from "solid-js"
 import * as THREE from "three"
 

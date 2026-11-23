@@ -19,6 +19,7 @@ import { type Accessor, useContext } from "solid-js"
 import { useBrought } from "./provider.tsx"
 import { isElement, type Sensor, stageSensorOf, wardSensorOf, watchSensorOf } from "./sensors.tsx"
 import { type StageSubject, WardicStage } from "./stage.ts"
+import { watchDragOnStage } from "./stage-hooks.ts"
 import { type AnyWard, isWard } from "./ward.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
@@ -74,7 +75,7 @@ export const createDrag: CreateDrag = ((first?: CreateDragOptions | Element | An
   const stage = useContext(WardicStage)
   if (Predicate.isNotNull(stage) && Bool.not(isElement(first)) && Bool.not(isWard(first)) && stage.isSubject(first)) {
     return UndefinedOr.match(
-      stageSensorOf<Drag.Sample | null>("createDrag", first, null, (subject, handlers) => watchDragSamples(subject, { ...more }, handlers)),
+      stageSensorOf<Drag.Sample | null>("createDrag", first, null, watchDragOnStage(more)),
       { onUndefined: () => () => null, onDefined: (sensed) => sensed },
     )
   }

@@ -156,6 +156,16 @@ export {
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   stageWard,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  wardOnStage,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createBatchOnStage,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createDragOnStage,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createHoverOnStage,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  createPressOnStage,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageWardChecked,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageWardConfig,

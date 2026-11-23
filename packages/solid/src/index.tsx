@@ -110,6 +110,8 @@ export {
   WardicStage,
 } from "./stage.ts"
 export { stageSceneObject, type StageMembership, stageWard, type StageWardEnvironment } from "./stage-ward.tsx"
+// A Stage's hooks alone (#927), for an Environment's binding to re-export under the hooks' own names.
+export { createBatchOnStage, createDragOnStage, createHoverOnStage, createPressOnStage, wardOnStage } from "./stage-hooks.ts"
 export type { StageGraph } from "./stage-graph.ts"
 export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "@wardic/dom/unstable/WardConfig"

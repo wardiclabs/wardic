@@ -5,8 +5,7 @@
  *
  * @module
  */
-import { createHover, createPress, ward } from "@wardic/solid"
-import { createStage, WardicStage } from "@wardic/three/solid"
+import { createHover, createPress, createStage, ward, WardicStage } from "@wardic/three/solid"
 import { createEffect, createSignal, Show } from "solid-js"
 import * as THREE from "three"
 
