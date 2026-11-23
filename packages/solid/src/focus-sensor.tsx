@@ -12,7 +12,7 @@ import { isServer } from "@solidjs/web"
 import * as Predicate from "effect/Predicate"
 import { type Accessor, createEffect } from "solid-js"
 import { useBrought } from "./provider.tsx"
-import { type Sensor, type SensorTarget, watchSensorOf } from "./sensors.tsx"
+import { type Sensor, type PageTarget, watchSensorOf } from "./sensors.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { isWard, sensedOf } from "./ward.tsx"
 
@@ -22,7 +22,7 @@ const FOCUS: ReadonlyArray<Feature.Feature> = [Focus.focus]
 /** `createFocus`'s forms: a sensor to give to a `ref`; or, given its element or a ward first, its reading. */
 export interface CreateFocus {
   (): Sensor<boolean>
-  (target: SensorTarget): Accessor<boolean>
+  (target: PageTarget): Accessor<boolean>
 }
 
 /**
@@ -38,7 +38,7 @@ export interface CreateFocus {
  */
 // The core focus watch, not `visible` only. Given a ward (#884), it watches the ward's element, following
 // it: a ward tells no focus events, so its own focus recognizer, run for `whileFocus` alone, can't be asked.
-export const createFocus: CreateFocus = ((target?: SensorTarget): Sensor<boolean> | Accessor<boolean> => {
+export const createFocus: CreateFocus = ((target?: PageTarget): Sensor<boolean> | Accessor<boolean> => {
   const services = useBrought(FOCUS)
   if (isWard(target)) {
     const sensor = watchSensorOf<boolean>((element, handlers) => GestureFeatures.serviceOf(services(), Keys.FocusGesture).watch(element, {}, handlers), false)

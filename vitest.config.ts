@@ -52,6 +52,8 @@ export default defineConfig({
       // The Solid 2 binding's server renders, `@wardic/solid` (#209, #566), and Solid 1's, `@wardic/solid/v1`.
       "packages/solid/vitest.ssr.config.ts",
       "packages/solid/vitest.ssr-v1.config.ts",
+      // A Stage ward on Solid 2's client build in Node, on a Stage over `@wardic/object` (#884).
+      "packages/solid/vitest.stage.config.ts",
       // The Foldkit binding's server renders, Foldkit's `renderToString` in Node (#794).
       "packages/foldkit/vitest.ssr.config.ts",
       // The docs' testing guide, its samples run in jsdom as a reader's tests would (#558).

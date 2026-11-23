@@ -101,6 +101,7 @@
     "@solidjs/router-1": "npm:@solidjs/router@1.0.1",
     "@solidjs/web": "2.0.1",
     "@types/babel__core": "^7.20.5",
+    "@wardic/object": "workspace:*",
     "@wardic/test": "workspace:*",
     "babel-preset-solid": "1.9.12",
     "effect": "4.1.4",

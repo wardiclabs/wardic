@@ -78,7 +78,8 @@ export {
 export { ward } from "./complete.tsx"
 export type { HeldWard } from "./ward-first.ts"
 /** A Stage (#884, ADR-0073 decisions 12 and 20): what runs a scene, found through its own Solid context. */
-export { type Stage, type StageSubject, type StageSubjects, type StageWard, WardicStage } from "./stage.ts"
+export { type Stage, type StageEvent, type StageEvents, type StageSubject, type StageSubjects, type StageWard, WardicStage } from "./stage.ts"
+export { stageWard, type StageWardEnvironment } from "./stage-ward.tsx"
 export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "@wardic/dom/unstable/WardConfig"
 export type { AnimatedKey, WardKey, WardValueOf } from "./ward-keys.ts"

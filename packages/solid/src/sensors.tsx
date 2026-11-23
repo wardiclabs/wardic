@@ -22,23 +22,27 @@
  * @module
  */
 import type * as InputFeed from "@wardic/core/InputFeed"
+import * as InputSource from "@wardic/core/InputSource"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Report from "@wardic/dom/Report"
 import type * as Cause from "effect/Cause"
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import { constVoid } from "effect/Function"
 import * as Scope from "effect/Scope"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
-import { type Accessor, createSignal, onCleanup } from "solid-js"
+import { type Accessor, createSignal, DEV, onCleanup, useContext } from "solid-js"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { inViewOptionsOf } from "./gesture-callbacks.ts"
 import type { Listener } from "./waiters.ts"
-import { type AnyWard, type Sensed, sensedOf } from "./ward.tsx"
+import { type StageSubject, WardicStage } from "./stage.ts"
+import { type AnyWard, isWard, type Sensed, sensedOf } from "./ward.tsx"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type { WardicServices } from "./runtime.ts"
 import { fromAtom } from "./bridge.tsx"
@@ -60,8 +64,39 @@ export interface Sensor<A> {
 /** Whether a sensor's call is Solid applying it as a ref. */
 export const isElement = (value: unknown): value is Element => Predicate.hasProperty(value, "nodeType")
 
-/** What a sensor takes first, when it isn't its call form: an element, or a ward whose own recognizer it reads (#884). */
-export type SensorTarget = Element | AnyWard
+/** What a sensor of the page takes first, when it isn't its call form: an element, or a ward whose own recognizer it reads (#884). */
+export type PageTarget = Element | AnyWard
+
+/** What `createHover` and `createPress` take first: what {@link PageTarget} is, or, under a `<WardicStage>`, one of its Subjects (#884). */
+export type SensorTarget = PageTarget | StageSubject
+
+/**
+ * A sensor of a Stage's Subject (#884's PR 4): `watchOf` on the Stage's input from the call on, ended with
+ * its owner. `undefined` for an element or a ward, which are the page's; anything else no `<WardicStage>`
+ * above takes is an error in development, naming it.
+ */
+export const stageSensorOf = <A,>(
+  name: string,
+  target: unknown,
+  initial: A,
+  watchOf: (subject: unknown, handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>,
+): Accessor<A> | undefined => {
+  if (Bool.some([isServer, Predicate.isUndefined(target), isElement(target), isWard(target)])) return undefined
+  const stage = useContext(WardicStage)
+  if (Bool.or(Predicate.isNull(stage), Bool.not(Predicate.isNotNull(stage) && stage.isSubject(target)))) {
+    if (DEV) throw new Error(`${name}(subject): it was given neither an element nor a ward, and no <WardicStage> above it takes it as one of its Subjects.`)
+    return undefined
+  }
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
+  const scope = Scope.makeUnsafe()
+  onCleanup(() => Effect.runSync(Scope.close(scope, Exit.void)))
+  const onDefect = (cause: Cause.Cause<never>): void => {
+    Effect.runFork(Report.failure(`wardic.${name}: a gesture handler failed`, cause))
+  }
+  const watch = watchOf(target, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect })
+  Effect.runSync(watch.pipe(Effect.provideService(InputSource.InputSource, (stage as NonNullable<typeof stage>).input), Scope.provide(scope)))
+  return value
+}
 
 /** A sensor of a ward: its reading, set by `listen` from the ward's own events (#884's PR 2). */
 // `listen` subscribes to the ward's lifecycle, which starts the gesture's recognizer as `when` would: the
