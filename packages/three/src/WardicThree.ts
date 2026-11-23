@@ -48,6 +48,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Camera, Object3D } from "three"
 import * as ThreeColours from "./ThreeColours.ts"
+import type * as InputSource from "@wardic/core/InputSource"
 import * as ThreeInput from "./ThreeInput.ts"
 import * as ThreeInstances from "./ThreeInstances.ts"
 import * as ThreeRenderer from "./ThreeRenderer.ts"
@@ -218,6 +219,12 @@ export interface WardicThree extends Omit<WardicObject.WardicObject, "animate" |
    * ends, told whether it ended on it. Returns its cancel. Needs `make`'s `canvas`, `camera` and `scene`.
    */
   readonly press: (subject: object, onStart: ThreeInput.PressStart) => () => void
+  /**
+   * The scene's pointer input, as core's `InputSource`, for a binding's gestures: `undefined` with no
+   * canvas. Unstable: what `@wardic/three/solid`'s Stage hands its hooks.
+   */
+  // #885's PR 1 (ADR-0073, *Amendment (#885)*, Q3): a Stage adopting a runtime made outside Solid reads it.
+  readonly input: InputSource.InputSource["Service"] | undefined
 }
 
 /** A scene's unit scale when the app gives none: a metre counts as 100 of Motion's units (ADR-0069 decision 8). */
@@ -313,6 +320,7 @@ export const make = (options: Options = {}): WardicThree => {
       stageEnvironment: runtime.stageEnvironment,
       hover: noInput("hover"),
       press: noInput("press"),
+      input: undefined,
     }
   }
   return {
@@ -332,5 +340,6 @@ export const make = (options: Options = {}): WardicThree => {
     stageEnvironment: runtime.stageEnvironment,
     hover: input.hover,
     press: input.press,
+    input: input.source,
   }
 }

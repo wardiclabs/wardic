@@ -5,6 +5,7 @@
  */
 import { For } from "solid-js"
 import { Card } from "./Card.tsx"
+import { StageCard } from "./hooks/StageCard.tsx"
 import { scenarios } from "./scenarios.ts"
 
 export const App = () => (
@@ -17,6 +18,15 @@ export const App = () => (
     </header>
     <section class="cards">
       <For each={scenarios}>{(scenario) => <Card scenario={scenario} />}</For>
+    </section>
+    <header class="page">
+      <h2>Solid hooks</h2>
+      <p>
+        <code>@wardic/three/solid</code>: each card a Solid component, its scene run by <code>createStage</code> and moved by <code>@wardic/solid</code>'s hooks.
+      </p>
+    </header>
+    <section class="cards">
+      <StageCard />
     </section>
   </main>
 )

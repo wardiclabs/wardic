@@ -64,6 +64,15 @@ body {
 .controls button:hover {
   background: #2c3545;
 }
+.viewport {
+  width: 100%;
+  aspect-ratio: 480 / 300;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.viewport canvas {
+  display: block;
+}
 output {
   font-family: ui-monospace, monospace;
   font-size: 12px;

@@ -73,18 +73,27 @@
   "peerDependencies": {
     "@types/three": ">=0.160.0",
     "effect": "^4.1.4",
-    "three": ">=0.160.0"
+    "three": ">=0.160.0",
+    "@wardic/solid": "workspace:*",
+    "@solidjs/web": ">=2.0.1",
+    "solid-js": ">=2.0.1"
   },
   "peerDependenciesMeta": {
-    "@types/three": {
+    "@wardic/solid": {
       "optional": true
     },
-    "three": {
+    "@solidjs/web": {
+      "optional": true
+    },
+    "solid-js": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@solidjs/web": "2.0.1",
     "@types/three": "0.187.0",
+    "@wardic/solid": "workspace:*",
+    "solid-js": "2.0.1",
     "three": "0.187.0"
   }
 }

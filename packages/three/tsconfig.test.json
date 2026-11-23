@@ -7,7 +7,18 @@
     "types": ["node"],
     "noEmit": true,
     "composite": false,
-    "rootDir": "../.."
+    "rootDir": "../..",
+    // `@wardic/three/solid`'s tests (#885): Solid 2's JSX, and Solid as packages/solid has it, as the
+    // scene lab's typecheck maps it; `@wardic/solid` as its built declarations (`tsconfig.json`'s note).
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "paths": {
+      "@wardic/solid": ["../solid/dist/solid/index.d.ts"],
+      "solid-js": ["../solid/node_modules/solid-js/types/index.d.ts"],
+      "@solidjs/web": ["../solid/node_modules/@solidjs/web/types/index.d.ts"],
+      "@solidjs/web/jsx-runtime": ["../solid/node_modules/@solidjs/web/types/jsx.d.ts"],
+      "@solidjs/web/jsx-dev-runtime": ["../solid/node_modules/@solidjs/web/types/jsx.d.ts"]
+    }
   },
   "include": ["src", "test", "bench"]
 }

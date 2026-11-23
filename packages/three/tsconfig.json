@@ -1,8 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // `@wardic/three/solid`'s `@wardic/solid`, as its built declarations (#885): resolved to its `.tsx`
+    // source through `@wardic/source`, a referenced project's source fails tsgo's output check (TS6305).
+    "paths": { "@wardic/solid": ["../solid/dist/solid/index.d.ts"] }
   },
   "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../object" }]
+  "references": [{ "path": "../core" }, { "path": "../object" }, { "path": "../solid" }]
 }
