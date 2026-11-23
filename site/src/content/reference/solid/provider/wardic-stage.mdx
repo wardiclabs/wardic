@@ -1,0 +1,37 @@
+---
+title: WardicStage
+description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
+api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects]
+---
+
+# WardicStage
+
+The context a scene's Stage is found through. A Stage runs a scene for its owner: its Host loop, its input and its canvas's size. Under one, the hooks run in its scene instead of on the page:
+
+```tsx solid2
+import { ward, WardicStage } from "@wardic/solid"
+
+<WardicStage value={stage}>
+  <Crate mesh={crate} />
+</WardicStage>
+
+function Crate(props: { readonly mesh: Mesh }) {
+  const crate = ward(props.mesh, { whileHover: { scale: 1.08 } })
+  return crate.held
+}
+```
+
+- **`ward(subject, config)`** hands the Stage a Subject that's its own, and any accessor of one: the Stage's ward moves it, and has the same events and `read` a ward on an element has.
+- **`createFrameEffect`** runs in the Stage's Host loop, after Wardic's writes and before the scene renders.
+- **An element** stays the page's, under a Stage or not.
+
+`WardicStage` is Solid 2's own provider, `<WardicStage value={stage}>`; read it with `useContext(WardicStage)`, which is `null` outside one. A scene's Subject given to `ward` with no Stage above it is an error that names it, in development.
+
+Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for a three.js scene. The `Stage` interface names no three.js code, so another Environment can fill it. Solid 2 only.
+
+## Types
+
+- **`Stage`:** what the hooks read of a Stage: whether a value is one of its Subjects, its ward, `animate`, its Frame effects and its pointer input.
+- **`StageWard`:** a ward on a Stage's Subject: `held`, `settled`, `next`, `each`, `when` and `read`.
+- **`StageSubjects`:** the Subjects a Stage takes, which an Environment adds to by declaration merging: `@wardic/three/solid` adds three.js's objects, so `ward(mesh, config)` is typed.
+- **`StageSubject`:** any of them.

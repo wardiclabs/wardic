@@ -9,7 +9,8 @@
  *   returns runs before its next apply, and when its owner is disposed.
  *
  * Frame effects run in the order they were made. Every frame needs no hook of its own: `createTime()` read
- * in compute. Solid's own effect runs on Solid's schedule instead, after the frame is drawn.
+ * in compute. Solid's own effect runs on Solid's schedule instead, after the frame is drawn. Under a
+ * `<WardicStage>`, it runs in the Stage's Host loop, before the scene renders.
  *
  * @example
  * createFrameEffect(() => target.read("x")(), (x) => {
@@ -28,9 +29,10 @@ import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as Cause from "effect/Cause"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
-import { createEffect, flush, onCleanup, untrack } from "solid-js"
+import { createEffect, flush, onCleanup, untrack, useContext } from "solid-js"
 import { useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { WardicStage } from "./stage.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
 const CLOSE_FAILED = "wardic.createFrameEffect: a finalizer failed"
@@ -66,12 +68,27 @@ const release = (runtime: WardicRuntime, slot: Slot): void => {
   OwnerScope.close(runtime, slot.scope, CLOSE_FAILED)
 }
 
-/** Runs `apply` in Wardic's frame, after its writes and before the frame is drawn, each time `compute`'s value is new. */
-export const createFrameEffect = <T,>(compute: () => T, apply: (value: T) => void | (() => void)): void => {
-  if (isServer) return
+/** The DOM provider's slot for one Frame effect: held until its owner is disposed. */
+const domEffects = (): Pick<FrameEffects.FrameEffects, "add" | "request"> => {
   const runtime = useWardicRuntime()
   const slot = slotOf(runtime)
   slot.live++
+  onCleanup(() => release(runtime, slot))
+  return slot.effects
+}
+
+/** The Frame effects a Frame effect made here joins: its Stage's, else the DOM provider's. */
+const effectsHere = (): Pick<FrameEffects.FrameEffects, "add" | "request"> => {
+  const stage = useContext(WardicStage)
+  if (Predicate.isNotNull(stage)) return stage.frameEffects
+  return domEffects()
+}
+
+/** Runs `apply` in Wardic's frame, after its writes and before the frame is drawn, each time `compute`'s value is new. */
+export const createFrameEffect = <T,>(compute: () => T, apply: (value: T) => void | (() => void)): void => {
+  if (isServer) return
+  // Under a Stage, its Host loop's (#884's PR 3); else the DOM provider's.
+  const effects = effectsHere()
   let due = false
   let value: T
   let cleanup: (() => void) | undefined
@@ -81,11 +98,11 @@ export const createFrameEffect = <T,>(compute: () => T, apply: (value: T) => voi
     (next) => {
       value = next
       due = true
-      slot.effects.request()
+      effects.request()
     },
     CLIENT_ONLY,
   )
-  const remove = slot.effects.add(() => {
+  const remove = effects.add(() => {
     // What this frame moved, a Live value's signal among it, given to Solid now (see the header).
     flush()
     if (!due) return
@@ -101,6 +118,5 @@ export const createFrameEffect = <T,>(compute: () => T, apply: (value: T) => voi
     const ending = cleanup
     cleanup = undefined
     if (Predicate.isNotUndefined(ending)) ending()
-    release(runtime, slot)
   })
 }

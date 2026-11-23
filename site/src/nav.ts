@@ -100,6 +100,7 @@ export const NAV: ReadonlyArray<NavSection> = [
         pages: [
           { path: "/reference/solid/provider/wardic-provider", title: "WardicProvider" },
           { path: "/reference/solid/provider/wardic-config", title: "WardicConfig" },
+          { path: "/reference/solid/provider/wardic-stage", title: "WardicStage" },
           { path: "/reference/solid/provider/lazy-wardic", title: "LazyWardic" },
           { path: "/reference/solid/provider/features", title: "Features" },
         ],

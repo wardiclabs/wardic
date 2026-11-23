@@ -1,7 +1,7 @@
 ---
 title: Wards
 description: A ward puts Wardic's motion on an element of your own, and reads its values. ward() on Solid 2, createWard on Solid 1, and their Slim forms.
-api: [createWard, ward, Ward, WardProps, WardStyle, WardUserProps, WardValue, WardValueOf, WardChecked, WardKey, AnimatedKey, WardRead, WardWithProps, WardOptions]
+api: [createWard, ward, Ward, WardProps, WardStyle, WardUserProps, WardValue, WardValueOf, WardChecked, WardKey, AnimatedKey, WardRead, WardWithProps, WardOptions, HeldWard]
 ---
 
 # Wards
@@ -35,6 +35,21 @@ Each key of `config` is a value, or an accessor of it: `w.ward({ animate: () => 
 | `card.settled()`, `card.tapped()`, `card.next(name)`, `card.each(name)`, `card.when(name)` | Its events: see [Ward events](/reference/solid/elements/ward-events). |
 
 `options.parent` makes a ward made outside the element's tree a variant child of another ward, as an element rendered under it would be.
+
+### Its element first
+
+`ward(element, config)` is `ward(config)(element)`: a ward on an element you already have, made where you'd make a signal.
+
+```tsx solid2
+function Badge(props: { readonly target: HTMLElement; readonly active: boolean }) {
+  const badge = ward(props.target, { animate: () => ({ scale: props.active ? 1.1 : 1 }) })
+  return badge.held
+}
+```
+
+Made with its element first, a ward has `held`, which renders nothing. While the ward's config is still loading (an `animate` that reads an async value), `held` holds its component's `<Loading>`: the fallback shows, `onSettled` waits, and a `<Reveal>` orders it among its siblings. Return it from a component that renders nothing else; `return null` works too, with no fallback.
+
+Under a [`<WardicStage>`](/reference/solid/provider/wardic-stage), `ward(mesh, config)` is the Stage's ward, on a scene's object. An accessor first is a Stage's too: on the page, a ward given to `ref` follows each element it's given.
 
 ## Solid 1: createWard
 
@@ -72,3 +87,4 @@ Motion has no ward: its props go on a `motion.*` element. A ward is Wardic's way
 - **`WardChecked`:** (Solid 2) a config whose per-value transitions are checked against the keys it animates.
 - **`WardWithProps`:** (Solid 2) what `card.with` takes.
 - **`WardOptions`:** (Solid 2) `ward`'s options: `parent`.
+- **`HeldWard`:** (Solid 2) a ward made with its element first: a ward, and its `held`.
