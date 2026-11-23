@@ -8,40 +8,40 @@
 import * as Store from "@wardic/example-storefront-shared/server"
 import { respond } from "@solidjs/web"
 import { CART, ORDERS, SETTINGS } from "~/lib/keys.ts"
-import { visitor } from "./visitor.ts"
+import { storeCall, visitor } from "./visitor.ts"
 
 export async function listProducts(category?: string) {
-  return Store.runFor(visitor(), Store.listProducts(category))
+  return storeCall(Store.listProducts(category))
 }
 
 export async function getProduct(id: string) {
-  return Store.runFor(visitor(), Store.getProduct(id))
+  return storeCall(Store.getProduct(id))
 }
 
 export async function getStock(when: "now" | "delivery") {
-  return Store.runFor(visitor(), Store.getStock(when))
+  return storeCall(Store.getStock(when))
 }
 
 export async function getCart() {
-  return Store.runFor(visitor(), Store.getCart)
+  return storeCall(Store.getCart)
 }
 
 // A cart change revalidates the cart alone: named on the response, the router refetches no other query.
 export async function addToCart(productId: string, quantity: number) {
-  return respond(await Store.runFor(visitor(), Store.addToCart(productId, quantity)), { revalidate: CART })
+  return respond(await storeCall(Store.addToCart(productId, quantity)), { revalidate: CART })
 }
 
 export async function setCartQuantity(productId: string, quantity: number) {
-  return respond(await Store.runFor(visitor(), Store.setCartQuantity(productId, quantity)), { revalidate: CART })
+  return respond(await storeCall(Store.setCartQuantity(productId, quantity)), { revalidate: CART })
 }
 
 export async function getOrders() {
-  return Store.runFor(visitor(), Store.getOrders)
+  return storeCall(Store.getOrders)
 }
 
 // Placing an order empties the cart and adds to the orders (#910): those two are revalidated.
 export async function placeOrder() {
-  return respond(await Store.runFor(visitor(), Store.placeOrder), { revalidate: [CART, ORDERS] })
+  return respond(await storeCall(Store.placeOrder), { revalidate: [CART, ORDERS] })
 }
 
 /** The visitor's name, as the shared wishlist shows who moved what. */
@@ -51,30 +51,30 @@ export async function getVisitorName() {
 
 /** Move a piece of the shared wishlist to just after another, or first: applied to its order as it is now. */
 export async function moveInSharedWishlist(productId: string, after: string | null) {
-  return Store.runFor(visitor(), Store.moveWishlistItem("shared", productId, after))
+  return storeCall(Store.moveWishlistItem("shared", productId, after))
 }
 
 export async function resetSharedWishlist() {
-  return Store.runFor(visitor(), Store.resetWishlist("shared"))
+  return storeCall(Store.resetWishlist("shared"))
 }
 
 export async function getNotices() {
-  return Store.runFor(visitor(), Store.getNotices)
+  return storeCall(Store.getNotices)
 }
 
 export async function dismissNotice(id: string) {
-  return Store.runFor(visitor(), Store.dismissNotice(id))
+  return storeCall(Store.dismissNotice(id))
 }
 
 export async function restoreNotices() {
-  return Store.runFor(visitor(), Store.restoreNotices)
+  return storeCall(Store.restoreNotices)
 }
 
 export async function getSettings() {
-  return Store.runFor(visitor(), Store.getSettings)
+  return storeCall(Store.getSettings)
 }
 
 // Saving the switches revalidates them alone: a sweep of every query would spend "fail the next request" on one.
 export async function setSettings(settings: Store.Settings) {
-  return respond(await Store.runFor(visitor(), Store.setSettings(settings)), { revalidate: SETTINGS })
+  return respond(await storeCall(Store.setSettings(settings)), { revalidate: SETTINGS })
 }

@@ -37,6 +37,7 @@ import { codeOf, gated, reports } from "../../../../packages/solid/test/gate-fil
 import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 import { pageHeadOf, pathsOf } from "./seo.ts"
+import { messageOf, SimulatedFailure } from "./server/index.ts"
 
 const app = process.argv[2] ?? ""
 if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or foldkit, not "${app}"`)
@@ -369,6 +370,20 @@ const checkStore = async (context: BrowserContext, page: Page): Promise<Result> 
   if (!(await switched(true))) problems.push("the store's settings, fetched again by the browser after a change, didn't load")
   else if (!(await switched(false))) problems.push("the store's settings couldn't be switched back")
   await page.waitForLoadState("networkidle")
+  // A refused request's words reach the page as the store wrote them: a production build sends a
+  // thrown error as "Internal Server Error" unless it's marked safe (#910's deploy).
+  await page.goto(base + "/layout/add-to-cart", { waitUntil: "load" })
+  await page.waitForSelector(".buy", { timeout: 10000 })
+  await page.waitForTimeout(500)
+  await page.click('button[aria-label="Store settings"]')
+  await page.waitForSelector(failSwitch, { timeout: 5000 })
+  if (!(await switched(true))) problems.push("the switch couldn't be turned on before a refused request")
+  else {
+    await page.click(".buy")
+    const said = await page.waitForSelector(".error-line", { timeout: 10000 }).then((line) => line.textContent(), () => null)
+    const expected = messageOf(new SimulatedFailure())
+    if (said !== expected) problems.push(`a refused request said "${said}", not "${expected}"`)
+  }
   problems.push(...(await diagnosed(page, "/, the store", from)))
   return { route: "/ (the store, from the browser)", problems }
 }
