@@ -12,6 +12,8 @@ import { Cookies } from "effect/http"
 import { Server } from "foldkit/experimental"
 import * as Url from "foldkit/url"
 import * as Schema from "effect/Schema"
+import { headHtmlOf, headTagsOf } from "@wardic/example-storefront-shared/head"
+import { notFoundOf, originOf, pageHeadOf } from "@wardic/example-storefront-shared/seo"
 import { DEFAULT_SETTINGS, type VisitorInfo } from "@wardic/example-storefront-shared/server"
 import { init, routing, view } from "~/app.ts"
 import { Flags, type Prefs, REDUCE_MOTION_COOKIE, Theme, THEME_COOKIE } from "~/model.ts"
@@ -24,8 +26,24 @@ import { shopFor } from "~/shop/live.ts"
 /** The theme the visitor chose, as the root element renders it: copied onto `<html>`, where the stylesheet reads it, so a dark page is dark from its first paint. */
 const themeOf = (html: string): string | undefined => /^<div[^>]*\sdata-theme="(light|dark)"/.exec(html)?.[1]
 
+/** Wardic's mark, the docs' icons (#908), served from the shared `public/`. */
+const ICONS = '<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">'
+
+/** What Foldkit writes of the head itself, from the view's Document: its title, canonical URL and `og:url`. */
+const FOLDKIT_WRITES: ReadonlySet<string> = new Set(["title", "canonical", "og:url"])
+
+/**
+ * The page's head beyond what Foldkit writes (#908): its description and social tags, by the canonical
+ * URL the view gave; a page not found, which has none, asks not to be indexed.
+ */
+const headOf = (application: Server.RenderedApplication): string => {
+  if (application.canonical === undefined) return headHtmlOf(headTagsOf(notFoundOf("foldkit", "/"), ""), FOLDKIT_WRITES)
+  const url = new URL(application.canonical)
+  return headHtmlOf(headTagsOf(pageHeadOf("foldkit", url.pathname), url.origin), FOLDKIT_WRITES)
+}
+
 export const renderDocument: Server.DocumentRenderer = (application, assets) => {
-  const document = Server.renderDocument(application, assets, { lang: "en", head: '<link rel="icon" href="data:," />' })
+  const document = Server.renderDocument(application, assets, { lang: "en", head: ICONS + headOf(application) })
   const theme = themeOf(application.html)
   if (theme === undefined) return document
   return document.replace("<html", `<html data-theme="${theme}"`)
@@ -39,7 +57,7 @@ const prefsOf = (cookies: Readonly<Record<string, string>>): Prefs => ({
 })
 
 /** The Flags for `url`: the header's, and the route's page's data and code, each `null` where the store didn't answer, for the client to load again. */
-const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs): Effect.Effect<Flags> =>
+const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs, origin: string): Effect.Effect<Flags> =>
   Effect.gen(function* () {
     const shop = yield* Shop
     const settings = yield* Effect.orElseSucceed(shop.getSettings, () => DEFAULT_SETTINGS)
@@ -55,7 +73,7 @@ const flagsFor = (url: Url.Url, visitor: VisitorInfo, prefs: Prefs): Effect.Effe
       onNone: () => Effect.succeed(null),
       onSome: ({ id }) => Effect.orElseSucceed(shop.highlighted(id), () => null),
     })
-    return { prefs, visitorName: visitor.name, settings, cart, page, code }
+    return { origin, prefs, visitorName: visitor.name, settings, cart, page, code }
   }).pipe(Effect.provide(shopFor(visitor)))
 
 const HEADERS = { "cache-control": "private, no-store", vary: "cookie" } as const
@@ -67,13 +85,18 @@ export const renderPage = async (request: Request): Promise<Server.EntryResult> 
   const url = new URL(request.url)
   if (isRpc(url.pathname)) return Server.Responded(await rpc.handler(request, Context.empty() as Context.Context<unknown>))
   if (request.method === "OPTIONS") return Server.Responded(new Response(null, { status: 204, headers: { allow: Server.HOST_METHOD_ANSWERS.allow } }))
+  // Each page's canonical URL is a path at the origin its visitor sees (#908). `robots.txt` and the
+  // sitemap are files the host writes at its start (`server.ts`): it serves a path with an extension
+  // only from its files.
+  const origin = originOf(request)
   const cookies = Cookies.parseHeader(request.headers.get("cookie") ?? "")
   const visitor = visitorOf(cookies)
   const parsed = Option.getOrThrowWith(Url.fromString(request.url), () => new Error(`Not a URL: ${request.url}`))
-  const flags = await Effect.runPromise(flagsFor(parsed, visitor, prefsOf(cookies)))
+  const flags = await Effect.runPromise(flagsFor(parsed, visitor, prefsOf(cookies), origin))
   const rendered = await Effect.runPromise(Server.renderToString({ Flags, routing, init, view }, { url: request.url, flags }))
   const headers: Record<string, string> = { ...HEADERS }
   // A first request: the visitor's cookie, so their cart lasts between requests.
   if (!(VISITOR_COOKIE in cookies)) headers["set-cookie"] = `${VISITOR_COOKIE}=${visitor.id}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`
-  return Server.Rendered(rendered, { headers })
+  // A path that names no page is answered with a 404 (#908), its page asking not to be indexed.
+  return Server.Rendered(rendered, { headers, status: pageHeadOf("foldkit", url.pathname).found ? 200 : 404 })
 }

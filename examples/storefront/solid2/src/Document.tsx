@@ -9,8 +9,10 @@ export default function Document(props: ParentProps) {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Wardic Northlight · Solid 2</title>
-        <link rel="icon" href="data:," />
+        {/* Its title and the rest of its head are each page's own (`components/Seo.tsx`, #908). Wardic's mark, the docs' icons. */}
+        <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <HydrationScript />
       </head>
       <body>{props.children}</body>

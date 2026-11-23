@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { registerHooks } from "node:module"
 import { dirname, join, relative } from "node:path"
+import { AREAS, type Example, EXAMPLES, hasExample, routeOf } from "@wardic/example-storefront-shared/examples"
 import { fieldOfPages, pagesUnder } from "../plugins/page-front-matter.ts"
 
 /** The bindings a sample can be written for, in `CodeTabs`' order, with their labels and their fences' languages. */
@@ -23,7 +24,25 @@ const BINDINGS = [
 ] as const
 
 /** A self-closing component of the site's on a line of its own, `<CodeTabs sample="enter" />`. */
-const COMPONENT = /^\s*<(CodeTabs|Demo|InstallTabs)\s+([^>]*?)\/>\s*$/
+const COMPONENT = /^\s*<(CodeTabs|Demo|InstallTabs|Storefront)\s+([^>]*?)\/>\s*$/
+
+/** Where each storefront is served, as `src/components/Storefront.tsx` links them. */
+const STOREFRONTS = { solid2: "https://solid2.wardic.dev", foldkit: "https://foldkit.wardic.dev" } as const
+
+/** An example's line, as `<Storefront>` renders it: its title linked, its summary, and its Foldkit page. */
+const entryOf = (example: Example): string => {
+  const first = hasExample("solid2", example) ? STOREFRONTS.solid2 : STOREFRONTS.foldkit
+  const foldkit = hasExample("solid2", example) && hasExample("foldkit", example) ? ` ([on Foldkit](${STOREFRONTS.foldkit}${routeOf(example)}))` : ""
+  return `- [${example.title}](${first}${routeOf(example)}): ${example.summary}${foldkit}`
+}
+
+/** A `<Storefront>` as Markdown (#908): a guide's examples, or every one under its area's heading. */
+const storefrontOf = (guide: string | undefined): string => {
+  if (guide !== undefined) return EXAMPLES.filter((example) => example.docs === guide).map(entryOf).join("\n")
+  return AREAS.filter((area) => EXAMPLES.some((example) => example.area === area.id))
+    .map((area) => [`## ${area.title}`, "", area.blurb, "", ...EXAMPLES.filter((example) => example.area === area.id).map(entryOf)].join("\n"))
+    .join("\n\n")
+}
 
 /** A component's attributes, by name. */
 const attributesOf = (source: string): Readonly<Record<string, string>> =>
@@ -52,6 +71,7 @@ export const markdownOf = (source: string, samples: string, origin: string, url:
     const attributes = attributesOf(component[2]!)
     if (component[1] === "CodeTabs") return [codeOf(samples, attributes["sample"] ?? "")]
     if (component[1] === "InstallTabs") return [`\`\`\`sh\nnpm install ${attributes["packages"] ?? ""}\n\`\`\``]
+    if (component[1] === "Storefront") return [storefrontOf(attributes["guide"])]
     return [`(A live demo runs here on the page: ${url})`]
   })
   return `${lines.join("\n").trim()}\n`

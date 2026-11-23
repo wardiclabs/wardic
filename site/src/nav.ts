@@ -45,6 +45,7 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/start/solid-2", title: "Start" },
       { path: "/start/solid-1", title: "Start on Solid 1" },
       { path: "/start/foldkit", title: "Start on Foldkit" },
+      { path: "/examples", title: "Examples" },
       { path: "/motion", title: "Coming from Motion" },
       { path: "/roadmap", title: "Roadmap" },
     ],

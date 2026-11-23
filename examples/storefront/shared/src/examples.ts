@@ -20,11 +20,35 @@ export const AREAS = [
 
 export type AreaId = (typeof AREAS)[number]["id"]
 
+/** The docs' pages an example links (#908), each with its title in the docs' nav. */
+export const DOCS_PAGES = {
+  "/guides/animate": "Animate an element",
+  "/guides/variants": "Variants",
+  "/guides/gestures": "Gestures",
+  "/guides/drag": "Drag",
+  "/guides/layout": "Layout animations",
+  "/guides/presence": "Exit animations",
+  "/guides/reorder": "Reorder",
+  "/guides/transitions": "Transitions",
+  "/guides/scroll": "Scroll",
+  "/guides/live-values": "Live values",
+  "/guides/server-rendering": "Server rendering",
+  "/guides/features": "Shipping less",
+} as const
+
+/** A docs page an example links. */
+export type DocsPage = keyof typeof DOCS_PAGES
+
+/** Where the docs are served. */
+export const DOCS_ORIGIN = "https://wardic.dev"
+
 /** One example: a shop feature and the pattern it shows. */
 export interface Example {
   /** Its route's last segment. */
   readonly id: string
   readonly area: AreaId
+  /** The docs' page that explains what it shows (#908): a path on wardic.dev, one of {@link DOCS_PAGES}. */
+  readonly docs: DocsPage
   readonly title: string
   /** One line for the gallery's card. */
   readonly summary: string
@@ -89,6 +113,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       uses: ["Variants", "staggerChildren", "Initial", "Animate", "WhileHover", "OnHoverStart / OnHoverEnd as Messages"],
     },
     area: "entrances",
+    docs: "/guides/variants",
     title: "The product grid",
     summary: "The shop's grid fades and rises in, one card after another.",
     why: [
@@ -111,6 +136,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "entrances",
+    docs: "/guides/animate",
     title: "Stock that fills in as it arrives",
     summary: "Each piece's stock meter fills in once the store's count arrives, and says when it has settled. Switch to after the delivery and they fill up from where they are.",
     why: [
@@ -135,6 +161,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "A product opens into its detail view",
     summary: "Tap a piece and its card grows into the full view, photo, name and price carried across.",
     why: [
@@ -159,6 +186,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "Filter the shop, switch the view",
     summary: "Pick a category and the products that stay slide together; switch to a list and every card reshapes into a row.",
     why: [
@@ -182,6 +210,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "Tabs on a product page",
     summary: "Switch between a piece's description, details and delivery, and the underline slides to the tab you chose.",
     why: [
@@ -204,6 +233,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "Add to cart, and see it's done",
     summary: "The button says what it's doing, adding then added, and makes room for a way to the cart.",
     why: [
@@ -227,6 +257,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "Questions that open in place",
     summary: "Open an answer, and its card grows to fit while the questions below slide down to make room. Open all, or close all, and they change at once.",
     why: [
@@ -251,6 +282,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "A cart drawer that keeps up",
     summary: "Change a quantity or remove a piece, and the lines below close up at once, before the store has answered.",
     why: [
@@ -276,6 +308,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "layout",
+    docs: "/guides/layout",
     title: "Order history in a scrolling panel",
     summary: "Sort your orders and each one glides to its new place; open one and only the orders below it make room.",
     why: [
@@ -300,6 +333,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "gestures",
+    docs: "/guides/drag",
     title: "Notifications you swipe away",
     summary: "Throw a notification aside and it flies off; for four seconds you can undo it, then it's gone and the rest close the gap.",
     why: [
@@ -324,6 +358,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "gestures",
+    docs: "/guides/reorder",
     title: "A wishlist you rearrange by hand",
     summary: "Drag a piece up or down and the others make way; let go and the new order is saved. On Solid 2 the list is shared, and other people's moves glide in live.",
     why: [
@@ -347,6 +382,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "gestures",
+    docs: "/guides/drag",
     title: "Arrange a room, at any zoom",
     summary: "Zoom the floor plan in or out, then drag the sofa, the table and the lamp about: each stays under your pointer, and inside the room.",
     why: [
@@ -370,6 +406,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "presence",
+    docs: "/guides/presence",
     title: "\"Added to cart\", in toasts that make room",
     summary: "Each piece you add says so in a toast; when one goes, the others close the gap.",
     why: [
@@ -396,6 +433,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       reducedMotion: "The photos cross-fade in place. The demo gives the slide no distance under reduced motion (the system's setting or the header's switch, from the page's environment): left to Wardic's rule, which snaps a positional value to its target, a leaving photo would jump aside at once and fade there.",
     },
     area: "presence",
+    docs: "/guides/presence",
     title: "A photo gallery that slides the way you go",
     summary: "Swipe or step through the collection's photos: each comes in from the side you're heading to, and the last one leaves by the other.",
     why: [
@@ -416,6 +454,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       uses: ["Presence({ propagate: true })", "a presence inside a presence", "Exit", "Layout"],
     },
     area: "presence",
+    docs: "/guides/presence",
     title: "A quick view whose list leaves before it",
     summary: "Open a piece in a quick view and dismiss the suggestions you don't want. Close it, and what's left of the list goes first.",
     why: [
@@ -440,6 +479,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "presence",
+    docs: "/guides/transitions",
     title: "Saved for later, moved to the cart",
     summary: "Move a saved piece to your cart and its photo flies into the cart; remove one and it fades. The rest close up behind it.",
     why: [
@@ -465,6 +505,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "transitions",
+    docs: "/guides/layout",
     title: "From the catalogue to a piece's own page",
     summary: "Open a piece and its photo flies from the catalogue into its own page; go back and it flies home. The two are routes, so the browser's back and forward do the same.",
     why: [
@@ -481,6 +522,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "waiting",
     area: "transitions",
+    docs: "/guides/presence",
     title: "Waiting for a piece's details",
     summary: "A piece's page whose details come from the store, on Solid 2: show a skeleton and the photo flies at once, or keep the catalogue until the details land, then fly.",
     why: [
@@ -507,6 +549,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "live",
+    docs: "/guides/live-values",
     title: "A closer look at the glaze",
     summary: "Hover over the vase and a lens follows your pointer, gliding after it and settling where you stop.",
     why: [
@@ -531,6 +574,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "live",
+    docs: "/guides/scroll",
     title: "A reading bar for the studio's story",
     summary: "Scroll through how the Lagoon glaze is made, and a bar along the top fills as you read, the minutes left beside it.",
     why: [
@@ -554,6 +598,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "live",
+    docs: "/guides/scroll",
     title: "A lookbook with depth",
     summary: "Scroll the lookbook and each collection's photo drifts slower than its banner and its words faster, as if they sat at different depths.",
     why: [
@@ -577,6 +622,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "live",
+    docs: "/guides/gestures",
     title: "The studio's story, revealed as you read",
     summary: "Each chapter of the studio's story rises into place as it scrolls into view, its photo first and its words after.",
     why: [
@@ -599,6 +645,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "live",
+    docs: "/guides/live-values",
     title: "Cards that catch the light",
     summary: "Move over a piece and its card tilts toward your pointer, with a soft light under it that follows.",
     why: [
@@ -622,6 +669,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "live",
+    docs: "/guides/live-values",
     title: "Announcements that take turns",
     summary: "The strip above the shop shows one message at a time, a bar filling under it, and holds while you read it or look away.",
     why: [
@@ -644,6 +692,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "server",
+    docs: "/guides/server-rendering",
     title: "A banner that arrives before the JavaScript",
     summary: "The season's banner plays its entrance from the first paint, whether the JavaScript is late or never comes.",
     why: [
@@ -667,6 +716,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "library",
+    docs: "/guides/presence",
     title: "A size guide in Kobalte's dialog",
     summary: "Open the size guide: the shop dims and the guide rises in. Escape, a click outside or ✕ takes it away as smoothly.",
     why: [
@@ -691,6 +741,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "library",
+    docs: "/guides/layout",
     title: "Sort the shop with Kobalte's select",
     summary: "Pick an order: the list grows out of its button, and the pieces slide to their new places.",
     why: [
@@ -715,6 +766,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "library",
+    docs: "/guides/layout",
     title: "A piece's details in Kobalte's tabs",
     summary: "Switch between a piece's size, material and care: the underline slides to the tab, whether you click or use the arrow keys.",
     why: [
@@ -757,6 +809,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       ],
     },
     area: "shipping",
+    docs: "/guides/features",
     title: "Rearrange the room: drag loads when you ask",
     summary: "The room's pieces stay put until you press Rearrange. Only then does the page fetch Wardic's drag, and the card says how long it took to arrive.",
     why: [

@@ -24,6 +24,8 @@ export type Prefs = typeof Prefs.Type
 
 /** What the server renders a page with: the first paint's data, encoded into the page for the client. */
 export const Flags = Schema.Struct({
+  /** Where the page is served, as its visitor sees it: each page's canonical URL is a path there (#908). */
+  origin: Schema.String,
   prefs: Prefs,
   visitorName: Schema.String,
   settings: Settings,
@@ -51,6 +53,8 @@ export type PageState = typeof PageState.Type
 
 export const Model = Schema.Struct({
   route: AppRoute,
+  /** Where the page is served, from the Flags (#908). */
+  origin: Schema.String,
   /** The URL's query, `""` without one: a page reads its own (`?hydrate=`). */
   query: Schema.String,
   prefs: Prefs,

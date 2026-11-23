@@ -7,6 +7,7 @@ import { DomLive } from "@wardic/dom"
 import { WardicProvider } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
 import { Loading } from "solid-js"
+import { Seo } from "~/components/Seo.tsx"
 import { Shell } from "~/components/Shell.tsx"
 import { PreferencesProvider, usePreferences } from "~/lib/preferences.tsx"
 import { Router } from "~/router.ts"
@@ -36,6 +37,7 @@ export default function App() {
         <Router>
           {(props) => (
             <Shell>
+              <Seo />
               <Loading fallback={<main class="page hero muted">Loading…</main>}>{props.children}</Loading>
             </Shell>
           )}
