@@ -19,7 +19,8 @@
     "./code": "./src/code.ts",
     "./seo": "./src/seo.ts",
     "./head": "./src/head.ts",
-    "./glazes": "./src/glazes.ts"
+    "./glazes": "./src/glazes.ts",
+    "./archive": "./src/archive.ts"
   },
   "scripts": {
     "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit"
