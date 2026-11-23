@@ -1,7 +1,7 @@
 ---
 title: WardicStage
 description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
-api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects]
+api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment]
 ---
 
 # WardicStage
@@ -23,11 +23,23 @@ function Crate(props: { readonly mesh: Mesh }) {
 
 - **`ward(subject, config)`** hands the Stage a Subject that's its own, and any accessor of one: the Stage's ward moves it, and has the same events and `read` a ward on an element has.
 - **`createFrameEffect`** runs in the Stage's Host loop, after Wardic's writes and before the scene renders.
+- **`createHover(mesh)`** and **`createPress(mesh)`** read the pointer over the Subject, and pressed on it, through the Stage's input.
 - **An element** stays the page's, under a Stage or not.
+
+## A ward on a scene's Subject
+
+It takes `initial`, `animate`, `transition`, its own `variants`, `whileHover`, `whileTap` and `custom`. A key of the page's alone (`whileFocus`, `whileInView`) or of an element's (`drag`, `exit`, `layout`, `style`) is an error in development, naming it.
+
+- **`held`** renders nothing. While its Subject or its `animate` is still loading, it holds its component's `<Loading>`, so the fallback shows and `<Reveal>` orders it.
+- **Its events** are a ward's: `settled()`, `tapped()`, and `next`, `each` and `when` for `settled`, the hover events and the press events. Each event's `element` is the Subject.
+- **`read(key)`** and **`atom(key)`** give the Subject's value for `key` as Wardic draws it.
+- **An accessor Subject:** `ward(() => active(), config)` follows each Subject it gives. A new one takes the ward over, starting from `initial` as the ward did, and the last keeps where it was, with no exit.
+- **A key a gesture moves** returns, once the gesture ends, to the value the Subject had before the ward first moved it.
+- **The Stage's `animate`** on a Subject a ward is on goes through the ward, which takes the key back at its next change.
 
 `WardicStage` is Solid 2's own provider, `<WardicStage value={stage}>`; read it with `useContext(WardicStage)`, which is `null` outside one. A scene's Subject given to `ward` with no Stage above it is an error that names it, in development.
 
-Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for a three.js scene. The `Stage` interface names no three.js code, so another Environment can fill it. Solid 2 only.
+Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for a three.js scene. The `Stage` interface names no three.js code, so another Environment can fill it: its `ward` is `stageWard(environment)`, given what Wardic's runtime for its Subjects runs on and the scene's input. Solid 2 only.
 
 ## Types
 
@@ -35,3 +47,5 @@ Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for 
 - **`StageWard`:** a ward on a Stage's Subject: `held`, `settled`, `next`, `each`, `when` and `read`.
 - **`StageSubjects`:** the Subjects a Stage takes, which an Environment adds to by declaration merging: `@wardic/three/solid` adds three.js's objects, so `ward(mesh, config)` is typed.
 - **`StageSubject`:** any of them.
+- **`StageEvent`**, **`StageEvents`:** the events a ward on a Stage's Subject tells, and each one's info.
+- **`stageWard`**, **`StageWardEnvironment`:** a Stage's `ward`, bound to what it runs on: an `animate` environment, where a Subject's keys start (`startLinksOf`) and the scene's `input`.

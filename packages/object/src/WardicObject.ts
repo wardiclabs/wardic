@@ -118,6 +118,19 @@ export interface Options {
   readonly now?: (() => number) | undefined
 }
 
+/**
+ * What a binding's ward runs on, to move this runtime's Subjects as a ward moves an element: what
+ * `animate` runs on, where a Subject starts, and its Frame effects. Unstable: for `@wardic/solid`'s
+ * Stage ward and the Stages built on it.
+ */
+// #884's PR 4 (ADR-0073, *Amendment (#884)*, Q2 and Q3): `makeWith`'s own parts, opened up, not copied.
+export interface StageEnvironment extends Imperative.AnimateEnv {
+  /** Where each key of a Subject starts: its Environment's Base-value links. */
+  readonly startLinksOf: (subject: object) => Spine.StartLinks
+  /** Its Frame effects: what `afterWrites` adds to, and how one asks for a frame. */
+  readonly frameEffects: Pick<FrameEffects.FrameEffects, "add" | "request">
+}
+
 /** A runtime: what animates objects on one Host loop. */
 export interface WardicObject {
   readonly animate: ObjectAnimate
@@ -137,6 +150,8 @@ export interface WardicObject {
   readonly wantsFrame: () => boolean
   /** Stop every animation, and end the runtime. */
   readonly dispose: () => void
+  /** What a binding's ward runs on, for this runtime's Subjects. Unstable: `@wardic/solid`'s Stage ward's. */
+  readonly stageEnvironment: StageEnvironment
 }
 
 /** A media query's answer, where the host has `matchMedia`. */
@@ -360,5 +375,6 @@ export const makeWith = (environment: Environment, options: Options = {}): Wardi
     frame,
     wantsFrame: () => Bool.or(frames.wantsFrame(), effects.requested()),
     dispose,
+    stageEnvironment: { ...env, startLinksOf: environment.startLinksOf, frameEffects: effects },
   }
 }

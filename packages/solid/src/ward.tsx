@@ -237,14 +237,14 @@ void everyPropRead
  * compare with. Solid 2 calls a memo's `equals` with no previous value when the memo was made inside
  * an action's transaction, as a ward an optimistic write makes is, before anything has committed.
  */
-const sameTarget = (a: Spine.Resolution | undefined, b: Spine.Resolution | undefined): boolean => {
+export const sameTarget = (a: Spine.Resolution | undefined, b: Spine.Resolution | undefined): boolean => {
   if (Predicate.isUndefined(a)) return false
   if (Predicate.isUndefined(b)) return false
   return Spine.sameResolution(a, b)
 }
 
 /** A ward's config read per key (#259). */
-const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints", "transformTemplate", "onBeforeLayoutMeasure", "onLayoutMeasure"])
+export const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints", "transformTemplate", "onBeforeLayoutMeasure", "onLayoutMeasure"])
 
 /** `config` read per key (#259), for a read outside a ward: a `wardic.<tag>`'s props at setup. Internal. */
 export const wardConfigView = (config: WardConfig): WardConfigValues => WARD_VIEW.of(config)
@@ -864,7 +864,7 @@ const controlsOf = (given: WardConfigValues, animate: WardConfigValues["animate"
  * `view` with its **Config transition** as its own when it gives none (#434, Motion's
  * `{ ...config, ...props }`), read per read as its keys are; `view` itself with no `WardicConfig` above.
  */
-const configuredView = (view: WardConfigValues, config: WardicConfigValue.WardicConfigValue | undefined): WardConfigValues => {
+export const configuredView = (view: WardConfigValues, config: WardicConfigValue.WardicConfigValue | undefined): WardConfigValues => {
   if (Predicate.isUndefined(config)) return view
   return Object.create(view, {
     transition: { enumerable: true, get: () => UndefinedOr.match(view.transition, { onUndefined: config.transition, onDefined: identity }) },
@@ -876,7 +876,7 @@ const configuredView = (view: WardConfigValues, config: WardicConfigValue.Wardic
  * re-runs what reads it. A plain node's gate never shuts (its `canStart` is `constTrue`), so it has
  * none (#525).
  */
-const gateOf = (node: { readonly canStart: () => boolean }): Accessor<boolean> => {
+export const gateOf = (node: { readonly canStart: () => boolean }): Accessor<boolean> => {
   if (node.canStart === constTrue) return constTrue
   return createMemo(() => node.canStart(), CLIENT_ONLY)
 }
@@ -914,7 +914,7 @@ const loadingAtSetup = (key: string): string =>
   `ward(config): \`${key}\` was still loading when the ward was made. A ward reads it once, when it's made: give it a value, or make the ward once its data is in.`
 
 /** A ward that starts at its `animate`, still loading when it's made (#257 item 1). */
-const STARTS_AT_PENDING =
+export const STARTS_AT_PENDING =
   "ward(config): `animate` was still loading when the ward was made, and with `initial={false}` a ward starts there. Give it an `initial`, or make the ward once its data is in."
 
 /** A name list standing for an `animate` still loading at setup, on a ward with `variants` (#257 item 1). */
@@ -925,7 +925,7 @@ const LOADING_NAMES: ReadonlyArray<string> = []
  * `animate` names the ward's own variants when it has `variants` (what it can name), and is a target
  * of values otherwise: setup reads it only to tell which.
  */
-const configAtSetup = (setup: { readonly config: WardConfigValues; readonly pending: ReadonlyArray<string> }): WardConfigValues => {
+export const configAtSetup = (setup: { readonly config: WardConfigValues; readonly pending: ReadonlyArray<string> }): WardConfigValues => {
   if (setup.pending.length === 0) return setup.config
   const fixed = Arr.findFirst(setup.pending, (key) => Bool.not(LOADS_AS_IT_GOES.has(key)))
   if (Option.isSome(fixed)) throw new Error(loadingAtSetup(fixed.value))

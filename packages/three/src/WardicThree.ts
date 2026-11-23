@@ -310,6 +310,7 @@ export const make = (options: Options = {}): WardicThree => {
       frame: runtime.frame,
       wantsFrame: runtime.wantsFrame,
       dispose: runtime.dispose,
+      stageEnvironment: runtime.stageEnvironment,
       hover: noInput("hover"),
       press: noInput("press"),
     }
@@ -328,6 +329,7 @@ export const make = (options: Options = {}): WardicThree => {
       input.dispose()
       runtime.dispose()
     },
+    stageEnvironment: runtime.stageEnvironment,
     hover: input.hover,
     press: input.press,
   }

@@ -21,7 +21,8 @@ import type * as InputSource from "@wardic/core/InputSource"
 import type * as FrameEffects from "@wardic/core/unstable/FrameEffects"
 import type * as Imperative from "@wardic/core/unstable/Imperative"
 import { type Accessor, type Context, createContext } from "solid-js"
-import type { WardEvent, WardEvents, WardSettled } from "./lifecycle.ts"
+import type * as Atom from "effect/reactivity/Atom"
+import type { WardElement, WardEvents, WardSettled } from "./lifecycle.ts"
 import type { WardConfig, WardOptions, WardRead } from "./ward.tsx"
 
 /**
@@ -36,6 +37,15 @@ export interface StageSubjects {}
 /** A Stage's Subject: any an Environment has added to {@link StageSubjects}. */
 export type StageSubject = StageSubjects[keyof StageSubjects]
 
+/** An event a ward on a Stage's Subject tells: its landings, and its hovers and presses, through the Stage's input. */
+export type StageEvent = "settled" | "hoverStart" | "hover" | "hoverEnd" | "pressStart" | "tap" | "tapCancel"
+
+/** An event's info on a Stage's Subject: a ward's, with the Subject as its `element`. */
+type OnSubject<T> = T extends { readonly element: WardElement } ? Omit<T, "element"> & { readonly element: object } : T
+
+/** Each {@link StageEvent}'s info. */
+export type StageEvents = { readonly [E in StageEvent]: OnSubject<WardEvents[E]> }
+
 /**
  * A ward on a Stage's Subject: its events and values, as a ward on an element has them, and `held`,
  * which renders nothing and joins its component's `<Loading>` while its Subject or config is still
@@ -46,14 +56,18 @@ export interface StageWard<C extends WardConfig = WardConfig> {
   readonly held: JSX.Element
   /** Its last landing, as a ward's `settled`: pending while a change runs. */
   readonly settled: Accessor<WardSettled | undefined>
+  /** Its last tap, as a ward's `tapped`: pending while a press is down. */
+  readonly tapped: Accessor<StageEvents["tap"] | undefined>
   /** The next `name`, as a ward's `next`. */
-  readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
+  readonly next: <E extends StageEvent>(name: E) => Promise<StageEvents[E]>
   /** Every `name` from now on, as a ward's `each`. */
-  readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
+  readonly each: <E extends StageEvent>(name: E) => AsyncIterable<StageEvents[E]>
   /** Every `name`, as a memo for an effect, as a ward's `when`. */
-  readonly when: <E extends WardEvent>(name: E) => Accessor<WardEvents[E]>
+  readonly when: <E extends StageEvent>(name: E) => Accessor<StageEvents[E]>
   /** Its Subject's value for `key`, as a ward's `read`. */
   readonly read: WardRead<C>
+  /** The same as an `effect/reactivity` Atom, as a ward's `atom`. */
+  readonly atom: (key: string) => Atom.Atom<unknown>
 }
 
 /** What runs a scene for its owner, as the shared hooks read it: its Subjects, its ward, `animate`, its Frame effects and its input. */
