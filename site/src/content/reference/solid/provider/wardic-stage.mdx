@@ -1,7 +1,7 @@
 ---
 title: WardicStage
 description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
-api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
+api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
 ---
 
 # WardicStage
@@ -50,4 +50,5 @@ Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for 
 - **`StageEvent`**, **`StageEvents`:** the events a ward on a Stage's Subject tells, and each one's info.
 - **`stageWard`**, **`StageWardEnvironment`:** a Stage's `ward`, bound to what it runs on: an `animate` environment, where a Subject's keys start (`startLinksOf`) and the scene's `input`.
 - **`stageSceneObject`**, **`StageMembership`:** a Scene object's ward, what an Environment's `createSceneObject` builds on. Given what joins its Subject to the scene and what takes it out, it joins once the ward can start, and plays its `exit` before its Subject leaves, past its owner.
+- **`StageGraph`:** a scene's graph, which an Environment with one gives its Stage: a Subject's parent, its moves, its place among an ancestor's children, and its descendants. On a Stage with one, a ward with variants and no names of its own follows the nearest ward above its Subject, and its stagger slot is its place among that ward's Subject's children.
 - **`SceneWard`**, **`SceneObjectEvent`**, **`SceneObjectEvents`**, **`SceneObjectExit`:** a Scene object's handle, a ward that also tells `exitStart` and `exitComplete`, and their info: the Subject leaving, as `element`.

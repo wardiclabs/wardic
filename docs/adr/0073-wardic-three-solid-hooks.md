@@ -790,3 +790,35 @@ What the owner decided:
   The Stage ward's SW1–SW8 pass unchanged. The scene lab's SL4 adds a crate, then sees a removed one stay in the scene while its exit plays and leave once it lands.
 - **The scene lab:** a second card. Crates in a `<For>` drop in, sink away as they're removed, and the rest close up. A shape given as an accessor swaps, the next entering as the last exits; sampled every 50 ms after a swap, two shapes were in the scene for 0.8 s.
 - **A changeset** for `@wardic/solid`'s `stageSceneObject`, `StageMembership` and `SceneWard`.
+
+**PR 3, as built:** variants down three's graph (decision 17, Q7).
+- **The graph is the Environment's:** a Stage ward's environment can give it a `StageGraph`:
+  - a Subject's parent;
+  - its moves, as three's `added` and `removed` events;
+  - its branch's index among an ancestor's `children`;
+  - its descendants.
+
+  `@wardic/three/solid`'s Stage gives three's. `@wardic/solid` keeps, per graph, which ward provides variants for which Subject. A Stage with no graph is as before.
+- **Who provides, who follows:** a ward with variants of its own provides its context for its Subject. A Variant child (variants, no names of its own, `inherit` not `false`) gets a graph parent, a variant context that delegates to the nearest provider above its Subject, whichever that is now. A material or a uniforms object has no parent, and follows no one.
+- **When it looks** (refining Q7's "at mount"):
+  - **At its setup,** when its Subject is a value: from the parent it will join, `StageMembership.parentOf` for a Scene object. So it registers for its stagger slot before any Retarget reads one, as a ward on the page registers in its component's body. A provider on a value Subject provides from its setup too.
+  - **At its mount,** again from the parent it's joining. A Scene object mounts before it joins, and resolving from its parent then found none, so GV1's first frame showed the pip at its own scale, not at the card's `initial` name.
+  - **When it's moved.**
+  - **When a provider above it starts or stops,** found through the provider's descendants. A card whose ward starts later, on an accessor, is followed then (GV4).
+  - Not when an ancestor of its Subject is moved: three tells the object moved alone.
+- **Stagger in `children` order:** a ward's registry takes its children's slots in the order they registered. Each provider keeps its followers in the graph's order, and one that joins out of that order has those after it register again, after it. Most join in order, last, and nothing registers again.
+  - **Rejected, measured:** an `order` on core's registration, sorted in the variant node's snapshot. That put `s2-slim`, a page app, at 118.1 KB, over its 118.0 budget, for a scene's ordering.
+  - **Limits:** a reordering of `children` alone, with no follower moving, isn't heard. A follower that joins after a trigger has a slot from the next one, as on the page.
+- **A follower's `initial`:** a follower starts from the name the ward it follows hands down. When it provides for its own Subject's descendants in turn, the `initial` it hands down was read at its own setup, when it may not have found its ward yet. A third level can then start at its own values.
+- **Size:** `t2-stage` 298.8 → 300.1 KB, its budget raised by the 1.3 measured, to 300.2. The graph's code is `@wardic/solid`'s 3.7 KB minified and `@wardic/three`'s 0.5, carried by every Stage, since any ward can have variants. The page's apps are unchanged.
+- **Tests,** in `three-solid`, GV1–GV7:
+  - GV1: following a card from its `initial` name, with its `animate`;
+  - GV2: stagger in `children` order against the reverse mount order;
+  - GV3: a move to another card and back;
+  - GV4: a provider that starts after its children;
+  - GV5: who follows no one;
+  - GV6: `beforeChildren`;
+  - GV7: a mesh's variants fading its material.
+
+  The scene lab's SL5 opens a card, sees its pips open, and moves a pip to the closed card, where it closes.
+- **The scene lab:** a third card. Two cards each carry pips that follow them, staggered in `children` order, and buttons move a pip from card to card. Probing it found that a screenshot mid-animation starves headless Chromium's frames on software WebGL, 3 in 1.5 s, so the lab's browser tests take none between steps.
