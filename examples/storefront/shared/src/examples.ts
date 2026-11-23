@@ -359,6 +359,23 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".archive-card",
   },
   {
+    id: "studio-year",
+    area: "many",
+    docs: "/guides/batches",
+    title: "The studio's year, as a chart",
+    summary: "Each of the 288 glazes a point: switch the measure and every point moves in one wave; pick a family and the rest shrink away.",
+    why: [
+      "A chart is many like things that move together: switch from pieces sold to price and every point heads for a new height. The points are SVG circles, one `createBatch` keyed by glaze: a new measure is one change of what `animate` reads, and each point moves from where it is, its `stagger()` a short wave across the chart.",
+      "A circle is a member like any element: the Batch moves it by its transform and scales it about its own centre (`transform-box: fill-box`). Under an `<AnimatePresence>`, picking a family shrinks the other points away before their circles go, `stagger()` counting the ones leaving, and brings them back up from the axis. One set of listeners hears every point's hover, `when(\"hoverStart\")` with the glaze it's over.",
+      "The chart is drawn for the eye; the same numbers are a table under it, for a screen reader or to read them.",
+    ],
+    reducedMotion: "The points are at their new heights at once, and the families you didn't pick fade rather than shrink.",
+    uses: ["createBatch", "SVG circles as members", "<AnimatePresence>", "stagger()", "when(\"hoverStart\")", "whileHover"],
+    apps: ["solid2"],
+    interact: ".chart-measures button:nth-child(2)",
+    watch: ".chart-point",
+  },
+  {
     id: "notifications",
     foldkit: {
       note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot.",

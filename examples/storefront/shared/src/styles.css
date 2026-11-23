@@ -856,6 +856,62 @@ button {
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
 }
 
+/* The studio's year (#915): a chart of SVG circles, each a Batch member scaled about its own centre. */
+.chart {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.chart-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.chart-plot {
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-axis {
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.chart-tick {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.chart-point {
+  transform-box: fill-box;
+  transform-origin: center;
+  stroke: rgb(0 0 0 / 0.15);
+  stroke-width: 0.75;
+}
+
+.chart-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.chart-numbers table {
+  border-collapse: collapse;
+  font-size: var(--text-s);
+}
+
+.chart-numbers th,
+.chart-numbers td {
+  padding: 2px 12px 2px 0;
+  text-align: left;
+}
+
 /* The docs' page on what an example shows (#908), under its why. */
 .guide-link {
   color: var(--muted);

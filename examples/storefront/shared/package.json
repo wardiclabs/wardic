@@ -20,7 +20,8 @@
     "./seo": "./src/seo.ts",
     "./head": "./src/head.ts",
     "./glazes": "./src/glazes.ts",
-    "./archive": "./src/archive.ts"
+    "./archive": "./src/archive.ts",
+    "./year": "./src/year.ts"
   },
   "scripts": {
     "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit"
