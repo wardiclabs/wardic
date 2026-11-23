@@ -430,7 +430,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     uses: ["createBatch({ object })", "exit", "stagger()", "variants with custom", "a camera's fov"],
     apps: ["solid2"],
     release: "1.3",
-    watch: ".scene-canvas",
+    // One piece tapped, then another: each tap re-runs the same effect, so a second is what reaches its cleanup.
+    interact: ["tap:.scene-canvas:0.5:0.62", "tap:.scene-canvas:0.78:0.55"],
+    watch: ".display-detail",
   },
   {
     id: "notifications",

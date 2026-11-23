@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { stagger } from "@wardic/solid"
 import { createBatch, createStage, stageBatches, ward, WardicStage } from "@wardic/three/solid"
-import { type Accessor, createEffect, createMemo, createSignal, For, Show } from "solid-js"
+import { type Accessor, createEffect, createMemo, createSignal, For, Show, untrack } from "solid-js"
 import * as THREE from "three"
 import { isFlat, pieceOf } from "~/lib/pieces.ts"
 import { lightStudio } from "~/lib/pottery.ts"
@@ -96,13 +96,17 @@ function Scene(props: { readonly shown: Accessor<ReadonlyArray<Product>>; readon
         return made
       },
       parent: display,
-      initial: (_product, i) => ({ y: 2.6, rotateY: angleOf(i, props.shown().length) }),
+      // Read once, as a newcomer is made: above its place, so it drops straight in.
+      initial: (_product, i) => ({ y: 2.6, rotateY: angleOf(i, untrack(props.shown).length) }),
       animate: (_product, i) => ({ y: 0, rotateY: angleOf(i, props.shown().length) }),
       exit: { y: -2.2, transition: { type: "tween", duration: 0.45, ease: "easeIn" } },
       whileHover: { y: 0.25 },
       transition: { ...SPRING, delay: stagger(0.04) },
     })
-    createEffect(shelf.when("tap"), (tap) => props.focus(tap.item as Product))
+    // A block, not an expression: Solid keeps what an apply returns as its cleanup, and a setter returns its value.
+    createEffect(shelf.when("tap"), (tap) => {
+      props.focus(tap.item as Product)
+    })
     // The display turns the piece looked at to the front, and the camera draws in to it: each a ward's variants.
     ward(display, {
       variants: { browsing: { rotateY: 0 }, focused: (angle: number) => ({ rotateY: -angle }) },
