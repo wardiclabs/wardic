@@ -12,6 +12,7 @@ export const AREAS = [
   { id: "many", title: "Many at once", blurb: "Hundreds of like elements moving as one: a Batch, where each change is one for all of them." },
   { id: "gestures", title: "Gestures", blurb: "Hover, press, drag and swipe, with the momentum of the hand." },
   { id: "presence", title: "Presence", blurb: "Things that leave as nicely as they arrive." },
+  { id: "sequences", title: "Sequences", blurb: "Steps that play one after another from code, with the shop's own work between them." },
   { id: "transitions", title: "Page transitions", blurb: "Moving from page to page: the one you leave goes, the next arrives, and what they share flies between them." },
   { id: "live", title: "Live values", blurb: "Values that follow the pointer, the scroll or each other." },
   { id: "server", title: "Server rendering", blurb: "Animations that play before the JavaScript has loaded." },
@@ -36,6 +37,7 @@ export const DOCS_PAGES = {
   "/guides/server-rendering": "Server rendering",
   "/guides/features": "Shipping less",
   "/guides/batches": "Many elements at once",
+  "/guides/actions": "Sequences as actions",
 } as const
 
 /** A docs page an example links. */
@@ -510,6 +512,26 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     uses: ["layoutId", "layoutCrossfade", "arc()", "AnimatePresence mode=\"popLayout\"", "exit", "createOptimisticStore (Solid 2)"],
     interact: ".saved-row:first-child .button.accent",
     watch: ".saved-row:nth-child(2)",
+  },
+  {
+    id: "checkout",
+    area: "sequences",
+    docs: "/guides/actions",
+    title: "Checkout, step by step",
+    summary: "Place the order: the cart's lines leave, the store takes the order, then its parcel arrives. Set the store to fail the next request, and the lines come back.",
+    why: [
+      "Checkout is a sequence with a wait in the middle: what's leaving has to go, the store has to answer, and only then can the parcel arrive. Run it as one Solid 2 `action` and each step is a `yield`: `yield animate(…)` waits for an animation to land, since `createAnimate`'s controls are a promise of their landing, and `yield placeOrder()` waits for the store, so the steps can't overlap or run out of order.",
+      "An action is a transition, so Solid holds its writes until it's done: the receipt is written as soon as the store answers, but shows only once the parcel has landed. The button's \"Placing…\" is a `createOptimistic` flag, shown at once and put back as the action ends, whichever way it ends.",
+      "A refused order is a thrown error, caught in the action: its last step animates the lines back, and the cart, which the store never emptied, is as it was. Set a failure in the store's settings (⚙) to see it. A placed order empties the cart and joins the visitor's orders: the response names both, so the header's count and Order history follow.",
+    ],
+    reducedMotion: "The lines and the parcel fade in and out without moving: positions snap, and opacity still animates.",
+    uses: ["action()", "createAnimate", "yield animate(…)", "createOptimistic", "a server function between steps", "stagger()"],
+    apps: ["solid2"],
+    interact: [".checkout .fill", ".checkout .place"],
+    watch: ".parcel",
+    allowDiagnostics: {
+      LONG_HOLD: "The action holds the receipt until the parcel has landed, and that's the point: its animations are the progress, which Solid's measure of the hold can't see.",
+    },
   },
   {
     id: "catalogue",

@@ -20,6 +20,7 @@ export * from "./model.ts"
 export {
   addToCart,
   dismissNotice,
+  EmptyCart,
   getCart,
   getNotices,
   getOrders,
@@ -30,6 +31,7 @@ export {
   InvalidArguments,
   listProducts,
   moveWishlistItem,
+  placeOrder,
   resetWishlist,
   restoreNotices,
   setCartQuantity,
@@ -72,6 +74,7 @@ export const messageOf: (error: StoreError) => string = Match.type<StoreError>()
   Match.tag("SimulatedFailure", () => "The store didn't answer: you asked the next request to fail."),
   Match.tag("UnknownProduct", (error) => `There's no product "${error.id}".`),
   Match.tag("InvalidArguments", (error) => `That request wasn't valid: ${error.reason}`),
+  Match.tag("EmptyCart", () => "There's nothing in the cart to order."),
   Match.exhaustive,
 )
 
