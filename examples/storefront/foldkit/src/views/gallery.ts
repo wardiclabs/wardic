@@ -14,7 +14,8 @@ export const gallery = (h: HtmlBuilder<Message>): Html => {
       h.h1([], ["A small shop built to show what Wardic does."]),
       h.p([], ["Each example is a feature of the shop, with the code that makes it move and why it's worth reaching for."]),
     ]),
-    ...AREAS.map((area) =>
+    // An area this app has none of yet isn't shown (#909: the Batch area is Solid 2's).
+    ...AREAS.filter((area) => examplesIn(area.id, "foldkit").length > 0).map((area) =>
       h.section([h.Class("area"), h.AriaLabelledBy(`area-${area.id}`)], [
         h.div([h.Class("area-head")], [h.h2([h.Id(`area-${area.id}`)], [area.title]), h.p([h.Class("muted")], [area.blurb])]),
         h.div(

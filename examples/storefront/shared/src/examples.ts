@@ -9,6 +9,7 @@ import type { AppId } from "./apps.ts"
 export const AREAS = [
   { id: "entrances", title: "Entrances", blurb: "How the shop arrives: lists and grids that reveal in order." },
   { id: "layout", title: "Layout", blurb: "Elements that move and resize as the page changes around them." },
+  { id: "many", title: "Many at once", blurb: "Hundreds of like elements moving as one: a Batch, where each change is one for all of them." },
   { id: "gestures", title: "Gestures", blurb: "Hover, press, drag and swipe, with the momentum of the hand." },
   { id: "presence", title: "Presence", blurb: "Things that leave as nicely as they arrive." },
   { id: "transitions", title: "Page transitions", blurb: "Moving from page to page: the one you leave goes, the next arrives, and what they share flies between them." },
@@ -34,6 +35,7 @@ export const DOCS_PAGES = {
   "/guides/live-values": "Live values",
   "/guides/server-rendering": "Server rendering",
   "/guides/features": "Shipping less",
+  "/guides/batches": "Many elements at once",
 } as const
 
 /** A docs page an example links. */
@@ -320,6 +322,23 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     uses: ["layout", "layout=\"position\"", "useAnimateLayout", "a scrolling container"],
     interact: ".order:nth-child(2) .order-summary",
     watch: ".order:nth-child(2)",
+  },
+  {
+    id: "glaze-library",
+    area: "many",
+    docs: "/guides/batches",
+    title: "A glaze library of 288 swatches",
+    summary: "Filter the studio's glazes by family, sort them by colour or shuffle them: every swatch moves to its new place in one change, in a wave.",
+    why: [
+      "A library of a few hundred glazes is one grid, but each swatch moves on its own: sorted by colour, a swatch at the end crosses the whole grid while its neighbour hardly moves. A Wardic element each would give the page 288 animations to start and step. A Batch keeps their values, speeds and targets together and steps them all in one run.",
+      "Wardic's benchmark measured a thousand like elements: changing every target took 0.37 ms as one Batch against 8.2 ms through a call per element, and a frame while they moved 0.75 ms against 1.6. Here the grid is one `createBatch`, keyed by glaze: a new order, a family picked, or a page narrow enough for fewer columns is one change of what `animate` reads, and each swatch turns from where it is, at the speed it has. `stagger()` counts only the swatches a change moves, so the wave runs through the ones that go somewhere.",
+      "The swatches are buttons, but the grid is one stop for Tab: the arrow keys move between swatches in the order they're shown, and Enter picks one.",
+    ],
+    reducedMotion: "Each swatch jumps to its new place, and its size with it; the families you didn't pick still fade.",
+    uses: ["createBatch", "keyed by id", "stagger()", "whileHover", "when(\"tap\")", "settled() and isPending"],
+    apps: ["solid2"],
+    interact: ".glaze-tools .shuffle",
+    watch: ".glaze:nth-child(40)",
   },
   {
     id: "notifications",
