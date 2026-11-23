@@ -912,6 +912,45 @@ button {
   text-align: left;
 }
 
+/* The leaning bar (#917): a marquee of two copies of the news in a bar that leans with the scroll. */
+.leaning {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.leaning-bar {
+  overflow: hidden;
+  padding: 14px 0;
+  border-radius: var(--radius-m);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.leaning-track {
+  display: flex;
+  width: max-content;
+}
+
+.leaning-copy {
+  display: flex;
+}
+
+.leaning-item {
+  padding: 0 28px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.leaning-item::after {
+  content: "✦";
+  margin-left: 56px;
+  color: var(--aurora);
+}
+
+.leaning-hint {
+  margin: 0;
+}
+
 /* The docs' page on what an example shows (#908), under its why. */
 .guide-link {
   color: var(--muted);
