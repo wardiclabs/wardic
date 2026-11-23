@@ -778,6 +778,25 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".season-copy h2",
   },
   {
+    id: "wall",
+    area: "server",
+    docs: "/guides/server-rendering",
+    title: "Every piece on one wall, before the JavaScript",
+    summary: "The archive's 600 pieces rise onto one wall from the first paint, in a wave, before the page's JavaScript has loaded; it takes over mid-wave.",
+    why: [
+      "A wall of hundreds of pieces is the first thing on the page, so its entrance should play from the first paint, not once the JavaScript has arrived. The wall is one `createBatch` with `appear: true`: the server writes its entrance into the page's head as one CSS animation for all 600 tiles, each tile's own start and target on its element as custom properties, and its `stagger()` its own delay. As the page hydrates, the Batch takes each tile over where its CSS has got to, at the speed it has there.",
+      "A CSS grid places the tiles, so the server needn't know how wide the page is: the Batch moves only what enters, their opacity, scale and rise. Load the page with the JavaScript held back two seconds, and the wave runs on the server's CSS alone, then carries on under the Batch without a jump; turn the JavaScript off, and every tile still rises to its place and stays.",
+    ],
+    tradeoffs: {
+      gains: ["The wall moves from the first paint, the JavaScript or none.", "One CSS animation for 600 tiles, each with its own delay."],
+      costs: ["A few KB of CSS in the page's head, and about 85 bytes on each tile before compression.", "Taking 600 animations over reads each once as the page hydrates: at thousands, give it to the ones on screen first."],
+    },
+    reducedMotion: "The tiles fade in from the first paint, still in a wave, without growing or rising.",
+    uses: ["createBatch", "appear: true", "stagger()", "server-rendered CSS", "?hydrate= to hold the JavaScript back"],
+    apps: ["solid2"],
+    watch: ".wall-tile:nth-child(300)",
+  },
+  {
     id: "size-guide",
     foldkit: {
       title: "A size guide in Foldkit UI's dialog",

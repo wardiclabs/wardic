@@ -227,6 +227,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/server/wall";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/server/wall")>;
+      $$route?: undefined;
+    },
+    {
       path: "/shipping/rearrange";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/shipping/rearrange")>;
@@ -286,6 +292,14 @@ declare module "virtual:file-routes" {
       id: "/*404";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/[...404]")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/server/wall";
+      id: "/server/wall";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/server/wall")>;
       $$route?: undefined;
       children?: undefined;
     },
