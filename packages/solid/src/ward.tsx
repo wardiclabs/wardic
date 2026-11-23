@@ -310,6 +310,8 @@ interface WardState {
   readonly lifecycle: Lifecycle
   /** The element it's on now, for a sensor given the ward (#884). */
   readonly element: Accessor<HTMLElement | undefined>
+  /** Reads its config's keys still loading at setup: a `held` read holds its boundary while one is (#884). */
+  readonly hold: () => void
   settled: Accessor<WardSettled | undefined> | undefined
   tapped: Accessor<WardPressInfo | undefined> | undefined
   next: (<E extends WardEvent>(name: E) => Promise<WardEvents[E]>) | undefined
@@ -330,6 +332,20 @@ export const isWard = (value: unknown): value is AnyWard => Predicate.hasPropert
 export interface Sensed {
   readonly lifecycle: Lifecycle
   readonly element: Accessor<HTMLElement | undefined>
+}
+
+/**
+ * A ward's `held` (#884; ADR-0073, *Amendment (#881)*): renders nothing, and reads `subject`, when it's
+ * given, and the ward's keys still loading at setup, so a component returning it joins its `<Loading>`
+ * and `<Reveal>` while they load. A server ward's reads only `subject`.
+ */
+export const heldOf = (ward: AnyWard, subject?: Accessor<unknown>): JSX.Element => {
+  const hold = Bool.match(Predicate.hasProperty(ward, WARD_STATE), { onTrue: () => stateOf(ward).hold, onFalse: () => constVoid })
+  return ((): undefined => {
+    if (Predicate.isNotUndefined(subject)) subject()
+    hold()
+    return undefined
+  }) as unknown as JSX.Element
 }
 
 /** A client ward's {@link Sensed}: `undefined` for a server's, which has none. */
@@ -1893,6 +1909,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     },
     lifecycle,
     element,
+    hold: holdWhileLoading,
     settled: undefined,
     tapped: undefined,
     next: undefined,
