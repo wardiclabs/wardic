@@ -1,6 +1,5 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { DOCS_ORIGIN } from "@wardic/example-storefront-shared/examples"
-import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
@@ -48,10 +47,9 @@ function StoreSettings() {
   )
 }
 
-/** Save the switches, then read them again. */
+/** Save the switches: the response has the router read them again, and nothing else (`lib/keys.ts`). */
 const saveSettings = action(function* (next: Settings) {
   yield setSettings(next)
-  revalidate(settings.key)
 })
 
 /** The switches, read through an async memo, read again after each save. */

@@ -203,6 +203,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/sequences/checkout";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/sequences/checkout")>;
+      $$route?: undefined;
+    },
+    {
       path: "/server/before-hydration";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/server/before-hydration")>;
@@ -396,6 +402,14 @@ declare module "virtual:file-routes" {
       id: "/many/glaze-library";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/many/glaze-library")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/sequences/checkout";
+      id: "/sequences/checkout";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/sequences/checkout")>;
       $$route?: undefined;
       children?: undefined;
     },

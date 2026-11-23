@@ -43,7 +43,10 @@ export class SimulatedFailure extends Schema.TaggedError<SimulatedFailure>()("Si
 export class InvalidArguments extends Schema.TaggedError<InvalidArguments>()("InvalidArguments", { reason: Schema.String }) {}
 
 /** Every failure a store call can end with. */
-export type StoreError = UnknownProduct | SimulatedFailure | InvalidArguments
+/** An order placed with nothing in the cart (#910). */
+export class EmptyCart extends Schema.TaggedError<EmptyCart>()("EmptyCart", {}) {}
+
+export type StoreError = UnknownProduct | SimulatedFailure | InvalidArguments | EmptyCart
 
 // --- Visitor ---------------------------------------------------------------------------------
 
@@ -142,6 +145,8 @@ export class Carts extends Context.Service<
     readonly add: (productId: string, quantity: number) => Effect.Effect<Cart, UnknownProduct, Visitor>
     /** Set a line's quantity; 0 removes it. */
     readonly setQuantity: (productId: string, quantity: number) => Effect.Effect<Cart, UnknownProduct, Visitor>
+    /** Empty the cart: its order has been placed (#910). */
+    readonly clear: Effect.Effect<void, never, Visitor>
   }
 >()("@wardic/example-storefront/Carts") {
   static readonly layer = Layer.effect(
@@ -173,6 +178,10 @@ export class Carts extends Context.Service<
           change(productId, (cart) => ({
             lines: Arr.filter(Arr.map(cart.lines, (line) => lineWith(line, productId, quantity)), (line) => line.quantity > 0),
           })),
+        clear: Effect.gen(function* () {
+          const visitor = yield* Visitor
+          yield* Ref.update(byVisitor, HashMap.remove(visitor.id))
+        }),
       })
     }),
   ).pipe(Layer.provide(Catalog.layer))
@@ -230,8 +239,10 @@ const ordersOf = (products: ReadonlyArray<Product>, visitorId: string, now: numb
 export class Orders extends Context.Service<
   Orders,
   {
-    /** The visitor's past orders, newest first. */
+    /** The visitor's past orders, newest first: the ones they placed here, then the ones they came with. */
     readonly forVisitor: Effect.Effect<ReadonlyArray<Order>, never, Visitor>
+    /** Place an order of `lines` (#910), today, as the newest; its number follows the last one placed. */
+    readonly place: (lines: ReadonlyArray<CartLine>) => Effect.Effect<Order, never, Visitor>
   }
 >()("@wardic/example-storefront/Orders") {
   static readonly layer = Layer.effect(
@@ -239,11 +250,30 @@ export class Orders extends Context.Service<
     Effect.gen(function* () {
       const catalog = yield* Catalog
       const products = yield* catalog.all
+      // The orders each visitor placed here, newest first.
+      const placedBy = yield* Ref.make(HashMap.empty<string, ReadonlyArray<Order>>())
+      const placedOf = (visitorId: string) => Effect.map(Ref.get(placedBy), (all) => Option.getOrElse(HashMap.get(all, visitorId), (): ReadonlyArray<Order> => []))
+      const priceOf = (id: string): number => Option.match(Arr.findFirst(products, (product) => product.id === id), { onNone: () => 0, onSome: (product) => product.price })
       return Orders.of({
         forVisitor: Effect.gen(function* () {
           const visitor = yield* Visitor
           const now = yield* Clock.currentTimeMillis
-          return ordersOf(products, visitor.id, now)
+          const placed = yield* placedOf(visitor.id)
+          return [...placed, ...ordersOf(products, visitor.id, now)]
+        }),
+        place: Effect.fnUntraced(function* (lines: ReadonlyArray<CartLine>) {
+          const visitor = yield* Visitor
+          const now = yield* Clock.currentTimeMillis
+          const placed = yield* placedOf(visitor.id)
+          const order: Order = {
+            id: `KC-${10_600 + placed.length + 1}`,
+            placedOn: new Date(now).toISOString().slice(0, 10),
+            status: "Preparing",
+            lines,
+            total: Arr.reduce(lines, 0, (sum, line) => sum + priceOf(line.productId) * line.quantity),
+          }
+          yield* Ref.update(placedBy, HashMap.set<string, ReadonlyArray<Order>>(visitor.id, [order, ...placed]))
+          return order
         }),
       })
     }),
@@ -463,6 +493,18 @@ export const setCartQuantity = (productId: unknown, quantity: unknown) =>
 
 /** The visitor's past orders, newest first. */
 export const getOrders = call(Orders.use((orders) => orders.forVisitor))
+
+/** Place an order of the visitor's cart (#910): the order, and the cart emptied; an empty cart is `EmptyCart`. */
+export const placeOrder = call(
+  Effect.gen(function* () {
+    const carts = yield* Carts
+    const cart = yield* carts.get
+    if (cart.lines.length === 0) return yield* new EmptyCart()
+    const order = yield* Orders.use((orders) => orders.place(cart.lines))
+    yield* carts.clear
+    return order
+  }),
+)
 
 /** The id of the wishlist a scope names: the visitor's own, or the shared one. */
 const listIdOf = (scope: WishlistScope) => Visitor.useSync((visitor) => listIdFor(scope, visitor.id))

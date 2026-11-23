@@ -7,7 +7,7 @@
  */
 import * as Store from "@wardic/example-storefront-shared/server"
 import { respond } from "@solidjs/web"
-import { CART } from "~/lib/keys.ts"
+import { CART, ORDERS, SETTINGS } from "~/lib/keys.ts"
 import { visitor } from "./visitor.ts"
 
 export async function listProducts(category?: string) {
@@ -37,6 +37,11 @@ export async function setCartQuantity(productId: string, quantity: number) {
 
 export async function getOrders() {
   return Store.runFor(visitor(), Store.getOrders)
+}
+
+// Placing an order empties the cart and adds to the orders (#910): those two are revalidated.
+export async function placeOrder() {
+  return respond(await Store.runFor(visitor(), Store.placeOrder), { revalidate: [CART, ORDERS] })
 }
 
 /** The visitor's name, as the shared wishlist shows who moved what. */
@@ -69,6 +74,7 @@ export async function getSettings() {
   return Store.runFor(visitor(), Store.getSettings)
 }
 
+// Saving the switches revalidates them alone: a sweep of every query would spend "fail the next request" on one.
 export async function setSettings(settings: Store.Settings) {
-  return Store.runFor(visitor(), Store.setSettings(settings))
+  return respond(await Store.runFor(visitor(), Store.setSettings(settings)), { revalidate: SETTINGS })
 }

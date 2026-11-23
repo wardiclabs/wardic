@@ -10,13 +10,14 @@ import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import type * as Stream from "effect/Stream"
-import { type Cart, type Category, InvalidArguments, type Notice, type Order, type Product, type Settings, SimulatedFailure, UnknownProduct, WishlistMove, type WishlistScope } from "@wardic/example-storefront-shared/server"
+import { type Cart, type Category, EmptyCart, InvalidArguments, type Notice, type Order, type Product, type Settings, SimulatedFailure, UnknownProduct, WishlistMove, type WishlistScope } from "@wardic/example-storefront-shared/server"
 
 /** The store couldn't be reached, or answered with something that wasn't the store's (the RPC's own failure). */
 export class StoreUnreachable extends Schema.TaggedError<StoreUnreachable>()("StoreUnreachable", { reason: Schema.String }) {}
 
 /** The store's own failures, as they cross the wire: its classes, so a Command matches on them. */
-export const StoreFailure = Schema.Union([UnknownProduct, SimulatedFailure, InvalidArguments])
+// EmptyCart is Solid 2's checkout's alone (#910): every store failure crosses the wire alike.
+export const StoreFailure = Schema.Union([UnknownProduct, SimulatedFailure, InvalidArguments, EmptyCart])
 export type StoreFailure = typeof StoreFailure.Type
 
 /** What a shop call can fail with. */

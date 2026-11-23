@@ -628,6 +628,46 @@ button {
   border-radius: 6px;
 }
 
+/* Checkout (#910): the cart beside the place its parcel lands, one above the other on a phone. */
+.checkout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.checkout-cart {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.checkout-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.checkout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.checkout-receipt {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-m);
+  text-align: center;
+}
+
+.parcel {
+  color: var(--accent);
+  opacity: 0;
+}
+
 /* The docs' page on what an example shows (#908), under its why. */
 .guide-link {
   color: var(--muted);

@@ -18,6 +18,8 @@
 // - ST10: a visitor dismisses a notification and it's gone for them alone; restoring brings it back.
 // - ST11: `streamFor`, the live edge, yields a feed as an async iterable that a reader can stop; a
 //   feed that fails throws a message a person can read.
+// - ST12 (#910): placing an order makes it of the cart's lines, today, first in the visitor's orders,
+//   and empties the cart; an empty cart is `EmptyCart`; a refused order leaves the cart as it was.
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -37,6 +39,7 @@ import {
   getWishlist,
   listProducts,
   moveWishlistItem,
+  placeOrder,
   restoreNotices,
   setCartQuantity,
   setSettings,
@@ -221,6 +224,42 @@ describe("the storefront's store (#296)", () => {
         expect(yield* as(ADA, restoreNotices)).toEqual(all)
         expect(yield* as(ADA, getNotices)).toEqual(all)
       }),
+    ))
+
+  it.effect("ST12: placing an order makes it of the cart, first in the orders, and empties the cart", () =>
+    fresh(
+      as(
+        ADA,
+        Effect.gen(function* () {
+          yield* noDelay
+          yield* TestClock.adjust("365 days")
+          const before = yield* getOrders
+          const empty = yield* Effect.exit(placeOrder)
+          expect(Exit.isFailure(empty) && JSON.stringify(empty.cause).includes("EmptyCart"), "an empty cart").toBe(true)
+          yield* addToCart("moon-vase", 2)
+          yield* addToCart("poppy-plate", 1)
+          // A refused order: the cart is as it was, and no order is made.
+          yield* setSettings({ delay: 0, failNext: true })
+          const refused = yield* Effect.exit(placeOrder)
+          expect(Exit.isFailure(refused) && JSON.stringify(refused.cause).includes("SimulatedFailure"), "the switch refuses it").toBe(true)
+          expect((yield* getCart).lines).toHaveLength(2)
+          expect(yield* getOrders).toEqual(before)
+          const order = yield* placeOrder
+          const price = (id: string) => PRODUCTS.find((product) => product.id === id)!.price
+          expect(order).toMatchObject({ id: "KC-10601", placedOn: new Date(365 * 86_400_000).toISOString().slice(0, 10), status: "Preparing" })
+          expect(order.lines).toEqual([
+            { productId: "moon-vase", quantity: 2 },
+            { productId: "poppy-plate", quantity: 1 },
+          ])
+          expect(order.total).toBe(price("moon-vase") * 2 + price("poppy-plate"))
+          expect((yield* getCart).lines, "the cart emptied").toEqual([])
+          const after = yield* getOrders
+          expect(after[0], "first in the orders").toEqual(order)
+          expect(after.slice(1)).toEqual(before)
+          yield* addToCart("white-bowl", 1)
+          expect((yield* placeOrder).id, "the next number").toBe("KC-10602")
+        }),
+      ),
     ))
 
   it("ST11: streamFor yields a feed as an async iterable a reader can stop; a failing feed throws a readable message", async () => {
