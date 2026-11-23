@@ -116,7 +116,8 @@ const STAGE_KEYS: ReadonlySet<string> = new Set([
 const DRAG_KEYS = ["drag", "dragPlane", "dragConstraints", "dragElastic", "dragMomentum", "dragTransition", "dragSnapToOrigin"] as const
 
 /** A `drag` on a Stage with nothing to drag with. */
-const NO_DRAG = "ward(subject, { drag }): the Stage above it drags nothing, as its Environment gives no `drag`. `@wardic/three/solid`'s `createStage` gives one."
+const NO_DRAG =
+  "ward(subject, { drag }): the Stage above it drags nothing, as it has no `drag`. With `@wardic/three/solid`, give `createStage` the feature: `createStage({ …, features: [stageDrag] })`."
 
 /** `config`'s drag keys now, each an accessor's value as it's read. */
 const dragConfigOf = (config: StageWardConfig): StageDragConfig => {

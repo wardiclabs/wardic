@@ -5,6 +5,7 @@
  */
 import { For } from "solid-js"
 import { Card } from "./Card.tsx"
+import { BatchCard } from "./hooks/BatchCard.tsx"
 import { DragCard } from "./hooks/DragCard.tsx"
 import { GraphVariantsCard } from "./hooks/GraphVariantsCard.tsx"
 import { SceneObjectCard } from "./hooks/SceneObjectCard.tsx"
@@ -33,6 +34,7 @@ export const App = () => (
       <SceneObjectCard />
       <GraphVariantsCard />
       <DragCard />
+      <BatchCard />
     </section>
   </main>
 )

@@ -6,7 +6,7 @@
  * @module
  */
 import { ward } from "@wardic/solid"
-import { createStage, WardicStage } from "@wardic/three/solid"
+import { createStage, stageDrag, WardicStage } from "@wardic/three/solid"
 import { createSignal, onSettled } from "solid-js"
 import * as THREE from "three"
 
@@ -49,6 +49,8 @@ export const DragCard = () => {
     scene,
     camera,
     frameloop: "demand",
+    // Drag is a Stage's feature: a scene that drags gives it.
+    features: [stageDrag],
   })
 
   // Where each is, read ten times a second.

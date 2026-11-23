@@ -1,7 +1,7 @@
 ---
 title: WardicStage
 description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
-api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
+api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, StageBatch, StageBatchBinding, StageBatchEvents, StageBatchHooks, StageBatchMemberInfo, StageBatchMembers, StageBatchTarget, StageBatchValues, StageCountBatchConfig, StageKeyedBatchConfig, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
 ---
 
 # WardicStage
@@ -54,4 +54,6 @@ Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for 
 - **`StageDrag`**, **`StageDragHandlers`:** what a Stage drags its Subjects with, its Environment's: it watches a Subject's drags on the Stage's input, moves it, and tells each pointer sample and its release coming to rest. A ward's `drag` on a Stage with none is an error in development.
 - **`StageDragConfig`**, **`StageDragRange`**, **`StageDragTransition`:** a scene's drag keys, in the page's drag keys' place: `drag` (`true`, or `"x"`, `"y"` or `"z"`), `dragConstraints` per axis as `[min, max]`, `dragElastic`, `dragMomentum`, `dragTransition` (its release's inertia) and `dragSnapToOrigin`. An Environment adds its own by declaration merging: `@wardic/three/solid` adds `dragPlane`.
 - **`StageWardConfig`**, **`StageWardConfigValues`**, **`StageWardChecked`:** a ward's config on a Stage's Subject: a ward's, with the scene's drag keys.
+- **`StageBatch`**, **`StageKeyedBatchConfig`**, **`StageCountBatchConfig`**, **`StageBatchMembers`**, **`StageBatchValues`**, **`StageBatchTarget`**, **`StageBatchEvents`**, **`StageBatchMemberInfo`:** a scene's Batch, what `createBatch` makes under a Stage given `object` (a three.js object per member, added as it enters and removed once its exit lands) or `instances` (an `InstancedMesh`'s instances), keyed by `each` and `key` or by `count`, with its landings and its members' hovers and presses as a page's Batch's.
+- **`StageBatchBinding`**, **`StageBatchHooks`:** what a Stage's `batch` gives `createBatch`, and what it tells it: an Environment's side of a scene's Batch.
 - **`SceneWard`**, **`SceneObjectEvent`**, **`SceneObjectEvents`**, **`SceneObjectExit`:** a Scene object's handle, a ward that also tells `exitStart` and `exitComplete`, and their info: the Subject leaving, as `element`.

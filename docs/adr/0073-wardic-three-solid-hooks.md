@@ -864,3 +864,46 @@ What the owner decided:
   - **The puck** slides on the ground and glides on, kept on the board.
 
   With a real mouse, the knob held 120 px right read 1.60 (1.5 and the elastic's give), and 2.82 pulled far past its range. Let go, it came back to 1.50, and a flicked puck came to rest within its board.
+
+**PR 5, as built:** `createBatch`'s scene writers (decision 16, Q9; ADR-0070 decisions 11–13).
+- **The hand-off:** `createBatch` with `object` or `instances` goes to the Stage in context's optional `batch`, an Environment's `StageBatchBinding`. `@wardic/solid` keeps the Solid side, as the page's Batch does:
+  - its flights, so `settled()` is pending while a member moves;
+  - its waits, for `next` and `when`;
+  - the effect that reads its targets in its compute and applies them.
+
+  It applies from the effect's first run, at mount: unlike the page's, whose elements arrive through their refs, a scene's Batch makes its own members, so a deferred first apply made none (BT1).
+- **The engine** (`@wardic/three/solid`'s `scene-batch.ts`) is core's `Batch`, as `ObjectBatch` is, with keyed membership and exits. The page's `BatchMembers` is `@wardic/dom`'s, and too much of the page's to share.
+  - **Ordinary changes:** a `Batch.retarget` on core's `BatchCalls` plans, `stagger()` counting the members a change moves. A flight starts when a change sets members moving, and lands when the Batch's run ends, as the page's Batch's flights do.
+  - **Members:** objects from `object(item, i)` or `object(i)`, joined to `parent`, else their own, else the Stage's scene; or an `InstancedMesh`'s instances through `ThreeInstances.batchSource`. Each member's keys are fixed by the first targets (or `keys`), each colour key split into its channels.
+  - **Entering:** a member starts at its `initial` (else its own values; with `initial: false`, its targets). The Batch is drawn once members enter, so the first frame shows `initial` before its run starts a task later (BT1).
+  - **Leaving:** a keyed member that leaves plays `exit`, one driven change of all the leavers, each removed as its own lands (`onMemberLanded`).
+    - **An object** leaves its parent; with `dispose: true`, its geometries and materials go too.
+    - **An instance's** index goes to the last instance (`Batch.replace`, its values and velocity with it), and `count` drops.
+    - **Back in the list,** a leaver is taken back from where its exit has it.
+  - **Capacity:** more members than the mesh holds is a development error naming its capacity, thrown in the Batch's effect for its owner's `<Errored>`.
+- **Gestures per member,** through the scene's raycast: core's `watchHoverAmong` and `watchPressAmong` on the Stage's input, a member found by its object or by its mesh and `instanceId`. Each member has an Override stack, `animate` < `whileHover` < `whileTap`, and events `{ i, item, element }`.
+  - **A gesture's key with no `animate`:** a key `animate` doesn't set returns to the member's start when the gesture ends. With `animate` setting no `scale`, a hover's `scale` stayed at 1.5 until each member kept its start (BT8).
+- **Drag and Batches are a Stage's features, opt-in** (the owner's choice here, amending Q8 and Q9's "the Stage gives one"): `createStage({ …, features: [stageDrag, stageBatches] })`, each exported from `@wardic/three/solid` in a module of its own.
+  - **Why:** built into every Stage, `t2-stage` grew 3.4 KB gzipped for the Batches, 1.1% over `main`, past the size gate's 1%. With PR 4's drag, that was 5.1 KB in every scene app, used or not.
+  - **What it changes:** a ward's `drag` on a Stage without `stageDrag`, or a scene `createBatch` on one without `stageBatches`, is a development error naming the feature (DR10, BT10). A Stage adopting a runtime takes `features` too; `stageDrag` drags nothing there, with no view of its own.
+- **Size:**
+  - **`t2-stage`,** a Stage with no features: 301.8 → 300.4 KB, 0.5% under `main`, its budget lowered to 300.5. That's 0.3 over PR 3: the Stage ward's drag wiring and the features' plumbing.
+  - **`t2-features`,** new: a Stage given both, a ward that drags and a keyed Batch of meshes. It's 316.1 KB, with a budget of 316.6.
+    - 22.7 KB of its minified bytes more are `@wardic/dom`'s: the page's Batch, which `createBatch` reaches statically, as `ward` reaches the DOM's ward (#927).
+  - **`s2-batch`,** a page app, grows 0.2 KB, within its gate. The hand-off is the page's `createBatch`'s, beside the check Q9 named, since its flights and waits are `@wardic/solid`'s.
+- **Tests,** in `three-solid`, BT1–BT9:
+  - BT1: keyed meshes entering from `initial`;
+  - BT2: a new order with `stagger()`;
+  - BT3: an exit, then the object's leave and disposal, or none at once;
+  - BT4: `parent`;
+  - BT5: an `InstancedMesh`'s keyed instances, the last moved into a freed index, `count` dropping and growing;
+  - BT6: the capacity error;
+  - BT7: by count;
+  - BT8: a member's hover and its return;
+  - BT9: `settled`'s count and the no-Stage error;
+  - BT10: the error for a Stage without `stageBatches`.
+
+  DR10 is the same for drag without `stageDrag`. The scene lab's SL7 adds a tile, then sees a removed one drawn while its exit plays and gone once it lands.
+- **The scene lab:** a fifth card, its Stage given `stageBatches`; the drag card's is given `stageDrag`.
+  - **A keyed grid of tiles,** a mesh each, which shuffle, come in and leave as one run, and lift under the pointer.
+  - **An `InstancedMesh`'s 240 instances,** by count, turning from a ring into a sphere.
