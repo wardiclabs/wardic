@@ -15,6 +15,8 @@ export default defineConfig({
   },
   ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/foldkit", "@wardic/example-storefront-shared"] },
   optimizeDeps: { entries: ["src/entry.ts"] },
+  // Wardic's mark, the docs' icons, shared with the Solid 2 app (#908).
+  publicDir: "../shared/public",
   server: { port: 3104 },
   preview: { port: 4104 },
   build: { target: "esnext" },

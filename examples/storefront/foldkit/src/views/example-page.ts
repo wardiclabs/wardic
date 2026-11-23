@@ -3,7 +3,7 @@
  * worth reaching for, then its code, highlighted on the server. The demo is the example's page
  * module, a submodel keyed by its run, so Replay mounts it afresh.
  */
-import { AREAS, type Example, exampleById } from "@wardic/example-storefront-shared/examples"
+import { AREAS, DOCS_ORIGIN, DOCS_PAGES, type Example, exampleById } from "@wardic/example-storefront-shared/examples"
 import { BACK } from "@wardic/example-storefront-shared/micro"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -81,6 +81,8 @@ export const examplePage = (model: Model, h: HtmlBuilder<Message>, id: string, e
       h.h2([], ["Why"]),
       ...whyOf(example).map((paragraph) => h.p([], prose(h, paragraph))),
       ...UndefinedOr.match(tradeoffsOf(example), { onUndefined: () => [], onDefined: ({ gains, costs }) => [tradeoffs(h, gains, costs)] }),
+      // The docs' page on what it shows (#908).
+      h.p([h.Class("guide-link")], ["In the docs: ", h.a([h.Href(`${DOCS_ORIGIN}${example.docs}`)], [DOCS_PAGES[example.docs]])]),
     ]),
     codePanel(model, h, example),
   ])

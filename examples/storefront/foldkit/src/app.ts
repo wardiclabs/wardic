@@ -31,7 +31,7 @@ import { asked } from "~/shop/text.ts"
 import { examplePage, notFound } from "~/views/example-page.ts"
 import { gallery } from "~/views/gallery.ts"
 import { shell } from "~/views/shell.ts"
-import { titleOf } from "~/views/words.ts"
+import { pageHeadOf } from "@wardic/example-storefront-shared/seo"
 
 type Return = Update.Return<Model, Message, PageServices>
 
@@ -179,6 +179,7 @@ export const init = (flags: Flags, url: Url.Url): Return => {
   const route = urlToRoute(url)
   const base: Model = {
     route,
+    origin: flags.origin,
     query: queryOf(url),
     prefs: flags.prefs,
     themeSwitches: 0,
@@ -269,12 +270,24 @@ export const update = (model: Model, message: Message): Return =>
     Landed: ({ id }) => ({ model: { ...model, arrivals: model.arrivals.filter((one: Arrival) => one.id !== id) } }),
   })
 
-/** The page's title: the example's, or the shop's. */
-const documentTitleOf = (model: Model): string =>
-  Option.match(Option.flatMap(exampleOf(model.route), ({ id }) => Option.fromUndefinedOr(exampleById(id))), {
-    onNone: () => "Wardic Northlight · Foldkit",
-    onSome: (example) => `${titleOf(example)} · Wardic Northlight`,
+/** The route's path: the gallery's, an example's, a piece's under the catalogue, or the one that names nothing. */
+const pathOf = (route: AppRoute): string =>
+  AppRoute.match(route, {
+    Home: () => "/",
+    Example: ({ area, id }) => `/${area}/${id}`,
+    Piece: ({ piece }) => `/${CATALOGUE.area}/${CATALOGUE.id}/${piece}`,
+    NotFound: ({ path }) => path,
   })
+
+/**
+ * The page's title and canonical URL (#908), from the shared registry (`seo.ts`): its title names the
+ * binding; a page not found has none, and the document renderer asks for it not to be indexed.
+ */
+const documentOf = (model: Model): Pick<Document, "title" | "canonical"> => {
+  const head = pageHeadOf("foldkit", pathOf(model.route))
+  if (!head.found) return { title: head.title }
+  return { title: head.title, canonical: `${model.origin}${head.path}` }
+}
 
 const content = (model: Model, h: HtmlBuilder<Message>) =>
   AppRoute.match(model.route, {
@@ -284,7 +297,7 @@ const content = (model: Model, h: HtmlBuilder<Message>) =>
     NotFound: () => notFound(h),
   })
 
-export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({ title: documentTitleOf(model), body: shell(model, h, content(model, h)) })
+export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({ ...documentOf(model), body: shell(model, h, content(model, h)) })
 
 /** Each page's subscriptions, live while its page is the one under the route. */
 const lifted = (page: AnyPage) => {

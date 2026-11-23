@@ -571,6 +571,17 @@ button {
   background: var(--tile);
 }
 
+/* The docs' page on what an example shows (#908), under its why. */
+.guide-link {
+  color: var(--muted);
+  font-size: var(--text-s);
+}
+
+.guide-link a {
+  color: var(--accent);
+  font-weight: 650;
+}
+
 /* An example's gains and costs (#526): side by side, each list marked by its kind. */
 .tradeoffs {
   display: grid;

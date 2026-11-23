@@ -1,4 +1,5 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
+import { DOCS_ORIGIN } from "@wardic/example-storefront-shared/examples"
 import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
@@ -121,6 +122,8 @@ export function Shell(props: { readonly children: JSX.Element }) {
             <a href="/" >
               Examples
             </a>
+            {/* The docs (#908): each example's page links its guide there too. */}
+            <a href={DOCS_ORIGIN}>Docs</a>
           </nav>
           <div class="header-tools">
             <label class="switch">

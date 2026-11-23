@@ -36,6 +36,7 @@ import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Req
 import { codeOf, gated, reports } from "../../../../packages/solid/test/gate-filter.ts"
 import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
+import { pageHeadOf, pathsOf } from "./seo.ts"
 
 const app = process.argv[2] ?? ""
 if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or foldkit, not "${app}"`)
@@ -264,6 +265,50 @@ interface Result {
   readonly problems: ReadonlyArray<string>
 }
 
+/**
+ * What the page's head says against what the registry says of the page it's on (#908): its title, its
+ * description, and its canonical URL's path. Read from the document as it stands, after hydration and
+ * after a link, so a head the client rewrites is checked too; a demo that opened a piece's own page is
+ * checked there. Foldkit's runtime rewrites a page's title and canonical URL as a link changes the page,
+ * and leaves the rest of its head as it was served: its description is checked on a page as served
+ * (`served`, the path the server rendered), which is what a crawler or a link's preview reads.
+ */
+const headProblems = async (page: Page, served: string): Promise<ReadonlyArray<string>> => {
+  const path = new URL(page.url()).pathname
+  const expected = pageHeadOf(config.id, path)
+  const describes = config.id !== "foldkit" || path === served
+  const seen = await page.evaluate(() => ({
+    title: document.title,
+    description: document.querySelector('meta[name="description"]')?.getAttribute("content") ?? null,
+    canonical: document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? null,
+  }))
+  const problems: Array<string> = []
+  if (seen.title !== expected.title) problems.push(`title "${seen.title}", not "${expected.title}"`)
+  if (describes && seen.description !== expected.description) problems.push(`description "${seen.description}"`)
+  if (seen.canonical === null || new URL(seen.canonical).pathname !== expected.path) problems.push(`canonical ${seen.canonical}, not one at ${expected.path}`)
+  return problems
+}
+
+/**
+ * What a crawler asks for (#908): `robots.txt`, naming the sitemap; the sitemap, every page the app has;
+ * and a path that names no page, a 404 that asks not to be indexed. Not on a dev server, where the
+ * Foldkit host's files aren't written.
+ */
+const checkCrawlers = async (): Promise<Result> => {
+  const problems: Array<string> = []
+  const robots = await fetch(`${base}/robots.txt`)
+  const robotsText = await robots.text()
+  if (robots.status !== 200 || !robotsText.includes("Sitemap: ")) problems.push(`robots.txt: ${robots.status}, ${robotsText.slice(0, 80)}`)
+  const sitemap = await fetch(`${base}/sitemap.xml`)
+  const pages = ((await sitemap.text()).match(/<loc>/g) ?? []).length
+  if (sitemap.status !== 200 || pages !== pathsOf(config.id).length) problems.push(`sitemap.xml: ${sitemap.status}, ${pages} pages, not ${pathsOf(config.id).length}`)
+  const missing = await fetch(`${base}/no-such-shelf`, { headers: { accept: "text/html" } })
+  const missingText = await missing.text()
+  if (missing.status !== 404) problems.push(`a page not found answered ${missing.status}`)
+  if (!/<meta name="robots" content="noindex"/.test(missingText)) problems.push("a page not found doesn't ask not to be indexed")
+  return { route: "robots.txt, the sitemap and a page not found", problems }
+}
+
 const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined, allowed: Allowed = {}): Promise<Result> => {
   const problems: Array<string> = []
   const from = serverLines.length
@@ -291,6 +336,7 @@ const check = async (page: Page, route: string, watch: string | undefined, inter
     else if (new Set(last).size !== 1) problems.push(`"${watch}" hadn't settled after 5 s`)
   }
   await quiet()
+  problems.push(...(await headProblems(page, route)))
   await page.screenshot({ path: join(shots, `${route.replaceAll("/", "_") || "_"}.png`), fullPage: true })
   problems.push(...(await diagnosed(page, route, from, allowed)))
   page.off("console", onConsole)
@@ -356,6 +402,7 @@ const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
     await quiet()
     if ((await page.locator(".demo").count()) === 0) problems.push("no demo on the page")
     if (documents > 0) problems.push("its link loaded a document from the server, not the router")
+    problems.push(...(await headProblems(page, "/")))
     problems.push(...(await diagnosed(page, `${route}, from the gallery`, from, example.allowDiagnostics)))
     results.push({ route: `${route}, from the gallery's link`, problems: [...problems] })
     // Back to the gallery, loaded afresh: a page that failed may have no link left to click.
@@ -380,6 +427,7 @@ try {
     results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, example.allowDiagnostics))
   }
   results.push(...(await checkNavigation(await context.newPage())))
+  if (!dev) results.push(await checkCrawlers())
 } finally {
   await browser.close()
   stop()

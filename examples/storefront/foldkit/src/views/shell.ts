@@ -3,6 +3,7 @@
  * and its footer, around the page. The root carries the Provider attribute, and a `w.Config` that
  * follows the Reduce motion switch; its `data-theme` is what the server copies onto `<html>`.
  */
+import { DOCS_ORIGIN } from "@wardic/example-storefront-shared/examples"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
 import * as Bool from "effect/Boolean"
 import type { Html, HtmlBuilder } from "foldkit/html"
@@ -92,7 +93,11 @@ export const shell = (model: Model, h: HtmlBuilder<Message>, content: Html): Htm
     h.header([h.Class("site-header")], [
       h.div([h.Class("page")], [
         h.a([h.Class("brand"), h.Href("/")], ["Wardic Northlight", h.span([h.Class("badges")], [h.span([h.Class("badge badge-binding")], ["Foldkit"])])]),
-        h.nav([h.Class("site-nav"), h.AriaLabel("Main")], [h.a([h.Href("/"), ...(model.route._tag === "Home" ? [h.AriaCurrent("page")] : [])], ["Examples"])]),
+        h.nav([h.Class("site-nav"), h.AriaLabel("Main")], [
+          h.a([h.Href("/"), ...(model.route._tag === "Home" ? [h.AriaCurrent("page")] : [])], ["Examples"]),
+          // The docs (#908): each example's page links its guide there too.
+          h.a([h.Href(DOCS_ORIGIN)], ["Docs"]),
+        ]),
         h.div([h.Class("header-tools")], [
           h.label([h.Class("switch")], [
             h.input([h.Type("checkbox"), h.Checked(model.prefs.reduceMotion), h.OnClick(Message.SetReduceMotion({ on: Bool.not(model.prefs.reduceMotion) }))]),

@@ -25,6 +25,8 @@ export default defineConfig({
     dedupe: ["solid-js", "@solidjs/web", "@solidjs/router", "effect"],
   },
   ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/example-storefront-shared"] },
+  // Wardic's mark, the docs' icons, shared with the Foldkit app (#908).
+  publicDir: "../shared/public",
   server: { port: 3102 },
   preview: { port: 4102 },
   build: { target: "esnext" },

@@ -3,7 +3,7 @@
  * worth reaching for, then its code, a server component highlighted on the server.
  */
 import { dynamic } from "@solidjs/web"
-import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
+import { AREAS, DOCS_ORIGIN, DOCS_PAGES, exampleById } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { BACK } from "@wardic/example-storefront-shared/micro"
 import { w } from "~/lib/wardic.ts"
@@ -123,6 +123,10 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
           )}
         </For>
         <Show when={example.tradeoffs}>{(tradeoffs) => <Tradeoffs gains={tradeoffs().gains} costs={tradeoffs().costs} />}</Show>
+        {/* The docs' page on what it shows (#908). */}
+        <p class="guide-link">
+          In the docs: <a href={`${DOCS_ORIGIN}${example.docs}`}>{DOCS_PAGES[example.docs]}</a>
+        </p>
       </section>
       <CodePanel id={props.id} />
     </main>

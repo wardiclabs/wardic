@@ -5,6 +5,7 @@
  */
 import type { StartMiddleware } from "@solidjs/vite-plugin"
 import { parseCookieHeader, serializeCookie } from "@solidjs/web"
+import { originOf, robotsTxtOf, sitemapOf } from "@wardic/example-storefront-shared/seo"
 import { visitorFromId } from "@wardic/example-storefront-shared/server"
 
 const COOKIE = "storefront-visitor"
@@ -18,4 +19,13 @@ const visitor: StartMiddleware = async (event, next) => {
   return response
 }
 
-export default [visitor]
+/** `robots.txt` and the sitemap (#908), from the registry: every page, and where the server's own paths are. */
+const crawlers: StartMiddleware = async (event, next) => {
+  const path = new URL(event.request.url).pathname
+  const origin = originOf(event.request)
+  if (path === "/robots.txt") return new Response(robotsTxtOf("solid2", origin), { headers: { "content-type": "text/plain; charset=utf-8" } })
+  if (path === "/sitemap.xml") return new Response(sitemapOf("solid2", origin), { headers: { "content-type": "application/xml; charset=utf-8" } })
+  return next()
+}
+
+export default [crawlers, visitor]

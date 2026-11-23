@@ -16,7 +16,9 @@
     "./hydration": "./src/hydration.ts",
     "./stories": "./src/stories.ts",
     "./apps": "./src/apps.ts",
-    "./code": "./src/code.ts"
+    "./code": "./src/code.ts",
+    "./seo": "./src/seo.ts",
+    "./head": "./src/head.ts"
   },
   "scripts": {
     "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit"
