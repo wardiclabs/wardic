@@ -605,6 +605,22 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".lens",
   },
   {
+    id: "before-after",
+    area: "live",
+    docs: "/guides/live-values",
+    title: "Before and after the kiln",
+    summary: "Drag the handle across a piece to see it before its glaze and after the kiln; the arrow keys move it too.",
+    why: [
+      "A compare slider is two photos and a line between them, and the line is wherever the handle is drawn, mid-drag included. The handle's ward reads its own `x` as Wardic draws it, `handle.read(\"x\")`, and `createTransform` turns that into where the photo splits, a custom property in the frame's `style`, so the line follows the handle in the same frame, with no state of the page's own to keep in step.",
+      "The labels are the handle's drag as state: `createDrag(handle)` gives the samples of the handle's own drag, so they show while it's held and go as it's let go, with nothing listening to the handle twice. The handle is a `role=\"slider\"`: the arrow keys move it a tenth of the photo, Home and End to either side, through `createAnimate`, and its `x` follows them the same way.",
+    ],
+    reducedMotion: "The handle follows the pointer as ever, and the arrow keys put it in place at once; the labels still fade.",
+    uses: ["drag=\"x\"", "handle.read(\"x\")", "createTransform", "a custom property in style", "createDrag(ward)", "role=\"slider\" and the arrow keys"],
+    apps: ["solid2"],
+    interact: "drag:.compare-handle:80:0",
+    watch: ".compare-handle",
+  },
+  {
     id: "reading-progress",
     foldkit: {
       note: "Where the Solid apps call `createScroll` in the component, the panel's Mount asks `Wardic.scroll({ container })` and feeds an Atom at module scope that the bar binds.",

@@ -143,6 +143,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/live/before-after";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/before-after")>;
+      $$route?: undefined;
+    },
+    {
       path: "/live/magnifier";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/live/magnifier")>;
@@ -362,6 +368,14 @@ declare module "virtual:file-routes" {
       id: "/gestures/wishlist";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/gestures/wishlist")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/before-after";
+      id: "/live/before-after";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/before-after")>;
       $$route?: undefined;
       children?: undefined;
     },
