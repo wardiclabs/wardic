@@ -29,6 +29,28 @@ A press inside a pressable element presses both, as in Motion. `propagate={{ tap
 <w.section initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true, amount: 0.4 }} />
 ```
 
+## Gestures as state
+
+A sensor reads a gesture as a signal, for what isn't an animation: text that says what's under the pointer, or a value a drag sets. `createHover`, `createPress`, `createFocus` and `createDrag` each take what they read first:
+
+- **A ward:** `createHover(card)` reads the ward's own hover, so nothing listens to its element twice. `createDrag(card)` gives each sample of the ward's own drag, `null` before the first.
+- **An element:** `createHover(el)` reads that element.
+- **Nothing:** `createHover()` is a sensor to give to an element's `ref`, and its reading: `<div ref={hovered} />`, then `hovered()`.
+
+<Demo sample="sensors" />
+
+<CodeTabs sample="sensors" />
+
+On Solid 1, a sensor takes the element itself, so it's made where the element exists: in a component the element is given to.
+
+## One element, several refs
+
+Solid 2's `ref` takes a list, so one element goes to a ward and to sensors at once: `ref={[card, hovered, pressed]}`. Each is given the element, in order. A ward spread on the element with `{...card}` gives its own `ref`, which a `ref` after the spread replaces, so the ward goes in the list too.
+
+<Demo sample="ref-arrays" />
+
+<CodeTabs sample="ref-arrays" />
+
 ## Hearing a gesture
 
 - **On Solid 2,** the element's ward gives them: make one with `w.ward()`, give it to the element as `wardRef`, then `await button.next("tap")`, or run an effect over `button.when("tap")`.

@@ -32,7 +32,7 @@ On a Wardic element, the keys it animates stay where it leaves them until the el
 
 ## Playback controls
 
-`animate` returns the animation's controls. They're a promise of its landing too, so `await animate(…)` waits for it.
+`animate` returns the animation's controls. They're a promise of its landing too, so `await animate(…)` waits for it, and a Solid 2 action can `yield` it: see [Sequences as actions](/guides/actions).
 
 | Member | |
 | --- | --- |

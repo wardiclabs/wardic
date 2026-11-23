@@ -19,7 +19,7 @@ const open = () =>
   ])
 ```
 
-`animate(sequence, options?)` returns playback controls, as a single animation does: await them, pause, seek or speed it up.
+`animate(sequence, options?)` returns playback controls, as a single animation does: await them, pause, seek or speed it up. For steps with your own code between them, such as a server's reply, yield each animation from a Solid 2 action: see [Sequences as actions](/guides/actions).
 
 ## Segments
 
