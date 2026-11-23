@@ -8,11 +8,12 @@
 // - SH4: `createDrag(mesh)` reads its drag's samples, and moves nothing.
 // - SH5: `createBatch({ object })` makes its members in the scene and moves them.
 // - SH6: a sensor given a page's element says to import it from `@wardic/solid`.
+// - SH7: a ward's config names a material's own values, `StageValues` (#934), and a misspelt one is a type error.
 import { createBatch, createDrag, createHover, createPress, stageBatches, TestStage, ward, WardicStage } from "@wardic/three/solid"
 import type * as Drag from "@wardic/core/Drag"
 import type { JSX } from "@solidjs/web"
 import { type Accessor, children, createRenderEffect, createRoot, flush } from "solid-js"
-import { BoxGeometry, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from "three"
+import { BoxGeometry, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, PerspectiveCamera, Scene } from "three"
 import { afterEach, describe, expect, it } from "vitest"
 
 const disposers: Array<() => void> = []
@@ -185,5 +186,21 @@ describe("a scene's hooks alone (#927)", () => {
     })
     expect(refused).toHaveLength(3)
     for (const said of refused) expect(said).toMatch(/import create(Hover|Press|Drag) from @wardic\/solid/)
+  })
+
+  it("SH7: a ward's config names a material's own values, and a misspelt one is a type error", async () => {
+    const { scene, stage, frames } = stageOf()
+    const glazed = new Mesh(new BoxGeometry(1, 1, 1), new MeshPhysicalMaterial({ roughness: 1, clearcoat: 0 }))
+    scene.add(glazed)
+    under(stage, () => void ward(glazed, { animate: { roughness: 0.25, clearcoat: 1 }, transition: LINEAR }))
+    await frames(20)
+    expect(glazed.material.roughness).toBeCloseTo(0.25, 5)
+    expect(glazed.material.clearcoat).toBeCloseTo(1, 5)
+    // Types alone, never run: a name in neither an element's values nor three's.
+    const misspelt = () => {
+      // @ts-expect-error `roughnes` is no value Wardic animates.
+      ward(glazed, { animate: { roughnes: 0.25 } })
+    }
+    void misspelt
   })
 })

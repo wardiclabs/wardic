@@ -99,6 +99,14 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
           <For each={example.uses}>{(use) => <li>{use}</li>}</For>
         </ul>
       </header>
+      {/* Packages not on npm yet (#934): the code below can't be installed until their release. */}
+      <Show when={example.release}>
+        {(release) => (
+          <p class="note release-note">
+            <strong>Ships in Wardic {release()}.</strong> The packages this page runs on aren't on npm yet: until then, it runs them from Wardic's repository.
+          </p>
+        )}
+      </Show>
       <section class="demo" aria-label="Demo">
         <div class="demo-bar">
           <span class="eyebrow">Live demo</span>

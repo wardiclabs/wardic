@@ -109,6 +109,10 @@ const ready = async (): Promise<void> => {
  */
 const failing = (message: ConsoleMessage): boolean => {
   if (dev && codeOf(message.text()) !== undefined) return false
+  // Chromium's own WebGL driver telling of its performance (#934): headless Chromium draws WebGL in
+  // software, and the smoke's screenshot of a canvas stalls it reading the pixels back. The page's own
+  // errors and warnings still fail it.
+  if (/^\[\.WebGL-[0-9a-fx]+\]GL Driver Message \(OpenGL, Performance,/.test(message.text())) return false
   return message.type() === "error" || message.type() === "warning" || /hydrat/i.test(message.text())
 }
 

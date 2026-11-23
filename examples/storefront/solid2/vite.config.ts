@@ -22,9 +22,9 @@ export default defineConfig({
     // `@solidjs/signals`, which the app doesn't declare: dedupe resolves from the app's root, and once
     // `@solidjs/diagnostics` (a devDependency, #460) has the dev server externalize signals, the
     // server render can't find it there. Every importer reaches the one copy beside `solid-js`.
-    dedupe: ["solid-js", "@solidjs/web", "@solidjs/router", "effect"],
+    dedupe: ["solid-js", "@solidjs/web", "@solidjs/router", "effect", "three"],
   },
-  ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/example-storefront-shared"] },
+  ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/object", "@wardic/three", "@wardic/example-storefront-shared"] },
   // Wardic's mark, the docs' icons, shared with the Foldkit app (#908).
   publicDir: "../shared/public",
   server: { port: 3102 },

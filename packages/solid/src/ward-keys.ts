@@ -163,18 +163,18 @@ type RawOf<C, K extends string> = K extends keyof C ? C[K] : undefined
  * keys it sets (Q2) and `default`, no `layout`. A dynamic variant is a resolver as ever, a variant
  * name or `false` as it is.
  */
-type CheckedTarget<T> = T extends (...args: never) => unknown
+type CheckedTarget<T, V extends string = never> = T extends (...args: never) => unknown
   ? WardConfig.WardicVariantResolver
   : T extends AnimationControls.WardicAnimationControls
     ? T
     : T extends object
       ? T extends ReadonlyArray<unknown>
         ? T
-        : Omit<WardConfig.WardicTargetValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardConfig.WardicValueEntries<KeysOf<T>>, KeysOf<T>> } & CheckedEnd<T> & NoStray<T>
+        : Omit<WardConfig.WardicTargetValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardConfig.WardicValueEntries<KeysOf<T>>, KeysOf<T>> } & CheckedEnd<T, V> & NoStray<T, V>
       : T
 
 /** `initial`, checked (#305's Q4): its values' names. A variant name, a list of them or `false` as it is. */
-type CheckedInitial<T> = T extends object ? (T extends ReadonlyArray<unknown> ? T : Omit<WardConfig.WardicTargetValues, "transition"> & CheckedEnd<T> & NoStray<T>) : T
+type CheckedInitial<T, V extends string = never> = T extends object ? (T extends ReadonlyArray<unknown> ? T : Omit<WardConfig.WardicTargetValues, "transition"> & CheckedEnd<T, V> & NoStray<T, V>) : T
 
 /** What a name in a values map that isn't a value meets: an error naming it, an object, as {@link NotHere}'s. */
 type NotAValue<P extends string> = { readonly "is not a value Wardic animates": P }
@@ -183,14 +183,14 @@ type NotAValue<P extends string> = { readonly "is not a value Wardic animates": 
  * `T`'s names that aren't values, each an error (#305's Q4). The config is inferred from its literal,
  * so every name a values map has is a known property: the check is what rejects `opacty`.
  */
-type NoStray<T> = T extends object
+type NoStray<T, V extends string = never> = T extends object
   ? IsWide<keyof T & string> extends true
     ? unknown
-    : { readonly [P in Exclude<keyof T & string, WardConfig.WardicValueKey | "transition" | "transitionEnd">]: NotAValue<P> }
+    : { readonly [P in Exclude<keyof T & string, WardConfig.WardicValueKey | V | "transition" | "transitionEnd">]: NotAValue<P> }
   : unknown
 
 /** A target's Transition end, checked (#428): a values map whose names are values. */
-type CheckedEnd<T> = { readonly transitionEnd?: Omit<WardConfig.WardicValues, "transition"> & NoStray<RawOf<T, "transitionEnd">> }
+type CheckedEnd<T, V extends string = never> = { readonly transitionEnd?: Omit<WardConfig.WardicValues, "transition"> & NoStray<RawOf<T, "transitionEnd">, V> }
 
 /** What a config key no ward takes meets: an error naming it, an object, as {@link NotAValue}'s. */
 type NotAWardKey<P extends string> = { readonly "is not a key a ward takes": P }
@@ -206,9 +206,9 @@ type NoStrayKey<C, W> = string extends keyof C ? unknown : { readonly [P in Excl
 type TargetProp = "animate" | "exit" | "whileHover" | "whileTap" | "whileDrag" | "whileFocus" | "whileInView"
 
 /** Each variant, checked; a variants map typed wide as it is. */
-type VariantsOf<C> = Unwrap<C["variants" & keyof C]> extends infer Vs
+type VariantsOf<C, V extends string = never> = Unwrap<C["variants" & keyof C]> extends infer Vs
   ? Vs extends object
-    ? Rewrap<C["variants" & keyof C], { readonly [N in keyof Vs]: CheckedTarget<Vs[N]> }>
+    ? Rewrap<C["variants" & keyof C], { readonly [N in keyof Vs]: CheckedTarget<Vs[N], V> }>
     : C["variants" & keyof C]
   : never
 
@@ -243,18 +243,19 @@ type ElementTransition<C> = HandsDown<C> extends true
  * `default` and `layout`, every value's name for an element Variant children can join; a target's
  * own (a variant's, `animate`'s, a gesture's, `exit`'s), the keys that target sets and `default`. A
  * config typed as a plain `WardConfig` takes every name. Every other key is `W`'s, so a callback's
- * parameters are typed as ever, and a key `W` hasn't is an error naming it ({@link NoStrayKey}).
+ * parameters are typed as ever, and a key `W` hasn't is an error naming it ({@link NoStrayKey}). `V`
+ * names the values a Subject takes beyond an element's: a Stage's (#934, `StageValues`).
  */
-export type WardCheckedConfig<C, W> = C & NoStrayKey<C, W> & {
+export type WardCheckedConfig<C, W, V extends string = never> = C & NoStrayKey<C, W> & {
   readonly [K in keyof W]?: K extends "transition"
     ? ElementTransition<C>
     : K extends keyof C
       ? K extends TargetProp
-        ? Rewrap<C[K], CheckedTarget<Unwrap<C[K]>>>
+        ? Rewrap<C[K], CheckedTarget<Unwrap<C[K]>, V>>
         : K extends "variants"
-          ? VariantsOf<C>
+          ? VariantsOf<C, V>
           : K extends "initial"
-            ? Rewrap<C[K], CheckedInitial<Unwrap<C[K]>>>
+            ? Rewrap<C[K], CheckedInitial<Unwrap<C[K]>, V>>
             : W[K]
       : W[K]
 }
