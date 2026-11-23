@@ -1,7 +1,7 @@
 ---
 title: WardicStage
 description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
-api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
+api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
 ---
 
 # WardicStage
@@ -51,4 +51,7 @@ Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for 
 - **`stageWard`**, **`StageWardEnvironment`:** a Stage's `ward`, bound to what it runs on: an `animate` environment, where a Subject's keys start (`startLinksOf`) and the scene's `input`.
 - **`stageSceneObject`**, **`StageMembership`:** a Scene object's ward, what an Environment's `createSceneObject` builds on. Given what joins its Subject to the scene and what takes it out, it joins once the ward can start, and plays its `exit` before its Subject leaves, past its owner.
 - **`StageGraph`:** a scene's graph, which an Environment with one gives its Stage: a Subject's parent, its moves, its place among an ancestor's children, and its descendants. On a Stage with one, a ward with variants and no names of its own follows the nearest ward above its Subject, and its stagger slot is its place among that ward's Subject's children.
+- **`StageDrag`**, **`StageDragHandlers`:** what a Stage drags its Subjects with, its Environment's: it watches a Subject's drags on the Stage's input, moves it, and tells each pointer sample and its release coming to rest. A ward's `drag` on a Stage with none is an error in development.
+- **`StageDragConfig`**, **`StageDragRange`**, **`StageDragTransition`:** a scene's drag keys, in the page's drag keys' place: `drag` (`true`, or `"x"`, `"y"` or `"z"`), `dragConstraints` per axis as `[min, max]`, `dragElastic`, `dragMomentum`, `dragTransition` (its release's inertia) and `dragSnapToOrigin`. An Environment adds its own by declaration merging: `@wardic/three/solid` adds `dragPlane`.
+- **`StageWardConfig`**, **`StageWardConfigValues`**, **`StageWardChecked`:** a ward's config on a Stage's Subject: a ward's, with the scene's drag keys.
 - **`SceneWard`**, **`SceneObjectEvent`**, **`SceneObjectEvents`**, **`SceneObjectExit`:** a Scene object's handle, a ward that also tells `exitStart` and `exitComplete`, and their info: the Subject leaving, as `element`.

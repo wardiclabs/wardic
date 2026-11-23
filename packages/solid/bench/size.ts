@@ -72,9 +72,11 @@ const GATE = 1.01
  * brings, and what's left on every Stage ward's path (its branches for a side, and taking back a Subject
  * given again mid-exit) took the app 0.1 past its first number's room. #885's PR 3 raised it to 300.2 by
  * what it measured, 1.3: variants passing down a scene's graph, which every Stage ward follows, `@wardic/solid`'s
- * 3.7 KB of it minified and `@wardic/three`'s 0.5. The page's apps carry none of it.
+ * 3.7 KB of it minified and `@wardic/three`'s 0.5. The page's apps carry none of it. #885's PR 4 raised it
+ * to 301.9 by what it measured, 1.7: drag in 3D, which every Stage brings, `@wardic/three`'s `ThreeDrag` 3.6 KB
+ * of it minified and the Stage ward's 0.7; core's drag recognizer was in already, through the DOM ward (#927).
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 300.2 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 301.9 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { App } from "../src/App.tsx"
 import { Card } from "../src/Card.tsx"
+import { DragCard } from "../src/hooks/DragCard.tsx"
 import { GraphVariantsCard } from "../src/hooks/GraphVariantsCard.tsx"
 import { SceneObjectCard } from "../src/hooks/SceneObjectCard.tsx"
 import { StageCard } from "../src/hooks/StageCard.tsx"
@@ -49,12 +50,13 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     try {
       const host = mounted(() => <App />)
       await until(() => host.querySelectorAll("canvas[data-drawn]").length === scenarios.length, "every canvas to draw")
-      await until(() => host.querySelectorAll(".viewport canvas").length === 3, "the Solid hooks cards' canvases")
+      await until(() => host.querySelectorAll(".viewport canvas").length === 4, "the Solid hooks cards' canvases")
       expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual([
         ...scenarios.map((scenario) => scenario.id),
         "stage",
         "scene-objects",
         "graph-variants",
+        "drag",
       ])
       expect(errors).toEqual([])
     } finally {
@@ -133,5 +135,25 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     await until(() => output.dataset.right === "1" && output.dataset.rightShown === "0", `the moved pip closed on the closed card, not ${state()}`, 3000)
     await userEvent.click(button("Open or close the right"))
     await until(() => output.dataset.rightShown === "1", `the moved pip open with the right card, not ${state()}`, 3000)
+  })
+
+  it("SL6: drag in 3D: a real mouse drags the knob along its rail, and it comes to rest within its range", async () => {
+    const host = mounted(() => <DragCard />)
+    const card = host.querySelector('[data-scenario="drag"]') as HTMLElement
+    const viewport = card.querySelector(".viewport") as HTMLElement
+    const output = card.querySelector("output") as HTMLOutputElement
+    const knob = () => Number(output.dataset.knob)
+    await until(() => viewport.querySelector("canvas") !== null, "the renderer's canvas in the viewport", 4000)
+    const canvas = viewport.querySelector("canvas") as HTMLCanvasElement
+    // Sized to its viewport first: a position taken before would miss the knob once it's resized.
+    const ratio = Math.min(window.devicePixelRatio, 2)
+    await until(() => canvas.width === Math.round(viewport.clientWidth * ratio), `the canvas sized to its viewport, not ${canvas.width}`, 4000)
+    canvas.scrollIntoView({ block: "center" })
+    // The knob at the middle of the view, the camera aimed at it.
+    const rect = canvas.getBoundingClientRect()
+    const middle = { x: rect.width / 2, y: rect.height / 2 }
+    await userEvent.dragAndDrop(canvas, canvas, { sourcePosition: middle, targetPosition: { x: middle.x + 120, y: middle.y } })
+    await until(() => knob() > 0.5, `the knob dragged right along its rail, not at ${knob()}`, 3000)
+    await until(() => Math.abs(knob() - 1.5) < 0.02, `the knob at rest at its range's end, 1.5, not at ${knob()}`, 4000)
   })
 })

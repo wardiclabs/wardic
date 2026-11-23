@@ -13,7 +13,7 @@ import * as Arr from "effect/Array"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import { DEV, useContext } from "solid-js"
-import { type StageWard, WardicStage } from "./stage.ts"
+import { type StageWard, type StageWardConfig, WardicStage } from "./stage.ts"
 import { heldOf, internalsOf, type Ward, type WardConfig, type WardInternals, wardWith, type WardOptions } from "./ward.tsx"
 
 /** No config: a ward that only listens. */
@@ -57,7 +57,7 @@ export const wardFrom = (first: unknown, second: unknown, third: unknown, kind: 
   if (Predicate.isFunction(first) && Predicate.isUndefined(second)) return wardWith(first as WardConfig, internalsOf(undefined, kind))
   const stage = useContext(WardicStage)
   if (Predicate.isNotNull(stage)) {
-    if (Predicate.isFunction(first) || stage.isSubject(first)) return stage.ward(first, second as WardConfig, third as WardOptions | undefined)
+    if (Predicate.isFunction(first) || stage.isSubject(first)) return stage.ward(first, second as StageWardConfig, third as WardOptions | undefined)
   }
   // An accessor is a scene's Subject (ADR-0073 decision 10): a ward given to `ref` follows a page's
   // elements. Said in development; in production the ward's own error for a function config is thrown.

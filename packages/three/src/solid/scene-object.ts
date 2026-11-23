@@ -24,7 +24,7 @@
  */
 // #885's PR 2 (ADR-0073, *Amendment (#885)*, Q5 and Q6).
 import { isServer } from "@solidjs/web"
-import { type SceneWard, stageSceneObject, type StageMembership, type WardConfig, WardicStage } from "@wardic/solid"
+import { type SceneWard, stageSceneObject, type StageMembership, type StageWardConfig, WardicStage } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -33,7 +33,25 @@ import type { Object3D } from "three"
 import { INERT_WARD, SCENE, type SceneOf, type SceneStage } from "./stage.ts"
 
 /** The keys of a ward a Scene object takes, with its `exit`. */
-type SceneMotion = Pick<WardConfig, "initial" | "animate" | "exit" | "transition" | "variants" | "whileHover" | "whileTap" | "custom">
+type SceneMotion = Pick<
+  StageWardConfig,
+  | "initial"
+  | "animate"
+  | "exit"
+  | "transition"
+  | "variants"
+  | "whileHover"
+  | "whileTap"
+  | "whileDrag"
+  | "custom"
+  | "drag"
+  | "dragPlane"
+  | "dragConstraints"
+  | "dragElastic"
+  | "dragMomentum"
+  | "dragTransition"
+  | "dragSnapToOrigin"
+>
 
 /** A Scene object's config: its ward's, its `exit`, its parent, and whether it's disposed once it has left. */
 export interface SceneObjectConfig extends SceneMotion {
@@ -120,6 +138,6 @@ export const createSceneObject = <S extends Object3D>(object: S | Accessor<S | u
     },
   }
   // Its ward's keys alone, read per key as a ward reads them: `parent` and `dispose` are the membership's.
-  const motion = omit(config, "parent", "dispose") as WardConfig
+  const motion = omit(config, "parent", "dispose") as StageWardConfig
   return stageSceneObject(scene.environment)(object, scene.split(object, motion), membership) as SceneObject
 }

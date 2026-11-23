@@ -822,3 +822,45 @@ What the owner decided:
 
   The scene lab's SL5 opens a card, sees its pips open, and moves a pip to the closed card, where it closes.
 - **The scene lab:** a third card. Two cards each carry pips that follow them, staggered in `children` order, and buttons move a pip from card to card. Probing it found that a screenshot mid-animation starves headless Chromium's frames on software WebGL, 3 in 1.5 s, so the lab's browser tests take none between steps.
+
+**PR 4, as built:** drag in 3D (decision 18, Q8).
+- **`ThreeDrag`** (`@wardic/three`) holds decision 9's semantics. Core's drag recognizer runs on the scene's input, with its threshold, claim and 100 ms velocity.
+  - **The grab:** at the down, the pointer's ray finds where it met the object. On a box, that's its face, so a drag moves on the plane through the face (DR1's 7.5 from the camera, not 8).
+  - **Where it moves:** on the plane through that point facing the camera; on `dragPlane`; or, for an axis drag, on the plane holding that axis of the parent's space that faces the camera best, each hit taken to the axis's line.
+  - **Ranges:** `dragConstraints` per axis, in the parent's space, rubber-banded by `dragElastic` as core's `Drag.constrain` does.
+  - **The release:** Motion's, inertia per axis.
+    - **Its settings:** power 0.8, a 750 ms time constant, a bounce of 200 and 40 (rigid with no elastic), and rest within 1 and below 10 a second of Motion's units, through the scene's unit scale.
+    - **Its bounds:** the ranges, or with `dragSnapToOrigin` the place it was picked up from.
+    - **Its velocity:** the recognizer's pointer velocity, cast onto the drag one 1/60 s step back, in the parent's units a second. `dragMomentum: false` gives it none.
+  - **A cancel** stops it where it is, with no release.
+- **How a drag holds `z`:** each move is a 0 s change through the Stage's `animate`, so a ward on the object holds `x`, `y` and `z` as an Imperative animation's keys (#433), until its own target for one changes (DR9). The spine's drag hold covers only `x` and `y`, the page's translate keys, and a scene's drag moves `z` too. So a scene's resolution keeps `dragging` off, and `dragged` turns `whileDrag` on.
+- **The Stage ward:**
+  - It takes the drag keys and `whileDrag`, and its environment gains `drag`; the `Stage` interface gains `drag` beside it.
+  - It runs the drag's watch beside its hover and press, in the same Scope, so an exit quiets it and a Subject taken back starts it again.
+  - It feeds the lifecycle the pointer's samples, so `dragStart`, `drag`, `dragEnd`, `dragTransitionEnd` and `createDrag(card)` are a ward's on the page.
+  - A `drag` on a Stage with none is a development error naming it (SW6 now expects it).
+- **Types:** `StageWardConfig` is a ward's config with the scene's drag keys (`StageDragConfig`) in place of the page's, and three adds `dragPlane` by declaration merging.
+  - **`ward`'s Stage overload** is bound by `WardConfig | StageWardConfig`, and `StageWard`'s `C` is unbounded. Bound by `StageWardConfig` alone, `ward<C>` for a page's `C` failed to instantiate the overload (`ward-keys.ssr.test.tsx`'s `ReturnType<typeof ward<C>>`).
+- **`createDrag(mesh)`:** core's drag watch on the Stage's input, as `createHover(mesh)`'s, only for a value the Stage takes as its Subject. A plain object first is still the sensor's options.
+- **Not here:** a Stage adopting a runtime has no camera or canvas of its own, so it gives no `drag`. The events carry the pointer's 2D info, as a ward's on the page; the object's place is `read`'s.
+- **Size:** `t2-stage` 300.1 → 301.8 KB, its budget raised by the 1.7 measured, to 301.9. `ThreeDrag` is 3.6 KB minified and the Stage ward's part 0.7. Core's drag recognizer was in already, through the DOM ward (#927).
+  - **Every Stage brings drag (Q8).** An opt-in, as the page's Features are, would take it out of scenes that don't drag: a choice for the owner.
+- **Found in the scene lab:** three's raycaster takes a line within a whole unit of the ray (`Raycaster.params.Line.threshold`, 1). The card's `GridHelper` caught the pointer meant for the pieces, and the lab's grid has no raycast now. Any line in a scene catches a scene's hover, press and drag the same way, by three's default.
+- **Tests,** in `three-solid`, DR1–DR9:
+  - DR1: the plane facing the camera;
+  - DR2: an axis alone;
+  - DR3: `dragPlane`, the ground;
+  - DR4: constraints with `dragElastic`, back within at the release;
+  - DR5: `dragSnapToOrigin`;
+  - DR6: momentum and `dragTransitionEnd`;
+  - DR7: `whileDrag` with `dragStart` and `dragEnd`;
+  - DR8: `createDrag(mesh)`;
+  - DR9: the hold until the ward's own target changes.
+
+  The scene lab's SL6 drags the knob with a real mouse, `userEvent.dragAndDrop` on its canvas, and sees it come to rest at its range's end. It waits for the canvas's size first, since a position taken before the canvas is sized misses the knob.
+- **The scene lab:** a fourth card.
+  - **The knob** slides along its rail's `x` within its range.
+  - **The crate** drags facing the camera, then snaps back.
+  - **The puck** slides on the ground and glides on, kept on the board.
+
+  With a real mouse, the knob held 120 px right read 1.60 (1.5 and the elastic's give), and 2.82 pulled far past its range. Let go, it came back to 1.50, and a flicked puck came to rest within its board.
