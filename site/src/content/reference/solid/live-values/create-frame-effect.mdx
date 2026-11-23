@@ -26,7 +26,7 @@ createFrameEffect(card.read("x"), (x) => {
 - **Order:** Frame effects run in the order they were made.
 - **Every frame:** read `createTime()` in the compute.
 
-Solid's own `createEffect` runs on Solid's schedule. For a value that moves in Wardic's frame, that's after the frame has been painted, so a write there shows a frame late. `createFrameEffect` runs in the frame itself.
+Solid's own `createEffect` runs on Solid's schedule, a microtask after the values it read change. On the page, that's still before the frame is painted. In a scene's loop, which draws right after Wardic's writes in the same callback, it's after the draw, so a write there shows a frame late. `createFrameEffect` runs before the scene draws.
 
 A throw from the apply is logged, and the other Frame effects still run. Make it in a component's body, under a `<WardicProvider>`; it stops with its owner. Nothing runs on a server. Solid 2 only.
 

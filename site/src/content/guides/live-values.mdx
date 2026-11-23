@@ -53,6 +53,16 @@ const opacity = createTransform(card.read("x"), [-150, 0, 150], [0, 1, 0])
 <w.div wardRef={card} style={{ opacity }} />
 ```
 
+## In Wardic's frame
+
+`createFrameEffect(compute, apply)` runs your own code in Wardic's frame, for drawing what isn't an element's style. Its compute reads values, a ward's `read("x")` among them. Its apply runs after Wardic has written the frame's styles and before the frame is painted. Here, a canvas draws a line between two balls as you drag them:
+
+<Demo sample="frame-effect" />
+
+<CodeTabs sample="frame-effect" />
+
+Its apply runs again only once what the compute read has changed, and every frame with `createTime()` read in the compute. On the page, Solid's own `createEffect` reading the same values also runs before paint. In a scene's loop, which draws right after Wardic's writes, only `createFrameEffect` lands in the frame being drawn. Solid 2 only: see [createFrameEffect](/reference/solid/live-values/create-frame-effect).
+
 ## Where they live
 
 Make them in a component's body, where you'd make a signal: each one lives as long as its owner. On the server, each is its source's value at that moment. [Scroll](/guides/scroll) values are live values too.

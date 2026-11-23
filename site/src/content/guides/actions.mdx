@@ -1,0 +1,50 @@
+---
+title: Sequences as actions
+description: Animations played in turn from a Solid 2 action, with a flag for the busy state and writes that land once the last step has.
+---
+
+# Sequences as actions
+
+[`createAnimate`](/reference/solid/animation/create-animate)'s `animate` returns controls that are a promise of the animation's landing, so a Solid 2 `action` can `yield` them. Each step waits for the one before it to land:
+
+<Demo sample="actions" />
+
+<CodeTabs sample="actions" />
+
+## What the action holds
+
+An action is a transition: Solid holds the writes it makes until it's done.
+
+- **A write the action makes** (`setOpen(opening)`) shows once its last animation has landed, however early it's made. The box's label changes as the gem settles.
+- **An optimistic flag**, `createOptimistic(false)` set to `true` as the action starts, shows at once and goes back as the action ends: what the button says while it runs. `isPending` doesn't report it, since it reports only what `affects()` declares.
+- **Each animation** starts as `animate` is called and plays on its own. The action waits only where it yields.
+
+## Steps or a sequence
+
+A [sequence](/reference/solid/animation/sequences), `animate([...])`, lays steps out in time and plays them as one animation: it can overlap them (`at: "-0.1"`), and seek and pause them all. An action's steps run one after another with your own code between them, so a step can wait for a server too:
+
+```tsx
+import { createAnimate } from "@wardic/solid"
+import { action, createOptimistic } from "solid-js"
+
+declare const saveDraft: (text: string) => Promise<void>
+
+export function Editor() {
+  const [scope, animate] = createAnimate()
+  const [saving, setSaving] = createOptimistic(false)
+  const save = action(function* (text: string) {
+    setSaving(true)
+    yield animate(".draft", { opacity: 0.5 })
+    yield saveDraft(text)
+    yield animate(".draft", { opacity: 1 })
+  })
+  return (
+    <form ref={scope} onSubmit={(event) => (event.preventDefault(), save("…"))}>
+      <textarea class="draft" />
+      <button disabled={saving()}>Save</button>
+    </form>
+  )
+}
+```
+
+Solid 1 has no actions: an `async` function awaits each step the same way, with signals of its own for the busy state.

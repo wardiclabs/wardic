@@ -735,6 +735,89 @@ a {
   background: conic-gradient(from 210deg, var(--aurora), #8fbcbb);
 }
 
+/* The frame-effect sample's canvas: under the balls, its line in the accent. The arena isolates it, so
+   it's beneath the balls, moved or not, and above the page. */
+.sample-arena:has(.sample-canvas) {
+  isolation: isolate;
+}
+
+.sample-canvas {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--accent);
+  pointer-events: none;
+}
+
+/* The actions sample's box: the gem behind the lid and inside the base until it rises. */
+.sample-chest {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.sample-chest-base,
+.sample-lid,
+.sample-gem {
+  position: absolute;
+}
+
+.sample-chest-base {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  height: 52px;
+  border-radius: 6px 6px 12px 12px;
+  background: var(--accent);
+  box-shadow: var(--shadow-m);
+}
+
+.sample-lid {
+  right: -4px;
+  bottom: 50px;
+  left: -4px;
+  z-index: 2;
+  height: 18px;
+  border-radius: 9px 9px 4px 4px;
+  background: var(--accent);
+  filter: brightness(1.15);
+  transform-origin: left bottom;
+}
+
+.sample-gem {
+  bottom: 32px;
+  left: calc(50% - 14px);
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  background: conic-gradient(from 210deg, var(--aurora), #8fbcbb);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  opacity: 0;
+}
+
+/* The ref-arrays sample's two readings, each lit while it's on. */
+.sample-flags {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-s);
+}
+
+.sample-flags span {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--muted);
+}
+
+.sample-flags .on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* The arc sample's ball starts at the top: with no direction, its arc dips below the straight line. */
 .sample-track {
   display: flex;
