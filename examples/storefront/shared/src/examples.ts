@@ -435,6 +435,24 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".display-detail",
   },
   {
+    id: "fire-the-kiln",
+    area: "scenes",
+    docs: "/guides/actions",
+    title: "Fire the kiln: a sequence as an action",
+    summary: "Three pieces in raw glaze on a kiln's shelf: fire it and the lid shuts, everything glows from dull red to white-hot, then cools to show each glaze.",
+    why: [
+      "A firing is steps, each waiting for the last: the lid shuts, the kiln heats, it soaks, it cools, the lid opens. That's a Solid 2 `action`: a generator that yields each step's `stage.animate(...)`, whose controls are a promise of its landing, so the next step starts as the last one lands. It's the code's order, top to bottom, with no timeline to keep in step with it.",
+      "The heat is one number, in °C, on the kiln's own object, and the Stage animates it as any number on a scene object. A Frame effect reads it each frame it moves and writes it four ways. The glow of everything in the kiln is one colour that every material there shares as its `emissive`, in linear light, past white at the top, the pieces a little behind the walls. The room's light comes down as the glow goes up, as a camera's exposure would. And the controller's red figures and the page's count. All of it moves in the frame the heat moved in, with no signal written and no component run again.",
+      "The step under way is a `createOptimistic` signal the action writes as each step begins. An action's own writes wait for it to end, but an optimistic one shows at once and goes back as the action ends, which is Solid's own way to show a process under way: `isPending` is for data on its way. The camera follows it too, a ward's variants on the camera, drawing in as the lid shuts and back as it opens.",
+    ],
+    reducedMotion: "The lid shuts and opens at once, and the camera cuts. The heat still rises and falls: it's a colour and a figure, not movement.",
+    uses: ["action", "yield stage.animate(…)", "createOptimistic", "createFrameEffect", "a number on a scene object", "emissive in linear light"],
+    apps: ["solid2"],
+    release: "1.3",
+    interact: ".kiln-fire",
+    watch: ".kiln-step",
+  },
+  {
     id: "notifications",
     foldkit: {
       note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot.",
