@@ -15,7 +15,7 @@ const pressed = createPress()
 <button ref={pressed}>{pressed() ? "Holding" : "Press and hold"}</button>
 ```
 
-On Solid 2, `createPress()` is a sensor, given to the element's `ref`. On Solid 1, `createPress(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does.
+On Solid 2, `createPress()` is a sensor, given to the element's `ref`. Given an element or a ward first, `createPress(card)` reads it instead, and gives back its reading alone: a ward's own press, `true` from its `pressStart` to its `tap` or `tapCancel`, or to a drag that takes the press over. On Solid 1, `createPress(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does.
 
 An element that takes no focus of itself, such as a `div`, is given `tabindex="0"`, so a keyboard can press it. On a server, and until the first press, it's `false`.
 

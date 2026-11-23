@@ -8,6 +8,10 @@
  * <div ref={hovered}>{hovered() ? "in" : "out"}</div>
  * ```
  *
+ * Or give it its element, or a ward, first: `createHover(el)` reads `el`, and `createHover(card)` reads the
+ * ward's own recognizer, which `card`'s `when` would start, so nothing listens to its element twice
+ * (#884). Then it's an accessor alone.
+ *
  * Each wraps a core recognizer (ADR-0006): attached, it runs on the provider's runtime until the
  * sensor's owner is disposed or it's given another element. Each is a watch (#318, #379, ADR-0055),
  * in a Scope of its own with no fiber. Its value starts at its rest (`false`,
@@ -23,7 +27,9 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Report from "@wardic/dom/Report"
 import type * as Cause from "effect/Cause"
+import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
 import * as Scope from "effect/Scope"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -31,6 +37,8 @@ import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { inViewOptionsOf } from "./gesture-callbacks.ts"
+import type { Listener } from "./waiters.ts"
+import { type AnyWard, type Sensed, sensedOf } from "./ward.tsx"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type { WardicServices } from "./runtime.ts"
 import { fromAtom } from "./bridge.tsx"
@@ -50,7 +58,26 @@ export interface Sensor<A> {
 }
 
 /** Whether a sensor's call is Solid applying it as a ref. */
-const isElement = (value: unknown): value is Element => Predicate.hasProperty(value, "nodeType")
+export const isElement = (value: unknown): value is Element => Predicate.hasProperty(value, "nodeType")
+
+/** What a sensor takes first, when it isn't its call form: an element, or a ward whose own recognizer it reads (#884). */
+export type SensorTarget = Element | AnyWard
+
+/** A sensor of a ward: its reading, set by `listen` from the ward's own events (#884's PR 2). */
+// `listen` subscribes to the ward's lifecycle, which starts the gesture's recognizer as `when` would: the
+// ward's own, so nothing listens to its element twice. A server ward has no lifecycle: it rests there.
+export const wardSensorOf = <A,>(ward: AnyWard, initial: A, listen: (sensed: Sensed, set: (next: A) => void) => ReadonlyArray<() => void>): Accessor<A> => {
+  if (isServer) return () => initial
+  const sensed = sensedOf(ward)
+  if (Predicate.isUndefined(sensed)) return () => initial
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
+  const stops = listen(sensed, (next) => setValue(() => next as Exclude<A, Function>))
+  onCleanup(() => Arr.forEach(stops, (stop) => stop()))
+  return value
+}
+
+/** A ward event's listener for a sensor: each told as `on` maps it, the ward's end ending nothing more. */
+export const told = <E,>(on: (event: E) => void): Listener<E> => ({ next: on, error: constVoid })
 
 
 /**
@@ -61,6 +88,7 @@ const isElement = (value: unknown): value is Element => Predicate.hasProperty(va
 export const watchSensorOf = <A,>(
   watchOf: (target: Element, handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
   initial: A,
+  target?: Element,
 ): Sensor<A> => {
   // A server never calls a ref: the sensor rests where it starts.
   if (isServer) return ((): A => initial) as Sensor<A>
@@ -84,6 +112,8 @@ export const watchSensorOf = <A,>(
     attached = { element, scope }
     runtime.runSync(watchOf(element, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect }).pipe(Scope.provide(scope)))
   }
+  // Given its element first (#884): attached now.
+  if (Predicate.isNotUndefined(target)) attach(target)
   // eslint-disable-next-line solid/reactivity -- the sensor: a ref Solid calls with its element, and an accessor its caller reads where it tracks
   return ((element?: unknown): A | undefined => {
     if (isElement(element)) {

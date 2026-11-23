@@ -12,33 +12,65 @@ import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as DomDrag from "@wardic/dom/unstable/features/Drag"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import type { Accessor } from "solid-js"
 import { useBrought } from "./provider.tsx"
-import { type Sensor, watchSensorOf } from "./sensors.tsx"
+import { isElement, type Sensor, wardSensorOf, watchSensorOf } from "./sensors.tsx"
+import { type AnyWard, isWard } from "./ward.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
 const DRAG: ReadonlyArray<Feature.Feature> = [DomDrag.drag]
 
+/** `createDrag`'s forms: a sensor to give to a `ref`; or, given its element or a ward first, its reading. */
+export interface CreateDrag {
+  (options?: CreateDragOptions): Sensor<Drag.Sample | null>
+  (element: Element, options?: CreateDragOptions): Accessor<Drag.Sample | null>
+  (ward: AnyWard): Accessor<Drag.Sample | null>
+}
+
+/** A drag sensor's element, when its first argument is one. */
+const elementOf = (first: unknown): Element | undefined => {
+  if (isElement(first)) return first
+  return undefined
+}
+
+/** A drag sensor's options: its second argument after an element, else its first. */
+const optionsOf = (first: unknown, more: CreateDragOptions | undefined): CreateDragOptions | undefined => {
+  if (isElement(first)) return more
+  return first as CreateDragOptions | undefined
+}
+
 /**
  * The latest sample of a drag on the element it's given to as a `ref`, `null` before the first: where
  * the pointer is, how far it has come, its velocity, and the gesture's `phase`. It moves nothing: it
  * reports, for a drag that drives something else, such as a slider's value. Like an element's own
- * drag, it takes the element's drag while a gesture is on, unless `claim: false`.
+ * drag, it takes the element's drag while a gesture is on, unless `claim: false`. Given its element
+ * first, it reads that one; given a ward, the ward's own drag, by its own config: a ward that doesn't
+ * drag tells none.
  *
  * @example
  * const drag = createDrag({ axis: "x" })
  * const value = () => (drag()?.offset.x ?? 0) / 2
  * <div class="track" ref={drag} />
+ *
+ * const card = ward({ drag: "x" })
+ * const dragging = createDrag(card)
  * @see https://wardic.dev/reference/solid/gestures/create-drag
  */
 // The core drag watch (#379), with `options`' axis, claim and bounds; the element's Drag claim held
-// while a gesture is on.
-export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> => {
+// while a gesture is on. Given a ward (#884), the samples its own drag watch makes.
+export const createDrag: CreateDrag = ((first?: CreateDragOptions | Element | AnyWard, more?: CreateDragOptions): Sensor<Drag.Sample | null> | Accessor<Drag.Sample | null> => {
+  if (isWard(first)) {
+    return wardSensorOf<Drag.Sample | null>(first, null, ({ lifecycle }, set) => [lifecycle.listenSamples(set)])
+  }
+  const target = elementOf(first)
+  const options = optionsOf(first, more)
   // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
   const pagePoint = WardicConfigValue.transformPagePointOf(useWardicConfig())
   const services = useBrought(DRAG)
   return watchSensorOf<Drag.Sample | null>(
-    (target, handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, GestureFeatures.inputIn(services())),
+    (element, handlers) => Effect.provideService(watchDragSamples(element, { ...options }, handlers, pagePoint), InputSource.InputSource, GestureFeatures.inputIn(services())),
     null,
+    target,
   )
-}
+}) as CreateDrag

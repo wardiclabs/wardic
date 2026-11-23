@@ -308,6 +308,8 @@ interface WardState {
   readonly atom: (key: string) => Atom.Atom<unknown>
   readonly with: (own: WardWithProps) => WardProps
   readonly lifecycle: Lifecycle
+  /** The element it's on now, for a sensor given the ward (#884). */
+  readonly element: Accessor<HTMLElement | undefined>
   settled: Accessor<WardSettled | undefined> | undefined
   tapped: Accessor<WardPressInfo | undefined> | undefined
   next: (<E extends WardEvent>(name: E) => Promise<WardEvents[E]>) | undefined
@@ -320,6 +322,22 @@ const WARD_STATE: unique symbol = Symbol("wardic.wardState")
 
 /** A ward's {@link WardState}. */
 const stateOf = (ward: object): WardState => (ward as { readonly [WARD_STATE]: WardState })[WARD_STATE]
+
+/** Whether `value` is a ward, by its mark: what a sensor takes beside an element (#884). */
+export const isWard = (value: unknown): value is AnyWard => Predicate.hasProperty(value, WARD)
+
+/** What a sensor given a ward reads of it (#884's PR 2): its lifecycle's events, and the element it's on. */
+export interface Sensed {
+  readonly lifecycle: Lifecycle
+  readonly element: Accessor<HTMLElement | undefined>
+}
+
+/** A client ward's {@link Sensed}: `undefined` for a server's, which has none. */
+export const sensedOf = (ward: AnyWard): Sensed | undefined => {
+  if (Bool.not(Predicate.hasProperty(ward, WARD_STATE))) return undefined
+  const state = stateOf(ward)
+  return { lifecycle: state.lifecycle, element: state.element }
+}
 
 /**
  * The members every client ward shares (#525): one prototype over `Function.prototype`, so a ward is
@@ -1874,6 +1892,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       return spreadPropsOf({ ref: { value: withRef(own.ref, self), enumerable: true }, style: styleKey, ...attributes })
     },
     lifecycle,
+    element,
     settled: undefined,
     tapped: undefined,
     next: undefined,
