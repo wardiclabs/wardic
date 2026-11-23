@@ -227,6 +227,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/scenes/kintsugi";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/scenes/kintsugi")>;
+      $$route?: undefined;
+    },
+    {
       path: "/scenes/turn-the-vase";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/scenes/turn-the-vase")>;
@@ -390,6 +396,14 @@ declare module "virtual:file-routes" {
       id: "/presence/toasts";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/presence/toasts")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/scenes/kintsugi";
+      id: "/scenes/kintsugi";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/scenes/kintsugi")>;
       $$route?: undefined;
       children?: undefined;
     },
