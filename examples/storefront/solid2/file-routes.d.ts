@@ -191,6 +191,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/many/studio-year";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/many/studio-year")>;
+      $$route?: undefined;
+    },
+    {
       path: "/presence/gallery";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/presence/gallery")>;
@@ -372,6 +378,14 @@ declare module "virtual:file-routes" {
       id: "/presence/toasts";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/presence/toasts")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/many/studio-year";
+      id: "/many/studio-year";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/many/studio-year")>;
       $$route?: undefined;
       children?: undefined;
     },
