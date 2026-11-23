@@ -12,6 +12,7 @@
 // - SO9: the Stage's end lands an exit still in flight.
 // - SO10: its `exit` a variant name; an exit's own transition.
 // - SO11: `ward(mesh, { exit })` is an error naming `createSceneObject`; no three.js Stage above it is one too.
+// - SO12: an object given again while it's still exiting stays: its exit stops, and it returns from where it is.
 import { ward, WardicStage } from "@wardic/solid"
 import { createSceneObject, type SceneObject, TestStage } from "@wardic/three/solid"
 import type { JSX } from "@solidjs/web"
@@ -319,6 +320,54 @@ describe("createSceneObject (#885's PR 2)", () => {
     await frames(8)
     expect(mesh.position.y).toBeCloseTo(-1, 5)
     expect(mesh.parent).toBeNull()
+  })
+
+  it("SO12: an object given again while it's still exiting stays: its exit stops, and it returns from where it is", async () => {
+    const { scene, stage, frames } = stageOf()
+    const a = meshOf()
+    const b = meshOf()
+    const [tab, setTab] = createSignal<"a" | "b" | "none">("a")
+    let card!: SceneObject
+    const Card = () => {
+      const current = () => {
+        if (tab() === "a") return a
+        if (tab() === "b") return b
+        return undefined
+      }
+      card = createSceneObject(current, { initial: { scale: 0 }, animate: { scale: 1 }, exit: { scale: 0 }, transition: LINEAR })
+      return card.held
+    }
+    mountTree(() => (
+      <WardicStage value={stage}>
+        <Card />
+      </WardicStage>
+    ))
+    await frames(20)
+    // A swap, and back, inside the exit: a stays in the scene and returns to its scale from where it was.
+    setTab("b")
+    await frames(4)
+    const exiting = a.scale.x
+    expect(exiting).toBeLessThan(1)
+    expect(exiting).toBeGreaterThan(0)
+    setTab("a")
+    await frames(1)
+    expect(a.scale.x, "from where it was, not its initial").toBeGreaterThan(exiting - 0.15)
+    await frames(30)
+    expect(a.parent, "its old exit doesn't take it out").toBe(scene)
+    expect(a.scale.x).toBeCloseTo(1, 5)
+    expect(b.parent, "b exited and left").toBeNull()
+    expect(card.read("scale")()).toBeCloseTo(1, 5)
+    // Gone, and back, inside the exit: the same.
+    setTab("none")
+    await frames(4)
+    setTab("a")
+    await frames(30)
+    expect(a.parent).toBe(scene)
+    expect(a.scale.x).toBeCloseTo(1, 5)
+    // And it still leaves when it's let go for good.
+    setTab("none")
+    await frames(30)
+    expect(a.parent).toBeNull()
   })
 
   it("SO11: ward(mesh, { exit }) is an error naming createSceneObject, and so is no three.js Stage above it", () => {

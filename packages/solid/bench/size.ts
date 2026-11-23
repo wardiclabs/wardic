@@ -68,8 +68,11 @@ const GATE = 1.01
  * (ADR-0073, *Amendment (#882)*), which Foldkit's Slim app ships and Solid's don't. `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
+ * #885's PR 2 raised it to 298.9 by what it measured: a Scene object's code is a side only `createSceneObject`
+ * brings, and what's left on every Stage ward's path (its branches for a side, and taking back a Subject
+ * given again mid-exit) took the app 0.1 past its first number's room.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 298.8 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 298.9 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

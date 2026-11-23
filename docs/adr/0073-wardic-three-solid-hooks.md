@@ -759,7 +759,7 @@ What the owner decided:
 **PR 2, as built:** `createSceneObject`.
 - **`createSceneObject(object, config)`** takes an object, or an accessor of one, and its ward's keys with `exit`, plus `parent` and `dispose`, which are the membership's. `omit` keeps the rest read per key, as a ward reads them. Its handle, `SceneObject`, is a ward that also tells `exitStart` and `exitComplete` (decision 15). With no three.js Stage above it, it's an error; on a server, it does nothing.
 - **In `@wardic/solid`:** `stageSceneObject(environment)` is the Stage ward with a `StageMembership`: `join`, `leave`, and `exiting`, which hands the Stage what lands an exit at once. `ward(mesh, { exit })` is a dev error naming `createSceneObject`.
-  - **What it costs a Stage that doesn't use it:** the Scene object's code is a side (`sceneSideOf`) that only `stageSceneObject` makes, and `createSceneObject` alone imports it. Built into the ward itself, it put `t2-stage` at 299.2 KB, over its 298.8 budget. As a side, `t2-stage` is 298.8: the ward's branches for a side it doesn't have, and the Stage's exits.
+  - **What it costs a Stage that doesn't use it:** the Scene object's code is a side (`sceneSideOf`) that only `stageSceneObject` makes, and `createSceneObject` alone imports it. Built into the ward itself, it put `t2-stage` at 299.2 KB, over its 298.8 budget. As a side, `t2-stage` is 298.8 KB: the ward's branches for a side it doesn't have, and the Stage's exits. Taking back a Subject given again mid-exit (below) took it just past 298.8, so its budget is raised by the 0.1 measured, to 298.9, as #672's Q23 and #882 did.
 - **Joining** (*Amendment (#881)*, item 2): it joins when the ward mounts on its Subject. A Scene object's mount also waits for every key still loading at setup, not only its target's.
   - **Parent:** the one given, else the one it has (a model's node stays where it is), else the Stage's scene. A Stage adopting a runtime has no scene, so an object with neither is an error naming `parent`.
   - **First frame:** its `initial` goes through the gate before the first frame is drawn. If its run starts as it joins, that frame draws one step from `initial` (SO2's 0.08 of 1), never its own pose.
@@ -768,6 +768,10 @@ What the owner decided:
   - **With no `exit`,** it leaves at once.
   - **Its exit waits** outlive its owner until its last exit has landed.
 - **Each Subject mounts on its own gate id, snapshot and reuse,** so an accessor's next object enters, afresh from `initial`, as the last one exits. `read` and `atom` follow the current one's id through an Atom kept alive. A registry drops an Atom no one holds, and SO7 found `read` back on the first id.
+- **A Subject given again while its exit plays is taken back** (`reclaim`): its exit stops where it is, it stays in the scene, and the ward's next Retarget runs on its spine from there.
+  - **What it fixed:** spamming the scene lab's swap left no shape. A shape given back mid-exit joined as a new mount, where it already was, and then its old exit landed and took it out.
+  - **Measured on the page:** bursts of 2 to 12 swaps, 40 to 300 ms apart, left no shape on the commit before and one after each burst.
+  - `exitComplete` isn't told for an exit taken back.
 - **The Stage's end lands the exits still in flight,** before its runtime is disposed: `createStage`'s cleanup, and `TestStage`'s `dispose`. Their objects leave the scene, which stays the app's.
 - **Tests,** in `three-solid`, SO1–SO11:
   - SO1: it joins with its `initial` drawn;
@@ -780,7 +784,8 @@ What the owner decided:
   - SO8: `dispose: true`;
   - SO9: the Stage's end;
   - SO10: an exit as a variant name, on its own transition;
-  - SO11: the two errors.
+  - SO11: the two errors;
+  - SO12: a Subject given again mid-exit taken back, after a swap and after `undefined`, then still leaving when let go.
 
   The Stage ward's SW1–SW8 pass unchanged. The scene lab's SL4 adds a crate, then sees a removed one stay in the scene while its exit plays and leave once it lands.
 - **The scene lab:** a second card. Crates in a `<For>` drop in, sink away as they're removed, and the rest close up. A shape given as an accessor swaps, the next entering as the last exits; sampled every 50 ms after a swap, two shapes were in the scene for 0.8 s.

@@ -130,11 +130,13 @@ interface Mounted {
   readonly snapshot: Spine.Snapshot
   hover: boolean
   press: boolean
-  /** A Scene object's exit starts: `land` lands it once its spine settles, a failed exit too. */
-  readonly exitWith: (land: () => void) => void
+  /** A Scene object's exit starts: `land` lands it once its spine settles, a failed exit too; none, it's taken back. */
+  readonly exitWith: (land: (() => void) | undefined) => void
   readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>) => void
   /** Its recognizers stop, and the Stage's `animate` no longer goes through it: an exit's start. */
   readonly quiet: () => void
+  /** What `quiet` stopped goes again: a Scene object's Subject taken back while it exits. */
+  readonly wake: () => void
   readonly dispose: () => void
 }
 
@@ -203,6 +205,11 @@ interface SceneSide {
   readonly joined: (subject: object, id: string) => void
   /** `m` leaves, through its exit. */
   readonly leave: (m: Mounted) => void
+  /**
+   * `subject`'s mount, taken back while its exit is in flight: its exit stops where it is, and it stays in
+   * the scene. None when it isn't exiting.
+   */
+  readonly reclaim: (subject: object) => Mounted | undefined
   /** Its owner has ended: its exit waits end once its last exit has landed. */
   readonly ended: () => void
   /** Its value for `key`, on the Subject it's on now. */
@@ -227,6 +234,10 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
   const endExits = (): void => {
     if (Bool.and(gone, leaving === 0)) exits.dispose()
   }
+  // Each Subject whose exit is in flight, with what stops it there: given again, it's taken back.
+  const inFlight = new Map<object, { readonly m: Mounted; readonly id: string; readonly stop: () => void }>()
+  // Each Subject's gate id, as it joined.
+  const ids = new WeakMap<object, string>()
 
   /** Its `exit`, as a Retarget's target on `m`'s spine: none when it has no `exit`. */
   const exitOf = (m: Mounted): Spine.Resolution | undefined =>
@@ -251,6 +262,7 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
     const land = (): void => {
       if (landed) return
       landed = true
+      inFlight.delete(m.subject)
       untracked()
       m.dispose()
       membership.leave(m.subject)
@@ -262,8 +274,28 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
     if (Predicate.isUndefined(exit)) return land()
     m.exitWith(land)
     untracked = membership.exiting(land)
+    inFlight.set(m.subject, {
+      m,
+      id: ids.get(m.subject) as string,
+      stop: () => {
+        landed = true
+        untracked()
+        leaving--
+      },
+    })
     untrack(() => m.spine.retarget(exit))
   }
+
+  // Taken back: its exit stops, and the ward's next Retarget runs from where the exit left it.
+  const reclaim = (subject: object): Mounted | undefined =>
+    UndefinedOr.map(inFlight.get(subject), (known) => {
+      inFlight.delete(subject)
+      known.stop()
+      known.m.exitWith(undefined)
+      known.m.wake()
+      registry().set(currentId, known.id)
+      return known.m
+    })
 
   return {
     own: (begun) => {
@@ -288,11 +320,13 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
         }),
     }),
     joined: (subject, mountId) => {
+      ids.set(subject, mountId)
       registry().set(currentId, mountId)
       // It joins its scene now, the ward able to start: its `initial` is the frame's to write.
       membership.join(subject)
     },
     leave,
+    reclaim,
     ended: () => {
       gone = true
       endExits()
@@ -468,6 +502,11 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
         },
         watch,
         quiet,
+        wake: () => {
+          unregisterAnimatable = Imperative.registerAnimatable(subject, spine)
+          m.hover = false
+          m.press = false
+        },
         dispose: () => {
           quiet()
           spine.dispose()
@@ -544,8 +583,20 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
           // A Stage ward's next Subject starts as the ward did; a Scene object's each enters afresh.
           const fresh = Bool.match(scene, { onTrue: () => mountedOnce, onFalse: () => Predicate.isNotUndefined(mounted) })
           off()
-          if (fresh) beginFresh()
-          mounted = untrack(() => mount(subject))
+          // A Scene object's Subject still exiting is taken back, from where it is; any other mounts.
+          mounted = UndefinedOr.match(
+            UndefinedOr.map(side, (s) => s.reclaim(subject)),
+            {
+              onDefined: (taken) => {
+                startRecognizers(taken)
+                return taken
+              },
+              onUndefined: () => {
+                if (fresh) beginFresh()
+                return untrack(() => mount(subject))
+              },
+            },
+          )
           mountedOnce = true
         }
         const spine = mounted.spine
