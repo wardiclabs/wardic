@@ -73,6 +73,21 @@ body {
 .viewport canvas {
   display: block;
 }
+/* A label a Frame effect pins over the scene (#885's PR 6): its transform is the point it's pinned to. */
+.pinned {
+  position: relative;
+}
+.pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  font-size: 12px;
+  color: #ffd166;
+  white-space: nowrap;
+  /* Above the point, centred on it. */
+  translate: -50% calc(-100% - 22px);
+}
 output {
   font-family: ui-monospace, monospace;
   font-size: 12px;

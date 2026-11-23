@@ -907,3 +907,51 @@ What the owner decided:
 - **The scene lab:** a fifth card, its Stage given `stageBatches`; the drag card's is given `stageDrag`.
   - **A keyed grid of tiles,** a mesh each, which shuffle, come in and leave as one run, and lift under the pointer.
   - **An `InstancedMesh`'s 240 instances,** by count, turning from a ring into a sphere.
+
+**PR 6, as built:** `bench:three`'s cases for the Solid hooks (decision 27, Q13), the scene lab's last cards (decision 29), and 1.3's release prepared (decision 28, Q12). It closes #885.
+- **The cases,** each under a Stage over a runtime the bench pumps (`createStage({ wardic })`), its components mounted with `createComponent`, since the harness has no JSX compile:
+  - `stage/ward`: 1,000 meshes in the scene, each a bare `ward(mesh, …)` moving `y` and `rotateY` on a long tween;
+  - `stage/sceneObject`: 1,000 `createSceneObject(mesh, { parent: scene, … })`, each joining the scene as its ward starts, moving the same;
+  - `stage/frameEffect x100`: 100,000 empty `createFrameEffect`s, nothing moving. At ten times N it timed under 0.1 ms, so it runs at a hundred, as bench:core's tiniest do (#545).
+- **The driver** (bench:core's, shared): a side of `bench:three` is now core, dom, solid, object and three, so each side's hooks are its own. A `Bench` gains three fields:
+  - `modules`: more of a side's modules its harness is given, here `@wardic/three/solid` and `@wardic/solid`; a side without one gives none, and its workloads are reported as new;
+  - `prepare`: readies a side's copy before Bun bundles it;
+  - `build`: more of `bun build`'s arguments.
+- **Solid's JSX in Bun's bundle:** Bun compiles JSX as React's, so `prepare` compiles each `.tsx` of a side's `@wardic/solid` in place with Solid 2's compile. That's `vite.solid2.ts`'s `compileSolid2`, on the Vite plugin's own Babel options. `--loader .tsx:js` then bundles what it wrote as JavaScript: Bun's TSX parser crashed on Solid's output ("Scope mismatch while visiting").
+- **Built for production:** `bun build` resolves the `development` export condition unless it's given `--production`.
+  - **Since 5b,** `bench:three` had bundled `@wardic/three/internal/dev`'s development half, the shared-material check on. Three's workloads move transforms alone, which never reach that check, so 5b's figures stand.
+  - **The hooks' cases** took Solid's dev build, its diagnostics in every `flush()`, until `build: ["--production"]`.
+- **The gate run** (the bench box, `wardic-quiet`, 11 paired reps, base `main` 928f14f against this branch), ms a frame, head and its change; start in ms, through the first frame:
+
+  | Workload | Bun 1.3.13 | Node 22.22 | Start (Bun, Node) | Gate |
+  |---|---|---|---|---|
+  | `three/matrices x10` | 0.64, −0.1% | 0.47, +2.4% | | noise control |
+  | `meshes/each` | 0.34, −0.2% | 0.26, +0.1% | 15.8, 18.4 | ok |
+  | `stage/ward` | 0.39, −3.2% | 0.27, +0.5% | 20.6, 20.2 | ok |
+  | `stage/sceneObject` | 0.33, +2.4% | 0.27, +0.7% | 22.9, 22.2 | ok |
+  | `stage/frameEffect x100` | 0.67, +4.1% | 0.97, +0.0% | 34.7, 32.6 | ok |
+
+  Every other workload passed too, each within ±3.2% but the raycast over meshes (−8.0% on Bun, −4.0% on Node, with the same code on both sides).
+  - **A Scene object's membership** costs nothing a frame: 1,000 move in what 1,000 bare wards take. It's paid as each joins, about 2 µs: their start is 2.0 ms more at 1,000 on both engines.
+  - **A ward on a Stage** against a run each through `wardic.animate`: the same a frame on Node, 0.27 against 0.26 ms; 15% more on Bun, 0.39 against 0.34. Its start is 4–5 ms more at 1,000: Solid's components and each ward's setup.
+  - **An empty Frame effect** costs 6.7 ns a frame on Bun and 9.7 on Node, its `flush()` finding nothing to do, and **allocates nothing**: 0 bytes a frame on Node at 100,000, the target.
+- **The scene lab's last cards,** the sixth and seventh of its "Solid hooks" section:
+  - **A Frame effect:** a moon circles its planet a quarter at a time on its pivot's ward. `createFrameEffect` pins an HTML label to it: compute reads the ward's `rotateY`, and apply projects the moon onto the canvas in the Stage's Host loop, before the render.
+  - **The sensors on a mesh:** `createDrag(dial)` reads the drag and moves nothing, and the app turns the dial from its samples in a Frame effect, by how far the pointer goes round the dial's centre on the screen. `createHover(dial)` and `createPress(dial)` show beside it.
+  - **SL8** puts a real mouse at the label as the first frames place it, and `createHover(moon)` turns on. A quarter on, it waits for the label at the view's middle, with an apply each frame on the way, then puts the mouse at the label again.
+  - **SL9** hovers the dial, then drags a quarter round its centre with a real mouse: the drag ends, and the dial has turned clockwise.
+  - **SL1** counts seven Solid hooks cards.
+- **What the cards found:**
+  - **A Frame effect's frame wasn't drawn under `"demand"`.** The Host loop asked whether to draw after `frame(t)`, by which time the frame had spent the Frame effect's request. An app's own write to the scene from a Frame effect, with nothing animating, stayed undrawn until something else drew: the dial's readout said −60° while its notch stayed upright. The loop now asks before the frame too (CS9).
+  - **A label inside the viewport grew it without end** when the lab's stylesheet wasn't loaded (its tests mount a card alone): the Stage sized the canvas to the viewport, which the label's line made taller, each resize. The label sits beside the viewport, in a wrapper of its own.
+  - **The owner, trying the cards:**
+    - **The label started well below the moon,** then snapped to it once the moon moved. three works out a camera's world matrix as it renders, and the first frame's apply runs before any render, so it projected through a camera at the origin. The apply works the matrix out first. It also follows the viewport's size, so a resize moves the label too. Either fix alone places it, since the Stage's first resize comes a frame later; with neither, SL8's first hover fails.
+    - **The dial stuck on a downward drag:** it turned by the drag's `offset.x` alone. It now turns as the pointer goes round its centre, the shorter way each sample, with nothing inside a dead zone of 12 px, where the angle jumps.
+- **1.3's release, prepared:** `@wardic/three`'s README describes its Solid subpath, and the scene lab's README its Solid hooks' cards. What 1.3's release PR does, as #856 did for Foldkit at 1.2:
+  1. `@wardic/object` and `@wardic/three` join the fixed group, each `private` replaced by `publishConfig`; `publish-packages.ts` publishes them after core, object before three. Their changesets, `object-package-private.md` and `three-package-private.md`, waiting since #882 and #883, land in 1.3.0's CHANGELOG.
+  2. The docs site's reference pages for `@wardic/object`, `@wardic/three` and `@wardic/three/solid`, and a 3D guide (Q12); `wardic-stage.mdx` already has the Stage's side in `@wardic/solid`.
+  3. `TestStage`'s home (decision 26, *Amendment (#883)*'s Q2): it moves to `@wardic/test`, with three an optional peer, or it stays `@wardic/three/TestStage`.
+  4. pack-check's fixtures for `@wardic/three`, in a Vite app and under Solid, from the packed tarballs.
+  5. The first publish of each, as `@wardic/foldkit`'s was: a granular token, then npm's trusted publisher.
+  6. #927, in the 1.3 milestone: a scene's `ward` and `createBatch` carry `@wardic/dom`'s ward and Batch, about 57.6 KB gzipped of `t2-stage`.
+- **Size:** the Host loop's fix is 0.1 KB of `t2-stage`: 300.4 → 300.5, at its budget, 300.5. `t2-features` is 316.1, as on `main`.

@@ -20,5 +20,6 @@
       "@solidjs/web/jsx-dev-runtime": ["../solid/node_modules/@solidjs/web/types/jsx.d.ts"]
     }
   },
-  "include": ["src", "test", "bench"]
+  // Solid's Babel plugins' types, for vite.solid2.ts, whose compile bench:three runs (#885's PR 6).
+  "include": ["src", "test", "bench", "../solid/babel-modules.d.ts"]
 }

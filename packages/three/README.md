@@ -48,4 +48,34 @@ wardic.press(swarm, (event) => (end, { success }) => {
 
 - **Tests:** `@wardic/three/TestStage` runs a scene with no renderer and no page, in Node: `stage.pointer.over(crate)`, then `stage.frame()`.
 
+## With Solid 2
+
+`@wardic/three/solid` runs a scene for a component: `createStage` mounts the canvas, keeps it sized and runs the Host loop, and under `<WardicStage>` the hooks of `@wardic/solid` work on the scene's objects. `solid-js`, `@solidjs/web` and `@wardic/solid` are optional peers, needed only for this subpath.
+
+```tsx
+import { createFrameEffect, ward } from "@wardic/solid"
+import { createSceneObject, createStage, stageDrag, WardicStage } from "@wardic/three/solid"
+
+const stage = createStage({ renderer: () => new WebGLRenderer({ antialias: true }), scene, camera, frameloop: "demand" })
+
+const Crate = (props: { mesh: Mesh }) => {
+  const crate = ward(props.mesh, { initial: { scale: 0 }, animate: { scale: 1 }, whileHover: { y: 0.3, color: "#4fd1c5" }, drag: true })
+  // In the Host loop, after Wardic's writes and before the render: the crate's shadow shrinks as it rises.
+  createFrameEffect(() => crate.read("y")(), (y) => shadow.scale.setScalar(1 - y / 2))
+  return crate.held
+}
+
+<WardicStage value={stage}>
+  <div class="viewport" ref={stage} />
+  <Crate mesh={crate} />
+</WardicStage>
+```
+
+- **`createStage`** takes a renderer or a function making one (called once the page has settled, so a server never does), a scene and a camera. `frameloop: "demand"` draws only while something moves, a Frame effect applies, or after `invalidate()`. `{ wardic }` adopts a runtime made outside Solid, whose maker pumps its frames.
+- **`ward(mesh, config)`** under the Stage takes `initial`, `animate`, `transition`, `variants`, `whileHover` and `whileTap`. A ward with variants and no names of its own follows the nearest ward above its object in three's graph, not Solid's tree.
+- **`createSceneObject(mesh, config)`** adds an object to the scene as its ward starts (its `parent`, else the one it has, else the scene) and removes it once its `exit` lands. `dispose: true` disposes its geometries and materials then.
+- **Drag and Batches are features,** each code only a scene that uses it carries: `createStage({ …, features: [stageDrag, stageBatches] })`. `ward(mesh, { drag })` drags on the plane facing the camera, a `dragPlane`, or an axis; `createBatch({ object, … })` or `createBatch({ instances, … })` animates meshes or an `InstancedMesh`'s instances as one run.
+- **The sensors** take a scene's object: `createHover(mesh)`, `createPress(mesh)`, `createDrag(mesh)`.
+- **Tests:** `@wardic/three/solid`'s `TestStage.make` is a Stage too, so a component's hooks run in Node with no renderer.
+
 Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).
