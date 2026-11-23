@@ -668,6 +668,103 @@ button {
   opacity: 0;
 }
 
+/* Before and after the kiln (#911): two photos, the one on top clipped at the handle. */
+.compare-demo {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+
+.compare {
+  position: relative;
+  width: min(100%, 520px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-m);
+  user-select: none;
+}
+
+.compare img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* Before its glaze: the same photo as bisque, pale and matte, up to where the handle is. */
+.compare-before {
+  filter: grayscale(1) sepia(0.35) brightness(1.15) contrast(0.85);
+  clip-path: inset(0 calc(100% - var(--split, 50%)) 0 0);
+}
+
+.compare-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 22px);
+  width: 44px;
+  display: grid;
+  place-items: center;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.compare-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 21px;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 6px rgb(0 0 0 / 0.35);
+}
+
+.compare-handle:focus-visible {
+  outline: none;
+}
+
+.compare-handle:focus-visible .compare-knob {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.compare-knob {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  color: #2e3440;
+  font-size: 12px;
+  box-shadow: var(--shadow-m);
+}
+
+.compare-label {
+  position: absolute;
+  top: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: var(--text-s);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.compare-label.before {
+  left: 12px;
+}
+
+.compare-label.after {
+  right: 12px;
+}
+
 /* The docs' page on what an example shows (#908), under its why. */
 .guide-link {
   color: var(--muted);
