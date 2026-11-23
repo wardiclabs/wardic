@@ -5,7 +5,8 @@
  * A bench's frame code from `--head` (default: the working tree) against `--base`'s (default: `main`),
  * both through its harness, at N elements, in Bun, Node and Chromium (a bench's own default engines).
  * Each side is the bench's packages' `src` and `package.json` at its ref, its `@wardic/*` imports its
- * own (#883's PR 5b: `bench:three` is core's, object's and three's).
+ * own (#883's PR 5b: `bench:three` is core's, object's and three's; since #885's PR 6, dom's and solid's
+ * too, for its Solid hooks' workloads).
  *
  * - **Paired reps.** Each rep runs base and head back to back, in fresh processes or pages, in
  *   alternating order. The gate reads each workload's per-rep head / base ratios.
@@ -67,6 +68,18 @@ export interface Bench {
   readonly packages: ReadonlyArray<string>
   /** Its harness, from the repo's root: what registers `__wardicBench`, given the last package's module. */
   readonly harness: string
+  /**
+   * More of a side's modules its harness is given, by name, each a path in the side's `packages/`:
+   * `{ stage: "three/src/solid.ts" }`. A side without one gives none, and its workloads report as new.
+   */
+  readonly modules?: Readonly<Record<string, string>>
+  /** Readies a side's copy, at `root`, before Bun bundles it: three's Solid 2 compile of `@wardic/solid`'s `.tsx`. */
+  readonly prepare?: (root: string) => void
+  /**
+   * More of `bun build`'s arguments for each side: three's `--production`, since Bun's bundler resolves
+   * the `development` export condition unless told it's building for production.
+   */
+  readonly build?: ReadonlyArray<string>
   /** The workload that runs the same code on both sides. */
   readonly noise: string
   /** Its engines when `--engines` gives none. */
@@ -113,18 +126,21 @@ export const run = async (bench: Bench): Promise<never> => {
       mkdirSync(join(modules, "@wardic"), { recursive: true })
       if (!existsSync(join(modules, "@wardic", name))) symlinkSync(join("..", ".."), join(modules, "@wardic", name))
     }
+    if (bench.prepare !== undefined) bench.prepare(root)
+    const given = Object.entries(bench.modules ?? {}).filter(([, path]) => existsSync(join(root, "packages", path)))
     const entry = join(root, "entry.ts")
     writeFileSync(
       entry,
       [
         `import * as subject from "./packages/${main}/src/index.ts"`,
+        ...given.map(([name, path]) => `import * as ${name} from ${JSON.stringify(`./packages/${path}`)}`),
         `import { register } from ${JSON.stringify(join(deps, bench.harness))}`,
-        `register(subject)`,
+        `register(subject, { ${given.map(([name]) => name).join(", ")} })`,
         ``,
       ].join("\n"),
     )
     const out = join(root, "bundle.js")
-    const build = spawnSync("bun", ["build", entry, "--outfile", out, "--format=iife", "--minify", "--target=browser", "--conditions=@wardic/source"])
+    const build = spawnSync("bun", ["build", entry, "--outfile", out, "--format=iife", "--minify", "--target=browser", "--conditions=@wardic/source", ...(bench.build ?? [])])
     if (build.status !== 0) throw new Error(`${bench.name}: building ${side} failed\n${build.stderr}`)
     return out
   }
@@ -245,7 +261,7 @@ export const run = async (bench: Bench): Promise<never> => {
       mb = `${(median("base", fibers, "bytesPerFrame") / 1e6).toFixed(2)} → ${(median("head", workload, "bytesPerFrame") / 1e6).toFixed(2)}`
     }
     console.log(
-      `  ${workload.padEnd(22)}${median("base", fibers, "frameMs").toFixed(2).padEnd(10)}${median("head", workload, "frameMs").toFixed(2).padEnd(10)}` +
+      `  ${workload.padEnd(24)}${median("base", fibers, "frameMs").toFixed(2).padEnd(10)}${median("head", workload, "frameMs").toFixed(2).padEnd(10)}` +
         `${`${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`.padEnd(28)}` +
         `${`${median("base", fibers, "startMs").toFixed(1)} → ${median("head", workload, "startMs").toFixed(1)}`.padEnd(18)}${mb.padEnd(16)}` +
         `report only: against base's ${fibers}`,
@@ -269,7 +285,7 @@ export const run = async (bench: Bench): Promise<never> => {
       mb = `${bytes.base} → ${bytes.head}`
     }
     console.log(
-      `  ${workload.padEnd(22)}${ms.base.padEnd(10)}${ms.head.padEnd(10)}${"".padEnd(28)}` +
+      `  ${workload.padEnd(24)}${ms.base.padEnd(10)}${ms.head.padEnd(10)}${"".padEnd(28)}` +
         `${`${start.base} → ${start.head}`.padEnd(18)}${mb.padEnd(16)}${gate}`,
     )
   }
@@ -314,7 +330,7 @@ export const run = async (bench: Bench): Promise<never> => {
     if (engineNoisy) heading += `: TOO NOISY (${bench.noise} ${percent(floor)}), rerun`
     console.log(heading)
     console.log(
-      `  ${"workload".padEnd(22)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
+      `  ${"workload".padEnd(24)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
     )
     for (const row of rowsOf(Object.keys(runs.base[0]!), Object.keys(runs.head[0]!))) {
       if (row.kind === "loop") {
@@ -354,7 +370,7 @@ export const run = async (bench: Bench): Promise<never> => {
         mb = `${(median("base", "bytesPerFrame") / 1e6).toFixed(2)} → ${(median("head", "bytesPerFrame") / 1e6).toFixed(2)}`
       }
       console.log(
-        `  ${workload.padEnd(22)}${median("base", "frameMs").toFixed(2).padEnd(10)}${median("head", "frameMs").toFixed(2).padEnd(10)}` +
+        `  ${workload.padEnd(24)}${median("base", "frameMs").toFixed(2).padEnd(10)}${median("head", "frameMs").toFixed(2).padEnd(10)}` +
           `${`${percent(ratio)} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`.padEnd(28)}` +
           `${`${median("base", "startMs").toFixed(1)} → ${median("head", "startMs").toFixed(1)}`.padEnd(18)}${mb.padEnd(16)}${gate}`,
       )

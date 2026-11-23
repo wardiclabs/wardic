@@ -10,6 +10,10 @@
  *   hover watched and the pointer still over the scene.
  * - **Empty Frame effects:** a hundred times N `afterWrites` effects that do nothing, nothing moving: an
  *   effect's cost a frame, about a nanosecond, whose target is no bytes.
+ * - **The Solid hooks** (`@wardic/three/solid`, #885's PR 6), each under a Stage over a runtime the bench
+ *   pumps (`createStage({ wardic })`): N meshes each a bare `ward(mesh, …)`, against N each a
+ *   `createSceneObject(mesh, …)` joining the scene, for what a Scene object's membership costs; and a
+ *   hundred times N empty `createFrameEffect`s, nothing moving, whose target is no bytes a frame.
  *
  * A workload under 0.1 ms a frame at N runs at ten times N (`x10`), as bench:core's do (#545), or a hundred.
  *
@@ -17,12 +21,22 @@
  * one bundle of this file per side, its core, object and three, and runs them in Bun and Node.
  */
 // ADR-0073 decision 27 and *Amendment (#883)*, PR 5's Q7. The driver and its gate are bench:core's
-// (`packages/core/bench/driver.ts`); `createSceneObject`'s case waits for step 4.
+// (`packages/core/bench/driver.ts`). The Solid hooks' cases are *Amendment (#885)*'s Q13: the driver
+// gives them a side's own `@wardic/three/solid` and `@wardic/solid` (`run.ts`'s `modules`).
+import type * as SolidModule from "@wardic/solid"
+import { children, createComponent, createRenderEffect, createRoot, flush } from "solid-js"
 import * as THREE from "three"
 import type { Options, WorkloadResult } from "../../core/bench/harness.ts"
 import type * as ThreeModule from "../src/index.ts"
+import type * as StageModule from "../src/solid.ts"
 
 type Three = typeof ThreeModule
+
+/** A side's Solid hooks, where it has them: its `@wardic/three/solid` and its `@wardic/solid`. */
+interface Hooks {
+  readonly stage?: typeof StageModule
+  readonly solid?: typeof SolidModule
+}
 
 /** A host hook for allocations: Node with `--expose-gc` (core's `one.mjs`). */
 interface Mem {
@@ -44,9 +58,9 @@ interface Workload {
   /** Meshes or instances per element of N: ten for a workload at ten times N. */
   readonly scale?: number
   /** Whether a side has what it runs: one a base lacks is reported as new. */
-  readonly runsOn?: (three: Three) => boolean
+  readonly runsOn?: (three: Three, hooks: Hooks) => boolean
   /** Its scene at `n`, its runtime made and its animation started. */
-  readonly make: (three: Three, n: number) => Scenario
+  readonly make: (three: Three, n: number, hooks: Hooks) => Scenario
 }
 
 /** Long enough to move every member through every measured frame. */
@@ -126,6 +140,41 @@ const instanceBatch = (three: Three, n: number): Scenario => {
   return scenarioOf(wardic)
 }
 
+const hasHooks = (_three: Three, hooks: Hooks): boolean => hooks.stage !== undefined && hooks.solid !== undefined
+
+/** `n` of `Item`'s components, each given its index, under a Stage over a runtime the bench pumps, mounted and flushed. */
+const staged = (three: Three, hooks: Hooks, n: number, Item: (props: { readonly i: number }) => null): Scenario => {
+  const { stage: kit } = hooks as Required<Hooks>
+  const wardic = three.WardicThree.make()
+  const unmount = createRoot((dispose) => {
+    const stage = kit.createStage({ wardic })
+    // `<WardicStage value={stage}>{indices.map((i) => <Item i={i} />)}</WardicStage>`, compiled by hand.
+    const tree = children(() =>
+      createComponent(kit.WardicStage, {
+        value: stage,
+        get children() {
+          return Array.from({ length: n }, (_, i) => createComponent(Item, { i }))
+        },
+      }),
+    )
+    createRenderEffect(
+      () => tree(),
+      () => undefined,
+    )
+    return dispose
+  })
+  flush()
+  return {
+    frame: wardic.frame,
+    dispose: () => {
+      unmount()
+      wardic.dispose()
+    },
+  }
+}
+
+const MOVING = { animate: { y: 7, rotateY: 360 }, transition: LONG } as const
+
 const WORKLOADS: ReadonlyArray<Workload> = [
   {
     // three's own code alone, the same on both sides: the noise control.
@@ -177,16 +226,59 @@ const WORKLOADS: ReadonlyArray<Workload> = [
       return scenarioOf(wardic)
     },
   },
+  {
+    // A bare ward on each of N meshes in the scene: what a Scene object's membership is measured against.
+    name: "stage/ward",
+    runsOn: hasHooks,
+    make: (three, n, hooks) => {
+      const { solid } = hooks as Required<Hooks>
+      const meshes = meshesIn(new THREE.Scene(), n)
+      return staged(three, hooks, n, (props) => {
+        solid.ward(meshes[props.i]!, MOVING)
+        return null
+      })
+    },
+  },
+  {
+    // N Scene objects, each joining the scene as its ward starts.
+    name: "stage/sceneObject",
+    runsOn: hasHooks,
+    make: (three, n, hooks) => {
+      const { stage } = hooks as Required<Hooks>
+      const scene = new THREE.Scene()
+      const meshes = meshesIn(new THREE.Scene(), n)
+      return staged(three, hooks, n, (props) => {
+        stage.createSceneObject(meshes[props.i]!, { parent: scene, ...MOVING })
+        return null
+      })
+    },
+  },
+  {
+    // A hundred times N empty Frame effects, nothing moving: each frame, each one's check that it isn't due.
+    name: "stage/frameEffect x100",
+    scale: 100,
+    runsOn: hasHooks,
+    make: (three, n, hooks) => {
+      const { solid } = hooks as Required<Hooks>
+      return staged(three, hooks, n, () => {
+        solid.createFrameEffect(
+          () => undefined,
+          () => undefined,
+        )
+        return null
+      })
+    },
+  },
 ]
 
 const quantile = (xs: ReadonlyArray<number>, p: number): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) * p)]!
 
 /** One round of `workload`: its start, through its first frame, then `warm` frames, then `frames` timed. */
-const runRound = async (three: Three, workload: Workload, options: Options): Promise<{ readonly times: Array<number>; readonly startMs: number; readonly bytes: Array<number> }> => {
+const runRound = async (three: Three, hooks: Hooks, workload: Workload, options: Options): Promise<{ readonly times: Array<number>; readonly startMs: number; readonly bytes: Array<number> }> => {
   const n = options.n * (workload.scale ?? 1)
   let time = 1000
   const t0 = performance.now()
-  const scenario = workload.make(three, n)
+  const scenario = workload.make(three, n, hooks)
   // An animation starts a microtask after its call.
   for (let i = 0; i < 3; i++) await Promise.resolve()
   scenario.frame(time)
@@ -211,17 +303,20 @@ const runRound = async (three: Three, workload: Workload, options: Options): Pro
   return { times, startMs, bytes }
 }
 
-/** Run every workload against `three`, a side's `@wardic/three`; registered on `globalThis.__wardicBench` for the driver. */
-export const register = (three: Three): void => {
+/**
+ * Run every workload against `three`, a side's `@wardic/three`, and `hooks`, its Solid hooks where it has
+ * them; registered on `globalThis.__wardicBench` for the driver.
+ */
+export const register = (three: Three, hooks: Hooks = {}): void => {
   ;(globalThis as Record<string, unknown>).__wardicBench = async (options: Options): Promise<Record<string, WorkloadResult>> => {
     const out: Record<string, WorkloadResult> = {}
     for (const workload of WORKLOADS) {
-      if (workload.runsOn !== undefined && !workload.runsOn(three)) continue
+      if (workload.runsOn !== undefined && !workload.runsOn(three, hooks)) continue
       const times: Array<number> = []
       const starts: Array<number> = []
       const bytes: Array<number> = []
       for (let r = 0; r < options.rounds; r++) {
-        const round = await runRound(three, workload, options)
+        const round = await runRound(three, hooks, workload, options)
         if (r === 0) continue
         times.push(...round.times)
         starts.push(round.startMs)

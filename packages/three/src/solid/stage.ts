@@ -347,10 +347,13 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
     late.attach(madeInput.source)
     UndefinedOr.map(host, (element) => mount(element, made))
     made.setAnimationLoop((time) => {
+      // A frame asked for before it runs draws: a Frame effect's apply can move the scene with nothing
+      // animating, and its request is spent by the frame that runs it (#885's PR 6, CS9).
+      const asked = runtime.wantsFrame()
       // The raycast first, against what was last drawn; then Wardic's writes; then the render.
       madeInput.frame()
       runtime.frame(time)
-      if (frameloop === "demand" && Bool.not(Bool.some([invalidated, runtime.wantsFrame(), madeInput.wantsFrame()]))) return
+      if (frameloop === "demand" && Bool.not(Bool.some([invalidated, asked, runtime.wantsFrame(), madeInput.wantsFrame()]))) return
       invalidated = false
       made.render(scene, cameraOf(camera))
     })

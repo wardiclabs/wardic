@@ -11,8 +11,10 @@
 // - CS6: a server's Stage is inert: its ward does nothing, and `animate` is an error that says so.
 // - CS7: `TestStage` is a Stage: a ward's `whileHover` and `createHover(mesh)` follow a real raycast.
 // - CS8: an accessor Subject's colour is split on the Subject it gives, read untracked: no Solid diagnostic.
+// - CS9: demand draws the frame a Frame effect applies in, with nothing moving: an app's own write to the
+//   scene from a signal, as the scene lab's dial turns from its drag samples (#885's PR 6).
 import * as InputSource from "@wardic/core/InputSource"
-import { createHover, ward, WardicStage } from "@wardic/solid"
+import { createFrameEffect, createHover, ward, WardicStage } from "@wardic/solid"
 import { createStage, TestStage } from "@wardic/three/solid"
 import * as WardicThree from "@wardic/three/WardicThree"
 import { inertStage, lateInput } from "../src/solid/stage.ts"
@@ -124,6 +126,35 @@ describe("@wardic/three/solid's Stage (#885's PR 1)", () => {
     expect(moving, "a frame for each it moved").toBeGreaterThan(8)
     await stand.frames(10)
     expect(stand.renders(), "none once it's landed").toBe(moving)
+  })
+
+  it("CS9: demand draws the frame a Frame effect applies in, with nothing moving", async () => {
+    const { scene, camera, mesh } = sceneOf()
+    const stand = standIn()
+    const [turn, setTurn] = createSignal(0)
+    let drawnBefore = -1
+    const Dial = () => {
+      createFrameEffect(turn, (degrees) => {
+        mesh.rotation.z = degrees
+        drawnBefore = stand.renders()
+      })
+      return null
+    }
+    mountTree(() => {
+      const stage = createStage({ renderer: stand.renderer, scene, camera, frameloop: "demand" })
+      return (
+        <WardicStage value={stage}>
+          <Dial />
+        </WardicStage>
+      )
+    })
+    await stand.frames(5)
+    expect(stand.renders(), "the first frame alone").toBe(1)
+    setTurn(30)
+    await stand.frames(5)
+    expect(mesh.rotation.z).toBe(30)
+    expect(stand.renders(), "the frame it applied in, drawn after its apply").toBe(drawnBefore + 1)
+    expect(stand.renders()).toBe(2)
   })
 
   it("CS3: a renderer factory is made once the page has settled; an input watched before then connects", async () => {
