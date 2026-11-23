@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { App } from "../src/App.tsx"
 import { Card } from "../src/Card.tsx"
+import { GraphVariantsCard } from "../src/hooks/GraphVariantsCard.tsx"
 import { SceneObjectCard } from "../src/hooks/SceneObjectCard.tsx"
 import { StageCard } from "../src/hooks/StageCard.tsx"
 import { scenarios } from "../src/scenarios.ts"
@@ -48,8 +49,13 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     try {
       const host = mounted(() => <App />)
       await until(() => host.querySelectorAll("canvas[data-drawn]").length === scenarios.length, "every canvas to draw")
-      await until(() => host.querySelectorAll(".viewport canvas").length === 2, "the Solid hooks cards' canvases")
-      expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual([...scenarios.map((scenario) => scenario.id), "stage", "scene-objects"])
+      await until(() => host.querySelectorAll(".viewport canvas").length === 3, "the Solid hooks cards' canvases")
+      expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual([
+        ...scenarios.map((scenario) => scenario.id),
+        "stage",
+        "scene-objects",
+        "graph-variants",
+      ])
       expect(errors).toEqual([])
     } finally {
       console.error = error
@@ -111,5 +117,21 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     // Its exit runs 0.35 s, and the readout reads the scene every 0.1 s.
     await until(() => output.dataset.listed === "3" && output.dataset.inScene === "4", `the last crate exiting, not ${state()}`, 2000)
     await until(() => output.dataset.inScene === "3", `the last crate gone once its exit landed, not ${state()}`, 4000)
+  })
+
+  it("SL5: variants down the graph: a card's pips follow it open, and a pip moved to the closed card closes", async () => {
+    const host = mounted(() => <GraphVariantsCard />)
+    const card = host.querySelector('[data-scenario="graph-variants"]') as HTMLElement
+    const output = card.querySelector("output") as HTMLOutputElement
+    const button = (name: string) => Array.from(card.querySelectorAll("button")).find((one) => one.textContent?.trim() === name) as HTMLButtonElement
+    const state = () => `left ${output.dataset.leftShown} of ${output.dataset.left} showing, right ${output.dataset.rightShown} of ${output.dataset.right}`
+    await until(() => card.querySelector(".viewport canvas") !== null, "the renderer's canvas in the viewport", 4000)
+    await until(() => output.dataset.left === "4" && output.dataset.leftShown === "0", `four closed pips on the left, not ${state()}`, 4000)
+    await userEvent.click(button("Open or close the left"))
+    await until(() => output.dataset.leftShown === "4", `the left's pips open, not ${state()}`, 3000)
+    await userEvent.click(button("Move a pip right"))
+    await until(() => output.dataset.right === "1" && output.dataset.rightShown === "0", `the moved pip closed on the closed card, not ${state()}`, 3000)
+    await userEvent.click(button("Open or close the right"))
+    await until(() => output.dataset.rightShown === "1", `the moved pip open with the right card, not ${state()}`, 3000)
   })
 })

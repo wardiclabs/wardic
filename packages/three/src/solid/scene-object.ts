@@ -67,7 +67,7 @@ const disposeTree = (object: Object3D): void =>
   })
 
 /** The parent `object` joins: the one given, else the one it has, else the Stage's scene. */
-const parentOf = (object: Object3D, given: Object3D | undefined, scene: Object3D | undefined): Object3D => {
+const joiningParentOf = (object: Object3D, given: Object3D | undefined, scene: Object3D | undefined): Object3D => {
   if (Predicate.isNotUndefined(given)) return given
   if (Predicate.isNotNull(object.parent)) return object.parent
   return UndefinedOr.match(scene, {
@@ -104,7 +104,7 @@ export const createSceneObject = <S extends Object3D>(object: S | Accessor<S | u
   const membership: StageMembership = {
     join: (subject) => {
       const joining = subject as Object3D
-      const parent = parentOf(joining, config.parent, scene.scene)
+      const parent = joiningParentOf(joining, config.parent, scene.scene)
       if (joining.parent !== parent) parent.add(joining)
     },
     leave: (subject) => {
@@ -112,6 +112,8 @@ export const createSceneObject = <S extends Object3D>(object: S | Accessor<S | u
       leaving.removeFromParent()
       if (config.dispose === true) disposeTree(leaving)
     },
+    // Where a Variant child looks for the ward it follows, at its setup (decision 17).
+    parentOf: (subject) => joiningParentOf(subject as Object3D, config.parent, scene.scene),
     exiting: (land) => {
       scene.exits.add(land)
       return () => void scene.exits.delete(land)

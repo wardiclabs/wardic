@@ -92,6 +92,7 @@ export {
   WardicStage,
 } from "./stage.ts"
 export { stageSceneObject, type StageMembership, stageWard, type StageWardEnvironment } from "./stage-ward.tsx"
+export type { StageGraph } from "./stage-graph.ts"
 export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "@wardic/dom/unstable/WardConfig"
 export type { AnimatedKey, WardKey, WardValueOf } from "./ward-keys.ts"

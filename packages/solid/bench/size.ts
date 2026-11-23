@@ -70,9 +70,11 @@ const GATE = 1.01
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
  * #885's PR 2 raised it to 298.9 by what it measured: a Scene object's code is a side only `createSceneObject`
  * brings, and what's left on every Stage ward's path (its branches for a side, and taking back a Subject
- * given again mid-exit) took the app 0.1 past its first number's room.
+ * given again mid-exit) took the app 0.1 past its first number's room. #885's PR 3 raised it to 300.2 by
+ * what it measured, 1.3: variants passing down a scene's graph, which every Stage ward follows, `@wardic/solid`'s
+ * 3.7 KB of it minified and `@wardic/three`'s 0.5. The page's apps carry none of it.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 298.9 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 300.2 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

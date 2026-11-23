@@ -30,13 +30,13 @@ import * as Imperative from "@wardic/core/unstable/Imperative"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import * as Report from "@wardic/core/unstable/Report"
 import * as Spine from "@wardic/core/unstable/Spine"
-import type * as VariantTree from "@wardic/core/unstable/VariantTree"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import { constVoid, identity } from "effect/Function"
+import { constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Option from "effect/Option"
 import * as Atom from "effect/reactivity/Atom"
@@ -48,6 +48,7 @@ import { followAtom } from "./bridge.tsx"
 import { Lifecycle, type WardElement } from "./lifecycle.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED } from "./solid-reactivity.ts"
 import type { SceneObjectEvents, SceneWard, Stage, StageWard } from "./stage.ts"
+import { GraphParent, provide, type StageGraph } from "./stage-graph.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { configAtSetup, configuredView, gateOf, sameTarget, STARTS_AT_PENDING, WARD_VIEW, type WardConfig, type WardConfigValues, type WardRead } from "./ward.tsx"
 import { eachOf, Waiters, whenOf } from "./waiters.ts"
@@ -63,6 +64,11 @@ export interface StageWardEnvironment extends Imperative.AnimateEnv {
   readonly startLinksOf: (subject: object) => Spine.StartLinks
   /** The scene's pointer input, which its hovers and presses are heard through. */
   readonly input: InputSource.InputSource["Service"]
+  /**
+   * The scene's graph, which variants pass down (#885, decision 17): a Variant child follows the nearest
+   * ward above its Subject. None: each ward has only its own variants.
+   */
+  readonly graph?: StageGraph | undefined
 }
 
 /**
@@ -74,6 +80,8 @@ export interface StageMembership {
   readonly join: (subject: object) => void
   /** Its Subject leaves the scene: its exit has landed, or it had none. */
   readonly leave: (subject: object) => void
+  /** The parent its Subject will join, before it has: where a Variant child looks for the ward it follows, at its setup. */
+  readonly parentOf?: ((subject: object) => object | undefined) | undefined
   /**
    * An exit in flight: `land` ends it now, the Subject taken out, as the Stage ends before it lands
    * (*Amendment (#885)* Q5). The call returned says it has landed.
@@ -340,7 +348,13 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
  * A ward on `given` on `environment`: a Stage's, or, with `sideOf`, a Scene object's, which joins its
  * Subject once it can start and plays its `exit` before its Subject leaves.
  */
-const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardConfig, sideOf: ((parts: WardParts) => SceneSide) | undefined): SceneWard => {
+const wardOn = (
+  environment: StageWardEnvironment,
+  given: unknown,
+  config: WardConfig,
+  sideOf: ((parts: WardParts) => SceneSide) | undefined,
+  joinsUnder: ((subject: object) => object | undefined) | undefined,
+): SceneWard => {
     const scene = Predicate.isNotUndefined(sideOf)
     if (DEV) checkKeys(config, scene)
     const { runtime, gate } = environment
@@ -354,8 +368,32 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
     const setup = WARD_VIEW.setupOf(view)
     if (DEV && Predicate.isNotUndefined(AnimationControls.controlsOf(setup.config.animate))) throw new Error(NO_CONTROLS)
     const initialConfig = configAtSetup(setup)
-    // Its own variants (decision 5): a scene's graph handing them down is step 4's.
-    const node = createVariantNode(cfg, initialConfig, undefined)
+    // Variants down a scene's graph (decision 17): a Variant child follows the nearest ward above its
+    // Subject. A value Subject finds it now, from the parent it will join, so it registers for its stagger
+    // slot before any Retarget reads one, as a ward on the page registers in its component's body.
+    const graph = environment.graph
+    const follower = UndefinedOr.match(graph, {
+      onUndefined: (): GraphParent | undefined => undefined,
+      onDefined: (on) => Bool.match(VariantTree.isVariantChild(initialConfig), { onTrue: (): GraphParent | undefined => new GraphParent(on, joinsUnder), onFalse: constUndefined }),
+    })
+    const node = createVariantNode(cfg, initialConfig, follower)
+    UndefinedOr.map(follower, (f) => {
+      if (Bool.not(Predicate.isFunction(given))) f.early(given as object)
+    })
+    // A ward with variants of its own provides them to the wards below its Subject, a value's from now.
+    const provides = Bool.and(Predicate.isNotUndefined(graph), VariantTree.hasOwnVariants(initialConfig))
+    let providing: { readonly subject: object; readonly stop: () => void } | undefined
+    const stopProviding = (): void => {
+      UndefinedOr.map(providing, (p) => p.stop())
+      providing = undefined
+    }
+    const provideOn = (subject: object): void => {
+      if (Bool.not(provides)) return
+      if (UndefinedOr.match(providing, { onUndefined: () => false, onDefined: (p) => p.subject === subject })) return
+      stopProviding()
+      providing = { subject, stop: provide(graph as StageGraph, subject, node.provided as VariantTree.WardicVariantContextValue) }
+    }
+    if (Bool.not(Predicate.isFunction(given))) provideOn(given as object)
     if (Bool.and(Arr.contains(setup.pending, "animate"), initialConfig.initial === false)) throw new Error(STARTS_AT_PENDING)
     const start = Spine.startOf(initialConfig, node.inherited, false, untrack)
     const snapshot = Spine.snapshotOf(start)
@@ -532,6 +570,8 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
       off()
       lifecycle.dispose()
       UndefinedOr.map(side, (s) => s.ended())
+      UndefinedOr.map(follower, (f) => f.release())
+      stopProviding()
     })
 
     // A `whileHover` or `whileTap` set later starts its recognizer then (#87).
@@ -583,6 +623,10 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
           // A Stage ward's next Subject starts as the ward did; a Scene object's each enters afresh.
           const fresh = Bool.match(scene, { onTrue: () => mountedOnce, onFalse: () => Predicate.isNotUndefined(mounted) })
           off()
+          // On the graph: it follows the ward above this Subject, and provides for the ones below it. A
+          // follower starts from the `initial` that ward hands down.
+          UndefinedOr.map(follower, (f) => f.attach(subject))
+          provideOn(subject)
           // A Scene object's Subject still exiting is taken back, from where it is; any other mounts.
           mounted = UndefinedOr.match(
             UndefinedOr.map(side, (s) => s.reclaim(subject)),
@@ -592,7 +636,7 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
                 return taken
               },
               onUndefined: () => {
-                if (fresh) beginFresh()
+                if (Bool.or(fresh, Predicate.isNotUndefined(follower))) beginFresh()
                 return untrack(() => mount(subject))
               },
             },
@@ -651,7 +695,7 @@ const wardOn = (environment: StageWardEnvironment, given: unknown, config: WardC
 export const stageWard =
   (environment: StageWardEnvironment): Stage["ward"] =>
   (given, config): StageWard =>
-    wardOn(environment, given, config, undefined) as unknown as StageWard
+    wardOn(environment, given, config, undefined, undefined) as unknown as StageWard
 
 /**
  * A Scene object's ward on `environment` (#885): `stageWard`'s, joining its Subject through `membership`
@@ -661,4 +705,4 @@ export const stageWard =
 export const stageSceneObject =
   (environment: StageWardEnvironment) =>
   (given: unknown, config: WardConfig, membership: StageMembership): SceneWard =>
-    wardOn(environment, given, config, (parts) => sceneSideOf(parts, membership))
+    wardOn(environment, given, config, (parts) => sceneSideOf(parts, membership), membership.parentOf)

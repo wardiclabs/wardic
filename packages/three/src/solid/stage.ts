@@ -27,7 +27,7 @@
 import { isServer } from "@solidjs/web"
 import * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
-import { type Stage, type StageWard, stageWard, type StageWardEnvironment } from "@wardic/solid"
+import { type Stage, type StageGraph, type StageWard, stageWard, type StageWardEnvironment } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined, constVoid } from "effect/Function"
@@ -129,6 +129,50 @@ const subjectNowOf = (subject: unknown): (() => unknown) => {
   return () => subject
 }
 
+/** A Subject's parent in three's graph: an object's, none for a material or at the root. */
+const graphParentOf = (subject: object): object | undefined => {
+  const parent = (subject as { readonly parent?: Object3D | null }).parent
+  if (Predicate.isNullish(parent)) return undefined
+  return parent
+}
+
+/** The object directly below `ancestor` on `descendant`'s path up: none when `ancestor` isn't above it. */
+const branchOf = (descendant: Object3D, ancestor: object): Object3D | undefined => {
+  const parent = descendant.parent
+  if (Predicate.isNull(parent)) return undefined
+  if (parent === ancestor) return descendant
+  return branchOf(parent, ancestor)
+}
+
+/**
+ * three.js's graph, as a Stage ward reads it (#885's PR 3; ADR-0073 decision 17): an object's parent,
+ * its `added` and `removed` events, its branch's index among an ancestor's `children`, and its descendants.
+ */
+export const THREE_GRAPH: StageGraph = {
+  parentOf: graphParentOf,
+  onMoved: (subject, moved) => {
+    if (Bool.not(isThreeSubject(subject)) || Predicate.isUndefined((subject as Partial<Object3D>).isObject3D)) return constVoid
+    const object = subject as Object3D
+    object.addEventListener("added", moved)
+    object.addEventListener("removed", moved)
+    return () => {
+      object.removeEventListener("added", moved)
+      object.removeEventListener("removed", moved)
+    }
+  },
+  orderOf: (descendant, ancestor) =>
+    UndefinedOr.match(branchOf(descendant as Object3D, ancestor), {
+      onUndefined: () => Number.MAX_SAFE_INTEGER,
+      onDefined: (branch) => (ancestor as Object3D).children.indexOf(branch),
+    }),
+  below: (subject, visit) => {
+    if (Predicate.isUndefined((subject as Partial<Object3D>).isObject3D)) return
+    ;(subject as Object3D).traverse((descendant) => {
+      if (descendant !== subject) visit(descendant)
+    })
+  },
+}
+
 /** Where a three.js Stage keeps what `createSceneObject` needs of it: not the `Stage` interface's. */
 export const SCENE: unique symbol = Symbol.for("@wardic/three/solid/scene")
 
@@ -160,7 +204,7 @@ export const landExits = (stage: { readonly [SCENE]: SceneOf }): void =>
  * `input`. `scene` is what a Scene object with no parent joins.
  */
 export const stageOver = (runtime: WardicThree.WardicThree, input: InputSource.InputSource["Service"], scene: Object3D | undefined): SceneStage => {
-  const environment: StageWardEnvironment = { ...runtime.stageEnvironment, input }
+  const environment: StageWardEnvironment = { ...runtime.stageEnvironment, input, graph: THREE_GRAPH }
   const ward = stageWard(environment)
   const split = <C,>(subject: unknown, config: C): C => ThreeColours.splitConfig(subjectNowOf(subject), config as Readonly<Record<string, unknown>>) as C
   return {
