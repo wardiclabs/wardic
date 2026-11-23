@@ -179,6 +179,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/many/archive-search";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/many/archive-search")>;
+      $$route?: undefined;
+    },
+    {
       path: "/many/glaze-library";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/many/glaze-library")>;
@@ -448,6 +454,14 @@ declare module "virtual:file-routes" {
       id: "/layout/product-tabs";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-tabs")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/many/archive-search";
+      id: "/many/archive-search";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/many/archive-search")>;
       $$route?: undefined;
       children?: undefined;
     },

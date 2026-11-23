@@ -343,6 +343,22 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".glaze:nth-child(40)",
   },
   {
+    id: "archive-search",
+    area: "many",
+    docs: "/guides/batches",
+    title: "Search the studio's archive, 600 pieces",
+    summary: "Type to search 600 pieces from forty years of firings: the ones that stop matching leave together, and the rest close up in one change.",
+    why: [
+      "A search box changes hundreds of results at each keystroke: some leave, the rest move up to fill the gaps. As a Wardic element each, that's hundreds of animations started at every key, each a call of its own. Here the results are one `createBatch`, keyed by piece, under an `<AnimatePresence>`: a keystroke is one change of the list it reads.",
+      "A piece that stops matching plays its `exit` before its card goes, and `stagger()` in the exit's transition counts the pieces leaving together, so 590 of them go as one short wave, not a long queue. The pieces that stay move to their new places by their index in the results, with no `layout` to measure. Type a letter and delete it again before the exits land, and the pieces coming back turn around where they are, at the speed they have.",
+    ],
+    reducedMotion: "The pieces that stop matching fade out, and the rest are in their new places at once.",
+    uses: ["createBatch", "keyed by id", "<AnimatePresence>", "exit with stagger()", "settled() and isPending"],
+    apps: ["solid2"],
+    interact: ".search-suggestions button:nth-child(1)",
+    watch: ".archive-card",
+  },
+  {
     id: "notifications",
     foldkit: {
       note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot.",
