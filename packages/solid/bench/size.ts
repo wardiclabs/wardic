@@ -12,7 +12,8 @@
  *   and an opacity style, and `f-slim`, one `w.div` fading in under `w.Provider()` on a Handle with no
  *   Features, the binding's Slim app, with a budget of its own. And `@wardic/three/solid`'s (#885,
  *   ADR-0073 *Amendment (#885)* Q12): `t2-three`, three.js alone with a mesh drawn, and `t2-stage`, a
- *   `createStage` scene and one `ward(mesh, …)` under `<WardicStage>`, with a budget of its own.
+ *   `createStage` scene and one `ward(mesh, …)` under `<WardicStage>`, with a budget of its own; and
+ *   `t2-features` (PR 5), a Stage given `stageDrag` and `stageBatches`, a ward dragging and a Batch of meshes.
  * - **Each side is built as an app ships it** (`sides.ts`): a Vite app build, production mode,
  *   minified, tree-shaken, for the browsers an app ships to by default (`APP_TARGET`, #525); Solid 1
  *   through vite-plugin-solid, Solid 2 through the repo's `solid2({ dev: false })`, Foldkit as plain
@@ -75,8 +76,13 @@ const GATE = 1.01
  * 3.7 KB of it minified and `@wardic/three`'s 0.5. The page's apps carry none of it. #885's PR 4 raised it
  * to 301.9 by what it measured, 1.7: drag in 3D, which every Stage brings, `@wardic/three`'s `ThreeDrag` 3.6 KB
  * of it minified and the Stage ward's 0.7; core's drag recognizer was in already, through the DOM ward (#927).
+ * #885's PR 5 made drag and a scene's Batches a Stage's features, opt-in (`stageDrag`, `stageBatches`): a Stage
+ * that gives neither carries neither, so `t2-stage` came back down to 300.4, its budget lowered to 300.5. Their
+ * cost is `t2-features`', a Stage giving both and using them, with a budget of its own: its first number,
+ * 316.1, with the same room. 22.7 KB of its minified bytes more are `@wardic/dom`'s, the page's Batch, which
+ * `createBatch` reaches as `ward` reaches the DOM's ward (#927).
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 301.9 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 300.5, "t2-features": 316.6 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -292,6 +298,28 @@ const App = () => {
 render(() => <App />, document.body)
 `
 
+/** A Stage's features (#885's PR 5): `stageDrag` and `stageBatches` given, a ward that drags and a keyed Batch of meshes. */
+const threeFeatures = (): string => `import { render } from "@solidjs/web"
+import { createBatch, ward } from "@wardic/solid"
+import { createStage, stageBatches, stageDrag, WardicStage } from "@wardic/three/solid"
+import { BoxGeometry, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, WebGLRenderer } from "three"
+const scene = new Scene()
+const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ff8a3d" }))
+scene.add(mesh)
+const camera = new PerspectiveCamera(45, 1, 0.1, 100)
+const items = [{ id: 1 }, { id: 2 }, { id: 3 }]
+const Pieces = () => {
+  ward(mesh, { drag: true })
+  createBatch({ each: () => items, key: "id", object: () => new Mesh(new BoxGeometry(), new MeshStandardMaterial()), initial: { scale: 0 }, animate: (_, i) => ({ x: i, scale: 1 }), exit: { scale: 0 } })
+  return null
+}
+const App = () => {
+  const stage = createStage({ renderer: () => new WebGLRenderer(), scene, camera, features: [stageDrag, stageBatches] })
+  return <WardicStage value={stage}><div ref={stage} /><Pieces /></WardicStage>
+}
+render(() => <App />, document.body)
+`
+
 const APPS: ReadonlyArray<App> = [
   { name: "s1-plain", binding: "solid1", source: plain("solid-js/web") },
   { name: "s1-complete", binding: "solid1", source: complete("solid-js/web", "@wardic/solid/v1", false) },
@@ -327,6 +355,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "f-slim", binding: "foldkit", source: foldkitSlim() },
   { name: "t2-three", binding: "three-solid2", source: threePlain() },
   { name: "t2-stage", binding: "three-solid2", source: threeStage() },
+  { name: "t2-features", binding: "three-solid2", source: threeFeatures() },
 ]
 
 /** What a source map's sources are counted under: the packages, then the frameworks (`foldkit-lib` is the Foldkit framework, `foldkit` the binding; `three-lib` three.js, `three` Wardic's). */

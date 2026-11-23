@@ -21,6 +21,8 @@ import { CLIENT_ONLY_DEFERRED, untracked } from "./solid-reactivity.ts"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
+import type { StageBatch, StageCountBatchConfig, StageKeyedBatchConfig } from "./stage.ts"
+import { isStageBatch, stageBatchOf } from "./stage-batch.ts"
 import { neverLands, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
 /** `createBatch`'s config on Solid 2: the members, their targets and their transition. */
@@ -172,10 +174,22 @@ const serverBatchOf = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknow
  * @see https://wardic.dev/reference/solid/animation/create-batch
  */
 // #665, ADR-0070 decisions 10–15 and *Amendment (#665)*.
+/** A scene's Batch, keyed, under a `<WardicStage>` (#885): each item's member a three.js object, `object(item, i)`, or an `InstancedMesh`'s instance, `instances`. */
+export function createBatch<T>(config: StageKeyedBatchConfig<T>): StageBatch
+/** A scene's Batch by count, under a `<WardicStage>` (#885): `count` objects, `object(i)`, or an `InstancedMesh`'s instances. */
+export function createBatch(config: StageCountBatchConfig): StageBatch
 export function createBatch<T, P extends keyof T>(config: WardicKeyedBatchConfig<T> & { readonly key: P }): WardicKeyedBatch<T[P]>
 export function createBatch<T, K>(config: WardicKeyedBatchConfig<T> & { readonly key: (item: T) => K }): WardicKeyedBatch<K>
 export function createBatch(config: WardicBatchConfig): WardicBatch
-export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
+// `object`: a scene's keyed config of `T` isn't one of `unknown`'s, its functions taking `T`.
+export function createBatch(config: object): WardicBatch | WardicKeyedBatch<unknown> | StageBatch {
+  // A scene's (#885's PR 5): its members' objects or instances, the Stage's to make. The page's carries this check alone.
+  if (isStageBatch(config)) return stageBatchOf(config as StageKeyedBatchConfig<unknown> | StageCountBatchConfig)
+  return pageBatchOf(config as WardicBatchConfig | WardicKeyedBatchConfig<unknown>)
+}
+
+/** A page's Batch: its members' elements given their handles. */
+const pageBatchOf = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> => {
   const keyed = BatchMembers.isKeyed(config)
   if (isServer) return serverBatchOf(config, keyed)
   // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).

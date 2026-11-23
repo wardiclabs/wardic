@@ -13,8 +13,9 @@
 // - DR7: `whileDrag` is on through the drag, with `dragStart` and `dragEnd`.
 // - DR8: `createDrag(mesh)` reads its pointer samples.
 // - DR9: the drag holds `x` where it leaves it until the ward's own target for `x` changes.
+// - DR10: drag is a Stage's feature: a `drag` on a Stage without `stageDrag` is an error naming it.
 import { createDrag, type StageWard, type StageWardConfig, ward, WardicStage } from "@wardic/solid"
-import { TestStage } from "@wardic/three/solid"
+import { stageDrag, TestStage } from "@wardic/three/solid"
 import type * as Drag from "@wardic/core/Drag"
 import type { JSX } from "@solidjs/web"
 import { type Accessor, children, createRenderEffect, createRoot, createSignal, flush } from "solid-js"
@@ -50,7 +51,7 @@ const stageOf = (place?: (camera: PerspectiveCamera) => void) => {
   camera.updateMatrixWorld()
   const mesh = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial())
   scene.add(mesh)
-  const stage = TestStage.make({ scene, camera, size: { width: 800, height: 600 } })
+  const stage = TestStage.make({ scene, camera, size: { width: 800, height: 600 }, features: [stageDrag] })
   const frames = async (n: number): Promise<void> => {
     flush()
     await later()
@@ -202,6 +203,20 @@ describe("drag in 3D (#885's PR 4)", () => {
     expect(sample()?.phase).toBe("move")
     expect(sample()?.offset.x).toBeCloseTo(60, 0)
     expect(setup.mesh.position.x, "a sensor moves nothing").toBe(0)
+  })
+
+  it("DR10: a drag on a Stage without stageDrag is an error naming it", () => {
+    const stage = TestStage.make({ scene: new Scene(), camera: new PerspectiveCamera(), size: { width: 800, height: 600 } })
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial())
+    let thrown: unknown
+    createRoot(() => {
+      try {
+        stage.ward(mesh, { drag: true })
+      } catch (error) {
+        thrown = error
+      }
+    })
+    expect(String(thrown)).toMatch(/features: \[stageDrag\]/)
   })
 
   it("DR9: the drag holds x where it leaves it until the ward's own target for x changes", async () => {

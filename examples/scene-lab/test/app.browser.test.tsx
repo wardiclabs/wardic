@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { App } from "../src/App.tsx"
 import { Card } from "../src/Card.tsx"
+import { BatchCard } from "../src/hooks/BatchCard.tsx"
 import { DragCard } from "../src/hooks/DragCard.tsx"
 import { GraphVariantsCard } from "../src/hooks/GraphVariantsCard.tsx"
 import { SceneObjectCard } from "../src/hooks/SceneObjectCard.tsx"
@@ -50,13 +51,14 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     try {
       const host = mounted(() => <App />)
       await until(() => host.querySelectorAll("canvas[data-drawn]").length === scenarios.length, "every canvas to draw")
-      await until(() => host.querySelectorAll(".viewport canvas").length === 4, "the Solid hooks cards' canvases")
+      await until(() => host.querySelectorAll(".viewport canvas").length === 5, "the Solid hooks cards' canvases")
       expect(Array.from(host.querySelectorAll("article.card"), (card) => (card as HTMLElement).dataset.scenario)).toEqual([
         ...scenarios.map((scenario) => scenario.id),
         "stage",
         "scene-objects",
         "graph-variants",
         "drag",
+        "batches",
       ])
       expect(errors).toEqual([])
     } finally {
@@ -155,5 +157,21 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     await userEvent.dragAndDrop(canvas, canvas, { sourcePosition: middle, targetPosition: { x: middle.x + 120, y: middle.y } })
     await until(() => knob() > 0.5, `the knob dragged right along its rail, not at ${knob()}`, 3000)
     await until(() => Math.abs(knob() - 1.5) < 0.02, `the knob at rest at its range's end, 1.5, not at ${knob()}`, 4000)
+  })
+
+  it("SL7: createBatch in a scene: a tile added is drawn; one removed is drawn while its exit plays, then goes", async () => {
+    const host = mounted(() => <BatchCard />)
+    const card = host.querySelector('[data-scenario="batches"]') as HTMLElement
+    const output = card.querySelector("output") as HTMLOutputElement
+    const button = (name: string) => Array.from(card.querySelectorAll("button")).find((one) => one.textContent?.trim() === name) as HTMLButtonElement
+    const state = () => `${output.dataset.listed} listed, ${output.dataset.drawn} drawn`
+    await until(() => card.querySelector(".viewport canvas") !== null, "the renderer's canvas in the viewport", 4000)
+    await until(() => output.dataset.drawn === "8", `eight tiles drawn, not ${state()}`, 4000)
+    await userEvent.click(button("Add a tile"))
+    await until(() => output.dataset.drawn === "9", `a ninth tile drawn, not ${state()}`, 2000)
+    await userEvent.click(button("Remove the first"))
+    // Its exit runs 0.3 s, and the readout reads the board every 0.1 s.
+    await until(() => output.dataset.listed === "8" && output.dataset.drawn === "9", `the first tile exiting, not ${state()}`, 2000)
+    await until(() => output.dataset.drawn === "8", `the first tile gone once its exit landed, not ${state()}`, 4000)
   })
 })

@@ -18,6 +18,7 @@ import type { Stage } from "@wardic/solid"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Plain from "../TestStage.ts"
 import type { CanvasRect } from "../ThreeDrag.ts"
+import type { StageFeature } from "./feature.ts"
 import { landExits, SCENE, type SceneOf, stageOver } from "./stage.ts"
 
 export type { Options, TestPointer } from "../TestStage.ts"
@@ -26,10 +27,10 @@ export type { Options, TestPointer } from "../TestStage.ts"
 export type TestStage = Plain.TestStage & Stage & { readonly [SCENE]: SceneOf }
 
 /** A test's scene, on a stand-in canvas of `options.size`, that's also a Stage. */
-export const make = (options: Plain.Options): TestStage => {
+export const make = (options: Plain.Options & { readonly features?: ReadonlyArray<StageFeature> | undefined }): TestStage => {
   const plain = Plain.make(options)
   // A TestStage is made with its stand-in canvas, so it always has its input.
-  const over = stageOver(plain as never, UndefinedOr.getOrThrow(plain.input), options.scene, { camera: options.camera, canvas: () => plain.canvas as unknown as CanvasRect })
+  const over = stageOver(plain as never, UndefinedOr.getOrThrow(plain.input), options.scene, { camera: options.camera, canvas: () => plain.canvas as unknown as CanvasRect }, options.features)
   // Its end lands the exits still in flight, as `createStage`'s does.
   const dispose = (): void => {
     landExits(over)

@@ -21,7 +21,10 @@
 import type { Material, Object3D, Plane } from "three"
 
 export { WardicStage } from "@wardic/solid"
+export type { StageFeature, StageParts, StageView } from "./solid/feature.ts"
 export { createSceneObject, type SceneObject, type SceneObjectConfig } from "./solid/scene-object.ts"
+export { stageBatches } from "./solid/stage-batches.ts"
+export { stageDrag } from "./solid/stage-drag.ts"
 export { type AdoptOptions, createStage, isThreeSubject, type RendererLike, type StageOptions, type ThreeStage } from "./solid/stage.ts"
 export * as TestStage from "./solid/test-stage.ts"
 
