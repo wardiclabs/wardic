@@ -60,7 +60,9 @@ const stage = createStage({ renderer: () => new WebGLRenderer({ antialias: true 
 const Crate = (props: { mesh: Mesh }) => {
   const crate = ward(props.mesh, { initial: { scale: 0 }, animate: { scale: 1 }, whileHover: { y: 0.3, color: "#4fd1c5" }, drag: true })
   // In the Host loop, after Wardic's writes and before the render: the crate's shadow shrinks as it rises.
-  createFrameEffect(() => crate.read("y")(), (y) => shadow.scale.setScalar(1 - y / 2))
+  createFrameEffect(() => crate.read("y")(), (y) => {
+    shadow.scale.setScalar(1 - y / 2)
+  })
   return crate.held
 }
 
@@ -80,4 +82,4 @@ const Crate = (props: { mesh: Mesh }) => {
 
 The [3D guide](https://wardic.dev/guides/3d) shows it with live scenes; the [three.js reference](https://wardic.dev/reference/three) has every module, and `@wardic/three/solid`'s hooks are in the [Solid reference](https://wardic.dev/reference/solid/scenes/create-stage).
 
-Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).
+Shipped from Wardic 1.3 (#564), versioned with `@wardic/core`, `@wardic/dom`, `@wardic/test`, `@wardic/foldkit` and `@wardic/object`. `@wardic/three/solid` runs on the app's own `@wardic/solid`, 2.1 or a later 2.x.
