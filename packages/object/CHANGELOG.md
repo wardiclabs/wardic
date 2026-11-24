@@ -1,0 +1,16 @@
+# @wardic/object
+
+## 1.3.0
+
+### Minor Changes
+
+- 0511be1: `@wardic/object`, Wardic for any object's own properties, ships (#564, #882, ADR-0068, ADR-0073): Motion's `animate` on plain objects, on frames the host pumps, the base for canvas and WebGL under any library that draws them. `WardicObject.make()` is a runtime whose `frame(t)` writes a frame's values before the draw; `afterWrites(fn)` runs code of your own after them, and `wantsFrame()` tells a loop that draws on demand whether to draw. Its `animate` takes an object's own keys by name (numbers, and strings with a unit or of numbers), Motion's transitions by a key's name, and gives awaitable controls. `wardic.batch(objects)` moves many on the same keys as one run, a value a function of a member's index, and a sequence takes a Segment of a Batch or of a member. `WardicObject.makeWith(environment)` builds another Environment's runtime on it, as `@wardic/three` does, its `batchSource` making a Batch of anything that holds members, such as an `InstancedMesh`'s instances. See the [Object reference](https://wardic.dev/reference/object).
+
+### Patch Changes
+
+- Updated dependencies [e024ef6]
+- Updated dependencies [94f0bfa]
+- Updated dependencies [56195ee]
+- Updated dependencies [7c2c37e]
+- Updated dependencies [b78dded]
+  - @wardic/core@1.3.0

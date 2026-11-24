@@ -1,5 +1,86 @@
 # @wardic/solid
 
+## 2.1.0
+
+### Minor Changes
+
+- b78dded: `createFrameEffect(compute, apply)` (#884): your own code in Wardic's frame, after its writes and before paint. The compute reads Live values and signals, tracked; the apply runs in the frame that moved what the compute read, given its value, and what it returns runs before the next apply and when its owner is disposed. Frame effects run in the order they were made. Solid's own `createEffect` runs after the frame is painted, so a write there shows a frame late. Solid 2 only.
+
+  Core's `@wardic/core/unstable/FrameEffects` gains `onFrameLoop`: an Environment's Frame effects on core's Frame loop, run at the end of each tick after the Flush gate's flush, and on a Refresh frame of their own when nothing animates.
+
+- 0ca0f70: The gesture sensors take what they read first (#884): `createHover(element)`, `createPress`, `createFocus` and `createDrag(element, options?)` read an element you already have, and give back their reading alone. Given a ward, `createHover(card)`, `createPress(card)` and `createDrag(card)` read the ward's own hover, press and drag, which its `when` would start, so nothing listens to its element twice; `createFocus(card)` follows the element the ward is on. The call form, a sensor given to a `ref`, is unchanged. Solid 2 only.
+- 34fe6bd: `createBatch` in a scene (#885): under a `<WardicStage>`, a config with `object` (a three.js object per member) or `instances` (an `InstancedMesh`) goes to the Stage's **`batch`**, which adds, moves and removes its members as one run.
+
+  - **Its forms:** keyed (`each` and `key`) or by `count`, with `initial`, `animate`, `transition` (`stagger()` counting the members a change moves), `whileHover`, `whileTap`, and, keyed, `exit` and `dispose`.
+  - **Its handle,** a **`StageBatch`**, has `settled`, `next` and `when`, as a page's Batch's. Its members' hovers and presses carry `{ i, item, element }`.
+  - **The types:** `StageKeyedBatchConfig`, `StageCountBatchConfig` and the rest. An Environment's side is `StageBatchBinding` and `StageBatchHooks`.
+
+  A scene config with no Stage that makes Batches is an error in development, and so is a ward's `drag` on a Stage that drags nothing. Each names the Stage feature to give: with `@wardic/three/solid`, `createStage({ …, features: [stageBatches] })` or `[stageDrag]`. Solid 2 only.
+
+- 192d912: Drag on a scene (#885): a ward on a Stage's Subject takes `drag` and `whileDrag`, and its Stage drags it.
+
+  - **`StageDragConfig`:** `drag` (`true`, or `"x"`, `"y"` or `"z"`), `dragConstraints` per axis as `[min, max]`, `dragElastic`, `dragMomentum`, `dragTransition` and `dragSnapToOrigin`, in the page's drag keys' place. An Environment adds its own by declaration merging (`@wardic/three/solid` adds `dragPlane`).
+  - **The Stage drags:** a Stage gives a **`StageDrag`** (`Stage.drag`, and the Stage ward's environment's `drag`), which moves the Subject. A `drag` on a Stage with none is an error in development.
+  - **Events:** the ward tells `dragStart`, `drag`, `dragEnd` and `dragTransitionEnd` with the pointer's samples, as a ward on an element does, and `createDrag(card)` reads them.
+  - **`createDrag(mesh)`** reads a Stage's Subject's drags through the scene's input. A plain object first is still the sensor's options.
+  - **`StageWardConfig`** types a ward's config on a Stage's Subject. `ward<C>` for a page's `C` still instantiates.
+
+  Solid 2 only.
+
+- befdb96: Variants down a scene's graph (#885): a Stage whose Environment gives its ward a **`StageGraph`** (a Subject's parent, its moves, its place among an ancestor's children, and its descendants) hands variants down that graph, not Solid's component tree.
+
+  - A ward on a Stage's Subject with `variants` and no names of its own follows the nearest ward above its Subject: it starts at the name that ward's `initial` hands down, and moves with its `animate`.
+  - Its stagger slot is its place among that ward's Subject's children, whatever order the wards mounted in.
+  - Moved to another parent, it follows the ward above it there; a ward above it that starts later is followed then.
+  - A material, a uniforms object, a ward with names of its own, and one with `inherit: false` follow no one.
+
+  `StageMembership` gains `parentOf`, the parent a Scene object will join, where it looks for the ward it follows before it has joined. A Stage with no graph is as before; the page's wards are unchanged. Solid 2 only.
+
+- f00549b: A Stage's hooks alone (#927): `wardOnStage`, `createBatchOnStage`, `createHoverOnStage`, `createPressOnStage` and `createDragOnStage` are `ward`, `createBatch` and the sensors for a Stage's Subjects only, with none of the page's code. An Environment's binding re-exports them under the hooks' own names. A three.js scene importing `ward` from `@wardic/three/solid` no longer carries the page's ward and every Feature: 243.1 KB gzipped, against 300.5 through `ward` from `@wardic/solid`, which still takes a scene's object too.
+- 788f7b6: A Stage ward's `read` takes its Subject's keys at their types (#939). `StageWard` carries its Subject, and `StageReads`, a generic interface an Environment adds to by declaration merging, says what each of the Subject's keys reads as. With `@wardic/three/solid`, these are each an `Accessor<number>`:
+
+  - `ward(kiln, {}).read("heat")`, a number on a `Group` of your own;
+  - `ward(light, {}).read("intensity")`;
+  - `ward(mesh, {}).read("roughness")`.
+
+  `undefined` is among it only while an accessor gives no Subject. A key the ward hasn't moved reads what its Subject holds, where it read `undefined` until something animated it, on the server too. `StageRead`, `StageReadKey`, `StageValueOf` and `StageSubjectOf` are its types.
+
+- 3fb4189: A Scene object's ward (#885): **`stageSceneObject(environment)`**, beside `stageWard`, is the ward an Environment's `createSceneObject` builds on. Given a **`StageMembership`** (what joins its Subject to the scene, and what takes it out):
+
+  - it joins its Subject once the ward can start, every key still loading landed, its `initial` drawn in its first frame;
+  - it takes `exit`, which plays on its own spine past its owner, from where its Subject is, before its Subject leaves: as its owner ends, or as an accessor gives `undefined` or another Subject, the next entering as the last exits;
+  - a Subject given again while its exit plays is taken back: its exit stops, and it returns from where it is;
+  - its handle, **`SceneWard`**, tells `exitStart` and `exitComplete` through `next`, `each` and `when`.
+
+  `ward(subject, { exit })` on a Stage's Subject is an error in development naming `createSceneObject`. Solid 2 only.
+
+- 34488ad: `StageValues` (#934): the values a Stage's Subjects take beyond an element's, for a ward's config on one, which an Environment adds to by declaration merging, as it adds its Subjects to `StageSubjects`. With `@wardic/three/solid`, `ward(mesh, { animate: { roughness: 0.2, clearcoat: 1, emissive: "#ff6a00" } })` typechecks: a material's, a light's and a camera's numbers and colours, as three's `animate` takes them. A name in neither is still an error naming it. `StageValueKey` is their names.
+- 224641f: A ward on a scene's Subject, and the sensors on one (#884):
+
+  - **`stageWard(environment)`** is the `ward` a Stage hands out: under a `<WardicStage>`, `ward(mesh, config)` moves its Subject as a ward moves an element, with `initial`, `animate` (one still loading held with `held`), `transition`, its own `variants`, `whileHover` and `whileTap` through the Stage's input, its events, `read` and `atom`. Given an accessor, it follows each Subject the accessor gives, with no exit. Other keys are an error in development, naming them.
+  - **`createHover(mesh)`** and **`createPress(mesh)`** read the pointer over a Stage's Subject, and pressed on it, through the Stage's input.
+  - **`StageWard`** gains `tapped` and `atom`; its events are typed `StageEvents`, each with the Subject as its `element`.
+
+  `@wardic/three/solid`'s `createStage` builds on it. Solid 2 only.
+
+- 82c4147: `ward` takes its element first, and finds a scene's Stage (#884):
+
+  - **`ward(element, config)`** is `ward(config)(element)`, for an element you already have, with `held`: it renders nothing, and while the ward's config is still loading it holds its component's `<Loading>`, so the fallback shows and `<Reveal>` orders it. `w.ward` and a typed instance's `w.ward` take the same form.
+  - **`WardicStage`**, a Solid context a scene's Stage is given through (`<WardicStage value={stage}>`), and the `Stage` interface, which names no three.js code. Under one, `ward(subject, config)` hands the Stage a Subject that's its own, or any accessor of one, and `createFrameEffect` runs in the Stage's Host loop. An Environment types its Subjects by adding them to `StageSubjects`. `@wardic/three/solid`'s `createStage` makes a Stage for three.js.
+
+  A config first keeps its meaning, so `ward(config, { parent })` is unchanged. Solid 2 only.
+
+### Patch Changes
+
+- 6f45583: A `WardicConfig` prop from a signal no longer makes Solid 2 report STRICT_READ_UNTRACKED. Its `reducedMotion` and `skipAnimations` are read as each animation starts, an exit's in its presence's effect, and its `transition` at each change of a `createBatch` or a `Reorder.BatchGroup`; an `isValidProp` that reads a signal is read once, as each element is made. Each read is untracked now, which is what it always was: a change applies to the next animation, or to the next element made. `useIsPresent`'s example binds it to an event handler, not to an attribute, which the child's leave disposes before it turns `false`.
+- Updated dependencies [e024ef6]
+- Updated dependencies [94f0bfa]
+- Updated dependencies [56195ee]
+- Updated dependencies [7c2c37e]
+- Updated dependencies [b78dded]
+  - @wardic/core@1.3.0
+  - @wardic/dom@1.3.0
+
 ## 2.0.1
 
 ### Patch Changes
