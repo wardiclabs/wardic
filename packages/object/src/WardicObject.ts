@@ -88,12 +88,13 @@ type Defined<V> = Exclude<V, undefined>
 /** A key's name: a number key's as a string, as the run time reads it. */
 type KeyName<K> = K extends string ? K : K extends number ? `${K}` : never
 
-/** A key's name as a target writes it: a numeric one as its number. */
-// #964: a `${number}` index never checks a numeric key's value (`{ 0: "x" }`), in TS 6 or 7; a number index does.
-type TargetKey<K> = K extends `${infer N extends number}` ? N : K
+/** A key's name as a target writes it: a numeric one as its number, a name that only reads as one (`"01"`) as itself. */
+// #964: a `${number}` index never checks a numeric key's value (`{ 0: "x" }`), in TS 6 or 7; a number
+// index does. `"01"` infers `number`, so a name is a number only if that number prints as it.
+type TargetKey<K> = K extends `${infer N extends number}` ? (`${N}` extends K ? N : K) : K
 
-/** `T`'s value at its key named `K`: a numeric name's at its number. */
-type At<T, K> = K extends keyof T ? T[K] : K extends `${infer N extends number}` ? T[N & keyof T] : never
+/** The value `T` holds under its key named `K`, without `undefined`: a numeric name's at its number. */
+type HeldAt<T, K> = Defined<K extends keyof T ? T[K] : K extends `${infer N extends number}` ? T[N & keyof T] : never>
 
 /**
  * A target for `T`: each of its animatable keys a value or keyframes, never `undefined` (an optional
@@ -118,10 +119,10 @@ export type ObjectTarget<T> = [T] extends [ReadonlyArray<unknown>]
 type NotOneSubject = { readonly "an array isn't one Subject: a list of them, or a sequence, whose options are WardicSequenceOptions": never }
 
 /** A target's value for `T`'s key named `K`: one of its values, or keyframes of them. */
-type ValueAt<T, K> = Defined<At<T, K>> | Config.WardicKeyframes<Defined<At<T, K>>>
+type ValueAt<T, K> = HeldAt<T, K> | Config.WardicKeyframes<HeldAt<T, K>>
 
 /** `T`'s Transition end: values for its animatable keys, set once it lands. */
-type TransitionEndOf<T> = { readonly [K in AnimatableKey<T> as TargetKey<K>]?: Defined<At<T, K>> }
+type TransitionEndOf<T> = { readonly [K in AnimatableKey<T> as TargetKey<K>]?: HeldAt<T, K> }
 
 /**
  * A target for `T` whose keys are any name (it has an index signature), checked key by key as given
@@ -135,7 +136,7 @@ type AnyKeyTarget<T, G> = {
     ? Config.WardicTransitionFor<string> | undefined
     : P extends "transitionEnd"
       ? TransitionEndOf<T> | undefined
-      : ValueAt<T, P & keyof T>
+      : ValueAt<T, P>
 }
 
 /** Where `T`'s keys are any name, the target given, checked key by key ({@link AnyKeyTarget}); else nothing, an {@link ObjectTarget} its target. */

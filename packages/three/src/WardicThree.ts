@@ -169,7 +169,7 @@ type AnyKeyTarget<T, G> = {
 
 /** The value a target for `T`, whose keys are any name, gives its key `P`: a scene's by its keys and colours, any other object's by its own keys and its uniforms'. */
 // #964: any other object's own keys as `@wardic/object`'s target gives them, an optional key's value
-// without its `undefined`.
+// without its `undefined`. Its `transition` and `transitionEnd` are keys too, which AnyKeyTarget takes first.
 type AnyKeyValue<T, P extends string> = [SceneKey<T>] extends [never]
   ? (P extends keyof WardicObject.ObjectTarget<T> ? Exclude<WardicObject.ObjectTarget<T>[P], undefined> : never) | (P extends UniformKey<T> | UniformColourKey<T> ? ValueOf<P, UniformKey<T>, UniformColourKey<T>, SceneValue, ColourTargetValue> : never)
   : ValueOf<P, SceneKey<T>, ColourKey<T>, SceneValue, ColourTargetValue>
