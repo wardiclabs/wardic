@@ -1,5 +1,5 @@
 ---
-"@wardic/core": minor
+"@wardic/core": patch
 "@wardic/dom": patch
 "@wardic/object": patch
 "@wardic/foldkit": patch
@@ -11,4 +11,3 @@ An animation a later one takes a key from mid-flight now ends without landing (#
 - **Once the keys it still draws have landed,** or at once when none are left, its `state` reads `"idle"`, as after a `stop()`. A scope's `settled()` stops waiting on it, `scope.animations` drops it, and a Foldkit `Wardic.animate` Command succeeds with `{ landed: false }`. Before, it landed with its other keys, or, with every key taken, stayed `"running"` for good.
 - **A seek, `complete()` or replay before its end** takes its keys back from whatever draws them, where it left the later animation drawing them too.
 - **An element's own target carrying an animation's leg on** (its new target the leg's) ends that animation without landing, where it stayed `"running"` for good.
-- **`Batch.animate` and `Batch.keyframes` take `onTaken`,** called when a change ends with a key a later one took.
