@@ -295,3 +295,7 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 - **Retained per Subject:** about 4.21 KB on both sides (`main` 4205–4277 B, the head 4203–4214 B). One reading of 12.8–13.3 KB on either side is the GC's timing.
 - **The call:** 43.4 ms on `main`, 40.3 ms on the head, within the probe's spread (ratios 0.85–1.00).
 - **Frames:** each frame's path is unchanged.
+- **Bytes** (`bun run size`): core grows 0.7 KB minified in each app that ships the Imperative track.
+  - `f-slim`, Foldkit's Slim app, goes from 196.5 to 196.8 KB gzip. That was past its budget, so the budget was raised to 196.8 by what this measured, as #882's was.
+  - `t2-stage` (243.5) and `t2-features` (251.2) stay within theirs.
+  - Solid's apps don't ship the track, and are unchanged.
