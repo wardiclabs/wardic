@@ -37,4 +37,6 @@ dots.get(3, "y")                                                     // its valu
 - **Its members** are reached through it: an object of a Batch given to `animate` itself is an error.
 - **A sequence** can hold a Segment of a Batch, `[dots, { opacity: [0, 1] }]`, or of a member, `[dots.at(0), …]`.
 
+Every module is in [its reference](https://wardic.dev/reference/object). `@wardic/three` builds three.js's runtime on it ([the 3D guide](https://wardic.dev/guides/3d)).
+
 Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).

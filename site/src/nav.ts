@@ -85,6 +85,8 @@ export const NAV: ReadonlyArray<NavSection> = [
       ...indexOf("core", "Core reference"),
       ...indexOf("dom", "DOM reference"),
       ...indexOf("foldkit", "Foldkit reference"),
+      ...indexOf("three", "three.js reference"),
+      ...indexOf("object", "Object reference"),
     ],
     groups: [
       {
@@ -106,6 +108,16 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/provider/wardic-stage", title: "WardicStage" },
           { path: "/reference/solid/provider/lazy-wardic", title: "LazyWardic" },
           { path: "/reference/solid/provider/features", title: "Features" },
+        ],
+      },
+      {
+        // `@wardic/three/solid`'s own (#564): its hooks are `@wardic/solid`'s Stage halves, on WardicStage's page.
+        title: "Scenes",
+        pages: [
+          { path: "/reference/solid/scenes/create-stage", title: "createStage" },
+          { path: "/reference/solid/scenes/create-scene-object", title: "createSceneObject" },
+          { path: "/reference/solid/scenes/stage-features", title: "Stage features" },
+          { path: "/reference/solid/scenes/test-stage", title: "TestStage" },
         ],
       },
       {
@@ -203,10 +215,12 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/advanced/create-projection-node", title: "createProjectionNode" },
         ],
       },
-      // Core's, dom's and Foldkit's modules, generated at build (scripts/reference.ts), as each is published.
+      // Core's, dom's, Foldkit's, three's and object's modules, generated at build (scripts/reference.ts), as each is published.
       ...groupOf("Core", modulesOf("core")),
       ...groupOf("DOM", modulesOf("dom")),
       ...groupOf("Foldkit", modulesOf("foldkit")),
+      ...groupOf("three.js", modulesOf("three")),
+      ...groupOf("Object", modulesOf("object")),
     ],
   },
 ]

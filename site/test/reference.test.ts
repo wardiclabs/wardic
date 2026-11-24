@@ -1,6 +1,8 @@
 // The Solid reference's coverage (#558): every name either binding exports has a page, and every page
 // names only what a binding exports. A page lists the exports it documents in its front matter's
-// `api: [a, b]`: a new export needs a page, or a line on one, in the same PR.
+// `api: [a, b]`: a new export needs a page, or a line on one, in the same PR. `@wardic/three/solid`'s
+// exports are Solid's too (#564): its hooks are `@wardic/solid`'s Stage halves, and its own have the
+// reference's Scenes pages.
 import { readdirSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import ts from "typescript"
@@ -8,6 +10,7 @@ import { describe, expect, it } from "vitest"
 
 const REPO = join(import.meta.dirname, "../..")
 const SOLID = join(REPO, "packages/solid/src")
+const THREE_SOLID = join(REPO, "packages/three/src/solid.ts")
 const REFERENCE = join(REPO, "site/src/content/reference/solid")
 
 /** Every name `entry` exports, values and types alike, as the TypeScript compiler sees them. */
@@ -40,7 +43,7 @@ const apiOf = (file: string): ReadonlyArray<string> => {
     .filter((name) => name !== "")
 }
 
-const program = ts.createProgram([join(SOLID, "index.tsx"), join(SOLID, "v1/index.tsx")], {
+const program = ts.createProgram([join(SOLID, "index.tsx"), join(SOLID, "v1/index.tsx"), THREE_SOLID], {
   allowImportingTsExtensions: true,
   noEmit: true,
   jsx: ts.JsxEmit.Preserve,
@@ -50,7 +53,7 @@ const program = ts.createProgram([join(SOLID, "index.tsx"), join(SOLID, "v1/inde
   customConditions: ["@wardic/source"],
   skipLibCheck: true,
 })
-const exported = new Set([...exportsOf(program, join(SOLID, "index.tsx")), ...exportsOf(program, join(SOLID, "v1/index.tsx"))])
+const exported = new Set([...exportsOf(program, join(SOLID, "index.tsx")), ...exportsOf(program, join(SOLID, "v1/index.tsx")), ...exportsOf(program, THREE_SOLID)])
 const pages = pagesUnder(REFERENCE)
 const documented = new Map(pages.flatMap((page) => apiOf(page).map((name) => [name, relative(REFERENCE, page)] as const)))
 

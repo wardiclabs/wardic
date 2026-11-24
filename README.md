@@ -62,6 +62,8 @@ Its source is in [`examples/storefront`](examples/storefront), with a Solid 1 ve
 | --- | --- |
 | [`@wardic/solid`](packages/solid) | The Solid binding: Solid 2 at the root, Solid 1 under `/v1`, deprecated. |
 | [`@wardic/foldkit`](packages/foldkit) | The Foldkit binding: Motion's animations on Foldkit's views, as Effect. |
+| [`@wardic/three`](packages/three) | three.js scenes: Motion's `animate` on meshes, materials, cameras and lights, Batches of instances, and hooks for Solid 2 at `/solid`. Ships in 1.3. |
+| [`@wardic/object`](packages/object) | Motion's `animate` on any object's properties, the base for canvas and WebGL. Ships in 1.3. |
 | [`@wardic/dom`](packages/dom) | The browser environment it runs on. |
 | [`@wardic/core`](packages/core) | The engine, for building a binding or an environment of your own. |
 | [`@wardic/test`](packages/test) | Testing Layers: a clock that replays the frames you give it and input you push, with no browser. |

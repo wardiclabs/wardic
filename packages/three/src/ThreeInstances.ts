@@ -53,7 +53,8 @@ interface ColourWriter {
   readonly toArray: (array: Float32Array, offset: number) => unknown
 }
 
-/** A three `InstancedMesh`, by its flag (ADR-0069 decision 3), as Wardic reads and writes one. */
+/** A three `InstancedMesh`, by its flag, as Wardic reads and writes one. */
+// ADR-0069 decision 3.
 interface InstancedLike {
   readonly isInstancedMesh: true
   readonly instanceMatrix: AttributeLike

@@ -42,7 +42,9 @@ packages/*/THIRD_PARTY_NOTICES.md
 .claude/.context-manifest.json
 .oac.json
 
-# The docs' core, dom and foldkit references, generated before each build (site/scripts/reference.ts)
+# The docs' core, dom, foldkit, object and three references, generated before each build (site/scripts/reference.ts)
 site/src/content/reference/core/
 site/src/content/reference/dom/
 site/src/content/reference/foldkit/
+site/src/content/reference/object/
+site/src/content/reference/three/

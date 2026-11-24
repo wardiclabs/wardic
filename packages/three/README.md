@@ -71,11 +71,13 @@ const Crate = (props: { mesh: Mesh }) => {
 ```
 
 - **`createStage`** takes a renderer or a function making one (called once the page has settled, so a server never does), a scene and a camera. `frameloop: "demand"` draws only while something moves, a Frame effect applies, or after `invalidate()`. `{ wardic }` adopts a runtime made outside Solid, whose maker pumps its frames.
-- **`ward(mesh, config)`** under the Stage takes `initial`, `animate`, `transition`, `variants`, `whileHover` and `whileTap`. A ward with variants and no names of its own follows the nearest ward above its object in three's graph, not Solid's tree.
+- **`ward(mesh, config)`** under the Stage takes `initial`, `animate`, `transition`, `variants`, `whileHover` and `whileTap`. A ward with variants and no names of its own follows the nearest ward above its object in three's graph, not Solid's tree. `read(key)` gives the object's keys at their types, a number on it as an `Accessor<number>`, from its own value until the ward moves it.
 - **`createSceneObject(mesh, config)`** adds an object to the scene as its ward starts (its `parent`, else the one it has, else the scene) and removes it once its `exit` lands. `dispose: true` disposes its geometries and materials then.
 - **Drag and Batches are features,** each code only a scene that uses it carries: `createStage({ …, features: [stageDrag, stageBatches] })`. `ward(mesh, { drag })` drags on the plane facing the camera, a `dragPlane`, or an axis; `createBatch({ object, … })` or `createBatch({ instances, … })` animates meshes or an `InstancedMesh`'s instances as one run.
 - **The sensors** take a scene's object: `createHover(mesh)`, `createPress(mesh)`, `createDrag(mesh)`.
 - **A scene's hooks alone:** `ward`, `createBatch` and the sensors from here are `@wardic/solid`'s for a scene's objects, without the page's code. A three.js scene and one ward come to 243 KB gzipped this way, against 300 through `@wardic/solid`'s `ward`, which takes a page's element too. A page with both can use either.
 - **Tests:** `@wardic/three/solid`'s `TestStage.make` is a Stage too, so a component's hooks run in Node with no renderer.
+
+The [3D guide](https://wardic.dev/guides/3d) shows it with live scenes; the [three.js reference](https://wardic.dev/reference/three) has every module, and `@wardic/three/solid`'s hooks are in the [Solid reference](https://wardic.dev/reference/solid/scenes/create-stage).
 
 Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).

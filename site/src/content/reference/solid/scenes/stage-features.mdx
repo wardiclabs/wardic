@@ -1,0 +1,26 @@
+---
+title: Stage features
+description: What a Stage does beyond a ward's motion, each given to createStage for what the scene uses. stageDrag drags a scene's objects, and stageBatches makes Batches of them.
+api: [stageDrag, stageBatches, StageFeature, StageParts, StageView]
+---
+
+# Stage features
+
+What a Stage does beyond a ward's motion, each given to `createStage`'s `features` for what the scene uses, as a page's Features are given to its provider. A scene that uses neither carries neither's code. From `@wardic/three/solid`, on Solid 2.
+
+```tsx solid2
+import { createStage, stageBatches, stageDrag } from "@wardic/three/solid"
+
+const stage = createStage({ renderer, scene, camera, features: [stageDrag, stageBatches] })
+```
+
+- **`stageDrag`** drags a ward's object, `ward(mesh, { drag: true })`, on the Stage's camera and canvas: on the plane through the point grabbed, facing the camera, or along one axis (`"x"`, `"y"`, `"z"`). It also takes `dragConstraints` per axis in its parent's space, `dragElastic`, `dragMomentum`, `dragTransition`, `dragSnapToOrigin`, and `dragPlane`, a fixed plane to drag on, such as the ground's. A Stage adopting a runtime has no view of its own, and drags nothing.
+- **`stageBatches`** makes `createBatch`'s scene Batches: `instances`, an `InstancedMesh`'s instances as members, or `object`, a three.js object per member ([3D scenes](/guides/3d#many-objects-at-once)).
+
+A ward's `drag`, or a scene's `createBatch`, on a Stage without its feature is an error in development that names it.
+
+## Types
+
+- **`StageFeature`:** a feature, the drag it gives or the Batches it makes, from the Stage's parts.
+- **`StageParts`:** what a feature builds on: the Stage's runtime, its view and its scene.
+- **`StageView`:** a Stage's camera and its canvas, what a drag casts through. A Stage adopting a runtime has none.

@@ -46,19 +46,29 @@ A Wardic binding for [Foldkit](https://www.npmjs.com/package/foldkit), the Effec
 
 Three.js scenes, animated with Wardic's springs, variants and gestures. You make your objects however you like, in code, from a loader or through another library, and Wardic animates them: it has no scene components and no renderer of its own. Its writes land in the frame your scene's loop draws, never a frame late.
 
-- **Any object's numeric properties,** whatever draws them, as Motion's `animate(object, …)` does: `@wardic/object`, the base for canvas and WebGL.
-- **Three.js,** in `@wardic/three`:
+What 1.3 brings, built and waiting on its release:
+
+- **Any object's numeric properties,** whatever draws them, as Motion's `animate(object, …)` does: `@wardic/object`, the base for canvas and WebGL ([its reference](/reference/object)).
+- **Three.js,** in `@wardic/three` ([its reference](/reference/three)):
   - `x`, `rotateY` and `scale` keys, as on the page;
+  - a material's, a light's and a camera's own numbers;
   - colours blended in linear light;
   - a pointer's hover and press, found by raycasting the whole scene.
-- **Many objects as one Batch,** an `InstancedMesh`'s instances among them, as `createBatch` moves many elements on the page.
-- **Hooks for Solid 2,** in `@wardic/three/solid`, with no component to add:
+- **Many objects as one Batch,** an `InstancedMesh`'s instances among them, as `createBatch` moves many elements on the page. Ten thousand instances cost 0.64 ms a frame.
+- **Hooks for Solid 2,** in `@wardic/three/solid`, with no component to add, and none of the page's code:
   - `createStage` runs the canvas and its loop;
-  - `ward(mesh, config)` gives an object a `w.div`'s targets, variants and transitions;
+  - `ward(mesh, config)` gives an object a `w.div`'s targets, variants and transitions, and reads its keys at their types;
+  - `createHover`, `createPress` and `createDrag` hear the pointer through the scene's raycast;
   - `createSceneObject` adds an object to the scene and plays its exit before it leaves;
   - `createFrameEffect` runs your own code in the frame, before it's drawn.
 
-[The 1.3 milestone](https://github.com/wardiclabs/wardic/milestone/8): [#564](https://github.com/wardiclabs/wardic/issues/564), [#881](https://github.com/wardiclabs/wardic/issues/881), [#882](https://github.com/wardiclabs/wardic/issues/882), [#883](https://github.com/wardiclabs/wardic/issues/883), [#884](https://github.com/wardiclabs/wardic/issues/884), [#885](https://github.com/wardiclabs/wardic/issues/885)
+The [3D guide](/guides/3d) shows each, with live scenes, and its hooks are in the Solid reference's Scenes pages, beginning with [`createStage`](/reference/solid/scenes/create-stage). The storefront has four scenes, live at [solid2.wardic.dev](https://solid2.wardic.dev), each with its code:
+- [turn the vase](https://solid2.wardic.dev/scenes/turn-the-vase);
+- [kintsugi](https://solid2.wardic.dev/scenes/kintsugi), 3,000 shards in one Batch;
+- [the shelf](https://solid2.wardic.dev/scenes/the-shelf);
+- [fire the kiln](https://solid2.wardic.dev/scenes/fire-the-kiln).
+
+[The 1.3 milestone](https://github.com/wardiclabs/wardic/milestone/8): [#564](https://github.com/wardiclabs/wardic/issues/564), [#881](https://github.com/wardiclabs/wardic/issues/881), [#882](https://github.com/wardiclabs/wardic/issues/882), [#883](https://github.com/wardiclabs/wardic/issues/883), [#884](https://github.com/wardiclabs/wardic/issues/884), [#885](https://github.com/wardiclabs/wardic/issues/885), [#927](https://github.com/wardiclabs/wardic/issues/927), [#934](https://github.com/wardiclabs/wardic/issues/934), [#935](https://github.com/wardiclabs/wardic/issues/935), [#936](https://github.com/wardiclabs/wardic/issues/936), [#937](https://github.com/wardiclabs/wardic/issues/937), [#939](https://github.com/wardiclabs/wardic/issues/939)
 
 ## 1.4: a performance viewer
 
