@@ -56,6 +56,21 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(bag, declared)
   void forward(ball, { x: 1 })
 
+  // A Record, or a type of any name alone (#959): its type inferred, its target as any such Subject's.
+  const levels: Record<string, number> = { bass: 0, treble: 0 }
+  const bands: { [band: string]: number } = { low: 0 }
+  wardic.animate(levels, { bass: 1, treble: [0, 1] })
+  wardic.animate(bands, { low: 1, transition: { duration: 1, low: { duration: 0.2 } }, transitionEnd: { low: 0 } })
+  wardic.animate([levels, { ...levels }], { bass: 1 }, { bass: { duration: 0.2 } })
+  wardic.animate<typeof levels>(levels, { bass: 1 })
+  // @ts-expect-error: a Record's values are its own, numbers.
+  wardic.animate(levels, { bass: { duration: 1 } })
+  // A Subject of known keys and a list of them are checked as ever.
+  // @ts-expect-error: a key the Subject hasn't.
+  wardic.animate(ball, { z: 1 })
+  // @ts-expect-error: nor a list of them.
+  wardic.animate([ball, { ...ball }], { z: 1 })
+
   // A Batch's entries: its keys, its members' numbers.
   const dots = wardic.batch([ball, { ...ball }])
   wardic.animate(dots, { x: (i) => i }, { duration: 1, x: { duration: 0.3 } })

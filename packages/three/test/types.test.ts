@@ -131,10 +131,17 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(shaded, { x: 1, transition: { duration: "slow" } })
   // @ts-expect-error: a Transition end's values aren't keyframes.
   wardic.animate(shader, { uProgress: 1, transitionEnd: { uProgress: [0, 1] } })
-  // A call that names its Subject's type keeps the target it had: values only. A uniforms object of
-  // any name needs its type named, as a Record does (#959).
+  // A call that names its Subject's type keeps the target it had: values only.
   wardic.animate<typeof shader>(shader, { uProgress: 1 })
   wardic.animate<typeof shader.uniforms>(shader.uniforms, { uProgress: 1, uTint: "#f0f" })
+  // A uniforms object of any name alone, its type inferred (#959): its own transition and Transition end.
+  wardic.animate(shader.uniforms, { uProgress: 1, uTint: "#f0f", transition: { duration: 1, uTint: { duration: 0.2 } }, transitionEnd: { uProgress: 0 } })
+  // @ts-expect-error: a uniform's value isn't an object.
+  wardic.animate(shader.uniforms, { uProgress: { duration: 1 } })
+  // A list of meshes is checked as ever.
+  wardic.animate([cube, cube.clone()], { x: 1, rotateY: 90 })
+  // @ts-expect-error: a key the meshes have nowhere.
+  wardic.animate([cube, cube.clone()], { fov: 30 })
   // A target typed as a ThreeTarget fits as ever: a wrapper's, and one declared so.
   const forward = <T extends object>(subject: T, target: WardicThree.ThreeTarget<T>) => wardic.animate(subject, target)
   const declared: WardicThree.ThreeTarget<typeof shader> = { uProgress: 1 }
