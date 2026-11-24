@@ -134,38 +134,56 @@ const splitValues = (values: Readonly<Record<string, unknown>>, colours: Readonl
   return out
 }
 
-/** `transition` with each of `colours`' keys' own entry given to its three channels. */
-const splitEntries = (transition: unknown, colours: ReadonlyArray<readonly [string, ColorLike]>): unknown => {
+/** Whether `key` holds an entry of `entries` and names a Color on `subject`: a colour's own transition. */
+const isColourEntry = (subject: object, entries: Readonly<Record<string, unknown>>, key: string): boolean => {
+  if (!Predicate.isObject(entries[key])) return false
+  return Predicate.isNotUndefined(colourFor(subject, key))
+}
+
+/**
+ * `transition` on `subject`, each colour's own entry given to its three channels, a channel with an
+ * entry of its own keeping it. A transition with no colour's entry comes back as it is.
+ */
+// #952: by the Subject's colours, not the target's, so a target written by its channels runs on its
+// colour's entry too.
+const entriesOn = (subject: object, transition: unknown): unknown => {
   if (!Predicate.isObject(transition)) return transition
   const entries = transition as Readonly<Record<string, unknown>>
-  if (!Arr.some(colours, ([key]) => key in entries)) return transition
+  const colours = Arr.filter(Rec.keys(entries), (key) => isColourEntry(subject, entries, key))
+  if (colours.length === 0) return transition
   const out: Record<string, unknown> = { ...entries }
-  Arr.forEach(colours, ([key]) => {
-    if (!(key in entries)) return
-    const entry = entries[key]
+  Arr.forEach(colours, (key) => {
     delete out[key]
     Arr.forEach(CHANNELS, (channel) => {
-      out[`${key}${channel}`] = entry
+      const name = `${key}${channel}`
+      if (Object.hasOwn(entries, name)) return
+      out[name] = entries[key]
     })
   })
   return out
 }
 
+/** `target` on `subject`, its colour keys split: its values, its Transition end's, and its transition's entries. As it is with none. */
+const targetOn = (subject: object, given: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
+  const colours = coloursIn(subject, given)
+  const transition = entriesOn(subject, given.transition)
+  if (colours.length === 0 && transition === given.transition) return given
+  const split: Record<string, unknown> = { ...splitValues(given, colours) }
+  if (Predicate.isObject(given.transitionEnd)) split.transitionEnd = splitValues(given.transitionEnd as Readonly<Record<string, unknown>>, colours)
+  if ("transition" in given) split.transition = transition
+  return split
+}
+
 /**
  * A call's target and options on `subject`, each colour key split into its channels: its value or
- * keyframes, its `transitionEnd`, and its own entry in the target's `transition` or the options. A
- * target with no colour key comes back as it is. For a Batch, `subject` is a member, and a value may be
- * two stops or a function of a member's index.
+ * keyframes, its `transitionEnd`, and a colour's entry in the target's `transition` or the options,
+ * which runs each of its channels without an entry of its own, whichever the target names. A target
+ * and options with no colour come back as they are. For a Batch, `subject` is a member, and a value may
+ * be two stops or a function of a member's index.
  */
 export const splitCall = (subject: unknown, target: unknown, options: unknown): readonly [target: unknown, options: unknown] => {
   if (!Predicate.isObject(subject) || !Predicate.isObject(target)) return [target, options]
-  const given = target as Readonly<Record<string, unknown>>
-  const colours = coloursIn(subject, given)
-  if (colours.length === 0) return [target, options]
-  const split: Record<string, unknown> = { ...splitValues(given, colours) }
-  if (Predicate.isObject(given.transitionEnd)) split.transitionEnd = splitValues(given.transitionEnd as Readonly<Record<string, unknown>>, colours)
-  if ("transition" in given) split.transition = splitEntries(given.transition, colours)
-  return [split, splitEntries(options, colours)]
+  return [targetOn(subject, target as Readonly<Record<string, unknown>>), entriesOn(subject, options)]
 }
 
 /** `target` on `subject`, each colour key split into its channels. */
@@ -181,17 +199,11 @@ const splitTargetValue = (subjectNow: () => unknown, value: unknown): unknown =>
   return splitCall(subject, value, undefined)[0]
 }
 
-/** `transition` on the Subject now, each colour key's own entry given to its channels. */
+/** `transition` on the Subject now, each colour's own entry given to its channels. */
 const splitTransition = (subjectNow: () => unknown, transition: unknown): unknown => {
   const subject = subjectNow()
-  if (!Predicate.isObject(subject) || !Predicate.isObject(transition)) return transition
-  const colours = Arr.filterMap(Rec.keys(transition as Readonly<Record<string, unknown>>), (key) => {
-    const colour = colourFor(subject, key)
-    if (Predicate.isUndefined(colour)) return Result.failVoid
-    return Result.succeed([key, colour] as const)
-  })
-  if (colours.length === 0) return transition
-  return splitEntries(transition, colours)
+  if (!Predicate.isObject(subject)) return transition
+  return entriesOn(subject, transition)
 }
 
 /** `value` through `f`: an accessor's value as it's read, any other's now. */
