@@ -68,8 +68,10 @@ import * as ObjectRenderer from "./ObjectRenderer.ts"
 import * as ObjectValues from "./ObjectValues.ts"
 import * as PumpedFrames from "./PumpedFrames.ts"
 
-/** A key of `T` Wardic animates: one whose value is a number or a string. */
-export type AnimatableKey<T> = { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
+/** A key of `T` Wardic animates: one whose value is a number or a string. An array has none: a list is many Subjects. */
+// #963: over an array, the mapped keys come out as `string`, so an inline sequence, read as a list of
+// arrays, looked like Subjects of any name, its options unchecked.
+export type AnimatableKey<T> = T extends ReadonlyArray<unknown> ? never : { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
 
 /**
  * A target for `T`: each of its animatable keys a value or keyframes; a transition, with an entry

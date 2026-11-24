@@ -76,13 +76,16 @@ type ColourKeyOf<T> = { readonly [K in keyof T]-?: T[K] extends IsColor ? K : ne
 /** A colour's channel keys, in linear light: `colorR`, `colorG`, `colorB`. */
 type ChannelKey<K extends string> = `${K}${(typeof ThreeColours.CHANNELS)[number]}`
 
-/** The names of `U`'s uniforms that hold a number, a vector's axes, or a colour's channels. */
-type UniformKey<U> = {
-  readonly [K in keyof U]-?: U[K] extends { value: number } ? K : U[K] extends { value: IsColor } ? (K extends string ? ChannelKey<K> : never) : U[K] extends { value: infer V } ? (K extends string ? `${K}${AxesOf<V>}` : never) : never
-}[keyof U] & string
+/** The names of `U`'s uniforms that hold a number, a vector's axes, or a colour's channels. An array has none. */
+// #963: as AnimatableKey's, over an array the mapped keys come out as `string`.
+type UniformKey<U> = U extends ReadonlyArray<unknown>
+  ? never
+  : {
+      readonly [K in keyof U]-?: U[K] extends { value: number } ? K : U[K] extends { value: IsColor } ? (K extends string ? ChannelKey<K> : never) : U[K] extends { value: infer V } ? (K extends string ? `${K}${AxesOf<V>}` : never) : never
+    }[keyof U] & string
 
-/** The names of `U`'s uniforms that hold a `Color`. */
-type UniformColourKey<U> = { readonly [K in keyof U]-?: U[K] extends { value: IsColor } ? K : never }[keyof U] & string
+/** The names of `U`'s uniforms that hold a `Color`. An array has none. */
+type UniformColourKey<U> = U extends ReadonlyArray<unknown> ? never : { readonly [K in keyof U]-?: U[K] extends { value: IsColor } ? K : never }[keyof U] & string
 
 /** The uniforms `M` holds, a `ShaderMaterial`'s. */
 type UniformsOf<M> = M extends { readonly uniforms: infer U } ? U : never
