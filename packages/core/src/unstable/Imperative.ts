@@ -295,6 +295,26 @@ const IMPERATIVE: Spine.Resolution = {
   change: undefined,
 }
 
+/** The target the Override stack had for each key at the spine's last Retarget: what a taken key is noted with. */
+const lastTargetsOf = (host: Spine.SpineHost): Values.Values => UndefinedOr.match(host.lastResolution(), { onUndefined: () => Spine.NO_VALUES, onDefined: (last) => last.resolved })
+
+/**
+ * `key` taken by an Imperative animation from whatever runs it (#433): noted in `taking` with `noted`,
+ * the target the Override stack has for it now, no longer returning, its Timeline value stopped, given
+ * up by its owner, owned, and started where it's drawn toward `like`, noted in `started`.
+ */
+const takeKey = (host: Spine.SpineHost, taking: Map<string, number | string | undefined>, key: string, noted: number | string | undefined, like: number | string, started: Record<string, string>): void => {
+  taking.set(key, noted)
+  host.returning().delete(key)
+  // Its Timeline value stops while the animation draws the key (#240).
+  const timelineKeys = host.timelineKeys()
+  if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
+  const owner = host.owners.get(key)
+  if (Predicate.isNotUndefined(owner)) host.giveUp(key, owner)
+  if (!Object.hasOwn(host.initialValues, key)) host.ownValue(key)
+  host.startKey(key, like, started)
+}
+
 /**
  * An **Imperative animation** of a Subject (#433), through its spine's `host`: it takes `target`'s
  * keys from whatever runs them, each noted with the target the Override stack has for it now, so a
@@ -306,14 +326,14 @@ const IMPERATIVE: Spine.Resolution = {
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
 // imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
 const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, given: Config.WardicTransition | undefined, head: Playback.Playhead, hooks: Spine.ImperativeHooks): Spine.ImperativeTrack => {
-  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, unitScale, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
+  const { snapshot, owners, keepTheRest, element, positionalKeys, defaultTransition, unitScale, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
   const runImperative = (running: Spine.Running, program: Effect.Effect<unknown, never, WardicServices.WardicServices>): void => {
     running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, legEnded(running))))
   }
   const to = target.values
-  const before = UndefinedOr.match(host.lastResolution(), { onUndefined: () => Spine.NO_VALUES, onDefined: (last) => last.resolved })
+  const before = lastTargetsOf(host)
   const started: Record<string, string> = {}
   let measuring: Array<string> | undefined
   // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
@@ -322,16 +342,8 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   // Where a Path's axis this target leaves out rests (#574), before its keys are taken below.
   const rests = Spine.restsOf(owners, to)
   Arr.forEach(Rec.keys(to), (key) => {
-    takenNow.set(key, before[key])
-    host.returning().delete(key)
-    // Its Timeline value stops while the animation draws the key (#240).
-    const timelineKeys = host.timelineKeys()
-    if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
-    const owner = owners.get(key)
-    if (Predicate.isNotUndefined(owner)) giveUp(key, owner)
-    if (!Object.hasOwn(initialValues, key)) ownValue(key)
     const like = UndefinedOr.getOrThrow(to[key])
-    startKey(key, like, started)
+    takeKey(host, takenNow, key, before[key], like, started)
     if (measuredPairs.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
       if (Predicate.isUndefined(measuring)) measuring = []
       measuring.push(key)
@@ -355,6 +367,17 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   const legs = Arr.map(built, (leg) => RetargetLegs.mapMachine(leg, Playback.drive(head)))
   let runnings: ReadonlyArray<Spine.Running> = Spine.NO_RUNNING
   let left = 0
+  // `values` drawn at once, at rest: newer than the legs that let them go (#464).
+  const setAtRest = (values: Values.Values): void => {
+    snapshot.values = { ...snapshot.values, ...values }
+    snapshot.velocities = { ...snapshot.velocities, ...Rec.map(values, () => 0) }
+    const now = snapshot.now()
+    Arr.forEach(Rec.keys(values), (key) => {
+      snapshot.drawnAt[key] = now
+    })
+    gate.write(id, values)
+    recordFrame(values)
+  }
   const landing: Spine.Landing = {
     report: constVoid,
     settled: () => {
@@ -385,15 +408,8 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   const cancel = (): void => {
     end()
     turnBack()
-    snapshot.values = { ...snapshot.values, ...from }
-    snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
-    // Put back at once: at rest, newer than the legs that let them go (#464).
-    const now = snapshot.now()
-    Arr.forEach(Rec.keys(from), (key) => {
-      snapshot.drawnAt[key] = now
-    })
-    gate.write(id, from)
-    recordFrame(from)
+    // Put back at once, its keys where it started them.
+    setAtRest(from)
   }
   // Each leg's machine, run from its start to rest, apart from the Playhead, which it would move: a
   // blend's built with the Subject's Key rules.
