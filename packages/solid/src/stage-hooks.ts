@@ -24,7 +24,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, DEV, useContext } from "solid-js"
 import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
 import { isElement, stageSensorOf } from "./sensors.tsx"
-import { type StageBatch, type StageCountBatchConfig, type StageKeyedBatchConfig, type StageSubject, type StageWard, type StageWardChecked, type StageWardConfig, WardicStage } from "./stage.ts"
+import { type StageBatch, type StageCountBatchConfig, type StageKeyedBatchConfig, type StageSubject, type StageSubjectOf, type StageWard, type StageWardChecked, type StageWardConfig, WardicStage } from "./stage.ts"
 import { stageBatchOf } from "./stage-batch.ts"
 import { isWard, type WardOptions } from "./ward.tsx"
 
@@ -62,7 +62,11 @@ const sensorOnStage = <A>(name: string, subject: unknown, initial: A, watch: Sta
  * const crate = wardOnStage(mesh, { initial: { scale: 0 }, animate: { scale: 1 }, whileHover: { y: 0.3 } })
  * @see https://wardic.dev/reference/solid/provider/wardic-stage
  */
-export function wardOnStage<const C extends StageWardConfig>(subject: StageSubject | Accessor<StageSubject | undefined>, config: StageWardChecked<C>, options?: WardOptions): StageWard<C>
+export function wardOnStage<const C extends StageWardConfig, G extends StageSubject | Accessor<StageSubject | undefined>>(
+  subject: G,
+  config: StageWardChecked<C>,
+  options?: WardOptions,
+): StageWard<C, StageSubjectOf<G>>
 export function wardOnStage(subject: unknown, config: unknown, options?: WardOptions): StageWard {
   const stage = useContext(WardicStage)
   if (Predicate.isNull(stage)) {

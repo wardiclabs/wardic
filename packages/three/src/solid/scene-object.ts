@@ -24,13 +24,13 @@
  */
 // #885's PR 2 (ADR-0073, *Amendment (#885)*, Q5 and Q6).
 import { isServer } from "@solidjs/web"
-import { type SceneWard, stageSceneObject, type StageMembership, type StageWardConfig, WardicStage } from "@wardic/solid"
+import { type SceneWard, stageSceneObject, type StageMembership, type StageSubjectOf, type StageWardConfig, WardicStage } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, omit, useContext } from "solid-js"
 import type { Object3D } from "three"
-import { INERT_WARD, SCENE, type SceneOf, type SceneStage } from "./stage.ts"
+import { inertWardOn, SCENE, type SceneOf, type SceneStage } from "./stage.ts"
 
 /** The keys of a ward a Scene object takes, with its `exit`. */
 type SceneMotion = Pick<
@@ -61,8 +61,8 @@ export interface SceneObjectConfig extends SceneMotion {
   readonly dispose?: boolean | undefined
 }
 
-/** A Scene object's handle: its ward, with `exitStart` and `exitComplete` (ADR-0073 decision 15). */
-export type SceneObject = SceneWard<SceneMotion>
+/** A Scene object's handle: its ward, with `exitStart` and `exitComplete` (ADR-0073 decision 15), reading `S`'s keys at their types. */
+export type SceneObject<S = Object3D> = SceneWard<SceneMotion, S>
 
 /** No three.js Stage above it. */
 const NO_STAGE = "createSceneObject(object, config): no three.js Stage above it. Make one with `createStage` and give it to `<WardicStage value={stage}>` above this component."
@@ -116,8 +116,8 @@ const sceneOfContext = (): SceneOf => {
  * const card = createSceneObject(mesh, { parent: board, initial: { scale: 0 }, animate: { scale: 1 }, exit: { scale: 0 } })
  * createEffect(card.when("tap"), () => props.onPick())
  */
-export const createSceneObject = <S extends Object3D>(object: S | Accessor<S | undefined>, config: SceneObjectConfig): SceneObject => {
-  if (isServer) return INERT_WARD as unknown as SceneObject
+export const createSceneObject = <G extends Object3D | Accessor<Object3D | undefined>>(object: G, config: SceneObjectConfig): SceneObject<StageSubjectOf<G>> => {
+  if (isServer) return inertWardOn(object) as unknown as SceneObject<StageSubjectOf<G>>
   const scene = sceneOfContext()
   const membership: StageMembership = {
     join: (subject) => {
@@ -139,5 +139,5 @@ export const createSceneObject = <S extends Object3D>(object: S | Accessor<S | u
   }
   // Its ward's keys alone, read per key as a ward reads them: `parent` and `dispose` are the membership's.
   const motion = omit(config, "parent", "dispose") as StageWardConfig
-  return stageSceneObject(scene.environment)(object, scene.split(object, motion), membership) as SceneObject
+  return stageSceneObject(scene.environment)(object, scene.split(object, motion), membership) as SceneObject<StageSubjectOf<G>>
 }

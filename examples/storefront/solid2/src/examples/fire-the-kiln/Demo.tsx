@@ -92,8 +92,6 @@ function Scene(props: { readonly step: Accessor<Step>; readonly gauge: () => HTM
     // kiln, the room's light, the controller's figures and the page's, in the frame it moved in.
     const heat = ward(kiln, {})
     createFrameEffect(heat.read("heat"), (now) => {
-      // A key its config doesn't name reads as any value a key can have: the kiln's is a number.
-      if (typeof now !== "number") return
       glowAt(now, glow)
       glowAt(now + 160, elements)
       glowAt(now - LAG, ware)

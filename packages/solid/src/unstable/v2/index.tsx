@@ -148,11 +148,21 @@ export {
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageKeyedBatchConfig,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type StageRead,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type StageReadKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type StageReads,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageSubject,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type StageSubjectOf,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageSubjects,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageValueKey,
+  /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
+  type StageValueOf,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */
   type StageValues,
   /** @deprecated `@wardic/solid/unstable/v2` is `@wardic/solid` since 2.0: import it from there. This alias goes at Wardic's next major (#566). */

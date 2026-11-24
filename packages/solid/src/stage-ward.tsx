@@ -50,7 +50,7 @@ import { CLIENT_ONLY, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED } from "./soli
 import type { SceneObjectEvents, SceneWard, Stage, StageDrag, StageDragConfig, StageWard, StageWardConfig } from "./stage.ts"
 import { GraphParent, provide, type StageGraph } from "./stage-graph.ts"
 import { createVariantNode } from "./variant-node.ts"
-import { configAtSetup, configuredView, gateOf, sameTarget, STARTS_AT_PENDING, WARD_VIEW, type WardConfig, type WardConfigValues, type WardRead } from "./ward.tsx"
+import { configAtSetup, configuredView, gateOf, sameTarget, STARTS_AT_PENDING, WARD_VIEW, type WardConfigValues } from "./ward.tsx"
 import { eachOf, Waiters, whenOf } from "./waiters.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
@@ -210,6 +210,14 @@ const baseHeld = (links: Spine.StartLinks, ownValues: OwnValues.Shape): Spine.St
   })
   return { ownValue, linksFor, startLinkOf: (key, like) => BaseValue.start(key, linksFor(like)) }
 }
+
+/**
+ * A Subject's own value for `key` now, as its Environment reads where a key starts (#939): none for a key
+ * with no value of its own to start from, which the Environment's reading refuses with an error.
+ */
+const ownValueOf: (links: Spine.StartLinks, key: string) => Option.Option<Option.Option<number | string>> = /*#__PURE__*/ Option.liftThrowable(
+  (links: Spine.StartLinks, key: string) => links.ownValue(key),
+)
 
 /** The Stage wards' gate ids, counted: unique across every gate. */
 // Module state (#460, Q7): an id counter. Not `createUniqueId`, so a scene leaves the page's hydration keys alone.
@@ -722,16 +730,28 @@ const wardOn = (
       return undefined
     }) as unknown as JSX.Element
 
-    // Its value per key: the gate's output while it holds the key, else its start. One accessor a key.
+    // Its value per key: the gate's output while it holds the key, else its start, else its Subject's own
+    // value now (#939), so a key the ward hasn't moved reads what the Subject holds. One accessor a key.
     const reads = new Map<string, Accessor<unknown>>()
+    // Its Subject's own values now (#939): one reading of each Subject it's on, for the keys it hasn't moved.
+    let reading: { readonly subject: object; readonly links: Spine.StartLinks } | undefined
+    const ownNow = (key: string): number | string | undefined =>
+      UndefinedOr.match(subjectOf(), {
+        onUndefined: constUndefined,
+        onDefined: (subject) => {
+          if (Predicate.isUndefined(reading) || reading.subject !== subject) reading = { subject, links: environment.startLinksOf(subject) }
+          return Option.getOrUndefined(Option.flatten(ownValueOf(reading.links, key)))
+        },
+      })
     // A Scene object's follows the gate id of the Subject it's on now.
     const atom = (key: string): Atom.Atom<unknown> => UndefinedOr.match(side, { onUndefined: () => gate.valueOf(id, key), onDefined: (s) => s.atom(key) })
     const read = (key: string): Accessor<unknown> => {
       const known = reads.get(key)
       if (Predicate.isNotUndefined(known)) return known
       const output = atom(key)
-      const own = Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => start.initialValues[key], onDefined: identity }))
-      const made = runWithOwner(owner, () => followAtom(registry(), own))
+      const started = Atom.make((get) => UndefinedOr.match(get(output), { onUndefined: () => start.initialValues[key], onDefined: identity }))
+      const followed = runWithOwner(owner, () => followAtom(registry(), started))
+      const made = (): unknown => UndefinedOr.match(followed(), { onDefined: identity, onUndefined: () => ownNow(key) })
       reads.set(key, made)
       return made
     }
@@ -750,7 +770,7 @@ const wardOn = (
         UndefinedOr.match(exitsFor(name), { onUndefined: () => lifecycle.each(name as never), onDefined: (exits) => eachOf<ExitEvents, "exitStart">(exits, name as "exitStart") }),
       when: (name) =>
         UndefinedOr.match(exitsFor(name), { onUndefined: () => lifecycle.when(name as never), onDefined: (exits) => whenOf<ExitEvents, "exitStart">(exits, name as "exitStart") }),
-      read: read as WardRead<WardConfig>,
+      read: read as SceneWard["read"],
       atom,
     } as SceneWard
   }
