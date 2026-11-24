@@ -469,9 +469,14 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
     if (head.speed < 0) return false
     return head.time >= duration()
   }
+  // A key another leg draws: a later animation's, or the element's own.
+  const drawnByAnother = (key: string): boolean => Predicate.isNotUndefined(owners.get(key))
   const run = (): void => {
     runs++
     end()
+    // Run again, it takes each of its keys from whatever draws it now, as the call took them (#951): one
+    // leg draws a key. The first run's are taken already.
+    if (runs > 1) takeEach(to, drawnByAnother)
     if (Bool.not(fromItsEnd())) putBack()
     left = legs.length
     Spine.tellStarted(live, legs)
