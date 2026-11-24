@@ -119,11 +119,11 @@ type ValueOf<Key, K, C, N, Colour> = Key extends C ? (Key extends K ? N | Colour
 type SceneTarget<K extends string, C extends string, E extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, SceneValue, ColourTargetValue> } & {
   /** How it gets there: a spring, a tween or an inertia, with an entry under any of its keys, a colour's or a channel's. */
   readonly transition?: Config.WardicTransitionFor<E> | undefined
-  readonly transitionEnd?: SceneEnd<K, C> | undefined
+  readonly transitionEnd?: SceneTransitionEnd<K, C> | undefined
 }
 
 /** A scene's Subject's Transition end, by its number keys `K` and its colour keys `C`: a number or a colour each. */
-type SceneEnd<K extends string, C extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, number, ThreeColours.ColourValue> }
+type SceneTransitionEnd<K extends string, C extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, number, ThreeColours.ColourValue> }
 
 /**
  * The keys a transition for `T` takes an entry under, each key a target for it can give: a scene
@@ -152,9 +152,9 @@ export type ThreeTarget<T> = [SceneKey<T>] extends [never]
 // signature, and `transition` and `transitionEnd` would have to be values too.
 type AnyKeyTarget<T, G> = {
   readonly [P in keyof G]: P extends "transition"
-    ? Config.WardicTransitionFor<TransitionKey<T>> | undefined
+    ? Config.WardicTransitionFor<string> | undefined
     : P extends "transitionEnd"
-      ? AnyKeyEnd<T> | undefined
+      ? AnyKeyTransitionEnd<T> | undefined
       : AnyKeyValue<T, P & string>
 }
 
@@ -164,12 +164,13 @@ type AnyKeyValue<T, P extends string> = [SceneKey<T>] extends [never]
   : ValueOf<P, SceneKey<T>, ColourKey<T>, SceneValue, ColourTargetValue>
 
 /** The Transition end of a target for `T` whose keys are any name, as {@link ThreeTarget}'s. */
-type AnyKeyEnd<T> = [SceneKey<T>] extends [never]
-  ? { readonly [K in WardicObject.AnimatableKey<T>]?: T[K] } & SceneEnd<UniformKey<T>, UniformColourKey<T>>
-  : SceneEnd<SceneKey<T>, ColourKey<T>>
+type AnyKeyTransitionEnd<T> = [SceneKey<T>] extends [never]
+  ? { readonly [K in WardicObject.AnimatableKey<T>]?: T[K] } & SceneTransitionEnd<UniformKey<T>, UniformColourKey<T>>
+  : SceneTransitionEnd<SceneKey<T>, ColourKey<T>>
 
-/** `animate`'s target for `T`: a {@link ThreeTarget}, or, where `T`'s keys are any name, the target given, checked key by key. */
-type TargetFor<T, G> = string extends TransitionKey<T> ? AnyKeyTarget<T, G> : ThreeTarget<T>
+/** Where `T`'s keys are any name, the target given, checked key by key ({@link AnyKeyTarget}); else nothing, a {@link ThreeTarget} its target. */
+// Beside ThreeTarget<T>, not in place of it: a target typed as one, a wrapper's among them, still fits.
+type AnyKeyTargetFor<T, G> = string extends TransitionKey<T> ? AnyKeyTarget<T, G> : never
 
 /** An `InstancedMesh`, by its flag. */
 type IsInstancedMesh = { readonly isInstancedMesh: true }
@@ -215,13 +216,14 @@ export type ThreeSequence = ReadonlyArray<WardicObject.ObjectSequence[number] | 
  * `target`; `animate(sequence, options?)` plays a sequence. Either returns its Playback controls. Motion's.
  * The options' transition takes an entry under any of the Subject's keys: a Batch's, its keys.
  * A Subject whose keys are any name (a `ShaderMaterial`, a mesh drawn with one) has its target checked
- * key by key as given; naming its type, `animate<T>(…)`, checks its keys as values only.
+ * key by key as given, though a misspelt key, even a mesh's own (`rotatY`), isn't caught, any name being
+ * one of its keys; naming its type, `animate<T>(…)`, checks its keys as values only.
  */
 export interface ThreeAnimate {
   <T extends object>(batch: ThreeBatch<T> | ObjectBatch.Member<T, BatchKey<T>>, target: ThreeBatchTarget<T>, options?: Imperative.WardicAnimateOptionsFor<BatchKey<T> | BatchColourKey<T>>): Imperative.WardicPlaybackControls
   <T extends object, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
     subject: T | ReadonlyArray<T>,
-    target: TargetFor<T, G>,
+    target: ThreeTarget<T> | AnyKeyTargetFor<T, G>,
     options?: Imperative.WardicAnimateOptionsFor<TransitionKey<T>>,
   ): Imperative.WardicPlaybackControls
   (sequence: ThreeSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls

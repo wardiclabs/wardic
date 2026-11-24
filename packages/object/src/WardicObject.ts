@@ -81,14 +81,14 @@ export type ObjectTarget<T> = {
 } & {
   /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
   readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
-  readonly transitionEnd?: EndOf<T> | undefined
+  readonly transitionEnd?: TransitionEndOf<T> | undefined
 }
 
 /** A target's value for `T`'s key `K`: one of its values, or keyframes of them. */
 type ValueAt<T, K extends keyof T> = T[K] | Config.WardicKeyframes<T[K]>
 
 /** `T`'s Transition end: values for its animatable keys, set once it lands. */
-type EndOf<T> = { readonly [K in AnimatableKey<T>]?: T[K] }
+type TransitionEndOf<T> = { readonly [K in AnimatableKey<T>]?: T[K] }
 
 /**
  * A target for `T` whose keys are any name (it has an index signature), checked key by key as given
@@ -99,14 +99,15 @@ type EndOf<T> = { readonly [K in AnimatableKey<T>]?: T[K] }
 // to be values too, which no transition is.
 type AnyKeyTarget<T, G> = {
   readonly [P in keyof G]: P extends "transition"
-    ? Config.WardicTransitionFor<AnimatableKey<T>> | undefined
+    ? Config.WardicTransitionFor<string> | undefined
     : P extends "transitionEnd"
-      ? EndOf<T> | undefined
+      ? TransitionEndOf<T> | undefined
       : ValueAt<T, P & keyof T>
 }
 
-/** `animate`'s target for `T`: an {@link ObjectTarget}, or, where `T`'s keys are any name, the target given, checked key by key. */
-type TargetFor<T, G> = string extends AnimatableKey<T> ? AnyKeyTarget<T, G> : ObjectTarget<T>
+/** Where `T`'s keys are any name, the target given, checked key by key ({@link AnyKeyTarget}); else nothing, an {@link ObjectTarget} its target. */
+// Beside ObjectTarget<T>, not in place of it: a target typed as one, a wrapper's among them, still fits.
+type AnyKeyTargetFor<T, G> = string extends AnimatableKey<T> ? AnyKeyTarget<T, G> : never
 
 /** A Segment of objects, `[subject, target, options?]`: an object, or a list of them. Motion's. */
 export type ObjectSegment =
@@ -125,14 +126,15 @@ export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | Obje
  * `animate(subject, target, options?)` animates an object, or each of a list of them, to `target`;
  * `animate(sequence, options?)` plays a sequence. Either returns its Playback controls. Motion's.
  * The options' transition takes an entry under any of the keys the Subject animates: a Batch's, its keys.
- * A Subject whose keys are any name (an index signature) has its target checked key by key as given;
- * naming its type, `animate<T>(…)`, checks its keys as values only.
+ * A Subject whose keys are any name (an index signature) has its target checked key by key as given,
+ * though a misspelt key isn't caught, any name being one of its keys; naming its type, `animate<T>(…)`,
+ * checks its keys as values only.
  */
 export interface ObjectAnimate {
   <T extends object>(batch: ObjectBatch.ObjectBatch<T> | ObjectBatch.Member<T>, target: ObjectBatch.Target<T>, options?: Imperative.WardicAnimateOptionsFor<ObjectBatch.NumberKey<T>>): Imperative.WardicPlaybackControls
   <T extends object, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
     subject: T | ReadonlyArray<T>,
-    target: TargetFor<T, G>,
+    target: ObjectTarget<T> | AnyKeyTargetFor<T, G>,
     options?: Imperative.WardicAnimateOptionsFor<AnimatableKey<T>>,
   ): Imperative.WardicPlaybackControls
   (sequence: ObjectSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
