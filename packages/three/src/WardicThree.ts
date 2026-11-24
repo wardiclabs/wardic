@@ -221,21 +221,24 @@ export type ThreeSequence = ReadonlyArray<WardicObject.ObjectSequence[number] | 
  */
 export interface ThreeAnimate {
   <T extends object>(batch: ThreeBatch<T> | ObjectBatch.Member<T, BatchKey<T>>, target: ThreeBatchTarget<T>, options?: Imperative.WardicAnimateOptionsFor<BatchKey<T> | BatchColourKey<T>>): Imperative.WardicPlaybackControls
-  // #959: a Subject typed as a string record (a ShaderMaterial's `uniforms`, a Record), its type inferred
-  // from it alone. Through `T | ReadonlyArray<T>`, its string index reads as a list's members, and `T`
-  // falls back to `object`. Classes (meshes, materials) and arrays aren't string records, so they take
-  // the next signature, as before.
+  // #959: a Subject whose type is assignable to a string record (an object literal's, an index
+  // signature's: a ShaderMaterial's `uniforms`, a Record), its type inferred from it alone. Through
+  // `T | ReadonlyArray<T>`, an index signature reads as a list's members, and `T` falls back to
+  // `object`. Classes (meshes, materials) and arrays aren't string records, so they take the last
+  // signature, as before.
   <T extends Readonly<Record<string, unknown>>, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
     subject: T,
     target: ThreeTarget<T> | AnyKeyTargetFor<T, G>,
     options?: Imperative.WardicAnimateOptionsFor<TransitionKey<T>>,
   ): Imperative.WardicPlaybackControls
+  (sequence: ThreeSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
+  // Last, since past three overloads TypeScript reports only the last one's error: a Subject's target
+  // misspelt names its key, rather than "not a sequence".
   <T extends object, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
     subject: T | ReadonlyArray<T>,
     target: ThreeTarget<T> | AnyKeyTargetFor<T, G>,
     options?: Imperative.WardicAnimateOptionsFor<TransitionKey<T>>,
   ): Imperative.WardicPlaybackControls
-  (sequence: ThreeSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
 
 /** A runtime's options: `@wardic/object`'s, the scene's unit scale, and its input. */
