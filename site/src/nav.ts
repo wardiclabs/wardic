@@ -65,6 +65,7 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/live-values", title: "Live values" },
       { path: "/guides/actions", title: "Sequences as actions" },
       { path: "/guides/batches", title: "Many elements at once" },
+      { path: "/guides/3d", title: "3D scenes" },
     ],
   },
   {

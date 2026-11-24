@@ -19,7 +19,9 @@ const card = w.ward()
 // Once:
 await card.next("tap")
 // At each one, in an effect:
-createEffect(card.when("tap"), (info) => console.log(info.point))
+createEffect(card.when("tap"), (info) => {
+  console.log(info.point)
+})
 // Every time:
 for await (const info of card.each("drag")) console.log(info.offset)
 
@@ -30,7 +32,7 @@ for await (const info of card.each("drag")) console.log(info.offset)
 | --- | --- |
 | `next(name)` | A promise of the next such event. |
 | `each(name)` | An async iterable of every one from now on. |
-| `when(name)` | A memo of the latest, for an effect: pending until the first, so the effect runs at each one and never before. Read it in an effect, not in JSX. |
+| `when(name)` | A memo of the latest, for an effect: pending until the first, so the effect runs at each one and never before. Read it in an effect, not in JSX. Write the effect's apply as a block, `(info) => { setPicked(info) }`: Solid 2 keeps what an apply returns as its cleanup, and a setter returns the value it set. |
 | `settled()` | The latest landing, pending while an animation runs: `isPending(() => card.settled())` is "animating". |
 | `tapped()` | The latest tap, pending while a press is held: `isPending(() => card.tapped())` is "pressed". |
 

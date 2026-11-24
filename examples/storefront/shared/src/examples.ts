@@ -39,6 +39,7 @@ export const DOCS_PAGES = {
   "/guides/features": "Shipping less",
   "/guides/batches": "Many elements at once",
   "/guides/actions": "Sequences as actions",
+  "/guides/3d": "3D scenes",
 } as const
 
 /** A docs page an example links. */
@@ -384,7 +385,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "turn-the-vase",
     area: "scenes",
-    docs: "/guides/drag",
+    docs: "/guides/3d",
     title: "Turn the vase in 3D",
     summary: "The Moon Vase as a three.js scene: drag it round and it spins on with your hand's momentum, and each glaze you pick flows over it.",
     why: [
@@ -401,7 +402,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "kintsugi",
     area: "scenes",
-    docs: "/guides/batches",
+    docs: "/guides/3d",
     title: "Kintsugi: 3,000 shards, one Batch",
     summary: "Tap the crackled celadon bowl and it bursts into shards from where you touched it; mend it and they fly home in a wave, its cracks turned gold.",
     why: [
@@ -418,7 +419,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "the-shelf",
     area: "scenes",
-    docs: "/guides/batches",
+    docs: "/guides/3d",
     title: "The studio's pieces on a round shelf",
     summary: "All twelve pieces turned in 3D on a round display: pick a category and the rest sink away while the others slide round; tap one and the display turns it to you.",
     why: [
@@ -437,7 +438,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   {
     id: "fire-the-kiln",
     area: "scenes",
-    docs: "/guides/actions",
+    docs: "/guides/3d",
     title: "Fire the kiln: a sequence as an action",
     summary: "Three pieces in raw glaze on a kiln's shelf: fire it and the lid shuts, everything glows from dull red to white-hot, then cools to show each glaze.",
     why: [

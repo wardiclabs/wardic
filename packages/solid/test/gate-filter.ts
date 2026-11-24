@@ -44,3 +44,10 @@ export const reports = (line: string): boolean => {
   const code = codeOf(line)
   return code !== undefined && gated(code) && !FOLLOW_UPS.some((follow) => line.includes(follow))
 }
+
+/**
+ * Chromium's own WebGL driver telling of its performance (#934): headless Chromium draws WebGL in
+ * software, and a screenshot of a canvas stalls it reading the pixels back. It isn't the page's: the
+ * storefront's smoke and the site's leave it alone, and a page's own errors and warnings still fail them.
+ */
+export const isDriverNote = (line: string): boolean => /^\[\.WebGL-[0-9a-fx]+\]GL Driver Message \(OpenGL, Performance,/.test(line)

@@ -26,7 +26,7 @@ import { spawn } from "node:child_process"
 import { readdirSync } from "node:fs"
 import { join, relative } from "node:path"
 import { chromium, type ConsoleMessage, type Page } from "playwright"
-import { codeOf, gated, reports } from "../../packages/solid/test/gate-filter.ts"
+import { codeOf, gated, isDriverNote, reports } from "../../packages/solid/test/gate-filter.ts"
 
 const SITE = join(import.meta.dirname, "..")
 const PORT = 3119
@@ -122,6 +122,8 @@ const reportOf = (code: string, message: string): string => {
 /** A console message that's a failure: an error or a warning; a coded one is the bridge's to report. */
 const failing = (message: ConsoleMessage): boolean => {
   if (codeOf(message.text()) !== undefined) return false
+  // The 3D guide's demos draw WebGL: Chromium's driver's notes of its performance aren't the page's.
+  if (isDriverNote(message.text())) return false
   return message.type() === "error" || message.type() === "warning"
 }
 

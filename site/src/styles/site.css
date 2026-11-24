@@ -710,6 +710,38 @@ a {
   font-size: var(--text-s);
 }
 
+/* The 3D guide's scenes: a canvas's box, which the Stage sizes its renderer to. */
+.sample-scene {
+  width: min(100%, 520px);
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-m);
+  background: radial-gradient(ellipse at 50% 35%, var(--surface), var(--accent-soft));
+  /* A touch works the scene rather than scrolling the page. */
+  touch-action: none;
+}
+
+.sample-scene canvas {
+  display: block;
+}
+
+/* A column holding a scene is the scene's width. */
+.sample-stack:has(> .sample-scene) {
+  width: min(100%, 520px);
+}
+
+.sample-glaze {
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.sample-glaze[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .sample-arena {
   position: relative;
   display: flex;

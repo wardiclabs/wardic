@@ -30,7 +30,9 @@ On Solid 2, a Wardic element takes `wardRef`:
 import { w } from "@wardic/solid"
 
 const card = w.ward()
-createEffect(card.when("tap"), () => setOpen(true))
+createEffect(card.when("tap"), () => {
+  setOpen(true)
+})
 
 <w.div wardRef={card} animate={{ opacity: 1 }} whileHover={{ scale: 1.05 }} />
 ```

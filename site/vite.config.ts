@@ -52,10 +52,12 @@ export default defineConfig({
   resolve: {
     alias: { "~": fileURLToPath(new URL("./src", import.meta.url)) },
     // As the Solid 2 storefront: Solid from this app, for @wardic/solid's source among the importers.
-    dedupe: ["solid-js", "@solidjs/web", "@solidjs/router", "effect"],
+    dedupe: ["solid-js", "@solidjs/web", "@solidjs/router", "effect", "three"],
   },
-  ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/example-storefront-shared", "@kobalte/core"] },
+  ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/object", "@wardic/three", "@wardic/example-storefront-shared", "@kobalte/core"] },
   server: { port: 3110 },
   preview: { port: 4110 },
-  build: { target: "esnext" },
+  // three.js, with the Stage, is a 583 KB chunk (151.6 gzipped), which only the 3D guide's demos load as
+  // each scrolls into view: Vite's 500 KB warning is three.js's own size.
+  build: { target: "esnext", chunkSizeWarningLimit: 600 },
 })
