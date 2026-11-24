@@ -68,24 +68,46 @@ import * as ObjectRenderer from "./ObjectRenderer.ts"
 import * as ObjectValues from "./ObjectValues.ts"
 import * as PumpedFrames from "./PumpedFrames.ts"
 
-/** A key of `T` Wardic animates: one whose value is a number or a string. An array has none: a list is many Subjects. */
+/**
+ * A key of `T` Wardic animates, by name: one whose value is a number or a string. An optional one among
+ * them: `animate` throws if the object lacks it when called. A numeric key by its name too, as `"0"`, a
+ * number index's as `` `${number}` ``: a typed array's elements. An array has none: a list is many Subjects.
+ */
 // #963: over an array, the mapped keys come out as `string`, so an inline sequence, read as a list of
 // arrays, looked like Subjects of any name, its options unchecked. `[T]`, not `T`: a union of Subjects
 // (a mixed list's) keeps only the keys its members share, not distributed over each.
-export type AnimatableKey<T> = [T] extends [ReadonlyArray<unknown>] ? never : { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
+// #964: a key's `undefined` left out, an optional key's; one that only ever holds `undefined` has none.
+// A number key by its name, so the keys stay strings, as the run time reads them.
+export type AnimatableKey<T> = [T] extends [ReadonlyArray<unknown>]
+  ? never
+  : { readonly [K in keyof T]-?: [Defined<T[K]>] extends [never] ? never : Defined<T[K]> extends number | string ? KeyName<K> : never }[keyof T]
+
+/** A key's value with its `undefined` left out: an optional key's, as the object holds it. */
+type Defined<V> = Exclude<V, undefined>
+
+/** A key's name: a number key's as a string, as the run time reads it. */
+type KeyName<K> = K extends string ? K : K extends number ? `${K}` : never
+
+/** A key's name as a target writes it: a numeric one as its number. */
+// #964: a `${number}` index never checks a numeric key's value (`{ 0: "x" }`), in TS 6 or 7; a number index does.
+type TargetKey<K> = K extends `${infer N extends number}` ? N : K
+
+/** `T`'s value at its key named `K`: a numeric name's at its number. */
+type At<T, K> = K extends keyof T ? T[K] : K extends `${infer N extends number}` ? T[N & keyof T] : never
 
 /**
- * A target for `T`: each of its animatable keys a value or keyframes; a transition, with an entry
- * under any of those keys, which `animate`'s options are laid over field by field; and a Transition
- * end, its values set once the object lands. An array has none that fits: `animate` reads one as a
- * list of Subjects, or a sequence, never as one Subject.
+ * A target for `T`: each of its animatable keys a value or keyframes, never `undefined` (an optional
+ * key's too), a numeric key by its index (a typed array's element, `{ 0: 1 }`); a transition, with an
+ * entry under any of those keys, which `animate`'s options are laid over field by field; and a
+ * Transition end, its values set once the object lands. An array has none that fits: `animate` reads
+ * one as a list of Subjects, or a sequence, never as one Subject.
  */
 // #963: else an inline sequence with options, read as a list of arrays, fit the subject signature
 // with whatever options fit an array's target (`{}`, a `transition`), unchecked, its Segments with it.
 export type ObjectTarget<T> = [T] extends [ReadonlyArray<unknown>]
   ? NotOneSubject
   : {
-      readonly [K in AnimatableKey<T>]?: ValueAt<T, K>
+      readonly [K in AnimatableKey<T> as TargetKey<K>]?: ValueAt<T, K>
     } & {
       /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
       readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
@@ -95,11 +117,11 @@ export type ObjectTarget<T> = [T] extends [ReadonlyArray<unknown>]
 /** The target an array meets, which nothing fits: its name says why. */
 type NotOneSubject = { readonly "an array isn't one Subject: a list of them, or a sequence, whose options are WardicSequenceOptions": never }
 
-/** A target's value for `T`'s key `K`: one of its values, or keyframes of them. */
-type ValueAt<T, K extends keyof T> = T[K] | Config.WardicKeyframes<T[K]>
+/** A target's value for `T`'s key named `K`: one of its values, or keyframes of them. */
+type ValueAt<T, K> = Defined<At<T, K>> | Config.WardicKeyframes<Defined<At<T, K>>>
 
 /** `T`'s Transition end: values for its animatable keys, set once it lands. */
-type TransitionEndOf<T> = { readonly [K in AnimatableKey<T>]?: T[K] }
+type TransitionEndOf<T> = { readonly [K in AnimatableKey<T> as TargetKey<K>]?: Defined<At<T, K>> }
 
 /**
  * A target for `T` whose keys are any name (it has an index signature), checked key by key as given
