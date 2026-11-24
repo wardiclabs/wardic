@@ -259,7 +259,7 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     wardic.animate(shorter, { a: 1, transition: linear }, { duration: 0.5 })
     // The options' entry in place of the target's, whole: its 1 s gone, a tween's own duration in its place.
     const entry = { a: 0 }
-    wardic.animate(entry, { a: 1, transition: { default: linear } }, { default: { ease: "easeIn" } })
+    wardic.animate(entry, { a: 1, transition: { a: linear } }, { a: { ease: "easeIn" } })
     await tick()
     pump(wardic, 12, () => undefined, clock)
     expect(delayed.a).toBe(0)
