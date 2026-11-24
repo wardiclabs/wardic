@@ -75,7 +75,8 @@ export interface Options<T, Key extends string = NumberKey<T>> {
 /** What a runtime gives its Batches: its fork, and its Environment's Positional keys and Default transitions. */
 export interface Context {
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, FrameLoop.FrameLoop>) => Fiber.Fiber<A, E>
-  /** The Environment's unit scale: each key's units for its Batches' rest thresholds (ADR-0069 decision 8). */
+  /** The Environment's unit scale: each key's units for its Batches' rest thresholds. */
+  // ADR-0069 decision 8.
   readonly unitScale: UnitScale.Rule
   /** How the Environment draws a Batch's members: plain objects' {@link writer}, or another Environment's. */
   readonly writer: Batch.Writer<object>

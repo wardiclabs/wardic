@@ -1,7 +1,8 @@
 /**
- * The core, dom and Foldkit references (#558, #795): each module of `@wardic/core`, `@wardic/dom` and
- * `@wardic/foldkit`, from its source's JSDoc as it is, by TypeDoc and typedoc-plugin-markdown, as MDX
- * pages the site renders as any other, under `src/content/reference/{core,dom,foldkit}/`. Made before every build and dev run, and left out of git,
+ * The core, dom, Foldkit, object and three references (#558, #795, #564): each module of `@wardic/core`,
+ * `@wardic/dom`, `@wardic/foldkit`, `@wardic/object` and `@wardic/three`, from its source's JSDoc as it
+ * is, by TypeDoc and typedoc-plugin-markdown, as MDX pages the site renders as any other, under
+ * `src/content/reference/{core,dom,foldkit,object,three}/`. Made before every build and dev run, and left out of git,
  * so they can't drift from the code. It runs on Node (24 runs TypeScript as it is), as prerender.ts.
  *
  * - A module is a page: `@wardic/core/DragActivity` is `/reference/core/drag-activity`. The types its
@@ -36,6 +37,9 @@ const CORE_EXTERNAL = [
 /** Dom's files as Foldkit's run sees them (#795): every one, its `unstable/` modules too, which Foldkit's pages name without documenting. */
 const DOM_EXTERNAL = [join(REPO, "packages", "dom", "**")]
 
+/** Object's files as three's run sees them (#564): three's runtime is built on object's, documented on its own pages. */
+const OBJECT_EXTERNAL = [join(REPO, "packages", "object", "**")]
+
 /**
  * Each package referenced: its name in the site's paths, what its index says it is, and the files its
  * run leaves to other pages, its dependencies', documented on theirs. Core, which dom depends on from
@@ -47,6 +51,18 @@ const PACKAGES = [
   { dir: "core", name: "@wardic/core", about: "Wardic's engine: animations, gestures, layout projection and the services an Environment provides, free of any framework or platform.", external: [] },
   { dir: "dom", name: "@wardic/dom", about: "The browser's Environment for Wardic: its renderer, input, probe, projection system and the services a binding builds on.", external: CORE_EXTERNAL },
   { dir: "foldkit", name: "@wardic/foldkit", about: "Wardic for Foldkit: Motion's animations on Foldkit's views, as Effect, through one Handle whose builder makes the `w.*` elements.", external: [...CORE_EXTERNAL, ...DOM_EXTERNAL] },
+  {
+    dir: "object",
+    name: "@wardic/object",
+    about: "Wardic for any object's properties: Motion's `animate` and Batches on plain objects (a Canvas 2D sprite, a uniforms object, a `{ x, y }`), on frames the host pumps.",
+    external: CORE_EXTERNAL,
+  },
+  {
+    dir: "three",
+    name: "@wardic/three",
+    about: "Wardic for three.js: Motion's `animate` on a scene's meshes, materials, cameras, lights and uniforms, Batches of its objects and of an `InstancedMesh`'s instances, and the pointer through its raycast. Its Solid hooks, `@wardic/three/solid`, are in the Solid reference.",
+    external: [...CORE_EXTERNAL, ...OBJECT_EXTERNAL],
+  },
 ] as const
 
 /** Each index's label: the package is typed with Effect's own types, and what that means for its versions (ADR-0008). */
@@ -86,6 +102,9 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
   ],
   // The binding's six modules (#795): the Handle, the attributes' types, the Features, and the controls and scope made apart from any element.
   foldkit: ["AnimationControls", "AnimationScope", "DragControls", "Features", "Ward", "Wardic"],
+  // 1.3's 3D (#564): the runtime for any object's properties, and three.js's on it.
+  object: ["ObjectBatch", "ObjectRenderer", "ObjectValues", "PumpedFrames", "WardicObject"],
+  three: ["TestStage", "ThreeColours", "ThreeInput", "ThreeInstances", "ThreeRenderer", "ThreeValues", "WardicThree"],
 }
 
 /** Every file under `dir`, recursively. */
@@ -231,8 +250,8 @@ const liftServices = (context: Context): void => {
   }
 }
 
-/** The packages with pages of their own a dependent's pages link to, by name: core from dom's and Foldkit's, dom from Foldkit's. */
-const LINKED: Readonly<Record<string, string>> = { "@wardic/core": "core", "@wardic/dom": "dom" }
+/** The packages with pages of their own a dependent's pages link to, by name: core from every other's, dom from Foldkit's, object from three's. */
+const LINKED: Readonly<Record<string, string>> = { "@wardic/core": "core", "@wardic/dom": "dom", "@wardic/object": "object" }
 
 /**
  * A link to a dependency's type from a dependent's pages: core is dom's dependency, with pages of its

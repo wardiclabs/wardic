@@ -114,7 +114,9 @@ const sceneOfContext = (): SceneOf => {
  *
  * @example
  * const card = createSceneObject(mesh, { parent: board, initial: { scale: 0 }, animate: { scale: 1 }, exit: { scale: 0 } })
- * createEffect(card.when("tap"), () => props.onPick())
+ * createEffect(card.when("tap"), () => {
+ *   props.onPick()
+ * })
  */
 export const createSceneObject = <G extends Object3D | Accessor<Object3D | undefined>>(object: G, config: SceneObjectConfig): SceneObject<StageSubjectOf<G>> => {
   if (isServer) return inertWardOn(object) as unknown as SceneObject<StageSubjectOf<G>>

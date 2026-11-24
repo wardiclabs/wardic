@@ -1,0 +1,33 @@
+---
+title: TestStage
+description: A Stage for tests. A scene on frames the test steps, with no renderer and no page, its pointer hitting objects through three's own raycast, in Node.
+api: [TestStage]
+---
+
+# TestStage
+
+A Stage for tests: a scene on frames the test steps, with no renderer and no page, that is also the `Stage` the hooks under it find. Its pointer hits objects through three's own raycast. It runs in Node. From `@wardic/three/solid`, on Solid 2.
+
+```tsx solid2
+import { createHover, TestStage, WardicStage } from "@wardic/three/solid"
+import { flush } from "solid-js"
+
+const stage = TestStage.make({ scene, camera, size: { width: 800, height: 600 } })
+let hovered!: () => boolean
+const Probe = () => {
+  hovered = createHover(crate)
+  return null
+}
+// Mounted as an app mounts it: <WardicStage value={stage}><Probe /></WardicStage>
+stage.pointer.over(crate)
+stage.frame()
+flush()
+expect(hovered()).toBe(true)
+```
+
+- **`TestStage.make({ scene, camera, size, features })`** makes one, its canvas a stand-in of `size`. `features` are a Stage's: `stageDrag`, `stageBatches`.
+- **`frame(ms?)`** runs one frame, 1/60 s on by default: the raycast, Wardic's writes and Frame effects, then the scene's matrices made current, as a render makes them.
+- **`pointer`** moves a mouse over the stand-in canvas: `over(object)` to where it's drawn, `at(x, y)`, `down()`, `up()`, `cancel()` and `leave()`. The next frame finds what's under it, as on a page.
+- **`dispose()`** ends it, landing any exit still in flight.
+
+Without Solid, `@wardic/three`'s [`TestStage`](/reference/three/test-stage) is the same scene for a runtime alone.

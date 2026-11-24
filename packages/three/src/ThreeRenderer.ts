@@ -126,9 +126,10 @@ const at = (positions: Float64Array, base: number, k: number): number => {
 }
 
 /**
- * The scene writer for a Batch of objects (ADR-0069 decision 11): each member's transforms grouped as
+ * The scene writer for a Batch of objects: each member's transforms grouped as
  * the commit's are, any other key where the lookup finds it. Its keys' places are found once, by index.
  */
+// ADR-0069 decision 11.
 export const writer: Batch.Writer<object> = {
   writes: () => true,
   forKeys: (keys) => {

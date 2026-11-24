@@ -1,0 +1,42 @@
+---
+title: createSceneObject
+description: An object's membership of a Stage's scene, with a ward for its motion. It joins as its ward can start and plays its exit before it leaves.
+api: [createSceneObject, SceneObject, SceneObjectConfig]
+---
+
+# createSceneObject
+
+An object's membership of a Stage's scene, with a ward for its motion. It joins once its ward can start, so its first frame is its `initial`, and plays its `exit` before it leaves. From `@wardic/three/solid`, on Solid 2.
+
+```tsx solid2
+import { createSceneObject } from "@wardic/three/solid"
+import type * as THREE from "three"
+
+function Card(props: { readonly mesh: THREE.Mesh; readonly board: THREE.Object3D }) {
+  const card = createSceneObject(props.mesh, {
+    parent: props.board,
+    initial: { scale: 0 },
+    animate: { scale: 1 },
+    exit: { scale: 0, y: -1 },
+    whileHover: { y: 0.2 },
+  })
+  return card.held
+}
+```
+
+- **It leaves** when its owner ends: its `exit` plays from where it is, at the speed it has, past its owner, and the object is taken out once it lands. When the Stage ends first, it's taken out at once.
+- **Its parent** is `parent`, else the parent it already has (a node of a loaded model stays where it is, and leaves from there), else the Stage's scene.
+- **`dispose: true`** disposes its geometries and materials, and its descendants', once it has left. Without it they're yours.
+- **An accessor** follows each object it gives: the next one enters as the last one exits, and `undefined` takes it out. `createSceneObject(() => (props.open ? lid : undefined), config)`.
+- **Its config** is a ward's: `initial`, `animate`, `exit`, `transition`, `variants`, `whileHover`, `whileTap`, `custom`, and with [`stageDrag`](/reference/solid/scenes/stage-features) the drag keys. A Scene object with `variants` and no `animate` follows the nearest ward above it in the scene's graph.
+
+A camera or a material never joins a scene: give it to `ward` instead.
+
+## Its handle
+
+A `SceneObject` is its ward, `held`, `read`, `atom` and its events, with two of its own: `exitStart` as its exit starts, and `exitComplete` once it has landed and the object has left. `next("exitComplete")` resolves after its owner has ended. `read(key)` gives the object's keys at their types.
+
+## Types
+
+- **`SceneObjectConfig`:** its ward's config, with `parent` and `dispose`.
+- **`SceneObject`:** its handle, typed by its object.

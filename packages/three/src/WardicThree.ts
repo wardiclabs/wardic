@@ -54,7 +54,8 @@ import * as ThreeInstances from "./ThreeInstances.ts"
 import * as ThreeRenderer from "./ThreeRenderer.ts"
 import * as ThreeValues from "./ThreeValues.ts"
 
-/** A scene object's transform keys (ADR-0069 decision 4): its position, its rotation in degrees, and its scales. */
+/** A scene object's transform keys: its position, its rotation in degrees, and its scales. */
+// ADR-0069 decision 4.
 export type TransformKey = "x" | "y" | "z" | "rotateX" | "rotateY" | "rotateZ" | "scale" | "scaleX" | "scaleY" | "scaleZ"
 
 /** `T`'s keys that hold a number. */
@@ -227,7 +228,8 @@ export interface WardicThree extends Omit<WardicObject.WardicObject, "animate" |
   readonly input: InputSource.InputSource["Service"] | undefined
 }
 
-/** A scene's unit scale when the app gives none: a metre counts as 100 of Motion's units (ADR-0069 decision 8). */
+/** A scene's unit scale when the app gives none: a metre counts as 100 of Motion's units. */
+// ADR-0069 decision 8.
 export const UNIT_SCALE = 100
 
 /** three's Environment for `@wardic/object`'s runtime, at `unitScale`. */

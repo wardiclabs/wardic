@@ -57,10 +57,12 @@ const ownValueOf = (subject: object, key: string): Option.Option<number | string
   throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" is ${typeof value}, which can't be animated: a key's value is a number or a string.`)
 }
 
-/** `subject`'s Base-value links (ADR-0022): each key starts from its value where the lookup finds it. */
+/** `subject`'s Base-value links: each key starts from its value where the lookup finds it. */
+// ADR-0022.
 export const startLinksOf: (subject: object) => Spine.StartLinks = /*#__PURE__*/ ObjectValues.startLinksWith(ownValueOf)
 
-/** Whether reduced motion snaps `key` in a scene: a transform key on any Subject, and a camera's `fov` and `zoom` (ADR-0069 decision 9). */
+/** Whether reduced motion snaps `key` in a scene: a transform key on any Subject, and a camera's `fov` and `zoom`. */
+// ADR-0069 decision 9.
 export const isPositional = (key: string): boolean => ReducedMotion.isTransform(key) || key === "fov" || key === "zoom"
 
 /** A scene's Positional keys: the vestibular case is a camera's move as much as an object's. */

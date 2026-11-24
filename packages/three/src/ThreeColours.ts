@@ -207,11 +207,12 @@ const throughVariant = (variant: unknown, f: (given: unknown) => unknown): unkno
 }
 
 /**
- * A ward's config on a scene's Subject (#885), each colour key split into its channels in linear light,
+ * A ward's config on a scene's Subject, each colour key split into its channels in linear light,
  * as a call's are (`splitCall`): each target's values, an accessor's as it's read, each variant's (a
  * function's as it's called), and the transition's colour entries. `subjectNow` is the Subject now, read
  * as each is split, so an accessor Subject's colours are its current one's. Every other key is as given.
  */
+// #885.
 export const splitConfig = (subjectNow: () => unknown, config: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
   const out: Record<string, unknown> = { ...config }
   Arr.forEach(Rec.keys(config), (key) => {

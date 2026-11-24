@@ -1,0 +1,70 @@
+---
+title: createStage
+description: A Stage that runs a three.js scene for its owner, its Host loop, its pointer input and its canvas's size, which the hooks under a WardicStage run in.
+api: [createStage, StageOptions, AdoptOptions, ThreeStage, RendererLike, isThreeSubject]
+---
+
+# createStage
+
+A Stage that runs a three.js scene for its owner: its Host loop, its pointer input and its canvas's size. Under a [`<WardicStage>`](/reference/solid/provider/wardic-stage) the hooks run in its scene. From `@wardic/three/solid`, on Solid 2.
+
+```tsx solid2
+import { createStage, WardicStage } from "@wardic/three/solid"
+import * as THREE from "three"
+
+const stage = createStage({
+  renderer: () => new THREE.WebGLRenderer({ antialias: true }),
+  scene,
+  camera,
+  frameloop: "demand",
+})
+
+<WardicStage value={stage}>
+  <div class="viewport" ref={stage} />
+  <Crate />
+</WardicStage>
+```
+
+Make it in a component's body. It ends with its owner: its loop, its input and its runtime stop, and the renderer, the scene and the camera stay yours. The [3D guide](/guides/3d) shows it at work.
+
+## Its options
+
+- **`scene`:** the scene it draws, and that a pointer hits.
+- **`camera`:** the camera it draws with, or a function giving the one active now.
+- **`renderer`:** an instance, in code that runs only in the browser, or a function the browser calls once the page has settled. It's three's `WebGLRenderer` or `WebGPURenderer`, or anything with their `domElement`, `setSize`, `setAnimationLoop` and `render` (`RendererLike`).
+- **`frameloop`:** `"always"` draws every frame. `"demand"` draws only when something moves, or after `invalidate()`.
+- **`resize`:** `false` leaves the canvas's size to you.
+- **`features`:** what it does beyond a ward's motion, `stageDrag` and `stageBatches` ([Stage features](/reference/solid/scenes/stage-features)).
+- **The runtime's own options:** `unitScale`, `hitTest` and the rest of [`WardicThree`'s `Options`](/reference/three/wardic-three#options), less its `canvas`, `camera` and `scene`, which the Stage gives it.
+
+## Its Host loop
+
+Once a frame, on `renderer.setAnimationLoop`, in order:
+1. the pointer's raycast against what was last drawn;
+2. Wardic's frame, its Frame effects after its writes;
+3. the render.
+
+Under `frameloop: "demand"`, a frame is drawn when a ward or a Batch moves, a Frame effect asks, or the pointer wants one.
+
+## The Stage it returns
+
+A `ThreeStage`: the `Stage` the hooks find, and its own calls.
+
+- **As a ref,** `ref={stage}`, an element mounts the renderer's canvas and keeps it sized: `setSize`, and a perspective camera's `aspect`.
+- **`invalidate()`** draws a frame under `frameloop: "demand"`, for a change Wardic didn't make.
+- **`wardic`** is its runtime, for code outside Solid: `stage.wardic.batch(…)`, `stage.wardic.hover(…)`. `undefined` on a server.
+
+## A runtime made outside Solid
+
+`createStage({ wardic, features })` (`AdoptOptions`) adopts a [`WardicThree`](/reference/three/wardic-three) runtime that its maker pumps and draws: a game loop's, an XR session's. The Stage adds no loop of its own. With no view of its own, it drags nothing.
+
+## On a server
+
+A Stage does nothing on a server. Its element renders empty, so hydration matches, and the hooks under it animate nothing. A ward's `read` gives its object's own values.
+
+## Types
+
+- **`StageOptions`**, **`AdoptOptions`:** its two forms' options.
+- **`ThreeStage`:** what it returns.
+- **`RendererLike`:** what a renderer needs for a Stage to drive it.
+- **`isThreeSubject(value)`:** whether a value is one of a scene's Subjects, an `Object3D` or a `Material`, by three's own flags.
