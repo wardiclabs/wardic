@@ -295,25 +295,52 @@ const IMPERATIVE: Spine.Resolution = {
   change: undefined,
 }
 
+/** The target the Override stack had for each key at the spine's last Retarget: what a taken key is noted with. */
+const lastTargetsOf = (host: Spine.SpineHost): Values.Values => UndefinedOr.match(host.lastResolution(), { onUndefined: () => Spine.NO_VALUES, onDefined: (last) => last.resolved })
+
+/**
+ * `key` taken by an Imperative animation from whatever runs it (#433): noted in `taking` with `noted`,
+ * the target the Override stack has for it now, no longer returning, its Timeline value stopped, given
+ * up by its owner, owned, and started where it's drawn toward `like`, noted in `started`.
+ */
+const takeKey = (host: Spine.SpineHost, taking: Map<string, number | string | undefined>, key: string, noted: number | string | undefined, like: number | string, started: Record<string, string>): void => {
+  taking.set(key, noted)
+  host.returning().delete(key)
+  // Its Timeline value stops while the animation draws the key (#240).
+  const timelineKeys = host.timelineKeys()
+  if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
+  const owner = host.owners.get(key)
+  if (Predicate.isNotUndefined(owner)) host.giveUp(key, owner)
+  if (!Object.hasOwn(host.initialValues, key)) host.ownValue(key)
+  host.startKey(key, like, started)
+}
+
+/** Whether a Transition end may set a key drawn by `owner`: none draws it, or its leg is done. */
+const endFree = (owner: Spine.Running | undefined): boolean => {
+  if (Predicate.isUndefined(owner)) return true
+  return owner.done
+}
+
 /**
  * An **Imperative animation** of a Subject (#433), through its spine's `host`: it takes `target`'s
  * keys from whatever runs them, each noted with the target the Override stack has for it now, so a
  * Retarget leaves it where the animation leaves it until that target changes (Motion's latest-wins).
  * Its legs start where the keys are drawn, with their velocity, on `given` (a key with none of its own
  * on its Default transition), reduced motion as the provider says, and run through `head` once
- * {@link Spine.ImperativeTrack.run} is called.
+ * {@link Spine.ImperativeTrack.run} is called. Once they land, uninterrupted, its target's Transition
+ * end is set (#896), and put back by a cancel or a run again.
  */
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
 // imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
 const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, given: Config.WardicTransition | undefined, head: Playback.Playhead, hooks: Spine.ImperativeHooks): Spine.ImperativeTrack => {
-  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, unitScale, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
+  const { snapshot, owners, keepTheRest, element, positionalKeys, defaultTransition, unitScale, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
   const runImperative = (running: Spine.Running, program: Effect.Effect<unknown, never, WardicServices.WardicServices>): void => {
     running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, legEnded(running))))
   }
   const to = target.values
-  const before = UndefinedOr.match(host.lastResolution(), { onUndefined: () => Spine.NO_VALUES, onDefined: (last) => last.resolved })
+  const before = lastTargetsOf(host)
   const started: Record<string, string> = {}
   let measuring: Array<string> | undefined
   // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
@@ -322,16 +349,8 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   // Where a Path's axis this target leaves out rests (#574), before its keys are taken below.
   const rests = Spine.restsOf(owners, to)
   Arr.forEach(Rec.keys(to), (key) => {
-    takenNow.set(key, before[key])
-    host.returning().delete(key)
-    // Its Timeline value stops while the animation draws the key (#240).
-    const timelineKeys = host.timelineKeys()
-    if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
-    const owner = owners.get(key)
-    if (Predicate.isNotUndefined(owner)) giveUp(key, owner)
-    if (!Object.hasOwn(initialValues, key)) ownValue(key)
     const like = UndefinedOr.getOrThrow(to[key])
-    startKey(key, like, started)
+    takeKey(host, takenNow, key, before[key], like, started)
     if (measuredPairs.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
       if (Predicate.isUndefined(measuring)) measuring = []
       measuring.push(key)
@@ -355,11 +374,78 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   const legs = Arr.map(built, (leg) => RetargetLegs.mapMachine(leg, Playback.drive(head)))
   let runnings: ReadonlyArray<Spine.Running> = Spine.NO_RUNNING
   let left = 0
+  const ends = target.transitionEnd
+  // What its Transition end's keys were before it set them (Q5): `undefined` until it has.
+  let overwritten: Values.Values | undefined
+  // Its runs, stops and cancels, counted: what a landing waiting on a flush checks it's still for.
+  let runs = 0
+  // `values` drawn at once, at rest: newer than the legs that let them go (#464).
+  const setAtRest = (values: Values.Values): void => {
+    snapshot.values = { ...snapshot.values, ...values }
+    snapshot.velocities = { ...snapshot.velocities, ...Rec.map(values, () => 0) }
+    const now = snapshot.now()
+    Arr.forEach(Rec.keys(values), (key) => {
+      snapshot.drawnAt[key] = now
+    })
+    gate.write(id, values)
+    recordFrame(values)
+  }
+  /**
+   * Its **Transition end** set (#896, ADR-0061 *Amendment (#896)*, Q2 and Q4): each key no leg draws
+   * now taken as the keys it animates are, started where it's drawn, then set at once.
+   */
+  const writeEnds = (values: Values.Values): void => {
+    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)))
+    if (Rec.isEmptyRecord(free)) return
+    const takingNow = host.taking()
+    const targetsNow = lastTargetsOf(host)
+    const startedNow: Record<string, string> = {}
+    Arr.forEach(Rec.keys(free), (key) => takeKey(host, takingNow, key, targetsNow[key], UndefinedOr.getOrThrow(free[key]), startedNow))
+    // Kept from an earlier landing a run from its end didn't put back: what they were before any.
+    if (Predicate.isUndefined(overwritten)) overwritten = Rec.map(free, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+    setAtRest(free)
+  }
+  /**
+   * Its Transition end's keys put back as they were before it was set (Q5): at a cancel, a seek or a
+   * replay, each a key no leg has drawn since, a later call's or the element's own. The next landing
+   * sets them again.
+   */
+  const putBack = (): void => {
+    if (Predicate.isUndefined(overwritten)) return
+    // Its take left each without an owner: one since is a later animation's, which wins.
+    const back = Rec.filter(overwritten, (_, key) => Predicate.isUndefined(owners.get(key)))
+    overwritten = undefined
+    if (Bool.not(Rec.isEmptyRecord(back))) setAtRest(back)
+  }
+  // Interrupted (Q3): a key it animates taken from its leg before it landed, by a later call or the
+  // element's own target. The leg drew its other keys on, so it landed all the same.
+  const ownsNow = (key: string): boolean => {
+    const owner = owners.get(key)
+    if (Predicate.isUndefined(owner)) return false
+    return Arr.contains(runnings, owner)
+  }
+  const interrupted = (): boolean => Rec.some(to, (_, key) => Bool.not(ownsNow(key)))
+  // Landed: its Transition end set at the flush after its last leg's frame, then the landing told
+  // after the flush that draws it, so the landing includes it (ADR-0057 decision 4).
+  // A run, a stop or a cancel since makes them stale: a stop or a seek in the frame between its end
+  // and its landing tells none.
+  const landed = (): void => {
+    if (Predicate.isUndefined(ends)) return gate.afterFlush(hooks.settled)
+    if (interrupted()) return gate.afterFlush(hooks.settled)
+    const at = runs
+    gate.afterFlush(() => {
+      if (at !== runs) return
+      writeEnds(ends)
+      gate.afterFlush(() => {
+        if (at === runs) hooks.settled()
+      })
+    })
+  }
   const landing: Spine.Landing = {
     report: constVoid,
     settled: () => {
       left--
-      if (left === 0) gate.afterFlush(hooks.settled)
+      if (left === 0) landed()
     },
     failed: hooks.failed,
   }
@@ -369,8 +455,17 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
       forget(running)
       if (Bool.not(running.done)) endLeg(running)
     })
+  // Whether a run starts at its end, going forward, its end set: it lands at once, so its end stays,
+  // with no frame without it (a seek to the end, `complete()`). Its duration read only then.
+  const fromItsEnd = (): boolean => {
+    if (Predicate.isUndefined(overwritten)) return false
+    if (head.speed < 0) return false
+    return head.time >= duration()
+  }
   const run = (): void => {
+    runs++
     end()
+    if (Bool.not(fromItsEnd())) putBack()
     left = legs.length
     Spine.tellStarted(live, legs)
     runnings = Arr.map(legs, (leg) => {
@@ -380,20 +475,15 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
       return running
     })
     // A target with no key lands at once.
-    if (left === 0) gate.afterFlush(hooks.settled)
+    if (left === 0) landed()
   }
   const cancel = (): void => {
+    runs++
     end()
     turnBack()
-    snapshot.values = { ...snapshot.values, ...from }
-    snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
-    // Put back at once: at rest, newer than the legs that let them go (#464).
-    const now = snapshot.now()
-    Arr.forEach(Rec.keys(from), (key) => {
-      snapshot.drawnAt[key] = now
-    })
-    gate.write(id, from)
-    recordFrame(from)
+    putBack()
+    // Put back at once, its keys where it started them.
+    setAtRest(from)
   }
   // Each leg's machine, run from its start to rest, apart from the Playhead, which it would move: a
   // blend's built with the Subject's Key rules.
@@ -404,10 +494,24 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
     return leg.machine() as Machine.Machine<Frame.Frame<unknown>>
   }
   const stop = (): void => {
+    runs++
     end()
     turnBack()
   }
   return { run, stop, cancel, duration }
+}
+
+/**
+ * A call's transition on its target's own (#896, ADR-0061 *Amendment (#896)*, Q1): the options' fields
+ * laid over the target's, shallowly, as `inherit: true` lays a target's over its element's. Motion's
+ * `animate` reads the options alone.
+ */
+// Its own handed back as it is with no options, so the legs' decode cache (#66) holds for it. Its
+// `inherit` has nothing above it in a call: the legs read none (`RetargetLegs`' `NOT_DEFINING`).
+const overOwn = (own: Config.WardicVariantTransition | undefined, given: Config.WardicTransition | undefined): Config.WardicTransition | undefined => {
+  if (Predicate.isUndefined(own)) return given
+  if (Predicate.isUndefined(given)) return own as Config.WardicTransition
+  return { ...own, ...given } as Config.WardicTransition
 }
 
 /**
@@ -418,7 +522,7 @@ const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subje
   const resolved = VariantTarget.resolveTarget(target, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
   const own = wardicElements.get(subject)
   const hooks = { settled, failed: constVoid }
-  const transition = skippedIn(env, given)
+  const transition = skippedIn(env, overOwn(resolved.transition, given))
   if (Predicate.isNotUndefined(own)) return imperativeTrackOf(own.host(), resolved, transition, head, hooks)
   const plain = plainOf(env, subjects, subject)
   // In the gate while it runs; out once its last animation is done, after the flush of its last frame.
@@ -475,8 +579,10 @@ interface EachDelay {
 }
 
 /**
- * `animate`'s options: a transition, its `delay` a number, or a function of each Subject's index and
- * their count, such as `stagger(0.05)`; and `onComplete`, called as it lands. Motion's.
+ * `animate`'s options: a transition, laid field by field over the target's own, its `delay` a number,
+ * or a function of each Subject's index and their count, such as `stagger(0.05)`; and `onComplete`,
+ * called as it lands, each Subject's `transitionEnd` already set. Motion's, though Motion's `animate`
+ * runs on the options alone.
  */
 export type WardicAnimateOptions = WithoutDelay & EachDelay & {
   readonly onComplete?: (() => void) | undefined

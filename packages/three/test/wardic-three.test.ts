@@ -232,6 +232,28 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     expect(cube.position.toArray()).toEqual([2, 0, -1])
     wardic.dispose()
   })
+
+  it("WT16: a target's own transition and its Transition end run, a colour's entry and end on its channels (#896)", async () => {
+    const wardic = WardicThree.make()
+    const cube = box()
+    cube.material.color.set("#ff0000")
+    // A 1 s linear tween, the colour on an entry of its own. Not a literal at the call: a colour's entry
+    // isn't one of core's value keys, which no Environment of three's names.
+    const own = { type: "tween", duration: 1, ease: "linear", color: { type: "tween", duration: 0.1, ease: "linear" } } as const
+    const controls = wardic.animate(cube, { x: 1, color: "#0000ff", transition: own, transitionEnd: { color: "#00ff00", y: 2 } })
+    await tick()
+    const clock = { time: 0 }
+    pump(wardic, 12, clock)
+    expect(cube.material.color.getHexString()).toBe("0000ff")
+    expect(cube.position.x).toBeGreaterThan(0.15)
+    expect(cube.position.x).toBeLessThan(0.25)
+    expect(cube.position.y).toBe(0)
+    pump(wardic, 60, clock)
+    await controls
+    expect(cube.material.color.getHexString()).toBe("00ff00")
+    expect(cube.position.toArray()).toEqual([1, 2, 0])
+    wardic.dispose()
+  })
 })
 
 describe("WardicThree: a material other meshes share, in dev", () => {

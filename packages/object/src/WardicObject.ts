@@ -71,7 +71,10 @@ import * as PumpedFrames from "./PumpedFrames.ts"
 /** A key of `T` Wardic animates: one whose value is a number or a string. */
 export type AnimatableKey<T> = { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
 
-/** A target for `T`: each of its animatable keys a value or keyframes, with a transition and a Transition end. */
+/**
+ * A target for `T`: each of its animatable keys a value or keyframes; a transition, which `animate`'s
+ * options are laid over field by field; and a Transition end, its values set once the object lands.
+ */
 export type ObjectTarget<T> = {
   readonly [K in AnimatableKey<T>]?: T[K] | Config.WardicKeyframes<T[K]>
 } & {
