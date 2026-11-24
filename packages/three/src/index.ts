@@ -4,8 +4,6 @@
  * root re-exports each module as a namespace; code imports the subpath,
  * `import * as WardicThree from "@wardic/three/WardicThree"`.
  *
- * Private until 1.3: not on npm yet.
- *
  * @example
  * import { WardicThree } from "@wardic/three"
  *
@@ -18,7 +16,7 @@
  *
  * @module
  */
-// #883 (ADR-0068, ADR-0069, ADR-0073): private until 1.3, with `@wardic/object`.
+// #883 (ADR-0068, ADR-0069, ADR-0073): shipped from 1.3 (#564), with `@wardic/object`.
 export * as TestStage from "./TestStage.ts"
 export * as ThreeColours from "./ThreeColours.ts"
 export * as ThreeInput from "./ThreeInput.ts"

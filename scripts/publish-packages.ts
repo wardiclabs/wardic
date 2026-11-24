@@ -1,19 +1,20 @@
 /**
- * `bun run release` (#559): publishes the five packages, after `bun run build`, from the release
+ * `bun run release` (#559): publishes the seven packages, after `bun run build`, from the release
  * workflow once its "Version Packages" PR has merged.
  *
  * 1. Each package whose version npm doesn't have yet, in dependency order (`core`, then `dom` and
- *    `test`, then `solid` and `foldkit`), so a package never names a version of another that isn't
- *    out. A version
- *    npm has is skipped, so a run that failed halfway can run again.
- * 2. Packed by Bun, which writes `workspace:*` dependencies as the version they point at (npm's own
- *    pack would leave them), as the tarball check (#554) packs them. Bun takes that version from
- *    `bun.lock`, which `bun run version-packages` keeps in step, as it keeps each package's `VERSION`
- *    constant; a package whose `VERSION` names another version than its own, or whose tarball names a
- *    `@wardic/*` dependency at another version than that package's in the repo, isn't published.
- *    `core`, `dom`, `test` and `foldkit` (since 1.2, #795) are one fixed group, at one version;
- *    `solid` versions alone since its 2.0 (#566), and names the exact `core` and `dom` it was built
- *    with.
+ *    `test`, then `solid` and `foldkit`, then `object` and `three`), so a package never names a
+ *    version of another that isn't out. A version npm has is skipped, so a run that failed halfway
+ *    can run again.
+ * 2. Packed by Bun, which writes `workspace:*` dependencies as the version they point at, and
+ *    `workspace:^` as a caret range from it (npm's own pack would leave them), as the tarball check
+ *    (#554) packs them. Bun takes that version from `bun.lock`, which `bun run version-packages` keeps
+ *    in step, as it keeps each package's `VERSION` constant; a package whose `VERSION` names another
+ *    version than its own, or whose tarball names a `@wardic/*` dependency at another version than
+ *    that package's in the repo (a peer, a caret range from it), isn't published. `core`, `dom`,
+ *    `test`, `foldkit` (since 1.2, #795), `object` and `three` (since 1.3, #564) are one fixed group,
+ *    at one version; `solid` versions alone since its 2.0 (#566), and names the exact `core` and `dom`
+ *    it was built with. `three` takes the app's `solid` as a peer, from the version it was built with.
  * 3. Published with npm, which brings trusted publishing (OIDC) and provenance, on `latest`. A pre
  *    release (`1.0.0-rc.N`, Changesets' pre mode) goes to `next` only once npm has a stable version
  *    of the package to keep on `latest`: until 1.0.0, the newest release candidate is what a plain
@@ -30,7 +31,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 const ROOT = join(import.meta.dirname, "..")
-const PACKAGES = ["core", "dom", "test", "solid", "foldkit"] as const
+const PACKAGES = ["core", "dom", "test", "solid", "foldkit", "object", "three"] as const
 const DRY_RUN = process.argv.includes("--dry-run")
 
 /** `command args` in `cwd`, its output passed through; throws on a non-zero exit. */
@@ -99,10 +100,14 @@ for (const pkg of PACKAGES) {
   const tarball = readdirSync(tarballs).find((file) => file.startsWith(`wardic-${pkg}-${version}`))
   if (tarball === undefined) throw new Error(`bun pm pack wrote no tarball for ${name}@${version}`)
   // Each names the others at their own versions in the repo, exactly: one group's at its own, and
-  // `@wardic/solid` the `core` and `dom` it was built with (#566).
+  // `@wardic/solid` the `core` and `dom` it was built with (#566). A peer is a caret range from its
+  // version in the repo: `@wardic/three`'s `@wardic/solid` (#564), the app's own copy.
   const packed = spawnSync("tar", ["-xzOf", join(tarballs, tarball), "package/package.json"], { encoding: "utf8" })
-  const dependencies = (JSON.parse(packed.stdout) as { readonly dependencies?: Record<string, string> }).dependencies ?? {}
-  const stale = Object.entries(dependencies).filter(([dependency, range]) => dependency.startsWith("@wardic/") && range !== versionOf(dependency))
+  const manifest = JSON.parse(packed.stdout) as { readonly dependencies?: Record<string, string>; readonly peerDependencies?: Record<string, string> }
+  const stale = [
+    ...Object.entries(manifest.dependencies ?? {}).filter(([dependency, range]) => dependency.startsWith("@wardic/") && range !== versionOf(dependency)),
+    ...Object.entries(manifest.peerDependencies ?? {}).filter(([dependency, range]) => dependency.startsWith("@wardic/") && range !== `^${versionOf(dependency)}`),
+  ]
   if (stale.length > 0) throw new Error(`${name}@${version}'s tarball names ${stale.map(([d, r]) => `${d}@${r}`).join(", ")}: run bun run version-packages`)
   const flags = ["--access", "public", "--tag", tagOf(name), "--provenance"]
   if (DRY_RUN) {

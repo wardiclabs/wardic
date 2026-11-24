@@ -396,7 +396,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The vase doesn't turn on its own, and a flick sets it where it would come to rest at once; a new glaze still fades over it.",
     uses: ["createStage", "ward(mesh, …)", "createDrag(mesh)", "inertia", "createFrameEffect", "colours in linear light"],
     apps: ["solid2"],
-    release: "1.3",
     watch: ".scene-canvas",
   },
   {
@@ -413,7 +412,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The shards jump straight out and straight back, all at once; the cracks still fade to gold.",
     uses: ["createBatch({ instances })", "a delay per member", "when(\"tap\")", "variants", "InstancedMesh"],
     apps: ["solid2"],
-    release: "1.3",
     watch: ".scene-canvas",
   },
   {
@@ -430,7 +428,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "Pieces leave, arrive and move round at once, and the camera cuts to the piece you tap.",
     uses: ["createBatch({ object })", "exit", "stagger()", "variants with custom", "a camera's fov"],
     apps: ["solid2"],
-    release: "1.3",
     // One piece tapped, then another: each tap re-runs the same effect, so a second is what reaches its cleanup.
     interact: ["tap:.scene-canvas:0.5:0.62", "tap:.scene-canvas:0.78:0.55"],
     watch: ".display-detail",
@@ -449,7 +446,6 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The lid shuts and opens at once, and the camera cuts. The heat still rises and falls: it's a colour and a figure, not movement.",
     uses: ["action", "yield stage.animate(…)", "createOptimistic", "createFrameEffect", "a number on a scene object", "emissive in linear light"],
     apps: ["solid2"],
-    release: "1.3",
     interact: ".kiln-fire",
     watch: ".kiln-step",
   },

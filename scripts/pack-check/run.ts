@@ -1,5 +1,5 @@
 /**
- * `bun run pack:check [fixture …] [--no-build]` (#554): the four packages as npm will have them, checked
+ * `bun run pack:check [fixture …] [--no-build]` (#554): the seven packages as npm will have them, checked
  * before anything is published.
  *
  * 1. `bun run build`, then each package packed with `bun pm pack`, which writes `workspace:*`
@@ -18,7 +18,9 @@
  *      and hydrated through the Handle's `hydrate`, its Appear animation playing from first paint (#794);
  *    - `object-vite`: a plain object on frames the page pumps (#882);
  *    - `three-vite`: a mesh's shared material faded on them, its production build checked for no dev-only
- *      code, the shared-material warning (#883).
+ *      code, the shared-material warning (#883);
+ *    - `three-solid`: `@wardic/three/solid` in a Solid 2 app, a Stage, a ward and a Frame effect, on the
+ *      one `@wardic/solid` it takes as a peer (1.3, #564).
  * 4. Each served by `vite preview` and opened in Chromium: no error in the console (a hydration
  *    mismatch is one), `#enter` animates to its target (from the `opacity: 0` the server rendered,
  *    where it renders), its Appear animation running at load and handed to its ward where the server
@@ -69,6 +71,9 @@ const ALL: ReadonlyArray<Fixture> = [
   { name: "object-vite", installs: ["core", "object"], ssr: false, drag: false },
   // `@wardic/three` on Vite (#883): a mesh's shared material faded, drawn onto `#enter`; its dev warning out of the production build.
   { name: "three-vite", installs: ["core", "object", "three"], ssr: false, drag: false, devOnly: "other meshes share" },
+  // `@wardic/three/solid` in a Solid 2 app on Vite (1.3, #564): a ward on a mesh, under a Stage on a stand-in renderer, faded
+  // onto `#enter` by a Frame effect; `@wardic/solid` the app's own, through `@wardic/three`'s peer.
+  { name: "three-solid", installs: ["core", "dom", "solid", "object", "three"], ssr: false, drag: false, devOnly: "other meshes share" },
 ]
 
 const asked = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
