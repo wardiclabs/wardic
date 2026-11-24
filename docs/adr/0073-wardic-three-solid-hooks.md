@@ -990,3 +990,14 @@ What the owner decided:
 - **three's keys:** `@wardic/three/solid` adds three's own keys, derived from `WardicThree`'s `SceneKey` and `ColourKey` over a mesh of each material, points, a dashed line, a sprite, the cameras and the lights.
   - A misspelt name is still an error naming it (SH7).
   - A name is checked, not its value's type, or which Subject has it: a mesh's config may name a camera's `fov`.
+
+**#939's note:** a Stage ward's `read` takes its Subject's keys at their types.
+- **What the kiln found:** the storefront's kiln (#937) keeps its heat as a number on its own object. `stage.animate(kiln, { heat })` was typed by the Subject. But `ward(kiln, {}).read("heat")` read as `number | string | undefined`, since a Stage ward's `read` was the page ward's, typed by its config alone. At run time it read `undefined` too, for any key until something animated it, though the types said a transform key was a `number`.
+- **The types:** a Stage ward carries its Subject, `StageWard<C, S>`, given or from an accessor (`StageSubjectOf`, `undefined` among it).
+  - `@wardic/solid` declares `StageReads<S>`, a generic interface an Environment adds to by declaration merging, as it adds to `StageSubjects` and `StageValues`. `@wardic/three/solid` adds `SceneReads<S>`: every `SceneKey` of the Subject, a number.
+  - A key it has reads at that type, `undefined` among it only while an accessor gives no Subject. Any other key reads as a page ward's does.
+  - A colour isn't among them: it reads by its channels in linear light, `colorR`.
+- **The run time:** `read` gives the gate's value while the gate holds the key, else the ward's start, else the Subject's own value now, as the Environment reads where a key starts.
+  - A key with no value of its own to start from (a `Color`, a key it doesn't have) is `undefined`: the Environment's reading refuses it, and `read` doesn't throw.
+  - A server's ward reads the same way, so a `number` there is a number too (SH8, SH9).
+- **Cost:** t2-stage 243.1 → 243.2 KB gzipped, t2-features 250.8 → 250.9, within their budgets.

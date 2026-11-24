@@ -71,6 +71,9 @@ type SceneSubject =
 /** Every key three's `animate` takes on them, numbers and colours: what a ward's config on a Stage's Subject can name. */
 type SceneValueKey = SceneKey<SceneSubject> | ColourKey<SceneSubject>
 
+/** What a three Subject's keys read as (#939): its own numbers, its vectors' axes and its material's, each a number. A colour animates by its channels, which read as numbers. */
+type SceneReads<S> = { readonly [K in SceneKey<S>]: number }
+
 // A scene's hooks alone (#927): `@wardic/solid`'s Stage halves under the hooks' own names, so a scene with
 // no page wards carries none of the page's ward, Batch or gesture Features (57.6 KB gzipped for `ward`).
 export {
@@ -97,6 +100,10 @@ declare module "@wardic/solid" {
   }
   // Their values beyond an element's (#934): a material's `roughness`, a light's `intensity`, a camera's `fov`.
   interface StageValues extends Record<SceneValueKey, unknown> {}
+  // What each of a Subject's keys reads as (#939), so a ward's `read` gives a mesh's `y` or a light's `intensity` as a number.
+  interface StageReads<S> {
+    readonly three: SceneReads<S>
+  }
   interface StageDragConfig {
     /** A fixed plane, in world space, to drag on: the ground's, `new Plane(new Vector3(0, 1, 0), 0)`. */
     readonly dragPlane?: Plane | undefined

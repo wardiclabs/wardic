@@ -40,6 +40,7 @@ import type { Camera, Object3D } from "three"
 import * as ThreeColours from "../ThreeColours.ts"
 import type { StageFeature, StageView } from "./feature.ts"
 import * as ThreeInput from "../ThreeInput.ts"
+import * as ThreeValues from "../ThreeValues.ts"
 import * as WardicThree from "../WardicThree.ts"
 
 /** What a Stage needs of a renderer: three's `WebGLRenderer` and `WebGPURenderer` both have it. */
@@ -250,8 +251,8 @@ const NO_INPUT: InputSource.InputSource["Service"] = {
   adoptPointer: () => Option.none(),
 }
 
-/** A ward that does nothing: a server's, and a server's Scene object's. */
-export const INERT_WARD: StageWard = {
+/** A ward that does nothing, reading nothing. */
+const INERT_WARD: StageWard = {
   held: undefined,
   settled: constUndefined,
   tapped: constUndefined,
@@ -262,12 +263,29 @@ export const INERT_WARD: StageWard = {
   atom: () => Atom.make<unknown>(undefined),
 }
 
+/**
+ * A ward on `given` that does nothing: a server's, and a server's Scene object's. Its `read` gives its
+ * Subject's own value, as a ward's does before it moves a key (#939): what a scene's object holds as it's made.
+ */
+export const inertWardOn = (given: unknown): StageWard => ({
+  ...INERT_WARD,
+  read: ((key: string) => () =>
+    Option.getOrUndefined(
+      Option.flatMap(Option.liftPredicate(subjectNow(given), Predicate.isObject), (subject) =>
+        Option.flatten(Option.liftThrowable(() => ThreeValues.startLinksOf(subject).ownValue(key))()),
+      ),
+    )) as unknown as StageWard["read"],
+})
+
+/** The Subject `given` is now: itself, or what its accessor gives. */
+const subjectNow = (given: unknown): unknown => Bool.match(Predicate.isFunction(given), { onTrue: () => (given as () => unknown)(), onFalse: () => given })
+
 /** A Stage on a server: its ref renders nothing, its hooks animate nothing, and it runs no loop. */
 // ADR-0073 decision 13: the host `<div>` renders empty, so hydration matches.
 export const inertStage = (): ThreeStage =>
   Object.assign((_element: HTMLElement) => undefined, {
     isSubject: isThreeSubject,
-    ward: () => INERT_WARD,
+    ward: inertWardOn,
     animate: (): never => {
       throw new Error("A Stage animates nothing on a server: call animate in the browser, in an event or once the page has settled.")
     },

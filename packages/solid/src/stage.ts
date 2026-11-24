@@ -30,8 +30,8 @@ import type * as Scope from "effect/Scope"
 import type * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import type { PerKey, PerKeyApart } from "./config-view.ts"
 import type { WardElement, WardEvents, WardSettled } from "./lifecycle.ts"
-import type { WardCallbackKey, WardConfigValues, WardOptions, WardRead } from "./ward.tsx"
-import type { WardCheckedConfig } from "./ward-keys.ts"
+import type { WardCallbackKey, WardConfigValues, WardOptions } from "./ward.tsx"
+import type { WardCheckedConfig, WardKey, WardValueOf } from "./ward-keys.ts"
 
 /**
  * The Subjects a Stage takes, by the Environment that fills one, for `ward`'s types:
@@ -94,6 +94,47 @@ export interface StageValues {}
 
 /** The names of {@link StageValues}. */
 export type StageValueKey = keyof StageValues & string
+
+/**
+ * What each key of a Stage's Subject `S` reads as, by the Environment that fills one: a ward's `read` takes
+ * its Subject's keys at these types. `@wardic/three/solid` adds three.js's, as `declare module
+ * "@wardic/solid" { interface StageReads<S> { three: SceneReads<S> } }` does: a scene object's numbers,
+ * its material's and its vectors' axes, each a number. None until one does.
+ */
+// #939: generic, by declaration merging, so `@wardic/solid` names no three.js type; each Environment's
+// reads of a Subject it doesn't take are `{}`, and the reads of `S` are every Environment's, as one.
+// `Record<never, S>` is `{}`: a base that names `S`, which every declaration of it shares.
+export interface StageReads<S> extends Record<never, S> {}
+
+/** Each of a union's members, as one: `{ a } | { b }` as `{ a } & { b }`. */
+type Intersected<U> = (U extends unknown ? (each: U) => void : never) extends (all: infer I) => void ? I : never
+
+/** Every Environment's reads of `S`, as one; none with no Environment. */
+type ReadsOf<S> = [keyof StageReads<S>] extends [never] ? {} : Intersected<StageReads<S>[keyof StageReads<S>]>
+
+/** `undefined` where `S` can be: an accessor's Subject while it gives none. */
+type MissingFrom<S> = undefined extends S ? undefined : never
+
+/** The keys a ward on `S` reads at its Subject's own types. */
+export type StageReadKey<S> = keyof ReadsOf<NonNullable<S>> & string
+
+/**
+ * What a ward on `S` with config `C` reads for `key`: the Subject's own type for a key it has, `undefined`
+ * only while an accessor gives no Subject; any other key, as a page ward reads it.
+ */
+export type StageValueOf<C, S, K extends string> = K extends StageReadKey<S> ? ReadsOf<NonNullable<S>>[K] | MissingFrom<S> : WardValueOf<C, K>
+
+/**
+ * A Stage ward's `read`: completion offers the keys its config animates and its Subject's, and any other
+ * key is accepted. A key its Subject has reads at its Subject's type, from the Subject's own value until
+ * the ward or an `animate` moves it.
+ */
+export interface StageRead<C, S> {
+  <K extends WardKey<C> | StageReadKey<S>>(key: K): Accessor<StageValueOf<C, S, K & string>>
+}
+
+/** The Subject a ward is given: itself, or what an accessor gives, `undefined` among it. */
+export type StageSubjectOf<G> = G extends () => infer S ? S : G
 
 /** What a drag tells as it goes: each pointer sample, and its release coming to rest. */
 export interface StageDragHandlers {
@@ -226,7 +267,8 @@ export type StageEvents = { readonly [E in StageEvent]: OnSubject<WardEvents[E]>
  * loading. Return it from a component that renders nothing else.
  */
 // `C` unbounded: `ward<C>` for a page's `C extends WardConfig` instantiates the Stage's overload too.
-export interface StageWard<C = StageWardConfig> {
+// `S`, its Subject (#939): `undefined` among it while an accessor can give none.
+export interface StageWard<C = StageWardConfig, S = StageSubject> {
   /** Renders nothing; reads the ward's pending Subject and config, so its component's `<Loading>` and `<Reveal>` wait for them. */
   readonly held: JSX.Element
   /** Its last landing, as a ward's `settled`: pending while a change runs. */
@@ -239,8 +281,8 @@ export interface StageWard<C = StageWardConfig> {
   readonly each: <E extends StageEvent>(name: E) => AsyncIterable<StageEvents[E]>
   /** Every `name`, as a memo for an effect, as a ward's `when`. */
   readonly when: <E extends StageEvent>(name: E) => Accessor<StageEvents[E]>
-  /** Its Subject's value for `key`, as a ward's `read`. */
-  readonly read: WardRead<C>
+  /** Its Subject's value for `key`, as a ward's `read`: a key its Subject has, at its Subject's type. */
+  readonly read: StageRead<C, S>
   /** The same as an `effect/reactivity` Atom, as a ward's `atom`. */
   readonly atom: (key: string) => Atom.Atom<unknown>
 }
@@ -260,7 +302,7 @@ export type SceneObjectEvents = StageEvents & { readonly exitStart: SceneObjectE
  * A Scene object's handle (ADR-0073 decision 15): its ward, with its membership's events, `exitStart` and
  * `exitComplete`, which only this handle has. `next("exitComplete")` resolves after its owner has ended.
  */
-export interface SceneWard<C = StageWardConfig> extends Omit<StageWard<C>, "next" | "each" | "when"> {
+export interface SceneWard<C = StageWardConfig, S = StageSubject> extends Omit<StageWard<C, S>, "next" | "each" | "when"> {
   /** The next `name`: a ward's event, or its exit's. */
   readonly next: <E extends SceneObjectEvent>(name: E) => Promise<SceneObjectEvents[E]>
   /** Every `name` from now on. */

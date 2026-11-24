@@ -9,12 +9,15 @@
 // - SH5: `createBatch({ object })` makes its members in the scene and moves them.
 // - SH6: a sensor given a page's element says to import it from `@wardic/solid`.
 // - SH7: a ward's config names a material's own values, `StageValues` (#934), and a misspelt one is a type error.
-import { createBatch, createDrag, createHover, createPress, stageBatches, TestStage, ward, WardicStage } from "@wardic/three/solid"
+// - SH8: a ward's `read` gives its Subject's keys at their types, from the Subject's own values until moved (#939).
+// - SH9: on a server, a ward's `read` gives its Subject's own values (#939).
+import { createBatch, createDrag, createHover, createPress, createSceneObject, stageBatches, TestStage, ward, WardicStage } from "@wardic/three/solid"
 import type * as Drag from "@wardic/core/Drag"
 import type { JSX } from "@solidjs/web"
-import { type Accessor, children, createRenderEffect, createRoot, flush } from "solid-js"
-import { BoxGeometry, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, PerspectiveCamera, Scene } from "three"
-import { afterEach, describe, expect, it } from "vitest"
+import { type Accessor, children, createRenderEffect, createRoot, createSignal, flush } from "solid-js"
+import { BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshPhysicalMaterial, PerspectiveCamera, Scene } from "three"
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
+import { inertWardOn } from "../src/solid/stage.ts"
 
 const disposers: Array<() => void> = []
 const mountTree = (tree: () => JSX.Element): (() => void) =>
@@ -202,5 +205,57 @@ describe("a scene's hooks alone (#927)", () => {
       ward(glazed, { animate: { roughnes: 0.25 } })
     }
     void misspelt
+  })
+
+  it("SH8: a ward's read gives its Subject's keys at their types, from its own values until moved (#939)", async () => {
+    const { scene, stage, frames } = stageOf()
+    // A number of the app's own on a scene object, which a Stage animates as any other.
+    class Kiln extends Group {
+      heat = 20
+    }
+    const kiln = new Kiln()
+    const glazed = new Mesh(new BoxGeometry(1, 1, 1), new MeshPhysicalMaterial({ roughness: 1, clearcoat: 0.5 }))
+    scene.add(kiln, glazed)
+    const [later, setLater] = createSignal<Kiln | undefined>()
+    let heat!: Accessor<number>
+    let clearcoat!: Accessor<number>
+    let roughness!: Accessor<number>
+    let pending!: Accessor<number | undefined>
+    let nothing!: Accessor<number | string | undefined>
+    let joined!: Accessor<number>
+    under(stage, () => {
+      heat = ward(kiln, {}).read("heat")
+      clearcoat = ward(glazed, {}).read("clearcoat")
+      const driven = ward(glazed, { animate: { roughness: 0.25 }, transition: LINEAR })
+      roughness = driven.read("roughness")
+      nothing = driven.read("nothing")
+      pending = ward(later, {}).read("heat")
+      joined = createSceneObject(new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial()), { initial: { y: 2 } }).read("y")
+    })
+    // Types alone: a key its Subject has, at its type; `undefined` only while an accessor gives no Subject.
+    expectTypeOf(heat).toEqualTypeOf<Accessor<number>>()
+    expectTypeOf(clearcoat).toEqualTypeOf<Accessor<number>>()
+    expectTypeOf(roughness).toEqualTypeOf<Accessor<number>>()
+    expectTypeOf(pending).toEqualTypeOf<Accessor<number | undefined>>()
+    expectTypeOf(nothing).toEqualTypeOf<Accessor<number | string | undefined>>()
+    expectTypeOf(joined).toEqualTypeOf<Accessor<number>>()
+    flush()
+    stage.frame()
+    expect([heat(), clearcoat(), roughness(), joined()], "each Subject's own value, or its initial, before anything moves it").toEqual([20, 0.5, 1, 2])
+    expect([pending(), nothing()], "no Subject yet; a key it doesn't have").toEqual([undefined, undefined])
+    void stage.animate(kiln, { heat: 1240 }, LINEAR)
+    setLater(kiln)
+    await frames(20)
+    expect([heat(), roughness(), pending()], "followed as the Stage moves it").toEqual([1240, 0.25, 1240])
+    expect(clearcoat(), "unmoved").toBe(0.5)
+  })
+
+  it("SH9: on a server, a ward's read gives its Subject's own values (#939)", () => {
+    const glazed = new Mesh(new BoxGeometry(1, 1, 1), new MeshPhysicalMaterial({ clearcoat: 0.5 }))
+    glazed.position.y = 3
+    const server = inertWardOn(glazed)
+    const read = (key: string): unknown => (server.read as (key: string) => Accessor<unknown>)(key)()
+    expect([read("y"), read("clearcoat"), read("nothing")]).toEqual([3, 0.5, undefined])
+    expect((inertWardOn(() => undefined).read as (key: string) => Accessor<unknown>)("y")(), "an accessor giving none").toBeUndefined()
   })
 })

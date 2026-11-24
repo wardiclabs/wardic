@@ -8,7 +8,7 @@
  */
 import * as All from "@wardic/dom/unstable/features/All"
 import type { Accessor } from "solid-js"
-import type { StageSubject, StageWard, StageWardChecked, StageWardConfig } from "./stage.ts"
+import type { StageSubject, StageSubjectOf, StageWard, StageWardChecked, StageWardConfig } from "./stage.ts"
 import type { Ward, WardChecked, WardConfig, WardInternals, WardOptions } from "./ward.tsx"
 import { type HeldWard, wardFrom } from "./ward-first.ts"
 
@@ -36,8 +36,12 @@ export const COMPLETE: WardInternals = { brings: All.ALL, complete: true }
 // A Complete element (#511).
 /** Its Subject first (#884): `ward(el, config)` is `ward(config)(el)`, with `held`. */
 export function ward<const C extends WardConfig>(subject: Element, config: WardChecked<C>, options?: WardOptions): HeldWard<Ward<C>>
-/** A Stage's Subject first, under a `<WardicStage>` (#884): the Stage's ward. */
-export function ward<const C extends WardConfig | StageWardConfig>(subject: StageSubject | Accessor<StageSubject | undefined>, config: StageWardChecked<C>, options?: WardOptions): StageWard<C>
+/** A Stage's Subject first, under a `<WardicStage>` (#884): the Stage's ward, which reads its Subject's keys at their types. */
+export function ward<const C extends WardConfig | StageWardConfig, G extends StageSubject | Accessor<StageSubject | undefined>>(
+  subject: G,
+  config: StageWardChecked<C>,
+  options?: WardOptions,
+): StageWard<C, StageSubjectOf<G>>
 // The config first, last of the generic forms, so `ReturnType<typeof ward<C>>` is still a DOM ward.
 export function ward<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
 export function ward(): Ward<{}>
