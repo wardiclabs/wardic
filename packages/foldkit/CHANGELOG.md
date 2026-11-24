@@ -1,5 +1,26 @@
 # @wardic/foldkit
 
+## 1.3.0
+
+### Patch Changes
+
+- 270d439: `w.*` elements mount and unmount for less (#849). On the bench, a thousand `w.div`s mount in 23.0 ms instead of 27.5 and unmount in 5.4 instead of 7.4, with 5% less allocated. Three changes:
+
+  - An element's Mount no longer makes a queue for Messages it may never send.
+  - Its Stream is a single step.
+  - Once the provider is up, an element mounts without waiting on it.
+
+  Nothing an app sees changes: Messages, the release when an element is removed, DevTools replay and the Scene test names are as they were.
+
+- 0fd3ff8: Unmounting `w.*` elements costs less (#849): on the bench, a thousand `w.div`s unmount in 7.5 ms instead of 13.4, and mount in 27.7 instead of 29.6, with 7% less allocated. Each element's Mount forked a fiber to follow DevTools' view state and another to run its setup. Now the provider follows the view state once for every element, and the setup runs on the Mount's own fiber. Nothing an app sees changes: Messages, the release when an element is removed, DevTools replay and the Scene test names are as they were.
+- Updated dependencies [e024ef6]
+- Updated dependencies [94f0bfa]
+- Updated dependencies [56195ee]
+- Updated dependencies [7c2c37e]
+- Updated dependencies [b78dded]
+  - @wardic/core@1.3.0
+  - @wardic/dom@1.3.0
+
 ## 1.2.0
 
 ### Minor Changes

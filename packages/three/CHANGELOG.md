@@ -1,0 +1,18 @@
+# @wardic/three
+
+## 1.3.0
+
+### Minor Changes
+
+- 0511be1: `@wardic/three`, Wardic for three.js, ships (#564, ADR-0068, ADR-0069, ADR-0073): Motion's `animate` on a scene's meshes, materials, cameras, lights and uniforms, by Motion's key names in three's own types, on frames the Host loop pumps (`WardicThree.make()`, `frame(t)`). The transforms in metres and degrees, written in one call per vector; a material's keys, a uniform's and a TSL node's; colours blended in linear light, as three draws them; a Batch of meshes, or of an `InstancedMesh`'s instances, writing only the matrices that moved and keeping its bounds; `hover` and `press` through the scene's raycast, once a frame; and `TestStage`, a scene with no renderer and no page, in Node. `@wardic/three/solid` runs a scene for a Solid 2 component: `createStage` and `<WardicStage>`, `ward(mesh, config)` with a `read` typed by its object, `createSceneObject` for objects that enter and leave, `createBatch`, `createHover`, `createPress`, `createDrag` and `createFrameEffect`, drag and Batches as the Stage features `stageDrag` and `stageBatches`, and a `TestStage` that is a Stage. It runs on the app's own `@wardic/solid`, 2.1 or a later 2.x. See the [3D guide](https://wardic.dev/guides/3d) and the [three.js reference](https://wardic.dev/reference/three).
+
+### Patch Changes
+
+- Updated dependencies [e024ef6]
+- Updated dependencies [94f0bfa]
+- Updated dependencies [56195ee]
+- Updated dependencies [7c2c37e]
+- Updated dependencies [0511be1]
+- Updated dependencies [b78dded]
+  - @wardic/core@1.3.0
+  - @wardic/object@1.3.0

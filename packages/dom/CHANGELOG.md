@@ -1,5 +1,33 @@
 # @wardic/dom
 
+## 1.3.0
+
+### Minor Changes
+
+- 7c2c37e: Two additions for scenes, from #883:
+
+  - **`UnitScale`:** how many of Motion's units a key counts as, so a spring's rest thresholds fit the distances it moves. It's an Environment's rule by key and distance, 1 for every key by default. A scene in metres gives `UnitScale.layer(100)` for its `x`, `y` and `z`, so a long move's spring rests within millimetres instead of snapping short. `UnitScale.relative` rests a key by its share of the distance, as a blended key's progress does, and `UnitScale.layerWith` gives a rule of an Environment's own. `Machine.springValues` and `Batch.make` take a `unitScale` rule.
+  - **`scaleZ`:** core's third scale. It's a transform key, positional under reduced motion, and on a scale's spring by default. The DOM draws it as `scaleZ()`.
+
+### Patch Changes
+
+- e024ef6: A key a tween, keyframes or a spring's string keys move carries the speed it moved at into what takes it over, even right after a tick delivered late (#865). Its velocity was its last step over the time between its last two ticks as they were delivered, so a tick that ran late behind other work in its frame lowered it: by about half after a 16 ms delay, and a spring taking the key over started slower than the key had moved. It's over the time the step covered now, as Motion's is. For it, a `FrameLoop.Sink` is handed `dt`: the time its run was just stepped over, in seconds.
+- 94f0bfa: `createBatch`'s `animate` calls run on core's new `@wardic/core/unstable/BatchCalls` (#882): an Environment's Batch, `@wardic/object`'s too, now takes its targets, transitions, stagger and sequence Segments by the same rules. Every Batch behaves as it did.
+- 56195ee: Core gives every Environment what the DOM's `animate` was built on (#882):
+
+  - **`DefaultTransition.byKey`, `KEYFRAMES_TWEEN` and `layerByKey`:** Motion's Default transition by a key's name. Transforms get a spring, a scale gets a critical spring, and any other key gets a 0.3 s ease. It was `@wardic/dom`'s, and `DomDefaultTransition` is now these same objects.
+  - **`@wardic/core/unstable/Imperative`:** the Imperative animation track (`animate`, its Playback controls and sequences), with ports for an Environment's Subjects and Batches. `@wardic/dom/unstable/Imperative` fills them for elements and keeps every export it had.
+  - **`@wardic/core/unstable/FrameEffects`:** an ordered list of app code an Environment runs at the end of each frame, after Wardic's writes.
+
+  The DOM's animations, sequences and Batches behave as they did.
+
+- Updated dependencies [e024ef6]
+- Updated dependencies [94f0bfa]
+- Updated dependencies [56195ee]
+- Updated dependencies [7c2c37e]
+- Updated dependencies [b78dded]
+  - @wardic/core@1.3.0
+
 ## 1.2.0
 
 ### Patch Changes
