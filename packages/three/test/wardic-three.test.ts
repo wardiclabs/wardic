@@ -264,14 +264,14 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     const controls = wardic.animate(shader, { uProgress: 1, transition: { type: "tween", duration: 1, ease: "linear" }, transitionEnd: { uDone: 1 } })
     await tick()
     const clock = { time: 0 }
-    // Half way at 0.5 s, where the Default transition has landed; its end not yet set.
+    // Half way at 0.5 s, where the Default transition has landed; its Transition end not yet set.
     pump(wardic, 30, clock)
-    expect(shader.uniforms.uProgress?.value).toBeGreaterThan(0.4)
-    expect(shader.uniforms.uProgress?.value).toBeLessThan(0.6)
-    expect(shader.uniforms.uDone?.value).toBe(0)
+    expect(shader.uniforms.uProgress!.value).toBeGreaterThan(0.4)
+    expect(shader.uniforms.uProgress!.value).toBeLessThan(0.6)
+    expect(shader.uniforms.uDone!.value).toBe(0)
     pump(wardic, 40, clock)
     await controls
-    expect([shader.uniforms.uProgress?.value, shader.uniforms.uDone?.value]).toEqual([1, 1])
+    expect([shader.uniforms.uProgress!.value, shader.uniforms.uDone!.value]).toEqual([1, 1])
     wardic.dispose()
   })
 })

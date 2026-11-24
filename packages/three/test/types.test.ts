@@ -112,14 +112,17 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   const raw = new THREE.RawShaderMaterial({ uniforms: { uProgress: { value: 0 } } })
   const shaded = new THREE.Mesh(new THREE.BoxGeometry(), shader)
   wardic.animate(shader, { uProgress: 1, transition: { duration: 1, uProgress: { duration: 0.2 } }, transitionEnd: { uProgress: 0 } })
-  wardic.animate(raw, { uProgress: [0, 1], transition: { type: "tween", ease: "linear" } })
+  wardic.animate(raw, { uProgress: [0, 1], transition: { type: "tween", ease: "linear", uProgress: { duration: 0.4 } }, transitionEnd: { uProgress: 1 } })
   wardic.animate(shaded, { x: 1, uProgress: 1, transition: { duration: 1, x: { duration: 0.2 } }, transitionEnd: { y: 0 } })
-  wardic.animate([shader, raw], { uProgress: 1, transition: { duration: 1 } })
+  wardic.animate([shader, raw], { uProgress: 1, transition: { duration: 1 }, transitionEnd: { uProgress: 0 } })
   // Any other object whose keys are any name: its own values.
   const levels: { gain: number; [band: string]: number } = { gain: 0 }
   wardic.animate(levels, { gain: 1, bass: [0, 1], transition: { duration: 1 }, transitionEnd: { gain: 0 } })
   // @ts-expect-error: its Transition end's values are its own, numbers.
   wardic.animate(levels, { gain: 1, transitionEnd: { gain: "loud" } })
+  // A uniforms object of any name beside one it names: a uniform a number or a colour.
+  const tuned: { uTime: THREE.IUniform<number>; [name: string]: THREE.IUniform } = { uTime: { value: 0 } }
+  wardic.animate(tuned, { uTime: 1, uTint: "#f0f", transition: { duration: 1 }, transitionEnd: { uTime: 0 } })
   // @ts-expect-error: a key's value isn't an object.
   wardic.animate(shader, { uProgress: { duration: 1 } })
   // @ts-expect-error: a misspelt field.
@@ -132,6 +135,11 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   // any name needs its type named, as a Record does (#959).
   wardic.animate<typeof shader>(shader, { uProgress: 1 })
   wardic.animate<typeof shader.uniforms>(shader.uniforms, { uProgress: 1, uTint: "#f0f" })
+  // A target typed as a ThreeTarget fits as ever: a wrapper's, and one declared so.
+  const forward = <T extends object>(subject: T, target: WardicThree.ThreeTarget<T>) => wardic.animate(subject, target)
+  const declared: WardicThree.ThreeTarget<typeof shader> = { uProgress: 1 }
+  wardic.animate(shader, declared)
+  void forward(cube, { x: 1 })
 }
 
 it("TY1: the typed calls compile", () => {
