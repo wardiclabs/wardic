@@ -257,6 +257,23 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     expect(cube.position.toArray()).toEqual([1, 2, 0])
     wardic.dispose()
   })
+
+  it("WT17: a ShaderMaterial's target runs its own transition and sets its Transition end, its uniforms any name (#958)", async () => {
+    const wardic = WardicThree.make()
+    const shader = new THREE.ShaderMaterial({ uniforms: { uProgress: { value: 0 }, uDone: { value: 0 } } })
+    const controls = wardic.animate(shader, { uProgress: 1, transition: { type: "tween", duration: 1, ease: "linear" }, transitionEnd: { uDone: 1 } })
+    await tick()
+    const clock = { time: 0 }
+    // Half way at 0.5 s, where the Default transition has landed; its end not yet set.
+    pump(wardic, 30, clock)
+    expect(shader.uniforms.uProgress?.value).toBeGreaterThan(0.4)
+    expect(shader.uniforms.uProgress?.value).toBeLessThan(0.6)
+    expect(shader.uniforms.uDone?.value).toBe(0)
+    pump(wardic, 40, clock)
+    await controls
+    expect([shader.uniforms.uProgress?.value, shader.uniforms.uDone?.value]).toEqual([1, 1])
+    wardic.dispose()
+  })
 })
 
 describe("WardicThree: a material other meshes share, in dev", () => {

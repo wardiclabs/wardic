@@ -106,6 +106,32 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(instances.at(0), { color: "#fff" }, { colorG: { duration: 0.2 } })
   // @ts-expect-error: an instance's material's keys aren't an instance's.
   wardic.animate(instances, { x: 1 }, { opacity: { duration: 0.2 } })
+
+  // A Subject whose keys are any name (#958): a ShaderMaterial's uniforms, and a mesh drawn with one.
+  // Its target's own transition, an entry under any name, and its Transition end.
+  const raw = new THREE.RawShaderMaterial({ uniforms: { uProgress: { value: 0 } } })
+  const shaded = new THREE.Mesh(new THREE.BoxGeometry(), shader)
+  wardic.animate(shader, { uProgress: 1, transition: { duration: 1, uProgress: { duration: 0.2 } }, transitionEnd: { uProgress: 0 } })
+  wardic.animate(raw, { uProgress: [0, 1], transition: { type: "tween", ease: "linear" } })
+  wardic.animate(shaded, { x: 1, uProgress: 1, transition: { duration: 1, x: { duration: 0.2 } }, transitionEnd: { y: 0 } })
+  wardic.animate([shader, raw], { uProgress: 1, transition: { duration: 1 } })
+  // Any other object whose keys are any name: its own values.
+  const levels: { gain: number; [band: string]: number } = { gain: 0 }
+  wardic.animate(levels, { gain: 1, bass: [0, 1], transition: { duration: 1 }, transitionEnd: { gain: 0 } })
+  // @ts-expect-error: its Transition end's values are its own, numbers.
+  wardic.animate(levels, { gain: 1, transitionEnd: { gain: "loud" } })
+  // @ts-expect-error: a key's value isn't an object.
+  wardic.animate(shader, { uProgress: { duration: 1 } })
+  // @ts-expect-error: a misspelt field.
+  wardic.animate(shader, { uProgress: 1, transition: { durration: 1 } })
+  // @ts-expect-error: a field of the wrong type.
+  wardic.animate(shaded, { x: 1, transition: { duration: "slow" } })
+  // @ts-expect-error: a Transition end's values aren't keyframes.
+  wardic.animate(shader, { uProgress: 1, transitionEnd: { uProgress: [0, 1] } })
+  // A call that names its Subject's type keeps the target it had: values only. A uniforms object of
+  // any name needs its type named, as a Record does (#959).
+  wardic.animate<typeof shader>(shader, { uProgress: 1 })
+  wardic.animate<typeof shader.uniforms>(shader.uniforms, { uProgress: 1, uTint: "#f0f" })
 }
 
 it("TY1: the typed calls compile", () => {
