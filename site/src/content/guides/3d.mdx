@@ -1,0 +1,222 @@
+---
+title: 3D scenes
+description: Wardic's motion on a three.js scene from Solid 2, with no component to add. Wards on meshes and materials, the pointer through the scene's raycast, objects that enter and leave, and Batches of thousands.
+---
+
+# 3D scenes
+
+`@wardic/three/solid` brings Wardic's hooks to a three.js scene. `ward`, the sensors, `createBatch` and `createFrameEffect` are the hooks you know from the page, given a scene's object instead of an element. There's no canvas component and no renderer of Wardic's own. You make the scene, its camera and its renderer with three.js, and a **Stage** runs Wardic on them. Solid 2 only. It ships in Wardic 1.3.
+
+```sh
+bun add @wardic/three three
+```
+
+## A Stage
+
+```tsx solid2
+import { createStage, WardicStage } from "@wardic/three/solid"
+import * as THREE from "three"
+
+const scene = new THREE.Scene()
+const camera = new THREE.PerspectiveCamera(35, 4 / 3, 0.1, 50)
+const stage = createStage({
+  renderer: () => new THREE.WebGLRenderer({ antialias: true, alpha: true }),
+  scene,
+  camera,
+  frameloop: "demand",
+})
+
+<WardicStage value={stage}>
+  <div class="scene" ref={stage} />
+  <Crate />
+</WardicStage>
+```
+
+- **`ref={stage}`** mounts the renderer's canvas in the element, kept at its size. `resize: false` leaves the size to you.
+- **`renderer`** is a function the browser calls once the page has settled. On the server a Stage is inert: its element renders empty, so hydration matches, and its hooks animate nothing.
+- **`frameloop: "demand"`** draws a frame only when something moves: a ward, a Batch, a Frame effect's write, the pointer. For a change Wardic didn't make, call `stage.invalidate()`. `"always"` draws every frame.
+- **`features`** are what a Stage does beyond a ward's motion: `stageDrag` drags a scene's objects, and `stageBatches` makes Batches of them. Each one's code ships only where it's given.
+
+Under `<WardicStage>`, the hooks run in its scene: a ward's frame is the Stage's, and a sensor hears the pointer through the scene's raycast. Import them from `@wardic/three/solid`, which carries none of the page's code. `@wardic/solid`'s own `ward` takes a mesh too, for a page that has both ([`WardicStage`](/reference/solid/provider/wardic-stage)).
+
+## A ward on a mesh
+
+<Demo sample="scene-turn" />
+
+<CodeTabs sample="scene-turn" />
+
+`ward(mesh, config)` takes a ward's `initial`, `animate`, `transition`, `variants`, `whileHover`, `whileTap` and `custom`. A key of the page's alone (`whileInView`, `layout`, `style`) is an error in development that names it.
+
+- **Its keys** are the object's:
+  - the transforms (`x`, `y`, `z`, `rotateX`, `scale` and the rest), in degrees for a turn;
+  - its own numbers: a light's `intensity`, a camera's `fov`, a number on an object of your own;
+  - its material's: `roughness`, `clearcoat`, `emissive`;
+  - its vectors' axes: `positionX`.
+
+  A misspelt one is a type error that names it.
+- **A colour blends in linear light**, as three.js draws it, so a white glaze turning cobalt doesn't pass through grey. Give it as a string, or animate its channels: `colorR`, `colorG` and `colorB`.
+- **`read(key)`** is the object's value as Wardic draws it, at its type: `ward(turntable, {}).read("rotateY")` is an `Accessor<number>`. A key the ward hasn't moved reads what the object holds.
+- **`held`** renders nothing. Return it from a component that renders nothing else, and a `<Loading>` above it waits for a ward still loading its object or its config.
+- **`stage.animate(object, target, options)`** is Motion's `animate`, on a scene's object. A ward on that object takes the key back at its next change. The demo's turn is one per drag sample, and the release is an `inertia` transition at the pointer's speed.
+
+## The pointer
+
+`createHover(mesh)`, `createPress(mesh)` and `createDrag(mesh)` hear the pointer through the scene's raycast. Each returns an accessor and moves nothing, as the page's sensors do. A ward's `whileHover` and `whileTap` lift or press an object under it, and its `when("tap")` hears each tap.
+
+With `stageDrag` among the Stage's features, a ward drags its object itself:
+
+```tsx solid2
+const stage = createStage({ renderer, scene, camera, features: [stageDrag] })
+
+ward(crate, {
+  drag: true, // on the plane through the point grabbed, facing the camera
+  dragConstraints: { x: [-2, 2], z: [-2, 2] },
+  dragPlane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), // or across the ground
+})
+```
+
+`drag` takes `"x"`, `"y"` or `"z"` for one axis of its parent's space. `dragElastic`, `dragMomentum`, `dragTransition` and `dragSnapToOrigin` are the page's.
+
+## Frame effects
+
+Under a Stage, `createFrameEffect(compute, apply)` runs in its Host loop, after Wardic's writes and before the scene is drawn. What it writes is drawn in the frame that moved it:
+
+```tsx solid2
+import { createFrameEffect, ward } from "@wardic/three/solid"
+import type * as THREE from "three"
+
+declare const piece: THREE.Mesh
+declare const shadow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+
+const vase = ward(piece, { whileHover: { y: 0.12 } })
+// Its shadow under it, smaller and fainter the higher it lifts.
+createFrameEffect(vase.read("y"), (y) => {
+  shadow.scale.setScalar(1 - y * 0.9)
+  shadow.material.opacity = 1 - y * 3
+})
+```
+
+A label pinned over an object is the same: read its `x`, `y` and `z` in compute, and in apply project its place through the camera onto the page.
+
+## Objects that enter and leave
+
+<Demo sample="scene-objects" />
+
+<CodeTabs sample="scene-objects" />
+
+`createSceneObject(object, config)` is an object's membership of the scene, with a ward for its motion:
+
+- **It joins** once its ward can start, so its first frame is its `initial`.
+- **It leaves** when its owner ends, after playing its `exit`, from where it is and at the speed it has.
+- **Its parent** is `parent`, else the one it already has, else the Stage's scene.
+- **`dispose: true`** disposes its geometries and materials once it has left.
+
+Given an accessor, it follows each object the accessor gives: the next one enters as the last one exits. Its handle is its ward's, with `exitStart` and `exitComplete` among its events.
+
+## Many objects at once
+
+<Demo sample="scene-batch" />
+
+<CodeTabs sample="scene-batch" />
+
+With `stageBatches` among the Stage's features, `createBatch` animates a scene's objects as one run, as a [Batch](/guides/batches) does a page's elements:
+
+- **`instances`:** an `InstancedMesh`'s instances, each a member, `count` of them. That's one draw call. Each frame Wardic writes the matrices of the instances that moved, and uploads only that span.
+- **`object`:** a three.js object per member, keyed by `each` and `key`. Each joins the scene as it enters and leaves once its `exit` has landed, as the [storefront's shelf](https://solid2.wardic.dev/scenes/the-shelf) filters its pieces.
+
+A new shape is one change of what `animate` reads, each member from where it is at the speed it has. `whileHover` and `whileTap` work per member, through the raycast. `when("tap")` says which member was tapped: `tap.i`, or `tap.item` for a keyed Batch.
+
+**What it costs:** Wardic's three.js benchmark moved 10,000 instances in 0.64 ms a frame on Bun. That's what three.js takes to update 10,000 meshes' own matrices with nothing animating them. Ten thousand meshes as one Batch were 11.6 times cheaper a frame than a run each.
+
+## Variants down the scene
+
+A ward with `variants` and no `animate` of its own follows the nearest ward above its object in the scene's graph, as an element follows its parent on the page. Its stagger slot is its place among that ward's object's children:
+
+```tsx solid2
+const CARD = { closed: { transition: { staggerChildren: 0.06 } }, open: { transition: { staggerChildren: 0.08 } } }
+const PIP = { closed: { scale: 0.2 }, open: { scale: 1 } }
+
+createSceneObject(card, { variants: CARD, initial: "closed", animate: () => (open() ? "open" : "closed") })
+// Each pip is a child of the card in three's graph: it follows the card's variant.
+for (const pip of card.children) createSceneObject(pip, { variants: PIP })
+```
+
+## A sequence as an action
+
+`stage.animate`'s controls are a promise of its landing, so a Solid 2 `action` can `yield` each step. Each step starts as the last one lands:
+
+```tsx solid2
+const fire = action(function* () {
+  setStep("closing") // a `createOptimistic` signal: it shows at once, and goes back as the action ends
+  yield stage.animate(lid, { rotateX: 0 }, { type: "spring", bounce: 0.2 })
+  setStep("heating")
+  yield stage.animate(kiln, { heat: 1240 }, { duration: 5 })
+  setStep("cooling")
+  yield stage.animate(kiln, { heat: 20 }, { duration: 4.5, ease: "easeOut" })
+})
+```
+
+The action holds its other writes until its last step has landed ([Sequences as actions](/guides/actions)). The [storefront's kiln](https://solid2.wardic.dev/scenes/fire-the-kiln) fires this way. The heat is a number on the kiln's own object, and a Frame effect turns it into the glow and the controller's figures.
+
+## Loading
+
+three.js is most of a scene's weight, so a page can show something lighter first. The storefront's scenes do it this way:
+
+1. **The server's page** shows the piece's photo.
+2. **Once the page has settled,** where the browser can draw WebGL, it mounts the scene, with three.js in the route's own chunk.
+3. **The canvas fades in** over the photo once it has drawn its first frame. three.js tells a mesh each time it draws it, through its `onAfterRender`.
+4. **With no WebGL,** the photo stays.
+
+```tsx solid2
+const [drawn, setDrawn] = createSignal(false)
+vase.onAfterRender = () => {
+  vase.onAfterRender = () => {}
+  setDrawn(true)
+}
+<w.div class="scene" animate={{ opacity: Number(drawn()) }}>…</w.div>
+```
+
+## Reduced motion
+
+Under reduced motion, a scene's transforms snap, and so do a camera's `fov` and `zoom`: an infinite turn holds still. A colour, an opacity and a material's numbers still animate, since they don't move anything.
+
+## Testing
+
+`TestStage` runs a Stage in Node, with no DOM and no WebGL. You step its frames, and its pointer goes through the same raycast a canvas's would:
+
+```tsx solid2
+import { createHover, TestStage, WardicStage } from "@wardic/three/solid"
+import { flush } from "solid-js"
+
+const stage = TestStage.make({ scene, camera, size: { width: 800, height: 600 } })
+let hovered!: () => boolean
+const Probe = () => {
+  hovered = createHover(mesh)
+  return null
+}
+// Mounted as an app mounts it: <WardicStage value={stage}><Probe /></WardicStage>
+stage.pointer.over(mesh)
+stage.frame()
+flush() // the sensor's signal, written in the frame, read now
+expect(hovered()).toBe(true)
+```
+
+`stage.pointer` also has `at(x, y)`, `down()` and `up()`, and `stage.frame()` steps the scene by one frame, its wards' and Batches' motion with it.
+
+## What a scene ships
+
+Gzipped, for an app built for production:
+
+| App | KB |
+| --- | --- |
+| three.js alone, a mesh drawn | 134.8 |
+| a `createStage` scene with one `ward(mesh, …)` | 243.2 |
+| the same, with `stageDrag`, `stageBatches` and a Batch | 250.9 |
+
+Import the hooks from `@wardic/three/solid`. `@wardic/solid`'s `ward` is the page's Complete ward, which brings every one of the page's Features, 57.6 KB more.
+
+## In the storefront
+
+The [storefront's examples](/examples) that show it, live and with their code:
+
+<Storefront guide="/guides/3d" />

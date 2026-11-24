@@ -46,7 +46,9 @@ On Solid 2, with a group of your own:
 import { Reorder, reorderGroup } from "@wardic/solid"
 
 const list = reorderGroup({ values: items, onReorder: setItems })
-createEffect(list.when("reorderEnd"), (end) => save(end.values))
+createEffect(list.when("reorderEnd"), (end) => {
+  void save(end.values)
+})
 <Reorder.Group groupRef={list} axis="x">…</Reorder.Group>
 ```
 

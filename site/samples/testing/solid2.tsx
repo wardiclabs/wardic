@@ -10,7 +10,9 @@ import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest"
 function Notice(props: { readonly onUndo?: () => void }) {
   // The button's ward hears its taps; its motion props stay on the element.
   const undo = w.ward()
-  createEffect(undo.when("tap"), () => props.onUndo?.())
+  createEffect(undo.when("tap"), () => {
+    props.onUndo?.()
+  })
   return (
     <>
       <w.p role="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, ease: "linear" }}>

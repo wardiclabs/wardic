@@ -33,7 +33,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Request } from "playwright"
 // The binding's own gate, so the dev mode fails on what its tests fail on.
-import { codeOf, gated, reports } from "../../../../packages/solid/test/gate-filter.ts"
+import { codeOf, gated, isDriverNote, reports } from "../../../../packages/solid/test/gate-filter.ts"
 import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 import { pageHeadOf, pathsOf } from "./seo.ts"
@@ -109,10 +109,7 @@ const ready = async (): Promise<void> => {
  */
 const failing = (message: ConsoleMessage): boolean => {
   if (dev && codeOf(message.text()) !== undefined) return false
-  // Chromium's own WebGL driver telling of its performance (#934): headless Chromium draws WebGL in
-  // software, and the smoke's screenshot of a canvas stalls it reading the pixels back. The page's own
-  // errors and warnings still fail it.
-  if (/^\[\.WebGL-[0-9a-fx]+\]GL Driver Message \(OpenGL, Performance,/.test(message.text())) return false
+  if (isDriverNote(message.text())) return false
   return message.type() === "error" || message.type() === "warning" || /hydrat/i.test(message.text())
 }
 
