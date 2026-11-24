@@ -2759,7 +2759,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     retakeFor(slots, givesGroup((slot, k) => Predicate.isNotUndefined(UndefinedOr.getOrThrow(animations[slot]).keyframes[keys[k]])))
     // Each member's key's stops, once at its first play (core's).
     const keyframesOf = BatchCalls.keyframesFor(planningNow(), call, (slot) => UndefinedOr.getOrThrow(animations[slot]))
-    return controlsOf(Batch.keyframes(made(), slots, keyframesOf, { head: call.head, onLanded: call.settled, onTaken: call.taken }))
+    return controlsOf(Batch.keyframes(made(), slots, keyframesOf, BatchCalls.keyframesOptions(call)))
   }
 
   /** A driven change's controls, as an `animate` call's track: played, it wakes the Batch's run. */
