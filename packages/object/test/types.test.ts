@@ -77,6 +77,31 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(dots.at(1), { y: 2 }, { y: { type: "tween", ease: "easeIn" } })
   // @ts-expect-error: `fill` is a string, which a Batch doesn't take, nor its entry.
   wardic.animate(dots, { x: 1 }, { fill: { duration: 0.1 } })
+
+  // An inline sequence's options and its Segments are checked, as a declared one's (#963).
+  wardic.animate([[ball, { x: 1 }], "next", [ball, { y: 1 }, { at: "next" }], [dots, { x: 2 }], [(value: number) => void value, [0, 1], { duration: 1 }]], { duration: 2, repeat: 1 })
+  // @ts-expect-error: a sequence's `duration` is a number.
+  wardic.animate([[ball, { x: 1 }]], { duration: "slow" })
+  // @ts-expect-error: a misspelt option.
+  wardic.animate([[ball, { x: 1 }]], { durration: 1 })
+  // @ts-expect-error: nor a Segment's own, beside the sequence's options.
+  wardic.animate([[ball, { x: 1 }, { duration: "slow" }]], { delay: 0.1 })
+  // Nor options that would fit an array's target: empty ones check the sequence, a target's field is no option.
+  wardic.animate([[ball, { x: 1 }]], {})
+  // @ts-expect-error: a Segment's value, with empty options.
+  wardic.animate([[ball, { x: true }]], {})
+  // @ts-expect-error: a target's `transition` isn't a sequence's option (its `defaultTransition` is).
+  wardic.animate([[ball, { x: 1 }]], { transition: { duration: 1 } })
+  // @ts-expect-error: nor a third argument.
+  wardic.animate([[ball, { x: 1 }]], {}, { duration: 1 })
+  // A list of unlike Subjects takes the keys they share, as ever.
+  const left = { x: 0, a: 0 }
+  const right = { x: 0, b: 0 }
+  wardic.animate([left, right], { x: 1 }, { x: { duration: 0.2 } })
+  // @ts-expect-error: a key only one of them has.
+  wardic.animate([left, right], { a: 1 })
+  // @ts-expect-error: nor its entry.
+  wardic.animate([left, right], { x: 1 }, { a: { duration: 0.2 } })
 }
 
 it("TY1: the typed calls compile", () => {
