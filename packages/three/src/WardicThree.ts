@@ -128,12 +128,12 @@ type SceneTarget<K extends string, C extends string, E extends string> = { reado
  * keys. A colour's entry runs its channels, and a channel's own entry runs it in place of its colour's.
  */
 // #952: ThreeColours.splitCall gives a colour's entry to each of its channels without one of its own.
-export type TransitionKey<T> = [SceneKey<T>] extends [never] ? WardicObject.AnimatableKey<T> | UniformKey<T> | UniformColourKey<T> : SceneKey<T> | ColourKey<T>
+type TransitionKey<T> = [SceneKey<T>] extends [never] ? WardicObject.AnimatableKey<T> | UniformKey<T> | UniformColourKey<T> : SceneKey<T> | ColourKey<T>
 
 /**
  * A target for `T`: a scene object's or a material's by its scene keys and colours; a uniforms object's
  * by its uniforms' names; any other object's (a `Vector3`, a plain `{ x }`) by its own keys, as `@wardic/object`'s.
- * Its transition takes an entry under any of them ({@link TransitionKey}).
+ * Its transition takes an entry under any of them, a colour's or a channel's.
  */
 export type ThreeTarget<T> = [SceneKey<T>] extends [never]
   ? Omit<WardicObject.ObjectTarget<T>, "transition"> & SceneTarget<UniformKey<T>, UniformColourKey<T>, TransitionKey<T>>
