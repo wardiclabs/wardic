@@ -347,6 +347,7 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 - **A run after the track's first** takes each key another leg draws (`takeEach(to, drawnByAnother)`, through `takeKey`), as the call took it.
 - **Batch:**
   - **The options:** `Batch.AnimateOptions` and `KeyframesOptions` take `onTaken`. `BatchCalls`' change call, `ObjectBatch` and dom's `BatchMembers` pass the call's `taken` to it.
+    - **Moved before release:** a public option on `Batch` made the release a minor, 1.4.0, where the roadmap's 1.4 is the performance viewer. `onTaken` is now `@wardic/core/unstable/BatchCalls`' `Taken<O>`, laid over `Batch`'s options, outside semver; `Batch` reads it at a change's end. `BatchCalls.keyframesOptions(call)` gives a sequence's call's. The release is a patch, 1.3.1.
   - **Which keys count:** `checkLanding` marks each held key at rest (`rested`), as does `play` for a key that starts at its target. At the end, a key no longer held and never rested calls `onTaken`; otherwise `onLanded`.
 
 **Tests:**

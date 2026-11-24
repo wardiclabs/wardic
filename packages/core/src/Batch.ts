@@ -1204,9 +1204,6 @@ export interface AnimateOptions extends RetargetOptions {
   readonly from?: (slot: number, k: number) => number
   /** Called once every key it moves has landed while it still moves it, or at its play when it moves none. */
   readonly onLanded?: () => void
-  /** Called once it ends with a key a later change took while it moved it, which it then never lands. */
-  // #951: Motion's never resolves then; the scope it was started in hears it end.
-  readonly onTaken?: () => void
   /**
    * Called for each member it's given, once, as every key of it it still moves has landed: at its
    * first play for a member it moves nothing of; never for one whose keys a later change took.
@@ -1230,9 +1227,6 @@ export interface KeyframesOptions {
   readonly head: Playback.Playhead
   /** Called once every key it moves has reached its last stop while it still moves it, or at its play when it moves none. */
   readonly onLanded?: () => void
-  /** Called once it ends with a key a later change took while it moved it, which it then never lands. */
-  // #951: Motion's never resolves then; the scope it was started in hears it end.
-  readonly onTaken?: () => void
 }
 
 /** A key's keyframes in a driven change, resolved at its first play: its stops filled, their times, its easings and its run. */
@@ -1600,11 +1594,22 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
   finish(animation)
   if (held < count) {
     if (takenInFlight(animation)) {
-      UndefinedOr.map(options.onTaken, (told) => told())
+      UndefinedOr.map((options as TakenHook).onTaken, (told) => told())
       return
     }
   }
   UndefinedOr.map(options.onLanded, (told) => told())
+}
+
+/**
+ * A change's `onTaken`, which a binding's options carry beside `animate`'s or `keyframes`': called once
+ * the change ends with a key a later change took while it moved it, which it then never lands.
+ */
+// #951: Motion's never resolves then; the scope it was started in hears it end. Not on AnimateOptions or
+// KeyframesOptions, so outside core's semver: a binding gives it as `@wardic/core/unstable/BatchCalls`'
+// `Taken<O>`, the one field this names.
+interface TakenHook {
+  readonly onTaken?: (() => void) | undefined
 }
 
 /** Whether a later change took a key of `animation`'s before it rested there (#951): at its end, once. */

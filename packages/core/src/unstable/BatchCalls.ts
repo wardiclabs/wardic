@@ -212,6 +212,21 @@ export interface ChangeCall {
 }
 
 /**
+ * A Batch change's options `O`, `Batch.animate`'s or `Batch.keyframes`', with `onTaken`: called once
+ * the change ends with a key a later change took while it moved it, which it then never lands.
+ */
+// #951: Motion's never resolves then; the scope it was started in hears it end. Here, in an unstable
+// module, not on Batch's own options: Batch reads it at a change's end (`checkLanding`'s TakenHook).
+export type Taken<O> = O & { readonly onTaken?: (() => void) | undefined }
+
+/** A sequence's call's options for `Batch.keyframes`: its Playhead, its landing, and its `onTaken`. */
+export const keyframesOptions = (call: { readonly head: Playback.Playhead; readonly settled: () => void; readonly taken: () => void }): Taken<Batch.KeyframesOptions> => ({
+  head: call.head,
+  onLanded: call.settled,
+  onTaken: call.taken,
+})
+
+/**
  * A driven change's options for core's `Batch.animate`, toward `targetOf`, from `fromOf`'s first stops
  * when it gives them, on its call's transitions: each key's own, else its Default transition toward the
  * member's target, held by the key's delay; every key at once when the call skips; its `stagger()`
@@ -222,7 +237,7 @@ export const animateOptions = (
   call: ChangeCall,
   targetOf: (slot: number, k: number) => number,
   fromOf: ((slot: number, k: number) => number) | undefined,
-): Batch.AnimateOptions => {
+): Taken<Batch.AnimateOptions> => {
   const transition = Bool.match(call.skipAnimations, {
     onTrue: () => (): Batch.Transition => INSTANT,
     onFalse: () => {
@@ -234,7 +249,7 @@ export const animateOptions = (
       }
     },
   })
-  const options: { -readonly [K in keyof Batch.AnimateOptions]: Batch.AnimateOptions[K] } = { head: call.head, transition, onLanded: call.settled }
+  const options: { -readonly [K in keyof Taken<Batch.AnimateOptions>]: Taken<Batch.AnimateOptions>[K] } = { head: call.head, transition, onLanded: call.settled }
   if (Predicate.isNotUndefined(fromOf)) options.from = fromOf
   if (Predicate.isNotUndefined(call.taken)) options.onTaken = call.taken
   if (Predicate.isNotUndefined(call.onMemberLanded)) options.onMemberLanded = call.onMemberLanded
