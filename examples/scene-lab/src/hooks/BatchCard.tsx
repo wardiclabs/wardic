@@ -5,8 +5,8 @@
  *
  * @module
  */
-import { createBatch, stagger } from "@wardic/solid"
-import { createStage, stageBatches, WardicStage } from "@wardic/three/solid"
+import { stagger } from "@wardic/solid"
+import { createBatch, createStage, stageBatches, WardicStage } from "@wardic/three/solid"
 import { createSignal, onSettled } from "solid-js"
 import * as THREE from "three"
 

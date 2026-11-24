@@ -50,11 +50,10 @@ wardic.press(swarm, (event) => (end, { success }) => {
 
 ## With Solid 2
 
-`@wardic/three/solid` runs a scene for a component: `createStage` mounts the canvas, keeps it sized and runs the Host loop, and under `<WardicStage>` the hooks of `@wardic/solid` work on the scene's objects. `solid-js`, `@solidjs/web` and `@wardic/solid` are optional peers, needed only for this subpath.
+`@wardic/three/solid` runs a scene for a component: `createStage` mounts the canvas, keeps it sized and runs the Host loop, and under `<WardicStage>` its hooks work on the scene's objects. `solid-js`, `@solidjs/web` and `@wardic/solid` are optional peers, needed only for this subpath.
 
 ```tsx
-import { createFrameEffect, ward } from "@wardic/solid"
-import { createSceneObject, createStage, stageDrag, WardicStage } from "@wardic/three/solid"
+import { createFrameEffect, createSceneObject, createStage, stageDrag, ward, WardicStage } from "@wardic/three/solid"
 
 const stage = createStage({ renderer: () => new WebGLRenderer({ antialias: true }), scene, camera, frameloop: "demand" })
 
@@ -76,6 +75,7 @@ const Crate = (props: { mesh: Mesh }) => {
 - **`createSceneObject(mesh, config)`** adds an object to the scene as its ward starts (its `parent`, else the one it has, else the scene) and removes it once its `exit` lands. `dispose: true` disposes its geometries and materials then.
 - **Drag and Batches are features,** each code only a scene that uses it carries: `createStage({ …, features: [stageDrag, stageBatches] })`. `ward(mesh, { drag })` drags on the plane facing the camera, a `dragPlane`, or an axis; `createBatch({ object, … })` or `createBatch({ instances, … })` animates meshes or an `InstancedMesh`'s instances as one run.
 - **The sensors** take a scene's object: `createHover(mesh)`, `createPress(mesh)`, `createDrag(mesh)`.
+- **A scene's hooks alone:** `ward`, `createBatch` and the sensors from here are `@wardic/solid`'s for a scene's objects, without the page's code. A three.js scene and one ward come to 243 KB gzipped this way, against 300 through `@wardic/solid`'s `ward`, which takes a page's element too. A page with both can use either.
 - **Tests:** `@wardic/three/solid`'s `TestStage.make` is a Stage too, so a component's hooks run in Node with no renderer.
 
 Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).

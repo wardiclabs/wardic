@@ -8,11 +8,11 @@ import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Press from "@wardic/dom/unstable/features/Press"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
-import * as Recognizer from "@wardic/core/Recognizer"
 import * as Predicate from "effect/Predicate"
 import type { Accessor } from "solid-js"
 import { useBrought } from "./provider.tsx"
 import { type Sensor, type SensorTarget, stageSensorOf, told, wardSensorOf, watchSensorOf } from "./sensors.tsx"
+import { watchPressOnStage } from "./stage-hooks.ts"
 import { isWard } from "./ward.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
@@ -40,7 +40,7 @@ export interface CreatePress {
 // (#884), and its `dragStart`: a press a drag takes over tells neither of the others. Given a Stage's
 // Subject, on the Stage's input, a pointer's alone (#884's PR 4): a scene's object takes no focus.
 export const createPress: CreatePress = ((target?: SensorTarget): Sensor<boolean> | Accessor<boolean> => {
-  const onStage = stageSensorOf("createPress", target, false, (subject, { on, onDefect }) => Recognizer.watchPress(subject, { on: (press) => on(press.phase === "start"), onDefect }, { keys: false }))
+  const onStage = stageSensorOf("createPress", target, false, watchPressOnStage)
   if (Predicate.isNotUndefined(onStage)) return onStage
   const services = useBrought(PRESS)
   if (isWard(target)) {

@@ -81,8 +81,12 @@ const GATE = 1.01
  * cost is `t2-features`', a Stage giving both and using them, with a budget of its own: its first number,
  * 316.1, with the same room. 22.7 KB of its minified bytes more are `@wardic/dom`'s, the page's Batch, which
  * `createBatch` reaches as `ward` reaches the DOM's ward (#927).
+ * #927 gave a scene its own hooks: `@wardic/three/solid`'s `ward`, `createBatch` and sensors are `@wardic/solid`'s
+ * Stage halves alone, which both apps now import. `t2-stage` fell to 243.1 and `t2-features` to 250.8, with
+ * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
+ * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 300.5, "t2-features": 316.6 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 196.5, "t2-stage": 243.6, "t2-features": 251.3 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -280,11 +284,11 @@ render(() => <div ref={(el) => el.append(renderer.domElement)} />, document.body
 
 /**
  * `@wardic/three/solid`'s base app (#885, ADR-0073 *Amendment (#885)* Q12): a `createStage` scene on
- * a WebGL renderer, and one `ward(mesh, …)` rising the mesh in under `<WardicStage>`. A budget of its own.
+ * a WebGL renderer, and one `ward(mesh, …)` rising the mesh in under `<WardicStage>`, every import
+ * `@wardic/three/solid`'s, as a scene with no page wards writes it (#927). A budget of its own.
  */
 const threeStage = (): string => `import { render } from "@solidjs/web"
-import { ward } from "@wardic/solid"
-import { createStage, WardicStage } from "@wardic/three/solid"
+import { createStage, ward, WardicStage } from "@wardic/three/solid"
 import { BoxGeometry, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, WebGLRenderer } from "three"
 const scene = new Scene()
 const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ff8a3d" }))
@@ -300,8 +304,7 @@ render(() => <App />, document.body)
 
 /** A Stage's features (#885's PR 5): `stageDrag` and `stageBatches` given, a ward that drags and a keyed Batch of meshes. */
 const threeFeatures = (): string => `import { render } from "@solidjs/web"
-import { createBatch, ward } from "@wardic/solid"
-import { createStage, stageBatches, stageDrag, WardicStage } from "@wardic/three/solid"
+import { createBatch, createStage, stageBatches, stageDrag, ward, WardicStage } from "@wardic/three/solid"
 import { BoxGeometry, Mesh, MeshStandardMaterial, PerspectiveCamera, Scene, WebGLRenderer } from "three"
 const scene = new Scene()
 const mesh = new Mesh(new BoxGeometry(), new MeshStandardMaterial({ color: "#ff8a3d" }))

@@ -1,7 +1,7 @@
 ---
 title: WardicStage
 description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
-api: [WardicStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, StageBatch, StageBatchBinding, StageBatchEvents, StageBatchHooks, StageBatchMemberInfo, StageBatchMembers, StageBatchTarget, StageBatchValues, StageCountBatchConfig, StageKeyedBatchConfig, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
+api: [WardicStage, wardOnStage, createBatchOnStage, createHoverOnStage, createPressOnStage, createDragOnStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, StageBatch, StageBatchBinding, StageBatchEvents, StageBatchHooks, StageBatchMemberInfo, StageBatchMembers, StageBatchTarget, StageBatchValues, StageCountBatchConfig, StageKeyedBatchConfig, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
 ---
 
 # WardicStage
@@ -25,6 +25,20 @@ function Crate(props: { readonly mesh: Mesh }) {
 - **`createFrameEffect`** runs in the Stage's Host loop, after Wardic's writes and before the scene renders.
 - **`createHover(mesh)`** and **`createPress(mesh)`** read the pointer over the Subject, and pressed on it, through the Stage's input.
 - **An element** stays the page's, under a Stage or not.
+
+## A scene's hooks alone
+
+`ward`, `createBatch` and the sensors take a page's element as well as a scene's object, so each brings the page's half with it. For `ward`, that's the page's ward and every Feature, 57.6 KB gzipped, in an app that may have no page wards at all. Their Stage halves are exported apart, taking only what the Stage above takes:
+
+| Hook | Its Stage half |
+| --- | --- |
+| `ward(subject, config)` | `wardOnStage` |
+| `createBatch({ object \| instances, … })` | `createBatchOnStage` |
+| `createHover(subject)` | `createHoverOnStage` |
+| `createPress(subject)` | `createPressOnStage` |
+| `createDrag(subject)` | `createDragOnStage` |
+
+An Environment's binding re-exports them under the hooks' own names. A scene with no page wards imports them from there, as `@wardic/three/solid`'s `ward`, `createBatch`, `createHover`, `createPress` and `createDrag`, and its app carries none of the page's code: a three.js scene and one ward come to 243.1 KB gzipped, against 300.5 through `@wardic/solid`'s `ward`. A page with both can use either. Given a page's element, each says to import its hook from `@wardic/solid`, in development.
 
 ## A ward on a scene's Subject
 

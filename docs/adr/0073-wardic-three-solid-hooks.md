@@ -955,3 +955,31 @@ What the owner decided:
   5. The first publish of each, as `@wardic/foldkit`'s was: a granular token, then npm's trusted publisher.
   6. #927, in the 1.3 milestone: a scene's `ward` and `createBatch` carry `@wardic/dom`'s ward and Batch, about 57.6 KB gzipped of `t2-stage`.
 - **Size:** the Host loop's fix is 0.1 KB of `t2-stage`: 300.4 → 300.5, at its budget, 300.5. `t2-features` is 316.1, as on `main`.
+
+**#927, as built** (2026-11-23): a scene's own hooks, amending decision 20's one `ward`.
+- **Why not one `ward`:** #927's first option was to reach the page's ward through something only a page brings, such as the provider. Measured on one-off apps, that saves 12.9 of the 57.6 KB gzipped a scene-only app paid for `ward`:
+
+  | App | gzipped KB |
+  |---|---|
+  | `t2-stage`, `ward(mesh, …)` from `@wardic/solid` | 300.5 |
+  | the Stage's own ward and every DOM Feature | 287.6 |
+  | the Stage's own ward alone | 242.9 |
+
+  `ward` is the Complete ward (ADR-0067), whose module imports every Feature, 44.7 KB of it. A provider can't bring them without every Slim app carrying them. The sensors on a mesh carry the page's code too: `createHover` and `createPress` 4.1 KB, and `createDrag` 10.8 KB. `createFrameEffect` adds 0.5 KB, with nothing of the page's.
+- **The owner's choice:** each hook's Stage half, exported apart. In `@wardic/solid`, `stage-hooks.ts` holds `wardOnStage`, `createBatchOnStage`, `createHoverOnStage`, `createPressOnStage` and `createDragOnStage`. `@wardic/three/solid` re-exports them as `ward`, `createBatch`, `createHover`, `createPress` and `createDrag`, beside `createFrameEffect`, so a scene's imports are all from there.
+  - **`@wardic/solid`'s own hooks** still take a Stage's Subject, for a page with both. Their Stage forms run the same watches as the Stage halves (`watchHoverOnStage`, `watchPressOnStage`, `watchDragOnStage`).
+  - **Given a page's element,** a Stage half says to import its hook from `@wardic/solid`, in development.
+  - **Precedent:** `w.ward` is already the Slim ward beside the Complete `ward` (ADR-0067). A name means the same call wherever it's imported from, and the import says what the app carries.
+- **Size:** `t2-stage` and `t2-features` now import everything from `@wardic/three/solid`, as a scene-only app writes them. `@wardic/dom` is 0.7 KB of either's minified bytes, and culori none.
+  - `t2-stage`: 300.5 → 243.1 KB, its budget lowered to 243.6.
+  - `t2-features`: 316.1 → 250.8 KB, its budget 251.3.
+  - The page's apps are unchanged.
+- **Tests:** SH1–SH6 in `three-solid`:
+  - SH1: `ward`'s `initial` in the first frame and its `animate` landing;
+  - SH2: the errors with no `<WardicStage>` and for a page's element;
+  - SH3: `createHover` and `createPress` through the raycast;
+  - SH4: `createDrag`'s samples;
+  - SH5: `createBatch({ object })`;
+  - SH6: the sensors' errors for a page's element.
+
+  The scene lab's cards import their hooks from `@wardic/three/solid`. The `WardicStage` reference page has the table of hooks and their Stage halves.

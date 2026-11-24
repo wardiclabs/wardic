@@ -8,11 +8,11 @@ import type * as Feature from "@wardic/dom/unstable/Feature"
 import * as Hover from "@wardic/dom/unstable/features/Hover"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
-import * as Recognizer from "@wardic/core/Recognizer"
 import * as Predicate from "effect/Predicate"
 import type { Accessor } from "solid-js"
 import { useBrought } from "./provider.tsx"
 import { type Sensor, type SensorTarget, stageSensorOf, told, wardSensorOf, watchSensorOf } from "./sensors.tsx"
+import { watchHoverOnStage } from "./stage-hooks.ts"
 import { isWard } from "./ward.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
@@ -41,7 +41,7 @@ export interface CreateHover {
 // The core hover watch; given a ward, its `hoverStart` and `hoverEnd` (#884); given a Stage's Subject, on
 // the Stage's input (#884's PR 4), before the page's Feature is brought: a scene needs none.
 export const createHover: CreateHover = ((target?: SensorTarget): Sensor<boolean> | Accessor<boolean> => {
-  const onStage = stageSensorOf("createHover", target, false, (subject, { on, onDefect }) => Recognizer.watchHover(subject, { on: (edge) => on(edge.active), onDefect }))
+  const onStage = stageSensorOf("createHover", target, false, watchHoverOnStage)
   if (Predicate.isNotUndefined(onStage)) return onStage
   const services = useBrought(HOVER)
   if (isWard(target)) return wardSensorOf(target, false, ({ lifecycle }, set) => [lifecycle.listen("hoverStart", told(() => set(true))), lifecycle.listen("hoverEnd", told(() => set(false)))])
