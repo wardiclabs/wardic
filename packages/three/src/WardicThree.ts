@@ -111,7 +111,10 @@ type ColourTargetValue = ThreeColours.ColourValue | Config.WardicKeyframes<Three
 /** A key's value among number keys `K` and colour keys `C`: either, for a key in both (a `ShaderMaterial`'s uniforms, which three types as any name of any value). */
 type ValueOf<Key, K, C, N, Colour> = Key extends C ? (Key extends K ? N | Colour : Colour) : N
 
-/** A target for a scene's Subject, by its number keys `K` and its colour keys `C`. */
+/**
+ * A target for a scene's Subject, by its number keys `K` and its colour keys `C`: a transition, which
+ * `animate`'s options are laid over field by field, and a Transition end, set once the Subject lands.
+ */
 type SceneTarget<K extends string, C extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, SceneValue, ColourTargetValue> } & {
   readonly transition?: Config.WardicTransition | undefined
   readonly transitionEnd?: { readonly [Key in K | C]?: ValueOf<Key, K, C, number, ThreeColours.ColourValue> } | undefined

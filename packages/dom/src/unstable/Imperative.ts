@@ -100,7 +100,8 @@ export type WardicAnimationSequence = ReadonlyArray<WardicSegment>
 /**
  * A scope's `animate`: `animate(subject, target, options?)` animates the subject's elements to
  * `target`, and `animate(sequence, options?)` plays a sequence. Either returns its playback controls.
- * Motion's `animate`, as `useAnimate` gives it.
+ * Motion's `animate`, as `useAnimate` gives it. A target's own `transition` runs, the options' fields
+ * laid over it, and its `transitionEnd` is set on each element once that element lands.
  */
 // #433: through one Playhead.
 export interface WardicAnimate {

@@ -224,3 +224,74 @@ Q7 left two of Motion's details open; both take Motion's (`animateVariant`, `ani
   - hover + press +0.7% / +0.8% (19.98 → 20.11 KB, 19.18 → 19.33);
   - a Reorder item +0.6% / +0.6%.
 - **Layout scenes:** flat. **Left after the unmount:** unchanged.
+
+## Amendment (#896, 2026-11-24): a target's own transition and its Transition end
+
+**What happened.** `animate(subject, target, options)` dropped both. `trackOf` resolved the target with `VariantTarget.resolveTarget`, whose `Target` carries `transition` and `transitionEnd`. Then `imperativeTrackOf` read only its `values` and `keyframes`, and the call's options. Every target type that offers them was affected: `@wardic/object`'s `ObjectTarget`, `@wardic/three`'s `SceneTarget` (whose `ThreeColours.splitCall` already split both into colour channels), and the DOM's `animate`, which takes a `WardicVariant`. Segment and Batch targets offer neither.
+
+**Motion** (`.reference/motion` at `16c6122`, and 14.6.0 as installed): `animateValues` skips a target's `transition` key (`motion-dom/src/animation/animate/effects.ts`). Its `animate` runs on the options alone, so there's no precedence between the two to copy. It applies `transitionEnd` per Subject, once that Subject's animations resolve, on the next frame. Its public target types (`DOMKeyframesDefinition`, `ObjectTarget<O>`) offer neither.
+
+**Decided (grilled 2026-11-24, Q1–Q8 each A).**
+1. **A target's own transition counts, the options' fields laid over it** (Q1). The merge is shallow, as `inherit: true` and a variant list's are. A per-key entry in the options replaces the target's entry for that key whole. `{ delay: 0.2 }` or `{ onComplete }` alone keeps the target's duration.
+   - Rejected: B, the options replacing it whole (Motion's `transitionOverride`, `controls.start`'s override). A delay or an `onComplete` would wipe the target's transition.
+   - Rejected: C, Motion's: ignore it, and take `transition` out of the published target types.
+   - This goes beyond Motion, but Motion's types never let a target carry a transition, so typed Motion code runs the same.
+2. **A Transition end is each Subject's** (Q2). It's written at the flush after that Subject's keys from the call land, and that landing includes it: `finished`, `then` and `onComplete` see it (ADR-0057 decision 4). Other Subjects of the call don't hold it back.
+3. **An interrupted Subject never writes it** (Q3): `stop()`, `cancel()` before the landing, a later call taking any of its keys, a Wardic element's own target change for one of them. `complete()` is a landing and writes it.
+4. **On a Wardic element its keys are the call's once written** (Q4). Until then they follow the Override stack (a hover's `cursor` mid-flight). After, they stay until the element's own target for the key changes, as the keys it animates do (Motion's latest-wins). ADR-0057 decision 2 can't apply: an Imperative animation isn't an entry. Rejected: B, taken when the call starts and held during the flight.
+5. **Its keys follow the Playhead** (Q5). `cancel()`, a seek before the end (`time = t`) and a replay (`play()` after it finished) put them back as they were before the write, and the next landing writes them again. A cancelled `{ opacity: 0, transitionEnd: { display: "none" } }` is visible again. On a Wardic element they stay the call's, as its animated keys do on `cancel()`. Rejected: B, Motion's, once written kept (a cancel after the landing leaves an invisible element at opacity 1).
+
+**Defaults, stated rather than asked:**
+- **Reduced motion and `skipAnimations`:** a Subject whose legs snap lands at once, and its end is written then.
+- **Nothing to animate:** `{ transitionEnd: { v: 5 } }` is written at the next flush, and the Subject lands.
+- **A key both animated and ended:** `{ x: 100, transitionEnd: { x: 0 } }` animates, then rests at 0.
+- **`inherit`:** a target's transition has nothing above it in a call, so `inherit` is dropped.
+- **Out of scope:** Segments and Batch calls, whose targets offer neither.
+
+**Built** (`packages/core/src/unstable/Imperative.ts`):
+- **`overOwn`** lays the call's options over the target's own transition in `trackOf`, `{ ...own, ...given }`. With no options it hands the target's own back as it is, so the legs' decode cache (#66) holds for it. Its `inherit` is left in: the legs read none (`RetargetLegs`' `NOT_DEFINING`).
+- **`takeKey`**, the take the call's loop over its keys made inline, now a function of the spine's host. The loop and `writeEnds` both take keys through it.
+- **The track's landing** (`landed`) waits for the flush after its last leg's frame, then sets the end (`writeEnds`), then tells the landing after the flush that draws it.
+  - **A target with no end** lands as before, a flush after its last frame.
+  - **So does one whose keys were interrupted** (`interrupted`): a key the call animates whose owner isn't one of its legs any more. A leg that gave up one of its keys draws the rest on and lands, so the call lands too, as before #896. Only the end is dropped. That's unlike Motion, whose call never resolves then.
+  - **A count of the track's runs, stops and cancels** is checked by both waits. A stop, a cancel or a seek in the frame between the legs landing and the landing told tells none. A stop there leaves the end set: the legs landed and set it, and the stop leaves things where they are.
+- **`writeEnds`** takes each end key through `takeKey`, noted with the Override stack's target for it now, then sets it at rest through the gate.
+  - **A key another leg is drawing at that moment** (`endFree`) is left to it, as Motion's `setTarget` would leave a running animation to overwrite it.
+  - **What the keys were before** is recorded once (`overwritten`) and kept until a put back. A second landing from the end doesn't record its own end as the "before".
+- **`putBack`** writes the end's keys back as `writeEnds` found them, once.
+  - **Which keys:** only those with no owner since. The take left each without one, so an owner since is a later animation's, which wins (Motion's latest-wins).
+  - **When:** `cancel` calls it, then puts the animated keys at their start. `run` calls it for a replay, or a seek before the end. A run from the end going forward lands at once, so it keeps the end (`fromItsEnd`), and a seek to the end or a `complete()` shows no frame without it.
+- **`setAtRest`**, the at-rest write `cancel` made inline, is shared by `cancel`, `writeEnds` and `putBack`.
+
+**Reviewed** (two-axis review, standards and spec). The spec axis found four things wrong in the first build, and all four were fixed, each red first in WO18, WO19 or WO16:
+- the frame between the end and the landing, unguarded;
+- `putBack` over a value a later call had set and landed;
+- a flash of the old value at a seek to the end, or `complete()` after the landing;
+- a second landing re-recording the end as its "before".
+
+One finding was declined: an explicit `{ duration: undefined }` in the options wiping the target's field. `exactOptionalPropertyTypes` makes that a type error, so only untyped code reaches it.
+
+**Tests:**
+- `packages/object/test/wardic-object.test.ts`, WO13–WO19, Node:
+  - **WO13:** the issue's `{ v: 1, transitionEnd: { v: 5 } }`: 1 drawn, then 5 the frame after, with `onComplete` and the controls seeing 5. Also a target with nothing to animate, and a key both animated and ended.
+  - **WO14:** the target's own 1 s linear tween; a `delay` or an `onComplete` alone keeping it; the options' `duration` over it; an options entry replacing the target's whole.
+  - **WO15:** `stop()`, `cancel()`, a later call taking one key, and a later call drawing an end key at the landing; `complete()` setting the end.
+  - **WO16:** after the landing, a cancel, a seek and a replay put the end back. Also a key both animated and ended back at its start, a key set by another call since left alone by a replay, and a replay's end recording that call's value.
+  - **WO17:** each Subject's end as it lands; reduced motion and `skipAnimations`.
+  - **WO18:** a stop, a cancel and a seek in the frame between the legs landing and the landing told.
+  - **WO19:** a put back leaving a later call's landed value; a seek to the end and a `complete()` with no frame without the end; a cancel after them putting back the first "before".
+- `packages/three/test/wardic-three.test.ts`, WT16: a mesh's own transition, a colour's entry and its end on its channels.
+- `packages/solid/test/create-animate.browser.test.tsx`, CV5–CV7, the DOM through Solid 2:
+  - **CV5:** a plain element on its own 0.4 s tween, hidden by its end before its controls resolve.
+  - **CV6:** a ward's element: its end's `display` is the ward's mid-flight and the call's after; a cancel puts it back; the ward's own target takes it back.
+  - **CV7:** the ward's own target taking one of the call's keys back drops the call's end.
+  - **On `main`:** CV5 and CV6 failed, at opacity 0.097 at 0.2 s and `display` never `none`. That's the DOM case the issue read from the code.
+
+**Mutation-checked** (`.tmp/896/mutate.py`): 23 single-point mutations, each run against WO, WT16 and CV, 22 caught.
+- **The one missed:** the stale check in the first wait, the one that sets the end. That wait runs in the same flush as the leg's last frame, so no app code can come between on pumped frames. It's kept as a cheap guard.
+- **Taken out:** the first build's two missed mutations, the owner not given up and `ownValue` not called, are now `takeKey`'s, shared with the keys the call animates.
+
+**Measured** (`.tmp/896/probe.ts`, Node 22, `--expose-gc`; six paired processes, base `main`'s `Imperative.ts`, alternating order). One call over 3000 plain objects:
+- **Retained per Subject:** about 4.21 KB on both sides (`main` 4205–4277 B, the head 4203–4214 B). One reading of 12.8–13.3 KB on either side is the GC's timing.
+- **The call:** 43.4 ms on `main`, 40.3 ms on the head, within the probe's spread (ratios 0.85–1.00).
+- **Frames:** each frame's path is unchanged.

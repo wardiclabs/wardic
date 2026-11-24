@@ -82,4 +82,5 @@ The props keep Motion's names and meanings: `initial`, `animate`, `exit`, `varia
 - **Space presses too,** as a button takes it, beside Motion's Enter.
 - **`skipAnimations` lands everything,** layout animations and springs included, which Motion's leaves animating.
 - **Mount animations play before hydration.** On a server-rendered page, an element's entrance plays from the first paint, from CSS Wardic writes into the page, and the client takes it over mid-flight. `appear={false}` turns it off.
+- **A target's own `transition` counts in `animate`.** `animate(el, { x: 100, transition: { duration: 1 } }, { delay: 0.2 })` runs a 1 s tween after 0.2 s: the options' fields are laid over the target's. Motion's `animate` runs on the options alone. Its `transitionEnd` is set before the animation is told it landed, and a `cancel()` puts it back.
 - **Many like elements run as one.** Motion's `animate(elements, …)` runs each element on its own. `createBatch` animates hundreds or thousands of them as one Batch, a change to all their targets costing about a twentieth of what it does one at a time: see [Many elements at once](/guides/batches).

@@ -169,7 +169,7 @@ A shadow from `"none"` grows from a transparent zero shadow, and a `padding` of 
 _Avoid_: zero value (a zero with a unit is one kind of empty end).
 
 **Transition end**:
-A target's values set at once, with no animation, once the keys that target animates have landed (#428, Motion's `transitionEnd`): `{ opacity: 0, transitionEnd: { display: "none" } }` hides the element after it fades. Its keys belong to the target's entry in the **Override stack**, so they return to their **Base value** when that entry goes inactive, and a target interrupted before it lands never sets them. The first frame's target sets its own at once. A landing includes them.
+A target's values set at once, with no animation, once the keys that target animates have landed (#428, Motion's `transitionEnd`): `{ opacity: 0, transitionEnd: { display: "none" } }` hides the element after it fades. Its keys belong to the target's entry in the **Override stack**, so they return to their **Base value** when that entry goes inactive, and a target interrupted before it lands never sets them. The first frame's target sets its own at once. A landing includes them. An **Imperative animation**'s is each Subject's, set once that Subject's keys land (#896): its keys are then the animation's, as the keys it animates are, and a cancel, or a seek or replay to before its end, puts them back as they were.
 _Avoid_: end values, final values (a keyframe's last value is its final value).
 
 **Keyframes**:
@@ -185,7 +185,7 @@ A gesture's entry in the **Override stack**: the values its `while*` (`whileHove
 _Avoid_: gesture state, layer (alone).
 
 **Imperative animation**:
-An animation started by a call rather than declared (#433, Motion's `useAnimate`): `animate(subjects, target, options)` from an **Animation scope**, on any **Subject** its Environment names, a Wardic element and a plain one alike (an element on the DOM, an object in a scene), returning its **Playback controls**; on Foldkit an Effect, awaited for its end and interrupted to stop it (ADR-0071 decision 26). On a Wardic element it takes the keys it animates from whatever ran them, and they stay where it leaves them until the element's own target for that key changes: a value's latest animation wins, as in Motion. A key it never touched follows the **Override stack** as ever.
+An animation started by a call rather than declared (#433, Motion's `useAnimate`): `animate(subjects, target, options)` from an **Animation scope**, on any **Subject** its Environment names, a Wardic element and a plain one alike (an element on the DOM, an object in a scene), returning its **Playback controls**; on Foldkit an Effect, awaited for its end and interrupted to stop it (ADR-0071 decision 26). It runs on its target's own transition with the call's options laid over it, field by field (#896; Motion's reads the options alone). On a Wardic element it takes the keys it animates from whatever ran them, and they stay where it leaves them until the element's own target for that key changes: a value's latest animation wins, as in Motion. A key it never touched follows the **Override stack** as ever.
 _Avoid_: imperative layer (it isn't an entry in the **Override stack**), manual animation.
 
 **Animation scope**:
