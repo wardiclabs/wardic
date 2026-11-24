@@ -1,7 +1,7 @@
 ---
 title: WardicStage
 description: The context a scene's Stage is found through, so ward, createFrameEffect and the sensors run in its scene.
-api: [WardicStage, wardOnStage, createBatchOnStage, createHoverOnStage, createPressOnStage, createDragOnStage, Stage, StageWard, StageSubject, StageSubjects, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, StageBatch, StageBatchBinding, StageBatchEvents, StageBatchHooks, StageBatchMemberInfo, StageBatchMembers, StageBatchTarget, StageBatchValues, StageCountBatchConfig, StageKeyedBatchConfig, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
+api: [WardicStage, wardOnStage, createBatchOnStage, createHoverOnStage, createPressOnStage, createDragOnStage, Stage, StageWard, StageSubject, StageSubjects, StageValues, StageValueKey, StageEvent, StageEvents, stageWard, StageWardEnvironment, stageSceneObject, StageMembership, StageGraph, StageDrag, StageDragConfig, StageDragHandlers, StageDragRange, StageDragTransition, StageWardConfig, StageWardConfigValues, StageWardChecked, StageBatch, StageBatchBinding, StageBatchEvents, StageBatchHooks, StageBatchMemberInfo, StageBatchMembers, StageBatchTarget, StageBatchValues, StageCountBatchConfig, StageKeyedBatchConfig, SceneWard, SceneObjectEvent, SceneObjectEvents, SceneObjectExit]
 ---
 
 # WardicStage
@@ -61,6 +61,7 @@ Scenes come with `@wardic/three/solid`'s `createStage`, which makes a Stage for 
 - **`StageWard`:** a ward on a Stage's Subject: `held`, `settled`, `next`, `each`, `when` and `read`.
 - **`StageSubjects`:** the Subjects a Stage takes, which an Environment adds to by declaration merging: `@wardic/three/solid` adds three.js's objects, so `ward(mesh, config)` is typed.
 - **`StageSubject`:** any of them.
+- **`StageValues`**, **`StageValueKey`:** the values a Stage's Subjects take beyond an element's, which an Environment adds to by declaration merging: `@wardic/three/solid` adds three.js's, so `ward(mesh, { animate: { roughness: 0.2, emissive: "#ff6a00" } })` typechecks, and a name in neither is still an error naming it.
 - **`StageEvent`**, **`StageEvents`:** the events a ward on a Stage's Subject tells, and each one's info.
 - **`stageWard`**, **`StageWardEnvironment`:** a Stage's `ward`, bound to what it runs on: an `animate` environment, where a Subject's keys start (`startLinksOf`) and the scene's `input`.
 - **`stageSceneObject`**, **`StageMembership`:** a Scene object's ward, what an Environment's `createSceneObject` builds on. Given what joins its Subject to the scene and what takes it out, it joins once the ward can start, and plays its `exit` before its Subject leaves, past its owner.

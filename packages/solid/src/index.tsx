@@ -103,6 +103,8 @@ export {
   type StageKeyedBatchConfig,
   type StageSubject,
   type StageSubjects,
+  type StageValueKey,
+  type StageValues,
   type StageWard,
   type StageWardChecked,
   type StageWardConfig,

@@ -81,7 +81,19 @@ export interface StageWardConfigValues extends Omit<WardConfigValues, keyof Stag
 export type StageWardConfig = PerKey<StageWardConfigValues, WardCallbackKey>
 
 /** A Stage ward's config `C`, its transitions' entries checked against the keys each drives, as `WardChecked`. */
-export type StageWardChecked<C> = WardCheckedConfig<C, PerKeyApart<StageWardConfigValues, WardCallbackKey>>
+export type StageWardChecked<C> = WardCheckedConfig<C, PerKeyApart<StageWardConfigValues, WardCallbackKey>, StageValueKey>
+
+/**
+ * The values a Stage's Subjects take beyond an element's, by name, for a ward's config on one: an
+ * Environment adds its own by declaration merging, as it adds its Subjects to {@link StageSubjects}.
+ * `@wardic/three/solid` adds three.js's: a material's `roughness` and `emissive`, a light's
+ * `intensity`, a camera's `fov`. A name in neither an element's values nor these is an error naming it.
+ */
+// #934: the scene lab's keys were all an element's too (`opacity`, `color`); a material's own weren't.
+export interface StageValues {}
+
+/** The names of {@link StageValues}. */
+export type StageValueKey = keyof StageValues & string
 
 /** What a drag tells as it goes: each pointer sample, and its release coming to rest. */
 export interface StageDragHandlers {

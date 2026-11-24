@@ -983,3 +983,10 @@ What the owner decided:
   - SH6: the sensors' errors for a page's element.
 
   The scene lab's cards import their hooks from `@wardic/three/solid`. The `WardicStage` reference page has the table of hooks and their Stage halves.
+
+**#934's note:** a Stage ward's config names its Subject's own values.
+- **What the vase found:** a ward's config on a Stage's Subject was checked against an element's values, so a material's `roughness` and `clearcoat` were type errors, though three's `animate` takes them. The scene lab's cards had named only values an element has too (`opacity`, `color`, the transforms).
+- **The change:** `@wardic/solid` declares `StageValues`, which an Environment adds to by declaration merging, as it adds to `StageSubjects`. A Stage ward's check takes an element's values and these. `ward-keys.ts`'s checks take the extra names as a parameter, none for an element's ward.
+- **three's keys:** `@wardic/three/solid` adds three's own keys, derived from `WardicThree`'s `SceneKey` and `ColourKey` over a mesh of each material, points, a dashed line, a sprite, the cameras and the lights.
+  - A misspelt name is still an error naming it (SH7).
+  - A name is checked, not its value's type, or which Subject has it: a mesh's config may name a camera's `fov`.

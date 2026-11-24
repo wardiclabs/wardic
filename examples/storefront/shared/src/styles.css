@@ -3412,3 +3412,53 @@ button.product-card:hover .photo {
 .details-tabs [role="tabpanel"]:not([data-selected]) {
   display: none;
 }
+
+/* The 3D scenes (#934): a three.js scene over the piece's photo, which it fades in over once drawn. */
+.release-note {
+  border-left: 3px solid var(--accent);
+  padding-left: var(--space-3);
+}
+.scene-demo {
+  display: grid;
+  gap: var(--space-4);
+}
+.scene-view {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-l);
+  background: radial-gradient(ellipse at 50% 30%, var(--surface), var(--tile));
+  /* A touch works the scene rather than scrolling the page. */
+  touch-action: none;
+  cursor: grab;
+}
+.scene-view:active {
+  cursor: grabbing;
+}
+.scene-poster,
+.scene-canvas,
+.scene-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.scene-poster {
+  object-fit: contain;
+  mix-blend-mode: multiply;
+}
+.scene-stage canvas {
+  display: block;
+}
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  border: 1px solid rgb(0 0 0 / 0.15);
+  border-radius: 50%;
+  vertical-align: -2px;
+}
+.scene-readout {
+  margin: 0;
+}

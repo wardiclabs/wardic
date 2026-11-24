@@ -15,6 +15,7 @@ export const AREAS = [
   { id: "sequences", title: "Sequences", blurb: "Steps that play one after another from code, with the shop's own work between them." },
   { id: "transitions", title: "Page transitions", blurb: "Moving from page to page: the one you leave goes, the next arrives, and what they share flies between them." },
   { id: "live", title: "Live values", blurb: "Values that follow the pointer, the scroll or each other." },
+  { id: "scenes", title: "3D scenes", blurb: "The shop's pieces as three.js scenes: Wardic's hooks on meshes instead of elements." },
   { id: "server", title: "Server rendering", blurb: "Animations that play before the JavaScript has loaded." },
   { id: "library", title: "With a component library", blurb: "Dialogs, selects and tabs from a component library: its keyboard and accessibility, animated." },
   { id: "shipping", title: "Shipping less", blurb: "Load only the animation code a page uses, and the rest when it's wanted." },
@@ -99,6 +100,11 @@ export interface Example {
    * moves as it loads.
    */
   readonly interact?: string | ReadonlyArray<string> | undefined
+  /**
+   * The Wardic release whose packages it runs on, while they aren't on npm yet (#934): its page says
+   * so above the demo, as the code it shows can't be installed until then.
+   */
+  readonly release?: string | undefined
   /** What the smoke test watches move, then settle: a selector inside the demo. */
   readonly watch: string
   /**
@@ -374,6 +380,23 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     apps: ["solid2"],
     interact: ".chart-measures button:nth-child(2)",
     watch: ".chart-point",
+  },
+  {
+    id: "turn-the-vase",
+    area: "scenes",
+    docs: "/guides/drag",
+    title: "Turn the vase in 3D",
+    summary: "The Moon Vase as a three.js scene: drag it round and it spins on with your hand's momentum, and each glaze you pick flows over it.",
+    why: [
+      "A photo shows a piece from one side. A product viewer lets the visitor turn it, and that's a scene: a mesh lathe-turned from the vase's own profile, lit by a room it reflects, drawn on a WebGL canvas. Wardic's hooks work on its objects as they do on elements. Under `<WardicStage>`, `ward(mesh, …)` lifts the vase as the pointer comes over it, and springs its glaze to the one you pick. A colour blends in linear light, as three.js draws it, so a white glaze turning cobalt doesn't pass through grey.",
+      "The turn is the visitor's hand. `createDrag(vase)` reads the drag's samples through the scene's raycast and moves nothing itself: each sample turns the vase by how far the pointer has gone, and the release hands its velocity to an `inertia` transition, so a flick spins it on and slows to rest. A Frame effect keeps the soft shadow under the vase as it lifts, in the Stage's Host loop, after Wardic's writes and before the render, so shadow and vase move in the same frame.",
+      "three.js is in this page's own chunk, and the server's page shows the vase's photo. The canvas fades in over it once it has drawn its first frame. Where a browser can't draw WebGL, the photo stays.",
+    ],
+    reducedMotion: "The vase doesn't turn on its own, and a flick sets it where it would come to rest at once; a new glaze still fades over it.",
+    uses: ["createStage", "ward(mesh, …)", "createDrag(mesh)", "inertia", "createFrameEffect", "colours in linear light"],
+    apps: ["solid2"],
+    release: "1.3",
+    watch: ".scene-canvas",
   },
   {
     id: "notifications",
