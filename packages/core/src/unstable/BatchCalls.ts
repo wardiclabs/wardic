@@ -206,6 +206,8 @@ export interface ChangeCall {
   readonly skipAnimations: boolean
   readonly head: Playback.Playhead
   readonly settled: () => void
+  /** It ended with a key a later change took, never landing (#951). */
+  readonly taken?: (() => void) | undefined
   readonly onMemberLanded?: ((slot: number) => void) | undefined
 }
 
@@ -234,6 +236,7 @@ export const animateOptions = (
   })
   const options: { -readonly [K in keyof Batch.AnimateOptions]: Batch.AnimateOptions[K] } = { head: call.head, transition, onLanded: call.settled }
   if (Predicate.isNotUndefined(fromOf)) options.from = fromOf
+  if (Predicate.isNotUndefined(call.taken)) options.onTaken = call.taken
   if (Predicate.isNotUndefined(call.onMemberLanded)) options.onMemberLanded = call.onMemberLanded
   const delay = Bool.match(call.skipAnimations, { onTrue: () => undefined, onFalse: () => staggerOf(call.transition) })
   if (Predicate.isNotUndefined(delay)) options.delay = delay

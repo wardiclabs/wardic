@@ -1204,6 +1204,9 @@ export interface AnimateOptions extends RetargetOptions {
   readonly from?: (slot: number, k: number) => number
   /** Called once every key it moves has landed while it still moves it, or at its play when it moves none. */
   readonly onLanded?: () => void
+  /** Called once it ends with a key a later change took while it moved it, which it then never lands. */
+  // #951: Motion's never resolves then; the scope it was started in hears it end.
+  readonly onTaken?: () => void
   /**
    * Called for each member it's given, once, as every key of it it still moves has landed: at its
    * first play for a member it moves nothing of; never for one whose keys a later change took.
@@ -1227,6 +1230,9 @@ export interface KeyframesOptions {
   readonly head: Playback.Playhead
   /** Called once every key it moves has reached its last stop while it still moves it, or at its play when it moves none. */
   readonly onLanded?: () => void
+  /** Called once it ends with a key a later change took while it moved it, which it then never lands. */
+  // #951: Motion's never resolves then; the scope it was started in hears it end.
+  readonly onTaken?: () => void
 }
 
 /** A key's keyframes in a driven change, resolved at its first play: its stops filled, their times, its easings and its run. */
@@ -1276,6 +1282,12 @@ interface AnimationState<S> {
   /** Each member it moves, by rank, its first key's index in `ats`, and one past the last's; whether each has been told it landed. */
   firsts: Int32Array
   told: Uint8Array
+  /**
+   * Each of its keys, 1 once it has rested at its target while it moved it, or from its play when it
+   * starts there (one that snaps): a key taken after it rested doesn't keep it from landing.
+   */
+  // #951, Motion's: a value's animation that finished before a later one took the value had resolved.
+  rested: Uint8Array
   /** The members it's given that it moves nothing of, told they landed at its first play. */
   idle: ReadonlyArray<number>
   idleTold: boolean
@@ -1553,7 +1565,8 @@ const tellMembers = <S>(animation: AnimationState<S>, tell: (slot: number) => vo
 /**
  * Whether `animation` has landed, once a step while it plays: every key it still moves at its target,
  * past its delay; or, played backwards, back at its start. It ends then. A key a later change took keeps
- * it from landing (#433's latest-wins, as a ward's): it ends unheard, once the keys it kept are at rest.
+ * it from landing (#433's latest-wins, as a ward's): it ends once the keys it kept are at rest, telling
+ * `onTaken` (#951). One taken after it rested there, or that started there, doesn't.
  */
 const checkLanding = <S>(animation: AnimationState<S>): void => {
   const { state, options } = animation
@@ -1561,6 +1574,7 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
   const tell = options.onMemberLanded
   if (Predicate.isNotUndefined(tell) && !backwards) tellMembers(animation, tell)
   const count = animation.ats.length
+  const rested = animation.rested
   let atRest = true
   let held = 0
   // Once a step, per key of a playing change: a counted loop with plain reads.
@@ -1568,7 +1582,9 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
     if (!holds(animation, i)) continue
     held++
     if (backwards) continue
-    if (!keyAtRest(animation, i)) atRest = false
+    const resting = keyAtRest(animation, i)
+    if (resting) rested[i] = 1
+    if (!resting) atRest = false
   }
   if (held > 0 && backwards && animation.time > 0) return
   if (!atRest) return
@@ -1582,8 +1598,23 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
     }
   }
   finish(animation)
-  if (held < count) return
+  if (held < count) {
+    if (takenInFlight(animation)) {
+      UndefinedOr.map(options.onTaken, (told) => told())
+      return
+    }
+  }
   UndefinedOr.map(options.onLanded, (told) => told())
+}
+
+/** Whether a later change took a key of `animation`'s before it rested there (#951): at its end, once. */
+const takenInFlight = <S>(animation: AnimationState<S>): boolean => {
+  const count = animation.ats.length
+  for (let i = 0; i < count; i++) {
+    if (animation.rested[i] !== 0) continue
+    if (!holds(animation, i)) return true
+  }
+  return false
 }
 
 /** A driven change's transition for a member's key, before its copy: its function's, or its own or `default`, else the key's own. */
@@ -1661,6 +1692,7 @@ const animationFor = <S>(
     indexAt: new Int32Array(0),
     firsts: new Int32Array(0),
     told: new Uint8Array(0),
+    rested: new Uint8Array(0),
     idle: [],
     idleTold: false,
   }
@@ -1965,12 +1997,15 @@ export const play = (self: Animation): number => {
     state.drivers[rule] = animation
   })
   let setOff = 0
+  // Played again, each key rests anew; one that starts at its target, as one that snaps does, has.
+  if (animation.rested.length !== count) animation.rested = new Uint8Array(count)
   for (let i = 0; i < count; i++) {
     const at = animation.ats[i]
     const rule = animation.rules[i]
     turn(state, at, rule, animation.goals[i], animation.starts[i], animation.speeds[i], animation.waits[i])
     state.elapsed[at] = time
     valueAt(state, at, rule, time, true)
+    animation.rested[i] = Number(keyAtRest(animation, i))
     setOff += moving(state, slotAt(state, at))
   }
   return setOff

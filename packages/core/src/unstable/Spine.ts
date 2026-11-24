@@ -1971,15 +1971,21 @@ export interface FollowNow {
 
 /** What an **Imperative animation** tells of its legs on one element (#433). */
 export interface ImperativeHooks {
-  /** Every leg it started on the element landed, told after the gate's flush of their last frames. */
-  readonly settled: () => void
+  /**
+   * Every leg it started on the element landed, told after the gate's flush of their last frames:
+   * `landed` false when a key of it was taken by a later animation, which it then never lands (#951).
+   */
+  readonly settled: (landed: boolean) => void
   /** A leg failed, reported already (ADR-0030). */
   readonly failed: (cause: Cause.Cause<unknown>) => void
 }
 
 /** An **Imperative animation** on one element (#433): its legs, built at the call, run through its Playhead. */
 export interface ImperativeTrack {
-  /** Run every leg from the Playhead's time: those running end first, so a seek starts them again there. */
+  /**
+   * Run every leg from the Playhead's time: those running end first, so a seek starts them again there,
+   * and its keys are taken back from whatever draws them now.
+   */
   readonly run: () => void
   /** End every leg where it is: its keys stay there, the animation's. */
   readonly stop: () => void

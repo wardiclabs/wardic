@@ -394,6 +394,8 @@ export interface BatchCall {
   readonly skipAnimations: boolean
   readonly head: Playback.Playhead
   readonly settled: () => void
+  /** It ended with a key a later change took, never landing (#951). */
+  readonly taken: () => void
   /** The members it moves, in order: every member when left out. */
   readonly members: ReadonlyArray<number> | undefined
 }
@@ -412,6 +414,8 @@ export interface BatchSequenceCall {
   readonly skipAnimations: boolean
   readonly head: Playback.Playhead
   readonly settled: () => void
+  /** It ended with a key a later change took, never landing (#951). */
+  readonly taken: () => void
 }
 
 /**
@@ -2710,7 +2714,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     slots: ReadonlyArray<number>,
     targetOf: (slot: number, k: number) => number,
     fromOf: ((slot: number, k: number) => number) | undefined,
-    call: Pick<BatchCall, "transition" | "reducedMotion" | "skipAnimations" | "head" | "settled"> & { readonly onMemberLanded?: (slot: number) => void },
+    call: Pick<BatchCall, "transition" | "reducedMotion" | "skipAnimations" | "head" | "settled"> & { readonly taken?: () => void; readonly onMemberLanded?: (slot: number) => void },
   ): BatchTrack => controlsOf(Batch.animate(made(), slots, targetOf, BatchCalls.animateOptions(planningNow(), call, targetOf, fromOf)))
 
   /** Whether member `i`'s element has arrived. */
@@ -2755,7 +2759,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     retakeFor(slots, givesGroup((slot, k) => Predicate.isNotUndefined(UndefinedOr.getOrThrow(animations[slot]).keyframes[keys[k]])))
     // Each member's key's stops, once at its first play (core's).
     const keyframesOf = BatchCalls.keyframesFor(planningNow(), call, (slot) => UndefinedOr.getOrThrow(animations[slot]))
-    return controlsOf(Batch.keyframes(made(), slots, keyframesOf, { head: call.head, onLanded: call.settled }))
+    return controlsOf(Batch.keyframes(made(), slots, keyframesOf, { head: call.head, onLanded: call.settled, onTaken: call.taken }))
   }
 
   /** A driven change's controls, as an `animate` call's track: played, it wakes the Batch's run. */
