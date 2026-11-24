@@ -416,6 +416,25 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".scene-canvas",
   },
   {
+    id: "the-shelf",
+    area: "scenes",
+    docs: "/guides/batches",
+    title: "The studio's pieces on a round shelf",
+    summary: "All twelve pieces turned in 3D on a round display: pick a category and the rest sink away while the others slide round; tap one and the display turns it to you.",
+    why: [
+      "The display is one `createBatch`, keyed by product, its members three.js objects: each piece on an arm turned about the display's middle. A category picked is one change of what `each` gives. The pieces that go play their `exit`, sinking through the display before they leave the scene. Those that stay slide round to their new places, and the ones coming back drop in, staggered, all in one run. Each arm turns rather than moves, so a piece goes round the ring, not across it.",
+      "Tap a piece and the display turns it to the front while the camera draws in, each a ward's variants: `browsing` and `focused`. The display's `focused` is a function of `custom`, the angle the piece stands at, so one variant brings any piece round. The camera's variant springs its position, its pitch and its `fov` together, and three works out its projection after each write.",
+      "Every piece is turned in code from a profile drawn from its photo, its decoration painted into its glaze: the lagoon's runs, the jar's blossom, the jug's brushstrokes, the poppy and the slip's rings. The carafe is clear glass with ten cut facets.",
+    ],
+    reducedMotion: "Pieces leave, arrive and move round at once, and the camera cuts to the piece you tap.",
+    uses: ["createBatch({ object })", "exit", "stagger()", "variants with custom", "a camera's fov"],
+    apps: ["solid2"],
+    release: "1.3",
+    // One piece tapped, then another: each tap re-runs the same effect, so a second is what reaches its cleanup.
+    interact: ["tap:.scene-canvas:0.5:0.62", "tap:.scene-canvas:0.78:0.55"],
+    watch: ".display-detail",
+  },
+  {
     id: "notifications",
     foldkit: {
       note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot.",

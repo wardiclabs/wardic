@@ -236,12 +236,49 @@ const quietOf = (page: Page): (() => Promise<void>) => {
 }
 
 /**
+ * Until `selector` is in view, fully shown and still: its opacity 1, then two shots of it a quarter
+ * second apart the same. A 3D scene's canvas draws nothing a page's styles can see, so its shots
+ * tell when its pieces have come to rest. At most 10 s.
+ */
+const restOf = async (page: Page, selector: string): Promise<void> => {
+  const element = page.locator(selector)
+  await element.scrollIntoViewIfNeeded()
+  await element.evaluate((el) => new Promise<void>((resolve) => {
+    const shown = (): void => {
+      if (getComputedStyle(el).opacity === "1") resolve()
+      else requestAnimationFrame(shown)
+    }
+    shown()
+  }))
+  const until = Date.now() + 10_000
+  let last = await element.screenshot()
+  while (Date.now() < until) {
+    await page.waitForTimeout(250)
+    const now = await element.screenshot()
+    if (now.equals(last)) return
+    last = now
+  }
+  throw new Error(`smoke: ${selector} never came to rest`)
+}
+
+/**
  * One of an example's steps: a click on a selector; `drag:<selector>:<dx>:<dy>`, a press on its
- * centre, a slow move by (dx, dy), and a release; or `scroll:<selector>:<dy>`, the element scrolled
- * by dy over a dozen frames (#388), not waited on: a scroll-linked value moves with the scroll, so
- * the watch has to see it while it runs.
+ * centre, a slow move by (dx, dy), and a release; `tap:<selector>:<fx>:<fy>`, a press and release at
+ * (fx, fy) of its box, fractions of its width and height, once it has come to rest (a 3D scene's
+ * piece, which no selector reaches); or `scroll:<selector>:<dy>`, the element scrolled by dy over a
+ * dozen frames (#388), not waited on: a scroll-linked value moves with the scroll, so the watch has
+ * to see it while it runs.
  */
 const act = async (page: Page, step: string): Promise<void> => {
+  const tap = /^tap:(.+):(\d*\.?\d+):(\d*\.?\d+)$/.exec(step)
+  if (tap !== null) {
+    await restOf(page, tap[1]!)
+    const box = await page.locator(tap[1]!).boundingBox()
+    if (box === null) throw new Error(`smoke: nothing to tap at ${tap[1]}`)
+    await page.mouse.move(box.x + box.width * Number(tap[2]), box.y + box.height * Number(tap[3]))
+    await page.mouse.down()
+    return page.mouse.up()
+  }
   const scroll = /^scroll:(.+):(-?\d+)$/.exec(step)
   if (scroll !== null) {
     return page.locator(scroll[1]!).evaluate((el, dy) => {

@@ -3462,3 +3462,28 @@ button.product-card:hover .photo {
 .scene-readout {
   margin: 0;
 }
+
+/* The shelf (#936): the details of the piece looked at, beside it over the scene. */
+.display-view {
+  position: relative;
+}
+.display-detail {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  width: min(260px, 45%);
+  padding: var(--space-4);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow-m);
+}
+.display-detail h3 {
+  margin: 0 0 var(--space-2);
+}
+.display-detail ul {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-4);
+}
+.display-detail .price {
+  font-weight: 600;
+}
