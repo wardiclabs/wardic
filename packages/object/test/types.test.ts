@@ -150,6 +150,11 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(buffer, { lenght: 1 })
   // @ts-expect-error: a number index has no named key.
   wardic.animate(slots, { a: 1 })
+  // A name that only reads as a number (`"01"`, `"1e3"`) stays a name, as it was.
+  const pads = { "01": 0, "1e3": 0 }
+  wardic.animate(pads, { "01": 1, "1e3": 1 })
+  // @ts-expect-error: and gives no number index.
+  wardic.animate(pads, { 5: 1 })
 }
 
 it("TY1: the typed calls compile", () => {

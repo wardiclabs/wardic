@@ -197,6 +197,21 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(mix, { wet: 1, transitionEnd: { dry: "x" } })
   // @ts-expect-error: nor is a keyframe `undefined`, which isn't a value to animate to.
   wardic.animate(mix, { wet: [0, undefined], transition: { duration: 1 } })
+  // A key that may hold `undefined`, a number index alone and beside a name, and a list of them.
+  const gain: { level: number | undefined } = { level: 0 }
+  wardic.animate(gain, { level: 1, transitionEnd: { level: 0 } })
+  const steps: { [step: number]: number } = { 0: 0 }
+  wardic.animate(steps, { 0: 1, transition: { 0: { duration: 0.2 } } })
+  const clip: { [frame: number]: number; name: string } = { 0: 0, name: "" }
+  wardic.animate(clip, { 0: 1, name: "intro" })
+  wardic.animate([rig, { weight: 0, bias: 0 }], { weight: 1 })
+  wardic.animate([morphs, new Float32Array(4)], { 3: 1 })
+  // @ts-expect-error: an optional key's end is a number.
+  wardic.animate(rig, { weight: 1, transitionEnd: { weight: "heavy" } })
+  // @ts-expect-error: and an element's.
+  wardic.animate(morphs, { 0: 1, transitionEnd: { 0: "x" } })
+  // @ts-expect-error: a number index has no named key.
+  wardic.animate(steps, { name: "intro" })
 }
 
 it("TY1: the typed calls compile", () => {
