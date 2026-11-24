@@ -205,5 +205,270 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(running.state).toBe("idle")
     expect(b.x).toBe(at)
   })
+
+  it("WO13: a target's Transition end is set once its keys land, and the landing includes it (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    // The issue's: 1 while it lands, then 5, already 5 when onComplete and the controls are told.
+    const o = { v: 0 }
+    const told: Array<number> = []
+    const controls = wardic.animate(o, { v: 1, transitionEnd: { v: 5 } }, { type: "tween", duration: 0.1, ease: "linear", onComplete: () => told.push(o.v) })
+    await tick()
+    const drawn = pump(wardic, 12, () => o.v, clock)
+    // Its last frame drawn at 1, its end the frame after.
+    const atEnd = drawn.indexOf(1)
+    expect(atEnd, drawn.join(" ")).toBeGreaterThan(0)
+    expect(drawn.slice(0, atEnd + 1), drawn.join(" ")).not.toContain(5)
+    expect(drawn[atEnd + 1], drawn.join(" ")).toBe(5)
+    await controls
+    expect(o.v).toBe(5)
+    expect(told).toEqual([5])
+    // Nothing to animate: set at once, and landed.
+    const p = { v: 0 }
+    const bare = wardic.animate(p, { transitionEnd: { v: 5 } })
+    await tick()
+    pump(wardic, 2, () => undefined, clock)
+    await bare
+    expect(p.v).toBe(5)
+    // A key both animated and ended animates to 100, then rests at 0.
+    const q = { x: 0 }
+    const both = wardic.animate(q, { x: 100, transitionEnd: { x: 0 } }, { type: "tween", duration: 0.1, ease: "linear" })
+    await tick()
+    const moved = pump(wardic, 6, () => q.x, clock)
+    expect(moved.at(-1)).toBe(100)
+    pump(wardic, 3, () => undefined, clock)
+    await both
+    expect(q.x).toBe(0)
+    wardic.dispose()
+  })
+
+  it("WO14: a target's own transition runs, the options' fields laid over it, an entry whole (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const linear = { type: "tween", duration: 1, ease: "linear" } as const
+    // The issue's: its own 1 s linear tween, half way at 0.5 s, where the Default transition has landed.
+    const p = { a: 0 }
+    wardic.animate(p, { a: 1, transition: linear })
+    // A delay alone keeps it, and so does an onComplete alone.
+    const delayed = { a: 0 }
+    wardic.animate(delayed, { a: 1, transition: linear }, { delay: 0.2 })
+    const told = { a: 0 }
+    wardic.animate(told, { a: 1, transition: linear }, { onComplete: () => undefined })
+    // The options' fields over its own: its tween and ease, the options' duration.
+    const shorter = { a: 0 }
+    wardic.animate(shorter, { a: 1, transition: linear }, { duration: 0.5 })
+    // The options' entry in place of the target's, whole: its 1 s gone, a tween's own duration in its place.
+    const entry = { a: 0 }
+    wardic.animate(entry, { a: 1, transition: { default: linear } }, { default: { ease: "easeIn" } })
+    await tick()
+    pump(wardic, 12, () => undefined, clock)
+    expect(delayed.a).toBe(0)
+    pump(wardic, 18, () => undefined, clock)
+    expect(entry.a).toBe(1)
+    expect(p.a).toBeGreaterThan(0.4)
+    expect(p.a).toBeLessThan(0.6)
+    expect(told.a).toBeGreaterThan(0.4)
+    expect(told.a).toBeLessThan(0.6)
+    expect(shorter.a).toBeCloseTo(1, 5)
+    pump(wardic, 12, () => undefined, clock)
+    expect(delayed.a).toBeGreaterThan(0.4)
+    expect(delayed.a).toBeLessThan(0.6)
+    wardic.dispose()
+  })
+
+  it("WO15: a Subject stopped, cancelled or taken over before it lands never sets its Transition end, nor a key a later call draws; complete() does (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const tween = { type: "tween", duration: 0.5, ease: "linear" } as const
+    const stopped = { v: 0, e: 0 }
+    const stop = wardic.animate(stopped, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const cancelled = { v: 0, e: 0 }
+    const cancel = wardic.animate(cancelled, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const taken = { v: 0, w: 0, e: 0 }
+    const first = wardic.animate(taken, { v: 1, w: 1, transitionEnd: { e: 9 } }, tween)
+    const completed = { v: 0, e: 0 }
+    const complete = wardic.animate(completed, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const drawn = { v: 0, e: 0 }
+    wardic.animate(drawn, { v: 1, transitionEnd: { e: 9 } }, tween)
+    await tick()
+    pump(wardic, 6, () => undefined, clock)
+    stop.stop()
+    cancel.cancel()
+    // A later call takes one of its keys: the rest land, and the first call never does.
+    wardic.animate(taken, { v: 0 }, { type: "tween", duration: 0.1 })
+    // A later call draws a key its end sets, still as it lands: the key is left to that call.
+    wardic.animate(drawn, { e: 5 }, { type: "tween", duration: 0.8, ease: "linear" })
+    complete.complete()
+    await tick()
+    pump(wardic, 60, () => undefined, clock)
+    await complete
+    expect(completed).toEqual({ v: 1, e: 9 })
+    expect(stopped.e).toBe(0)
+    expect(cancelled).toEqual({ v: 0, e: 0 })
+    // Its other key lands, and so does the call, as before #896: its end is dropped all the same.
+    expect(taken.w).toBe(1)
+    await first
+    expect(taken.e).toBe(0)
+    expect(drawn).toEqual({ v: 1, e: 5 })
+    wardic.dispose()
+  })
+
+  it("WO16: once it's set, a cancel, a seek before the end and a replay put a Transition end's keys back; the next landing sets it again (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const tween = { type: "tween", duration: 0.5, ease: "linear" } as const
+    const cancelled = { v: 0, e: 0 }
+    const cancel = wardic.animate(cancelled, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const sought = { v: 0, e: 0 }
+    const seek = wardic.animate(sought, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const replayed = { v: 0, e: 0 }
+    const replay = wardic.animate(replayed, { v: 1, transitionEnd: { e: 9 } }, tween)
+    // A key both animated and ended: a cancel puts it where the call started it, not where its end found it.
+    const both = { x: 10 }
+    const bothCancel = wardic.animate(both, { x: 100, transitionEnd: { x: 0 } }, tween)
+    await tick()
+    pump(wardic, 40, () => undefined, clock)
+    await Promise.all([cancel, seek, replay, bothCancel])
+    expect([cancelled.e, sought.e, replayed.e, both.x]).toEqual([9, 9, 9, 0])
+    cancel.cancel()
+    seek.time = 0.25
+    replay.play()
+    bothCancel.cancel()
+    await tick()
+    pump(wardic, 2, () => undefined, clock)
+    expect(cancelled).toEqual({ v: 0, e: 0 })
+    expect(both.x).toBe(10)
+    // Held where the seek put it, at half way, its end not yet set.
+    expect(sought.v).toBeCloseTo(0.5, 5)
+    expect(sought.e).toBe(0)
+    expect(replayed.v).toBeLessThan(0.2)
+    expect(replayed.e).toBe(0)
+    // Put back once: a key another call has set since stays that call's as a replay runs.
+    await Promise.all([wardic.animate(cancelled, { e: 3 }, { type: "tween", duration: 0.05 }), tick().then(() => pump(wardic, 6, () => undefined, clock))])
+    cancel.play()
+    await tick()
+    pump(wardic, 3, () => undefined, clock)
+    expect(cancelled.e).toBe(3)
+    seek.play()
+    pump(wardic, 40, () => undefined, clock)
+    await Promise.all([seek, replay, cancel])
+    expect(sought).toEqual({ v: 1, e: 9 })
+    expect(replayed).toEqual({ v: 1, e: 9 })
+    expect(cancelled).toEqual({ v: 1, e: 9 })
+    // The replay's end found the other call's 3: a cancel now puts that back.
+    cancel.cancel()
+    pump(wardic, 2, () => undefined, clock)
+    expect(cancelled).toEqual({ v: 0, e: 3 })
+    wardic.dispose()
+  })
+
+  it("WO17: each Subject's Transition end is set as it lands; under reduced motion and skipAnimations, at once (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const a = { y: 0, e: 0 }
+    const b = { y: 0, e: 0 }
+    wardic.animate([a, b], { y: 10, transitionEnd: { e: 9 } }, { type: "tween", duration: 0.1, ease: "linear", delay: (i) => i * 0.3 })
+    await tick()
+    pump(wardic, 10, () => undefined, clock)
+    // a's set as a lands, while b waits out its delay.
+    expect(a).toEqual({ y: 10, e: 9 })
+    expect(b).toEqual({ y: 0, e: 0 })
+    pump(wardic, 20, () => undefined, clock)
+    expect(b).toEqual({ y: 10, e: 9 })
+    wardic.dispose()
+    // A positional key snaps under reduced motion: landed at once, its end set the frame after.
+    const reduced = WardicObject.make({ reducedMotion: "always" })
+    const snapped = { x: 0, e: 0 }
+    const snap = reduced.animate(snapped, { x: 100, transitionEnd: { e: 9 } }, { type: "tween", duration: 2 })
+    await tick()
+    pump(reduced, 3, () => undefined)
+    await snap
+    expect(snapped).toEqual({ x: 100, e: 9 })
+    reduced.dispose()
+    const skipping = WardicObject.make({ skipAnimations: true })
+    const skipped = { v: 0, e: 0 }
+    const skip = skipping.animate(skipped, { v: 100, transitionEnd: { e: 9 } }, { type: "tween", duration: 2 })
+    await tick()
+    pump(skipping, 3, () => undefined)
+    await skip
+    expect(skipped).toEqual({ v: 100, e: 9 })
+    skipping.dispose()
+  })
+
+  it("WO18: a stop, a cancel or a seek in the frame between its legs landing and its landing told tells none (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const tween = { type: "tween", duration: 0.1, ease: "linear" } as const
+    const told: Array<string> = []
+    const make = (name: string) => {
+      const o = { v: 0, e: 0 }
+      const controls = wardic.animate(o, { v: 1, transitionEnd: { e: 9 } }, { ...tween, onComplete: () => told.push(name) })
+      let resolved = false
+      void controls.then(() => {
+        resolved = true
+      })
+      return { o, controls, resolved: () => resolved }
+    }
+    const stopped = make("stopped")
+    const cancelled = make("cancelled")
+    const sought = make("sought")
+    await tick()
+    // Frame by frame until its legs land: its end set and drawn the frame after, its landing told then.
+    for (let i = 0; i < 20 && stopped.o.v !== 1; i++) pump(wardic, 1, () => undefined, clock)
+    expect([stopped.o.e, cancelled.o.e, sought.o.e]).toEqual([0, 0, 0])
+    expect(told).toEqual([])
+    stopped.controls.stop()
+    cancelled.controls.cancel()
+    sought.controls.time = 0.05
+    sought.controls.play()
+    await tick()
+    const replay = pump(wardic, 12, () => sought.o.v, clock)
+    await tick()
+    pump(wardic, 2, () => undefined, clock)
+    await sought.controls
+    // Stopped where it is: its legs landed, its end set as they did, but no landing told.
+    expect(stopped.resolved(), "a stop tells no landing").toBe(false)
+    expect(stopped.controls.state).toBe("idle")
+    expect(stopped.o).toEqual({ v: 1, e: 9 })
+    expect(cancelled.resolved(), "nor does a cancel").toBe(false)
+    expect(cancelled.o).toEqual({ v: 0, e: 0 })
+    // The seek's replay runs on from half way and lands once, its end set again.
+    expect(replay[0]!, replay.join(" ")).toBeGreaterThan(0.5)
+    expect(sought.o).toEqual({ v: 1, e: 9 })
+    expect(told).toEqual(["sought"])
+    wardic.dispose()
+  })
+
+  it("WO19: a put back leaves a key a later call has set since; a seek to the end or complete() after it lands keeps its end (#896)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const tween = { type: "tween", duration: 0.1, ease: "linear" } as const
+    const newer = { v: 0, e: 0 }
+    const older = wardic.animate(newer, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const sought = { v: 0, e: 0 }
+    const seek = wardic.animate(sought, { v: 1, transitionEnd: { e: 9 } }, tween)
+    const completed = { v: 0, e: 0 }
+    const complete = wardic.animate(completed, { v: 1, transitionEnd: { e: 9 } }, tween)
+    await tick()
+    pump(wardic, 12, () => undefined, clock)
+    await Promise.all([older, seek, complete])
+    // A later call sets e and lands: the older call's cancel puts v back, and leaves e the later call's.
+    await Promise.all([wardic.animate(newer, { e: 3 }, tween), tick().then(() => pump(wardic, 10, () => undefined, clock))])
+    older.cancel()
+    pump(wardic, 2, () => undefined, clock)
+    expect(newer).toEqual({ v: 0, e: 3 })
+    // At its end already: no frame without its end.
+    seek.time = 5
+    complete.complete()
+    await tick()
+    const ends = pump(wardic, 4, () => [sought.e, completed.e], clock)
+    expect(ends.flat(), JSON.stringify(ends)).not.toContain(0)
+    // A cancel after puts it back as it was before its first end, not as the second found it.
+    await complete
+    complete.cancel()
+    pump(wardic, 2, () => undefined, clock)
+    expect(completed).toEqual({ v: 0, e: 0 })
+    wardic.dispose()
+  })
 })
 
