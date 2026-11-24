@@ -21,8 +21,9 @@
  * stage.frame()
  */
 // `@wardic/three/TestStage` (#883's PR 5a; ADR-0073 decision 26, amended by *Amendment (#883)*, PR 5's Q2
-// and Q6): in `@wardic/three` until 1.3, since `@wardic/test` is published and a published package can't
-// depend on a private one. `stage.ward` and `<WardicStage value={stage}>` come with steps 3 and 4.
+// and Q6): it stays in `@wardic/three` at 1.3 (ADR-0073, *1.3's release*), beside the runtime it drives,
+// so `@wardic/test` takes no three.js peers. `stage.ward` and `<WardicStage value={stage}>` came with
+// steps 3 and 4.
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import type { Camera, Object3D } from "three"

@@ -56,7 +56,7 @@ A Layer merged after `DomLive` replaces its service:
 
 The services are `@wardic/core`'s, so replacing one means installing `@wardic/core` too, at the version your `@wardic/dom` uses. A replaced default transition runs every animation on the client; a server-rendered Appear animation still plays on the DOM's own, since the server builds no Environment.
 
-The same engine runs on any Environment that provides its services, the clock and the Frame loop included: a headless one tests Wardic today, and Environments beyond the DOM come next: three.js scenes in the [1.3 milestone](/roadmap#13-3d), then the terminal in [1.6](/roadmap#16-beyond-the-dom). Otherwise Effect stays out of your way: an app hands its provider `DomLive` and writes Solid.
+The same engine runs on any Environment that provides its services, the clock and the Frame loop included: a headless one tests Wardic today, three.js scenes run on one from 1.3 ([3D scenes](/guides/3d)), and the terminal comes next, in [1.6](/roadmap#16-beyond-the-dom). Otherwise Effect stays out of your way: an app hands its provider `DomLive` and writes Solid.
 
 ## Observability, built in
 

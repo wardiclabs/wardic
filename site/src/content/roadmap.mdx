@@ -1,13 +1,13 @@
 ---
 title: Roadmap
-description: "What 1.0, 1.1 and 1.2 brought, Solid 2 by default in @wardic/solid 2.0, and what comes next, in order: three.js scenes, a performance viewer, a Timeline, then the terminal."
+description: "What 1.0, 1.1, 1.2 and 1.3 brought, Solid 2 by default in @wardic/solid 2.0, and what comes next, in order: a performance viewer, a Timeline, then the terminal."
 ---
 
 # Roadmap
 
 What comes next, in the order it's planned. The order is the plan, and this page gives no dates for what's ahead; what has shipped says when. Each milestone and its issues are on GitHub, where you can follow them.
 
-The 1.x milestones number `@wardic/core`, `@wardic/dom` and `@wardic/test`, which version together, and `@wardic/foldkit` from 1.2. `@wardic/solid` versions on its own since its 2.0, depending on the exact `@wardic/core` and `@wardic/dom` it's built with.
+The 1.x milestones number `@wardic/core`, `@wardic/dom` and `@wardic/test`, which version together, `@wardic/foldkit` from 1.2, and `@wardic/object` and `@wardic/three` from 1.3. `@wardic/solid` versions on its own since its 2.0, depending on the exact `@wardic/core` and `@wardic/dom` it's built with.
 
 ## 1.0: Motion's API on Solid
 
@@ -46,7 +46,7 @@ A Wardic binding for [Foldkit](https://www.npmjs.com/package/foldkit), the Effec
 
 Three.js scenes, animated with Wardic's springs, variants and gestures. You make your objects however you like, in code, from a loader or through another library, and Wardic animates them: it has no scene components and no renderer of its own. Its writes land in the frame your scene's loop draws, never a frame late.
 
-What 1.3 brings, built and waiting on its release:
+`@wardic/object` and `@wardic/three` shipped as 1.3.0 in November 2026 ([#564](https://github.com/wardiclabs/wardic/issues/564)), with `@wardic/solid` 2.1.0 for their Solid 2 hooks:
 
 - **Any object's numeric properties,** whatever draws them, as Motion's `animate(object, …)` does: `@wardic/object`, the base for canvas and WebGL ([its reference](/reference/object)).
 - **Three.js,** in `@wardic/three` ([its reference](/reference/three)):

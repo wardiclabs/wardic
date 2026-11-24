@@ -39,4 +39,4 @@ dots.get(3, "y")                                                     // its valu
 
 Every module is in [its reference](https://wardic.dev/reference/object). `@wardic/three` builds three.js's runtime on it ([the 3D guide](https://wardic.dev/guides/3d)).
 
-Private until Wardic 1.3: not on npm yet. See [the roadmap](https://wardic.dev/roadmap).
+Shipped from Wardic 1.3 (#564), versioned with `@wardic/core`, `@wardic/dom`, `@wardic/test`, `@wardic/foldkit` and `@wardic/three`.
