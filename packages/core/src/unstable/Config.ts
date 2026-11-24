@@ -208,6 +208,23 @@ export type WardicTransitionEntries = WardicValueEntries<WardicValueKey> & { rea
 /** Entries for the values `K`, and `default` for the rest (#301). */
 export type WardicValueEntries<K extends string> = { readonly default?: WardicValueTransition } & { readonly [P in K]?: WardicValueTransition }
 
+/** Each member's keys, as one union: a union's own `keyof` is only the keys its members share. */
+type KeysOfEach<T> = T extends unknown ? keyof T : never
+
+/** A transition's own fields' names, on any arm, and its `default` and `layout` entries' names. */
+type TransitionFieldName = KeysOfEach<WardicTransitionWith<unknown>> | "default" | "layout"
+
+/**
+ * A transition for a Subject whose keys are `K`: an entry under each of `K`, and `default`; no
+ * `layout`. A key named like one of the transition's own fields (`duration`, `type`, `delay`…) has
+ * no entry, since that name is the field's: it runs on `default` or the transition's own fields.
+ */
+// #952: an Environment whose keys depend on its Subject (an object's, a scene's) types its
+// transitions so; the DOM's keys are global, `ValueKeys`', and its transitions `WardicTransition`.
+// A name holds the field or the entry, never both, and the runtime reads any object under it as an
+// entry (RetargetLegs.entriesOf): a field's name is left out of the entries, so it stays the field's.
+export type WardicTransitionFor<K extends string> = WardicTransitionWith<WardicValueEntries<Exclude<K, TransitionFieldName>>>
+
 /**
  * A variant's own transition, or a target's: it runs the animation that variant starts, in place of
  * the element's `transition`, unless `inherit: true` lays it over the element's, its own fields winning.
