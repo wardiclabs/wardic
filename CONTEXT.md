@@ -103,7 +103,7 @@ One Primitive run a Retarget starts: the numeric keys' and the string keys' are 
 _Avoid_: interval (a piece of one `animate` or `keyframes` run), segment (a **Sequence**'s step), track.
 
 **Value transition**:
-One value's own transition, inside an element's, a variant's, a gesture target's or an exit's (#301, Motion's): an entry under the value's name. A key runs on its value transition, else the transition's `default` entry, else the transition's own fields; a layout animation on its `layout` entry the same way. Keys on different value transitions are separate Legs. The orchestration (`staggerChildren`, `when` and the rest) stays the whole transition's.
+One value's own transition, inside an element's, a variant's, a gesture target's or an exit's (#301, Motion's): an entry under the value's name. A key runs on its value transition, else the transition's `default` entry, else the transition's own fields; a layout animation on its `layout` entry the same way. Keys on different value transitions are separate Legs. The orchestration (`staggerChildren`, `when` and the rest) stays the whole transition's. Where an **Environment**'s keys are its Subject's (an object's, a scene's), they name its entries; a key named like one of the transition's own fields (`duration`, `type`) has none, and runs on `default` or the fields (#952).
 _Avoid_: per-key transition, override (that's the **Override stack**'s word).
 
 **Config transition**:
