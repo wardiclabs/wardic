@@ -1,0 +1,16 @@
+{
+  "name": "pack-check-three-solid",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@solidjs/web": "2.0.1",
+    "effect": "4.1.4",
+    "solid-js": "2.0.1",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@solidjs/vite-plugin": "3.0.1",
+    "vite": "8.3.4"
+  }
+}
