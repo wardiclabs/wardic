@@ -52,7 +52,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
-import { constVoid, identity } from "effect/Function"
+import { constTrue, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -394,13 +394,20 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
    * Its **Transition end** set (#896, ADR-0061 *Amendment (#896)*, Q2 and Q4): each key no leg draws
    * now taken as the keys it animates are, started where it's drawn, then set at once.
    */
-  const writeEnds = (values: Values.Values): void => {
-    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)))
-    if (Rec.isEmptyRecord(free)) return
+  // Each of `values`' keys `only` picks taken as the call took its own (`takeKey`), noted with the
+  // Override stack's targets now: an end's keys as it's set, a run's again as it starts (#951).
+  const takeEach = (values: Values.Values, only: (key: string) => boolean): void => {
     const takingNow = host.taking()
     const targetsNow = lastTargetsOf(host)
     const startedNow: Record<string, string> = {}
-    Arr.forEach(Rec.keys(free), (key) => takeKey(host, takingNow, key, targetsNow[key], UndefinedOr.getOrThrow(free[key]), startedNow))
+    Arr.forEach(Rec.keys(values), (key) => {
+      if (only(key)) takeKey(host, takingNow, key, targetsNow[key], UndefinedOr.getOrThrow(values[key]), startedNow)
+    })
+  }
+  const writeEnds = (values: Values.Values): void => {
+    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)))
+    if (Rec.isEmptyRecord(free)) return
+    takeEach(free, constTrue)
     // Kept from an earlier landing a run from its end didn't put back: what they were before any.
     if (Predicate.isUndefined(overwritten)) overwritten = Rec.map(free, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
     setAtRest(free)
