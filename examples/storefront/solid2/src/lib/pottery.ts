@@ -152,8 +152,9 @@ export const contactShadow = (radius: number): THREE.Mesh<THREE.PlaneGeometry, T
 /**
  * A studio's light for `scene`, from `renderer`: three's room environment for the glaze to reflect, a key
  * light from the upper left, and three's neutral tone mapping, made for showing a product's own colours.
+ * Gives back the key light, for a scene that dims it.
  */
-export const lightStudio = (scene: THREE.Scene, renderer: THREE.WebGLRenderer): void => {
+export const lightStudio = (scene: THREE.Scene, renderer: THREE.WebGLRenderer): THREE.DirectionalLight => {
   renderer.toneMapping = THREE.NeutralToneMapping
   const environment = new THREE.PMREMGenerator(renderer)
   scene.environment = environment.fromScene(new RoomEnvironment(), 0.04).texture
@@ -163,6 +164,7 @@ export const lightStudio = (scene: THREE.Scene, renderer: THREE.WebGLRenderer): 
   const key = new THREE.DirectionalLight("#ffffff", 1.2)
   key.position.set(-3, 5, 4)
   scene.add(key)
+  return key
 }
 
 /** Whether this browser can draw WebGL: where it can't, the piece's photo stays. */

@@ -227,6 +227,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/scenes/fire-the-kiln";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/scenes/fire-the-kiln")>;
+      $$route?: undefined;
+    },
+    {
       path: "/scenes/kintsugi";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/scenes/kintsugi")>;
@@ -587,6 +593,14 @@ declare module "virtual:file-routes" {
       id: "/library/details-tabs";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/library/details-tabs")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/scenes/fire-the-kiln";
+      id: "/scenes/fire-the-kiln";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/scenes/fire-the-kiln")>;
       $$route?: undefined;
       children?: undefined;
     },

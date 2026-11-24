@@ -3463,6 +3463,21 @@ button.product-card:hover .photo {
   margin: 0;
 }
 
+/* The kiln (#937): its heat, in figures that keep their width as they count, beside the step under way. */
+.kiln-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.kiln-heat {
+  min-width: 6ch;
+  font-variant-numeric: tabular-nums;
+}
+.kiln-step {
+  display: inline-block;
+}
+
 /* The shelf (#936): the details of the piece looked at, beside it over the scene. */
 .display-view {
   position: relative;
