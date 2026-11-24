@@ -81,6 +81,31 @@ const typed = (wardic: WardicThree.WardicThree): void => {
     [instances, { color: ["#000", "#fff"], y: 1 }],
     [swarm.at(0), { color: "#f0f" }, { at: 0 }],
   ])
+
+  // A transition's entries are the Subject's own keys (#952): a scene key's, a colour's.
+  wardic.animate(cube, { x: 2, color: "#00f" }, { duration: 1, x: { duration: 0.2 }, color: { type: "tween", duration: 0.1 } })
+  wardic.animate(cube, { x: 2, opacity: 0, transition: { duration: 1, opacity: { duration: 0.3 }, rotateY: { stiffness: 200 } } })
+  wardic.animate(uniforms, { uTime: 2, uOffsetX: 1 }, { uTime: { duration: 2 }, uOffsetX: { duration: 1 } })
+  wardic.animate({ uTint: { value: new THREE.Color() } }, { uTint: "#f0f", transition: { uTint: { duration: 0.4 } } })
+  wardic.animate(cube.position, { x: 1 }, { x: { duration: 0.5 } })
+  // A ShaderMaterial, its uniforms any name: an entry under any name.
+  wardic.animate(shader, { uProgress: 1 }, { duration: 1, ease: "linear", uProgress: { duration: 0.2 } })
+  // A channel's entry: on a target by its channels, or by its colour, its own over its colour's.
+  wardic.animate(cube, { colorR: 0.5, emissiveB: 1 }, { colorR: { duration: 0.2 }, emissive: { duration: 0.1 } })
+  wardic.animate(cube, { color: "#00f", transition: { color: { duration: 0.2 }, colorR: { duration: 1 } } })
+  wardic.animate({ uTint: { value: new THREE.Color() } }, { uTintG: 0.5 }, { uTintG: { duration: 0.4 } })
+  // @ts-expect-error: a misspelt entry.
+  wardic.animate(cube, { x: 2 }, { xx: { duration: 0.2 } })
+  // @ts-expect-error: nor in the target's own transition: a key the mesh has nowhere.
+  wardic.animate(cube, { x: 2, transition: { fov: { duration: 0.2 } } })
+  // @ts-expect-error: a scene has no layout animations to take a `layout` entry.
+  wardic.animate(cube, { x: 2 }, { layout: { duration: 0.2 } })
+  // A Batch's entries: its keys, an instance's colour and its channels.
+  wardic.animate(swarm, { y: 1, color: "#f00" }, { y: { duration: 0.2 }, color: { duration: 0.4 } })
+  wardic.animate(instances, { x: (i) => i, color: "#fff" }, { duration: 1, x: { duration: 0.5 }, color: { duration: 0.2 } })
+  wardic.animate(instances.at(0), { color: "#fff" }, { colorG: { duration: 0.2 } })
+  // @ts-expect-error: an instance's material's keys aren't an instance's.
+  wardic.animate(instances, { x: 1 }, { opacity: { duration: 0.2 } })
 }
 
 it("TY1: the typed calls compile", () => {

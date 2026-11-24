@@ -621,8 +621,16 @@ const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subje
   }
 }
 
-/** A transition without its `delay`, each arm: `animate`'s and a Segment's take their own. */
-type WithoutDelay = Config.WardicTransition extends infer T ? (T extends unknown ? { readonly [K in keyof T as Exclude<K, "delay">]: T[K] } : never) : never
+/** The transition `T` without its `delay`, each arm: `animate`'s and a Segment's take their own. */
+type WithoutDelayOf<T> = T extends unknown ? { readonly [K in keyof T as Exclude<K, "delay">]: T[K] } : never
+
+/** A transition without its `delay`, each arm. */
+type WithoutDelay = WithoutDelayOf<Config.WardicTransition>
+
+/** `animate`'s options over the transition `T`: its `delay` each Subject's, and `onComplete`. */
+type AnimateOptionsOver<T> = WithoutDelayOf<T> & EachDelay & {
+  readonly onComplete?: (() => void) | undefined
+}
 
 /** A `delay` that may be each Subject's (Motion's `delay(i, n)`; `stagger()` is #436). */
 interface EachDelay {
@@ -635,9 +643,14 @@ interface EachDelay {
  * called as it lands, each Subject's `transitionEnd` already set. Motion's, though Motion's `animate`
  * runs on the options alone.
  */
-export type WardicAnimateOptions = WithoutDelay & EachDelay & {
-  readonly onComplete?: (() => void) | undefined
-}
+export type WardicAnimateOptions = AnimateOptionsOver<Config.WardicTransition>
+
+/**
+ * {@link WardicAnimateOptions} for a Subject whose keys are `K`: its transition's entries are under
+ * `K`'s names, as {@link Config.WardicTransitionFor}'s, `default` for the rest.
+ */
+// #952: `@wardic/object`'s and `@wardic/three`'s `animate`, by the Subject the call names.
+export type WardicAnimateOptionsFor<K extends string> = AnimateOptionsOver<Config.WardicTransitionFor<Exclude<K, "onComplete">>>
 
 /** A call's options without its `onComplete`: its transition. */
 const withoutComplete = (given: WardicAnimateOptions): Readonly<Record<string, unknown>> => {

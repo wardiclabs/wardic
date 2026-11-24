@@ -112,19 +112,32 @@ type ColourTargetValue = ThreeColours.ColourValue | Config.WardicKeyframes<Three
 type ValueOf<Key, K, C, N, Colour> = Key extends C ? (Key extends K ? N | Colour : Colour) : N
 
 /**
- * A target for a scene's Subject, by its number keys `K` and its colour keys `C`: a transition, which
- * `animate`'s options are laid over field by field, and a Transition end, set once the Subject lands.
+ * A target for a scene's Subject, by its number keys `K` and its colour keys `C`: a transition, with an
+ * entry under any of the keys `E`, which `animate`'s options are laid over field by field, and a
+ * Transition end, set once the Subject lands.
  */
-type SceneTarget<K extends string, C extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, SceneValue, ColourTargetValue> } & {
-  readonly transition?: Config.WardicTransition | undefined
+type SceneTarget<K extends string, C extends string, E extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, SceneValue, ColourTargetValue> } & {
+  /** How it gets there: a spring, a tween or an inertia, with an entry under any of its keys, a colour's or a channel's. */
+  readonly transition?: Config.WardicTransitionFor<E> | undefined
   readonly transitionEnd?: { readonly [Key in K | C]?: ValueOf<Key, K, C, number, ThreeColours.ColourValue> } | undefined
 }
 
 /**
+ * The keys a transition for `T` takes an entry under, each key a target for it can give: a scene
+ * object's or a material's scene keys and colours, a uniforms object's uniforms, any other object's own
+ * keys. A colour's entry runs its channels, and a channel's own entry runs it in place of its colour's.
+ */
+// #952: ThreeColours.splitCall gives a colour's entry to each of its channels without one of its own.
+type TransitionKey<T> = [SceneKey<T>] extends [never] ? WardicObject.AnimatableKey<T> | UniformKey<T> | UniformColourKey<T> : SceneKey<T> | ColourKey<T>
+
+/**
  * A target for `T`: a scene object's or a material's by its scene keys and colours; a uniforms object's
  * by its uniforms' names; any other object's (a `Vector3`, a plain `{ x }`) by its own keys, as `@wardic/object`'s.
+ * Its transition takes an entry under any of them, a colour's or a channel's.
  */
-export type ThreeTarget<T> = [SceneKey<T>] extends [never] ? WardicObject.ObjectTarget<T> & SceneTarget<UniformKey<T>, UniformColourKey<T>> : SceneTarget<SceneKey<T>, ColourKey<T>>
+export type ThreeTarget<T> = [SceneKey<T>] extends [never]
+  ? Omit<WardicObject.ObjectTarget<T>, "transition"> & SceneTarget<UniformKey<T>, UniformColourKey<T>, TransitionKey<T>>
+  : SceneTarget<SceneKey<T>, ColourKey<T>, TransitionKey<T>>
 
 /** An `InstancedMesh`, by its flag. */
 type IsInstancedMesh = { readonly isInstancedMesh: true }
@@ -168,10 +181,11 @@ export type ThreeSequence = ReadonlyArray<WardicObject.ObjectSequence[number] | 
 /**
  * `animate(subject, target, options?)` animates a scene's Subject, or each of a list of them, to
  * `target`; `animate(sequence, options?)` plays a sequence. Either returns its Playback controls. Motion's.
+ * The options' transition takes an entry under any of the Subject's keys: a Batch's, its keys.
  */
 export interface ThreeAnimate {
-  <T extends object>(batch: ThreeBatch<T> | ObjectBatch.Member<T, BatchKey<T>>, target: ThreeBatchTarget<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
-  <T extends object>(subject: T | ReadonlyArray<T>, target: ThreeTarget<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
+  <T extends object>(batch: ThreeBatch<T> | ObjectBatch.Member<T, BatchKey<T>>, target: ThreeBatchTarget<T>, options?: Imperative.WardicAnimateOptionsFor<BatchKey<T> | BatchColourKey<T>>): Imperative.WardicPlaybackControls
+  <T extends object>(subject: T | ReadonlyArray<T>, target: ThreeTarget<T>, options?: Imperative.WardicAnimateOptionsFor<TransitionKey<T>>): Imperative.WardicPlaybackControls
   (sequence: ThreeSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
 
@@ -254,7 +268,7 @@ const splitSegment = (segment: unknown): unknown => {
   const [subject, target, options] = segment as ReadonlyArray<unknown>
   if (Predicate.isFunction(subject)) return segment
   const [split, splitOptions] = ThreeColours.splitCall(subjectOf(subject), target, options)
-  if (split === target) return segment
+  if (split === target && splitOptions === options) return segment
   if (segment.length < 3) return [subject, split]
   return [subject, split, splitOptions]
 }

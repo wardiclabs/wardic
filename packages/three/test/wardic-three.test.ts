@@ -237,10 +237,13 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     const wardic = WardicThree.make()
     const cube = box()
     cube.material.color.set("#ff0000")
-    // A 1 s linear tween, the colour on an entry of its own. Not a literal at the call: a colour's entry
-    // isn't one of core's value keys, which no Environment of three's names.
-    const own = { type: "tween", duration: 1, ease: "linear", color: { type: "tween", duration: 0.1, ease: "linear" } } as const
-    const controls = wardic.animate(cube, { x: 1, color: "#0000ff", transition: own, transitionEnd: { color: "#00ff00", y: 2 } })
+    // A 1 s linear tween, the colour on an entry of its own (#952: typed by the mesh's keys).
+    const controls = wardic.animate(cube, {
+      x: 1,
+      color: "#0000ff",
+      transition: { type: "tween", duration: 1, ease: "linear", color: { type: "tween", duration: 0.1, ease: "linear" } },
+      transitionEnd: { color: "#00ff00", y: 2 },
+    })
     await tick()
     const clock = { time: 0 }
     pump(wardic, 12, clock)

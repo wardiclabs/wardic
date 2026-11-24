@@ -72,13 +72,15 @@ import * as PumpedFrames from "./PumpedFrames.ts"
 export type AnimatableKey<T> = { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
 
 /**
- * A target for `T`: each of its animatable keys a value or keyframes; a transition, which `animate`'s
- * options are laid over field by field; and a Transition end, its values set once the object lands.
+ * A target for `T`: each of its animatable keys a value or keyframes; a transition, with an entry
+ * under any of those keys, which `animate`'s options are laid over field by field; and a Transition
+ * end, its values set once the object lands.
  */
 export type ObjectTarget<T> = {
   readonly [K in AnimatableKey<T>]?: T[K] | Config.WardicKeyframes<T[K]>
 } & {
-  readonly transition?: Config.WardicTransition | undefined
+  /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
+  readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
   readonly transitionEnd?: { readonly [K in AnimatableKey<T>]?: T[K] } | undefined
 }
 
@@ -98,10 +100,11 @@ export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | Obje
 /**
  * `animate(subject, target, options?)` animates an object, or each of a list of them, to `target`;
  * `animate(sequence, options?)` plays a sequence. Either returns its Playback controls. Motion's.
+ * The options' transition takes an entry under any of the keys the Subject animates: a Batch's, its keys.
  */
 export interface ObjectAnimate {
-  <T extends object>(batch: ObjectBatch.ObjectBatch<T> | ObjectBatch.Member<T>, target: ObjectBatch.Target<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
-  <T extends object>(subject: T | ReadonlyArray<T>, target: ObjectTarget<T>, options?: Imperative.WardicAnimateOptions): Imperative.WardicPlaybackControls
+  <T extends object>(batch: ObjectBatch.ObjectBatch<T> | ObjectBatch.Member<T>, target: ObjectBatch.Target<T>, options?: Imperative.WardicAnimateOptionsFor<ObjectBatch.NumberKey<T>>): Imperative.WardicPlaybackControls
+  <T extends object>(subject: T | ReadonlyArray<T>, target: ObjectTarget<T>, options?: Imperative.WardicAnimateOptionsFor<AnimatableKey<T>>): Imperative.WardicPlaybackControls
   (sequence: ObjectSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
 
