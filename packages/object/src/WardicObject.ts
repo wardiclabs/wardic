@@ -132,12 +132,23 @@ export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | Obje
  */
 export interface ObjectAnimate {
   <T extends object>(batch: ObjectBatch.ObjectBatch<T> | ObjectBatch.Member<T>, target: ObjectBatch.Target<T>, options?: Imperative.WardicAnimateOptionsFor<ObjectBatch.NumberKey<T>>): Imperative.WardicPlaybackControls
+  // #959: a Subject whose type is assignable to a string record (an object literal's, an index
+  // signature's, a Record), its type inferred from it alone. Through `T | ReadonlyArray<T>`, an index
+  // signature reads as a list's members, and `T` falls back to `object`. Classes and arrays aren't
+  // string records, so they take the last signature, as before.
+  <T extends Readonly<Record<string, unknown>>, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
+    subject: T,
+    target: ObjectTarget<T> | AnyKeyTargetFor<T, G>,
+    options?: Imperative.WardicAnimateOptionsFor<AnimatableKey<T>>,
+  ): Imperative.WardicPlaybackControls
+  (sequence: ObjectSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
+  // Last, since past three overloads TypeScript reports only the last one's error: a Subject's target
+  // misspelt names its key, rather than "not a sequence".
   <T extends object, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
     subject: T | ReadonlyArray<T>,
     target: ObjectTarget<T> | AnyKeyTargetFor<T, G>,
     options?: Imperative.WardicAnimateOptionsFor<AnimatableKey<T>>,
   ): Imperative.WardicPlaybackControls
-  (sequence: ObjectSequence, options?: Imperative.WardicSequenceOptions): Imperative.WardicPlaybackControls
 }
 
 /** A runtime's options. */
