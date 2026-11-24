@@ -132,6 +132,14 @@ export type ObjectSequence = ReadonlyArray<Imperative.WardicSequenceLabel | Obje
  */
 export interface ObjectAnimate {
   <T extends object>(batch: ObjectBatch.ObjectBatch<T> | ObjectBatch.Member<T>, target: ObjectBatch.Target<T>, options?: Imperative.WardicAnimateOptionsFor<ObjectBatch.NumberKey<T>>): Imperative.WardicPlaybackControls
+  // #959: a Subject typed as a string record, a Record among them, its type inferred from it alone. Through
+  // `T | ReadonlyArray<T>`, its string index reads as a list's members, and `T` falls back to `object`.
+  // Classes and arrays aren't string records, so they take the next signature, as before.
+  <T extends Readonly<Record<string, unknown>>, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
+    subject: T,
+    target: ObjectTarget<T> | AnyKeyTargetFor<T, G>,
+    options?: Imperative.WardicAnimateOptionsFor<AnimatableKey<T>>,
+  ): Imperative.WardicPlaybackControls
   <T extends object, const G extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(
     subject: T | ReadonlyArray<T>,
     target: ObjectTarget<T> | AnyKeyTargetFor<T, G>,
