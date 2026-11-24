@@ -35,6 +35,26 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(bag, { a: 1 }, { duration: 1, ease: "linear", type: "tween", b: { duration: 0.2 } })
   // @ts-expect-error: a misspelt field.
   wardic.animate(bag, { a: 1 }, { durration: 1 })
+  // Its target's own transition and Transition end (#958), each other key a value of the Subject's.
+  wardic.animate(bag, { a: 1, b: [0, 1], transition: { duration: 1, b: { duration: 0.2 } }, transitionEnd: { a: 0 } })
+  wardic.animate([bag, { ...bag }], { a: 1, transition: { duration: 1 }, transitionEnd: { a: 0 } })
+  // @ts-expect-error: a key's value isn't an object.
+  wardic.animate(bag, { a: { duration: 1 } })
+  // @ts-expect-error: nor a value of another type than the Subject's.
+  wardic.animate(bag, { a: "x" })
+  // @ts-expect-error: a misspelt field in its own transition.
+  wardic.animate(bag, { a: 1, transition: { durration: 1 } })
+  // @ts-expect-error: a field of the wrong type.
+  wardic.animate(bag, { a: 1, transition: { duration: "slow" } })
+  // @ts-expect-error: a Transition end's values aren't keyframes.
+  wardic.animate(bag, { a: 1, transitionEnd: { a: [0, 1] } })
+  // A call that names its Subject's type keeps the target it had: values only.
+  wardic.animate<typeof bag>(bag, { a: 1 })
+  // A target typed as an ObjectTarget fits as ever: a wrapper's, and one declared so.
+  const forward = <T extends object>(subject: T, target: WardicObject.ObjectTarget<T>) => wardic.animate(subject, target)
+  const declared: WardicObject.ObjectTarget<typeof bag> = { a: 1 }
+  wardic.animate(bag, declared)
+  void forward(ball, { x: 1 })
 
   // A Batch's entries: its keys, its members' numbers.
   const dots = wardic.batch([ball, { ...ball }])
