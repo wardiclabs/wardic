@@ -79,6 +79,7 @@ export type AnimatableKey<T> = { readonly [K in keyof T]-?: T[K] extends number 
 export type ObjectTarget<T> = {
   readonly [K in AnimatableKey<T>]?: T[K] | Config.WardicKeyframes<T[K]>
 } & {
+  /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
   readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
   readonly transitionEnd?: { readonly [K in AnimatableKey<T>]?: T[K] } | undefined
 }
