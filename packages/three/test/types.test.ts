@@ -176,6 +176,27 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   const declared: WardicThree.ThreeTarget<typeof shader> = { uProgress: 1 }
   wardic.animate(shader, declared)
   void forward(cube, { x: 1 })
+
+  // Any other object's key it may lack, an optional one, and its numeric keys, a typed array's (#964).
+  const rig: { weight?: number; bias: number } = { weight: 0, bias: 0 }
+  wardic.animate(rig, { weight: 1, transition: { weight: { duration: 0.2 } }, transitionEnd: { weight: 0 } })
+  const morphs = new Float32Array(4)
+  wardic.animate(morphs, { 0: 1, 2: [0, 1], transition: { 0: { duration: 0.2 } }, transitionEnd: { 0: 0 } })
+  // A Partial Record, its keys any name: its own transition and Transition end.
+  const mix: Partial<Record<string, number>> = { dry: 1 }
+  wardic.animate(mix, { dry: 0, wet: 1, transition: { duration: 1, wet: { duration: 0.2 } }, transitionEnd: { dry: 1 } })
+  // @ts-expect-error: an optional key's value is a number, as a key it has.
+  wardic.animate(rig, { weight: "heavy" })
+  // @ts-expect-error: an element's value is a number.
+  wardic.animate(morphs, { 0: "x" })
+  // @ts-expect-error: a misspelt key is caught beside the index.
+  wardic.animate(morphs, { lenght: 1 })
+  // @ts-expect-error: a Partial Record's values are numbers.
+  wardic.animate(mix, { wet: "x" })
+  // @ts-expect-error: nor its Transition end's.
+  wardic.animate(mix, { wet: 1, transitionEnd: { dry: "x" } })
+  // @ts-expect-error: nor is a keyframe `undefined`, which isn't a value to animate to.
+  wardic.animate(mix, { wet: [0, undefined], transition: { duration: 1 } })
 }
 
 it("TY1: the typed calls compile", () => {
