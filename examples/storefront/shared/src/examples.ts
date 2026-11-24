@@ -399,6 +399,23 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".scene-canvas",
   },
   {
+    id: "kintsugi",
+    area: "scenes",
+    docs: "/guides/batches",
+    title: "Kintsugi: 3,000 shards, one Batch",
+    summary: "Tap the crackled celadon bowl and it bursts into shards from where you touched it; mend it and they fly home in a wave, its cracks turned gold.",
+    why: [
+      "A bowl in three thousand shards is one `InstancedMesh`: one draw call, three thousand matrices. `createBatch({ instances })` makes each instance a member of one Batch, so a break is one change of what `animate` reads, and every shard flies from where it is, at the speed it has, in one run. Each frame, Wardic writes the matrices of the instances that moved, and uploads only that span.",
+      "Wardic's three.js benchmark moved 10,000 instances in 0.64 ms a frame on Bun, what three.js takes for 10,000 meshes' own matrices with nothing animating them. Ten thousand meshes as one Batch were 11.6 times cheaper a frame than a run each.",
+      "The wave is the transition's `delay`, a function of each shard's distance from the strike: the nearest leave first, and come home first. `when(\"tap\")` names the shard you tapped, through the scene's raycast on the instances. The gold is a ward's variants on the layer under the shards, which shows through the cracks: crackle while the bowl is whole, nothing while it's in pieces, gold once it's mended.",
+    ],
+    reducedMotion: "The shards jump straight out and straight back, all at once; the cracks still fade to gold.",
+    uses: ["createBatch({ instances })", "a delay per member", "when(\"tap\")", "variants", "InstancedMesh"],
+    apps: ["solid2"],
+    release: "1.3",
+    watch: ".scene-canvas",
+  },
+  {
     id: "notifications",
     foldkit: {
       note: "On Foldkit the throw is a Message from `w.OnDragEnd`, the landing one from `w.OnAnimationComplete`, and the undo window a Command's sleep: a card put back makes its elapsing moot.",
