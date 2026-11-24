@@ -142,7 +142,7 @@ describe("ThreeColours: colours in linear light, as channel keys", () => {
     const wardic = WardicThree.make()
     const cube = box()
     const slow = { type: "tween", duration: 1, ease: "linear" } as const
-    wardic.animate(cube, { color: "#0000ff", opacity: 0 }, { ...slow, color: LINEAR } as never)
+    wardic.animate(cube, { color: "#0000ff", opacity: 0 }, { ...slow, color: LINEAR })
     await tick()
     pump(wardic, 9)
     expect(hexOf(cube.material.color)).toBe("#0000ff")
@@ -229,5 +229,44 @@ describe("ThreeColours: colours in linear light, as channel keys", () => {
     expect(options).toEqual({ colorR: entry, colorG: entry, colorB: entry })
     expect(ThreeColours.isChannel("colorR")).toBe(true)
     expect(ThreeColours.isChannel("x")).toBe(false)
+  })
+
+  it("TC13: splitCall gives a colour's entry to its channels whenever the Subject has the colour, a channel's own entry winning (#952)", () => {
+    const cube = box()
+    const entry = { duration: 0.2 }
+    const own = { duration: 0.5 }
+    // A target written by channels: the colour's entry, in the options and in its own transition.
+    expect(ThreeColours.splitCall(cube, { colorR: 0.5 }, { color: entry })).toEqual([{ colorR: 0.5 }, { colorR: entry, colorG: entry, colorB: entry }])
+    expect(ThreeColours.splitCall(cube, { colorG: 1, transition: { duration: 1, emissive: entry } }, undefined)[0]).toEqual({
+      colorG: 1,
+      transition: { duration: 1, emissiveR: entry, emissiveG: entry, emissiveB: entry },
+    })
+    // A channel's own entry over its colour's.
+    expect(ThreeColours.splitCall(cube, { color: "#0000ff" }, { color: entry, colorR: own })[1]).toEqual({ colorR: own, colorG: entry, colorB: entry })
+    // A name the Subject has no colour under, or a field, stays as it is.
+    const options = { duration: 1, x: entry }
+    expect(ThreeColours.splitCall(cube, { x: 1 }, options)[1]).toBe(options)
+  })
+
+  it("TC14: a colour's entry runs a target written by its channels, a call's and a Segment's, and a channel's own entry runs it over its colour's (#952)", async () => {
+    const wardic = WardicThree.make()
+    const slow = { type: "tween", duration: 1, ease: "linear" } as const
+    // By its channels, the colour on its 0.1 s entry: landed at 0.15 s, where the 1 s fields aren't.
+    const byChannel = box("#000000")
+    wardic.animate(byChannel, { colorG: 1, opacity: 0 }, { ...slow, color: LINEAR })
+    const inSegment = box("#000000")
+    void wardic.animate([[inSegment, { colorB: 1 }, { ...slow, color: LINEAR }]])
+    // By its colour, the red channel on its own 1 s entry, green and blue on the colour's 0.1 s.
+    const ownChannel = box("#000000")
+    wardic.animate(ownChannel, { color: "#ffffff" }, { color: LINEAR, colorR: slow })
+    await tick()
+    pump(wardic, 9)
+    expect(byChannel.material.color.g).toBe(1)
+    expect(byChannel.material.opacity).toBeGreaterThan(0.5)
+    expect(inSegment.material.color.b).toBe(1)
+    expect([ownChannel.material.color.g, ownChannel.material.color.b]).toEqual([1, 1])
+    expect(ownChannel.material.color.r).toBeGreaterThan(0.05)
+    expect(ownChannel.material.color.r).toBeLessThan(0.3)
+    wardic.dispose()
   })
 })
