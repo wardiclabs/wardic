@@ -77,6 +77,15 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(dots.at(1), { y: 2 }, { y: { type: "tween", ease: "easeIn" } })
   // @ts-expect-error: `fill` is a string, which a Batch doesn't take, nor its entry.
   wardic.animate(dots, { x: 1 }, { fill: { duration: 0.1 } })
+
+  // An inline sequence's options and its Segments are checked, as a declared one's (#963).
+  wardic.animate([[ball, { x: 1 }], "next", [ball, { y: 1 }, { at: "next" }], [dots, { x: 2 }]], { duration: 2, repeat: 1 })
+  // @ts-expect-error: a sequence's `duration` is a number.
+  wardic.animate([[ball, { x: 1 }]], { duration: "slow" })
+  // @ts-expect-error: a misspelt option.
+  wardic.animate([[ball, { x: 1 }]], { durration: 1 })
+  // @ts-expect-error: nor a Segment's own, beside the sequence's options.
+  wardic.animate([[ball, { x: 1 }, { duration: "slow" }]], { delay: 0.1 })
 }
 
 it("TY1: the typed calls compile", () => {

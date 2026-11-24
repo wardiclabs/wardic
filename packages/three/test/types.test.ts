@@ -81,6 +81,18 @@ const typed = (wardic: WardicThree.WardicThree): void => {
     [instances, { color: ["#000", "#fff"], y: 1 }],
     [swarm.at(0), { color: "#f0f" }, { at: 0 }],
   ])
+  // An inline sequence's options and its Segments are checked, as a declared one's (#963): labels, a
+  // Segment's `at`, a Batch's Segment and a function Segment among them.
+  wardic.animate(
+    [[cube, { x: 1 }], "spin", [cube, { rotateY: 90 }, { at: "spin" }], [swarm, { y: 1 }], [(value: number) => void value, [0, 1], { duration: 1 }]],
+    { duration: 2, repeat: 1, delay: 0.1 },
+  )
+  // @ts-expect-error: a sequence's `duration` is a number.
+  wardic.animate([[cube, { x: 1 }]], { duration: "slow" })
+  // @ts-expect-error: a misspelt option.
+  wardic.animate([[cube, { x: 1 }]], { durration: 1 })
+  // @ts-expect-error: nor a Segment's own, beside the sequence's options.
+  wardic.animate([[cube, { x: 1 }, { duration: "slow" }]], { delay: 0.1 })
 
   // A transition's entries are the Subject's own keys (#952): a scene key's, a colour's.
   wardic.animate(cube, { x: 2, color: "#00f" }, { duration: 1, x: { duration: 0.2 }, color: { type: "tween", duration: 0.1 } })
