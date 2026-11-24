@@ -13,8 +13,16 @@
 //   lands, already hidden when the controls are told (#896).
 // - CV6: on a ward's element a Transition end's key follows the ward until it's set, is then the call's
 //   until the ward's own target for it changes, and a cancel puts it back (#896).
-// - CV7: a ward's own target taking one of the call's keys back drops the call's Transition end (#896).
+// - CV7: a ward's own target taking one of the call's keys back drops the call's Transition end (#896),
+//   and the call ends without landing (#951).
+// - CV8: a call a later one takes a key from ends without landing once its other keys land: `idle`, never
+//   resolved, `scope.settled()` no longer waiting on it, `scope.animations` without it (#951).
+// - CV9: a ward's own target changing to the value a call's leg is heading for carries the leg: the call
+//   has lost it, and ends without landing (#951).
+// - CV10: a seek before that call's end, its carried leg ended, takes that key back, and the call lands,
+//   the ward settling too (#951).
 import { DomLive } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
 import type { JSX } from "@solidjs/web"
 import { createAnimate, ward, type WardicAnimate, type WardicAnimationScope, WardicProvider } from "@wardic/solid"
 import { createSignal, isPending, Show } from "solid-js"
@@ -221,7 +229,11 @@ describe("createAnimate on Solid 2 (#433)", () => {
     const { animate } = mountScope(() => <Card />)
     await frames(4)
     const w = byId("w")
-    animate(w, { opacity: 0, x: 40, transition: { duration: 0.3, ease: "linear" }, transitionEnd: { display: "none" } })
+    const call = animate(w, { opacity: 0, x: 40, transition: { duration: 0.3, ease: "linear" }, transitionEnd: { display: "none" } })
+    let resolved = false
+    void call.then(() => {
+      resolved = true
+    })
     await frames(3)
     setTarget({ opacity: 0.5 })
     // Its x lands; its opacity is the ward's again, so its end never comes.
@@ -229,5 +241,75 @@ describe("createAnimate on Solid 2 (#433)", () => {
     await frames(4)
     expect(opacityOf(w)).toBeCloseTo(0.5, 2)
     expect(displayOf(w)).toBe("block")
+    // A key taken by the ward's own target: the call ends without landing, as by a later call's (#951).
+    expect(call.state).toBe("idle")
+    expect(resolved).toBe(false)
+  })
+  it("CV8: a call a later one takes a key from ends without landing: scope.settled() stops waiting, animations drops it", async () => {
+    const { scope, animate } = mountScope(() => <div id="p" style={BOX} />)
+    await frames(2)
+    // Read once, as CV1's: made reactive at its first read.
+    expect(scope.settled()).toBeUndefined()
+    const p = byId("p")
+    const first = animate(p, { x: 60, opacity: 0.5 }, { duration: 0.3, ease: "linear" })
+    let resolved = false
+    void first.then(() => {
+      resolved = true
+    })
+    await frames(3)
+    expect(isPending(() => scope.settled()), "in flight").toBe(true)
+    const later = animate(p, { x: 0 }, { duration: 0.1 })
+    await later
+    await until(() => first.state === "idle", 4000, "the first call ended")
+    await frames(2)
+    expect(opacityOf(p)).toBeCloseTo(0.5, 2)
+    expect(resolved, "never resolved").toBe(false)
+    expect(isPending(() => scope.settled()), "no longer waiting on it").toBe(false)
+    expect(scope.settled()?.animation, "the last to land").toBe(later)
+    expect(scope.animations).not.toContain(first)
+  })
+  it("CV9: a ward's own target carrying a call's leg ends the call without landing", async () => {
+    const [target, setTarget] = createSignal<Record<string, number | string>>({ opacity: 1 })
+    const Card = (): JSX.Element => {
+      const card = ward({ animate: target, transition: { duration: 0.1 }, style: BOX })
+      return <div id="w" {...card} ref={card} />
+    }
+    const { animate } = mountScope(() => <Card />)
+    await frames(4)
+    const w = byId("w")
+    const call = animate(w, { x: 40, transition: { duration: 0.3, ease: "linear" } })
+    let resolved = false
+    void call.then(() => {
+      resolved = true
+    })
+    await frames(3)
+    // The ward's own target for x, the call's: its leg runs on, the ward's now.
+    setTarget({ opacity: 1, x: 40 })
+    await until(() => Math.abs(xOf(w) - 40) < 0.5, 4000, "x at 40")
+    await until(() => call.state === "idle", 4000, "the call ended")
+    expect(resolved).toBe(false)
+  })
+  it("CV10: a seek before its end takes a carried leg's key back, and the call lands; the ward lands too", async () => {
+    const [target, setTarget] = createSignal<Record<string, number | string>>({ opacity: 1 })
+    let card!: ReturnType<typeof ward>
+    const Card = (): JSX.Element => {
+      card = ward({ animate: target, transition: { duration: 0.1 }, style: BOX })
+      return <div id="w" {...card} ref={card} />
+    }
+    const { animate } = mountScope(() => <Card />)
+    await frames(4)
+    const w = byId("w")
+    // x on a short leg of its own, so the ward carries it alone and it ends; opacity runs on in the call's.
+    const call = animate(w, { x: 40, opacity: 0.5, transition: { duration: 0.8, ease: "linear", x: { duration: 0.2, ease: "linear" } } })
+    await frames(3)
+    setTarget({ opacity: 1, x: 40 })
+    await until(() => Math.abs(xOf(w) - 40) < 0.5, 4000, "the carried x landed")
+    await frames(2)
+    expect(call.state, "its opacity still runs").toBe("running")
+    call.time = 0.05
+    await call
+    expect(call.state).toBe("finished")
+    expect(xOf(w)).toBeCloseTo(40, 0)
+    await until(() => Bool.not(isPending(() => card.settled())), 4000, "the ward settled")
   })
 })

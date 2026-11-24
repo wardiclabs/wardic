@@ -7,7 +7,7 @@
 // - CBA2: its controls act as a plain element's call's do: `pause` holds, `time` seeks, `play` goes on,
 //   `speed` 2 runs it twice as fast, `complete` lands it, `cancel` puts it back; `state` follows each.
 // - CBA3: a change of `createBatch`'s `animate` takes a member's key back: it goes there, and the call
-//   never finishes (a ward's latest-wins).
+//   never finishes (a ward's latest-wins): it ends without landing, `idle` (#951).
 // - CBA4: `animate(grid.at(i), …)` moves that member alone; two stops start each member from its first.
 // - CBA5: a key the Batch doesn't have, and more than two stops, are errors naming them.
 // - CBA6: over two transitions, a spring's `x` and a tween's `opacity`, `time`, `duration`, a backwards
@@ -131,16 +131,21 @@ describe("animate of a Batch on Solid 1 (#665)", () => {
     expect([xOf(members[0]), again.state]).toEqual([120, "idle"])
   })
 
-  it("CBA3: a change of createBatch's animate takes a member's key back, and the call never finishes", async () => {
+  it("CBA3: a change of createBatch's animate takes a member's key back, and the call never finishes: it ends without landing (#951)", async () => {
     const [target, setTarget] = createSignal(0)
     const { grid, animate, members } = mountBoth(1, () => ({ x: target() }))
     await raf()
     const call = animate(grid, { x: 200 }, SPRING)
+    let resolved = false
+    void call.then(() => {
+      resolved = true
+    })
     await readsOver(5, members, xOf)
     setTarget(-30)
     await readsOver(70, members, xOf)
     expect(xOf(members[0])).toBe(-30)
-    expect(call.state).toBe("running")
+    expect(call.state).toBe("idle")
+    expect(resolved).toBe(false)
   })
 
   it("CBA4: animate(grid.at(i)) moves that member alone; two stops start each from its first", async () => {

@@ -18,6 +18,8 @@
 //   elements have arrived (Q38, Q39).
 // - CBS6: under reduced motion, and with `skipAnimations`, each member's keys land where their stops
 //   end, as plain elements' do, a key the sequence's last Segment doesn't name included.
+// - CBS7: a later call taking a member's key from a Batch Segment ends the sequence without landing,
+//   `idle` and never resolved, once the keys it kept land (#951).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createBatch, stagger, type WardicAnimate, type WardicBatch, WardicConfig, WardicProvider } from "@wardic/solid/v1"
@@ -251,5 +253,20 @@ describe("a Batch as a sequence's Segment on Solid 1 (#665)", () => {
       expect([frames[0].at(-1), frames[4].at(-1)]).toEqual([80, 0.5])
       cleanup()
     }
+  })
+  it("CBS7: a later call taking a member's key ends the sequence without landing, once the keys it kept land", async () => {
+    const { grid, animate, members } = mountBoth(2)
+    await raf()
+    const sequence = animate([[grid, { x: 100, opacity: 0.5 }, { duration: 0.3, ease: "linear" }]])
+    let resolved = false
+    void sequence.then(() => {
+      resolved = true
+    })
+    await readsOver(4, each(members, xOf))
+    animate(grid.at(0), { x: 0 }, { duration: 0.1 })
+    await readsOver(40, each(members, xOf))
+    expect(members.map(xOf)).toEqual([0, 100])
+    expect(sequence.state).toBe("idle")
+    expect(resolved).toBe(false)
   })
 })

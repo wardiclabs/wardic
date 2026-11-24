@@ -91,7 +91,7 @@ A key a Retarget resolves to the same target as its running **Leg**: the Leg run
 _Avoid_: protected key (Motion's name for it), kept key.
 
 **Superseded**:
-A run a Retarget ended before it settled. It leaves the **Frame loop** at once and ends normally: neither settled, so it counts toward nothing, nor failed, so nothing reports it.
+A run a Retarget ended before it settled. It leaves the **Frame loop** at once and ends normally: neither settled, so it counts toward nothing, nor failed, so nothing reports it. An **Imperative animation**'s leg Superseded, its last key taken or carried on by its element's own Retarget, ends that animation without landing (#951).
 _Avoid_: cancelled, interrupted (mechanisms: a Superseded run's fiber isn't interrupted).
 
 **Snapshot**:
@@ -193,7 +193,7 @@ The element an **Imperative animation**'s selectors are looked up in, and the ow
 _Avoid_: animation context, root.
 
 **Playback controls**:
-What an **Imperative animation** returns (Motion's): awaitable, and able to stop it where it is, cancel it back to where it started, complete it at its end, pause and play it, change its speed, and seek its time.
+What an **Imperative animation** returns (Motion's): awaitable, and able to stop it where it is, cancel it back to where it started, complete it at its end, pause and play it, change its speed, and seek its time. An animation a later one takes a key from mid-flight never lands, as Motion's never resolves; it ends without landing, as a stop does, once the keys it still draws have landed, or at once with none left (#951). A key taken after it landed, or one that snaps, doesn't count.
 _Avoid_: animation handle, player.
 
 **Sequence**:

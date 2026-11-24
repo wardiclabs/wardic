@@ -276,7 +276,7 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     wardic.dispose()
   })
 
-  it("WO15: a Subject stopped, cancelled or taken over before it lands never sets its Transition end, nor a key a later call draws; complete() does (#896)", async () => {
+  it("WO15: a Subject stopped, cancelled or taken over before it lands never sets its Transition end, nor a key a later call draws; complete() does (#896); one taken over ends without landing (#951)", async () => {
     const wardic = WardicObject.make()
     const clock = { time: 0 }
     const tween = { type: "tween", duration: 0.5, ease: "linear" } as const
@@ -285,7 +285,12 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     const cancelled = { v: 0, e: 0 }
     const cancel = wardic.animate(cancelled, { v: 1, transitionEnd: { e: 9 } }, tween)
     const taken = { v: 0, w: 0, e: 0 }
-    const first = wardic.animate(taken, { v: 1, w: 1, transitionEnd: { e: 9 } }, tween)
+    const firstTold: Array<number> = []
+    const first = wardic.animate(taken, { v: 1, w: 1, transitionEnd: { e: 9 } }, { ...tween, onComplete: () => firstTold.push(1) })
+    let firstResolved = false
+    void first.then(() => {
+      firstResolved = true
+    })
     const completed = { v: 0, e: 0 }
     const complete = wardic.animate(completed, { v: 1, transitionEnd: { e: 9 } }, tween)
     const drawn = { v: 0, e: 0 }
@@ -305,9 +310,13 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(completed).toEqual({ v: 1, e: 9 })
     expect(stopped.e).toBe(0)
     expect(cancelled).toEqual({ v: 0, e: 0 })
-    // Its other key lands, and so does the call, as before #896: its end is dropped all the same.
+    // Its other key lands, and the call ends there without landing (#951): idle, its promise pending, no
+    // onComplete, its end dropped.
+    await tick()
     expect(taken.w).toBe(1)
-    await first
+    expect(first.state).toBe("idle")
+    expect(firstResolved).toBe(false)
+    expect(firstTold).toEqual([])
     expect(taken.e).toBe(0)
     expect(drawn).toEqual({ v: 1, e: 5 })
     wardic.dispose()
@@ -469,6 +478,137 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     pump(wardic, 2, () => undefined, clock)
     expect(completed).toEqual({ v: 0, e: 0 })
     wardic.dispose()
+  })
+
+  it("WO20: a call a later one takes keys from ends without landing: at once with none left, once its other Subjects land; a run before its end takes them back; after it, play and complete do nothing (#951)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const tween = { type: "tween", duration: 0.5, ease: "linear" } as const
+    const short = { type: "tween", duration: 0.1, ease: "linear" } as const
+    const resolvedOf = (controls: PromiseLike<void>): (() => boolean) => {
+      let resolved = false
+      void controls.then(() => {
+        resolved = true
+      })
+      return () => resolved
+    }
+    const all = { v: 0 }
+    const allCall = wardic.animate(all, { v: 1 }, tween)
+    const allResolved = resolvedOf(allCall)
+    const a = { v: 0 }
+    const b = { v: 0 }
+    const pair = wardic.animate([a, b], { v: 1 }, tween)
+    const pairResolved = resolvedOf(pair)
+    const sought = { v: 0, w: 0 }
+    const seek = wardic.animate(sought, { v: 1, w: 1 }, tween)
+    const ended = { v: 0 }
+    const endedCall = wardic.animate(ended, { v: 1 }, tween)
+    // One Subject's part ended without landing, the other's still running: a seek takes its keys back,
+    // and it lands after all.
+    const c = { v: 0 }
+    const d = { v: 0 }
+    const retaken = wardic.animate([c, d], { v: 1 }, tween)
+    await tick()
+    pump(wardic, 6, () => undefined, clock)
+    wardic.animate(all, { v: 0 }, short)
+    wardic.animate(a, { v: 0 }, short)
+    wardic.animate(c, { v: 0 }, short)
+    const later = wardic.animate(sought, { v: -1 }, { type: "tween", duration: 1, ease: "linear" })
+    wardic.animate(ended, { v: 0 }, short)
+    await tick()
+    pump(wardic, 2, () => undefined, clock)
+    // Every key taken: it ends there. Its other Subject still runs: it doesn't yet.
+    expect(allCall.state).toBe("idle")
+    expect(pair.state).toBe("running")
+    // A seek before its end takes its keys back from the later call, which has lost one in turn.
+    seek.time = 0.1
+    retaken.time = 0.1
+    const drawn = pump(wardic, 40, () => sought.v, clock)
+    await tick()
+    pump(wardic, 2, () => undefined, clock)
+    expect(drawn.every((v) => v >= 0.19), drawn.join(" ")).toBe(true)
+    expect(sought).toEqual({ v: 1, w: 1 })
+    expect(seek.state).toBe("finished")
+    expect(later.state).toBe("idle")
+    expect([c.v, d.v, retaken.state]).toEqual([1, 1, "finished"])
+    // Its other Subject landed: it ends without landing.
+    expect(b.v).toBe(1)
+    expect(pair.state).toBe("idle")
+    expect([allResolved(), pairResolved()]).toEqual([false, false])
+    // Ended, as after a stop: play and complete do nothing.
+    expect(endedCall.state).toBe("idle")
+    endedCall.play()
+    endedCall.complete()
+    pump(wardic, 40, () => undefined, clock)
+    expect(ended.v).toBe(0)
+    expect(endedCall.state).toBe("idle")
+    wardic.dispose()
+  })
+  it("WO21: a seek, complete() or a cancel then play() in the task a later call takes every key runs it again, and it lands (#951)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const tween = { type: "tween", duration: 0.5, ease: "linear" } as const
+    const short = { type: "tween", duration: 0.1, ease: "linear" } as const
+    const sought = { v: 0 }
+    const seek = wardic.animate(sought, { v: 1 }, tween)
+    const completed = { v: 0 }
+    const complete = wardic.animate(completed, { v: 1 }, tween)
+    const replayed = { v: 0 }
+    const replay = wardic.animate(replayed, { v: 1 }, tween)
+    await tick()
+    pump(wardic, 6, () => undefined, clock)
+    // Every key taken, then, in the same task, run again: the take's report is for the run before.
+    wardic.animate(sought, { v: 0 }, short)
+    seek.time = 0.1
+    wardic.animate(completed, { v: 0 }, short)
+    complete.complete()
+    wardic.animate(replayed, { v: 0 }, short)
+    replay.cancel()
+    replay.play()
+    await tick()
+    pump(wardic, 40, () => undefined, clock)
+    await Promise.all([seek, complete, replay])
+    expect([sought.v, completed.v, replayed.v]).toEqual([1, 1, 1])
+    expect([seek.state, complete.state, replay.state]).toEqual(["finished", "finished", "finished"])
+    wardic.dispose()
+  })
+
+  it("WO22: a key taken after its leg landed, or one that snaps, doesn't keep the call from landing, as Motion's (#951)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const short = { type: "tween", duration: 0.1, ease: "linear" } as const
+    // v on a 0.1 s entry, w on the call's 0.5 s: v lands, then a later call takes it; the call lands with w.
+    const perKey = { type: "tween", duration: 0.5, ease: "linear", v: short } as const
+    const o = { v: 0, w: 0 }
+    const call = wardic.animate(o, { v: 1, w: 1 }, perKey)
+    await tick()
+    pump(wardic, 14, () => undefined, clock)
+    expect(o.v).toBe(1)
+    wardic.animate(o, { v: 0 }, short)
+    await tick()
+    pump(wardic, 30, () => undefined, clock)
+    await call
+    expect(call.state).toBe("finished")
+    wardic.dispose()
+    // Skipped, and reduced motion's snapped x: taken in the task they start, before their first frame.
+    const skipping = WardicObject.make({ skipAnimations: true })
+    const skipped = { v: 0 }
+    const skip = skipping.animate(skipped, { v: 1 }, { type: "tween", duration: 2 })
+    skipping.animate(skipped, { v: 0 }, short)
+    await tick()
+    pump(skipping, 4, () => undefined)
+    await skip
+    expect(skip.state).toBe("finished")
+    skipping.dispose()
+    const reduced = WardicObject.make({ reducedMotion: "always" })
+    const snapped = { x: 0 }
+    const snap = reduced.animate(snapped, { x: 100 }, { type: "tween", duration: 2 })
+    reduced.animate(snapped, { x: 0 }, short)
+    await tick()
+    pump(reduced, 4, () => undefined)
+    await snap
+    expect(snap.state).toBe("finished")
+    reduced.dispose()
   })
 })
 

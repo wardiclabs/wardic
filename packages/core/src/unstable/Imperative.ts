@@ -52,7 +52,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
-import { constVoid, identity } from "effect/Function"
+import { constTrue, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -142,6 +142,8 @@ export interface BatchCall {
   readonly skipAnimations: boolean
   readonly head: Playback.Playhead
   readonly settled: () => void
+  /** It ended with a key a later change took, never landing (#951). */
+  readonly taken: () => void
   /** The members it moves, in order: every member when left out. */
   readonly members: ReadonlyArray<number> | undefined
 }
@@ -154,6 +156,8 @@ export interface BatchSequenceCall {
   readonly skipAnimations: boolean
   readonly head: Playback.Playhead
   readonly settled: () => void
+  /** It ended with a key a later change took, never landing (#951). */
+  readonly taken: () => void
 }
 
 /** An `animate` call's parts for Subjects that are Batch members' (#665): each Batch's members, and each Subject's own keys. */
@@ -327,7 +331,7 @@ const endFree = (owner: Spine.Running | undefined): boolean => {
  * Retarget leaves it where the animation leaves it until that target changes (Motion's latest-wins).
  * Its legs start where the keys are drawn, with their velocity, on `given` (a key with none of its own
  * on its Default transition), reduced motion as the provider says, and run through `head` once
- * {@link Spine.ImperativeTrack.run} is called. Once they land, uninterrupted, its target's Transition
+ * {@link Spine.ImperativeTrack.run} is called. Once they land, none taken, its target's Transition
  * end is set (#896), and put back by a cancel or a run again.
  */
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
@@ -337,7 +341,11 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
   const runImperative = (running: Spine.Running, program: Effect.Effect<unknown, never, WardicServices.WardicServices>): void => {
-    running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, legEnded(running))))
+    const at = runs
+    running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, (exit) => {
+      if (at === runs) supersededAt(running)
+      return legEnded(running)(exit)
+    })))
   }
   const to = target.values
   const before = lastTargetsOf(host)
@@ -394,13 +402,20 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
    * Its **Transition end** set (#896, ADR-0061 *Amendment (#896)*, Q2 and Q4): each key no leg draws
    * now taken as the keys it animates are, started where it's drawn, then set at once.
    */
-  const writeEnds = (values: Values.Values): void => {
-    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)))
-    if (Rec.isEmptyRecord(free)) return
+  // Each of `values`' keys `only` picks taken as the call took its own (`takeKey`), noted with the
+  // Override stack's targets now: an end's keys as it's set, a run's again as it starts (#951).
+  const takeEach = (values: Values.Values, only: (key: string) => boolean): void => {
     const takingNow = host.taking()
     const targetsNow = lastTargetsOf(host)
     const startedNow: Record<string, string> = {}
-    Arr.forEach(Rec.keys(free), (key) => takeKey(host, takingNow, key, targetsNow[key], UndefinedOr.getOrThrow(free[key]), startedNow))
+    Arr.forEach(Rec.keys(values), (key) => {
+      if (only(key)) takeKey(host, takingNow, key, targetsNow[key], UndefinedOr.getOrThrow(values[key]), startedNow)
+    })
+  }
+  const writeEnds = (values: Values.Values): void => {
+    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)))
+    if (Rec.isEmptyRecord(free)) return
+    takeEach(free, constTrue)
     // Kept from an earlier landing a run from its end didn't put back: what they were before any.
     if (Predicate.isUndefined(overwritten)) overwritten = Rec.map(free, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
     setAtRest(free)
@@ -417,37 +432,67 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
     overwritten = undefined
     if (Bool.not(Rec.isEmptyRecord(back))) setAtRest(back)
   }
-  // Interrupted (Q3): a key it animates taken from its leg before it landed, by a later call or the
-  // element's own target. The leg drew its other keys on, so it landed all the same.
-  const ownsNow = (key: string): boolean => {
-    const owner = owners.get(key)
-    if (Predicate.isUndefined(owner)) return false
-    return Arr.contains(runnings, owner)
+  // Whether its `i`th leg snaps (#468's skip, reduced motion's positional keys): it lands on its next
+  // frame, its keys landed from its start, so a take before then takes nothing in flight, as Motion's
+  // skipped value makes no animation. Its machine read only for a leg that lost a key.
+  const snaps = (i: number): boolean => Machine.durationOf(machineOf(UndefinedOr.getOrThrow(built[i]))) === 0
+  // A leg the element's own Retarget carried on, toward the same target, as its own (Q7): the call has lost it.
+  let carried = false
+  // Taken (#896's Q3, #951): a key it animates taken from its leg mid-flight, by a later animation or the
+  // element's own target, or a leg carried off whole. A leg that lost one has fewer than it started
+  // with; one taken after its leg landed doesn't count, as Motion's, nor one that snaps.
+  const taken = (): boolean => {
+    if (carried) return true
+    return Arr.some(runnings, (running, i) => Bool.and(running.count < Rec.size(running.targets), Bool.not(snaps(i))))
   }
-  const interrupted = (): boolean => Rec.some(to, (_, key) => Bool.not(ownsNow(key)))
   // Landed: its Transition end set at the flush after its last leg's frame, then the landing told
-  // after the flush that draws it, so the landing includes it (ADR-0057 decision 4).
-  // A run, a stop or a cancel since makes them stale: a stop or a seek in the frame between its end
-  // and its landing tells none.
+  // after the flush that draws it, so the landing includes it (ADR-0057 decision 4). Taken, it ends
+  // without landing, its end dropped, as Motion's call never resolves (ADR-0061 *Amendment (#951)*).
+  // A run, a stop or a cancel since makes each wait stale: a take reported synchronously, then a seek
+  // in the same task, or a stop between its end and its landing, tells none.
   const landed = (): void => {
-    if (Predicate.isUndefined(ends)) return gate.afterFlush(hooks.settled)
-    if (interrupted()) return gate.afterFlush(hooks.settled)
     const at = runs
+    if (taken()) {
+      return gate.afterFlush(() => {
+        if (at === runs) hooks.settled(false)
+      })
+    }
+    if (Predicate.isUndefined(ends)) {
+      return gate.afterFlush(() => {
+        if (at === runs) hooks.settled(true)
+      })
+    }
     gate.afterFlush(() => {
       if (at !== runs) return
       writeEnds(ends)
       gate.afterFlush(() => {
-        if (at === runs) hooks.settled()
+        if (at === runs) hooks.settled(true)
       })
     })
   }
+  // A leg landed, or was Superseded (#951): the last lands the track, or finds it taken.
+  const legDone = (): void => {
+    left--
+    if (left === 0) landed()
+  }
   const landing: Spine.Landing = {
     report: constVoid,
-    settled: () => {
-      left--
-      if (left === 0) landed()
-    },
+    settled: legDone,
     failed: hooks.failed,
+  }
+  /**
+   * A leg of this run ended **Superseded** (#951), told at its end, as it settles nothing of this
+   * track's: carried on by the element's own Retarget as its own, its landing the Retarget's now (Q7);
+   * or with every key taken, a count of 0 (only a take lowers it), which `taken` reads. Either counts
+   * toward the track's landing, which finds it taken.
+   */
+  // Here, not in the spine, so an app with no Imperative animation pays nothing for it.
+  const supersededAt = (running: Spine.Running): void => {
+    if (running.landing !== landing) {
+      carried = true
+      return legDone()
+    }
+    if (running.count === 0) legDone()
   }
   // Its legs ended where they are: the keys they draw are drawn by none.
   const end = (): void =>
@@ -462,9 +507,15 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
     if (head.speed < 0) return false
     return head.time >= duration()
   }
+  // A key another leg draws: a later animation's, or the element's own.
+  const drawnByAnother = (key: string): boolean => Predicate.isNotUndefined(owners.get(key))
   const run = (): void => {
     runs++
     end()
+    carried = false
+    // Run again, it takes each of its keys from whatever draws it now, as the call took them (#951): one
+    // leg draws a key. The first run's are taken already.
+    if (runs > 1) takeEach(to, drawnByAnother)
     if (Bool.not(fromItsEnd())) putBack()
     left = legs.length
     Spine.tellStarted(live, legs)
@@ -518,7 +569,7 @@ const overOwn = (own: Config.WardicVariantTransition | undefined, given: Config.
  * A Subject's animation of `target`: through its spine when it's a Wardic element's, else through its
  * plain spine, in the gate while any of its animations runs.
  */
-const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, target: Config.WardicVariant, given: Config.WardicTransition | undefined, head: Playback.Playhead, settled: () => void): Spine.ImperativeTrack => {
+const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, target: Config.WardicVariant, given: Config.WardicTransition | undefined, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack => {
   const resolved = VariantTarget.resolveTarget(target, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
   const own = wardicElements.get(subject)
   const hooks = { settled, failed: constVoid }
@@ -546,9 +597,9 @@ const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subje
     })
   }
   const track = imperativeTrackOf(plain.spine.host(), resolved, transition, head, {
-    settled: () => {
+    settled: (landed) => {
       leave()
-      settled()
+      settled(landed)
     },
     failed: () => leave(),
   })
@@ -608,14 +659,15 @@ const batchTransitionOf = (options: WardicAnimateOptions | undefined): Config.Wa
   UndefinedOr.map(options, (given) => withoutComplete(given) as Config.WardicTransition)
 
 /** A Batch call's track over `members` (every member when left out), driven by `head`: the call's options its transition. */
-const batchTrackOf = (env: AnimateEnv, binding: BatchCalls, target: Readonly<Record<string, unknown>>, members: ReadonlyArray<number> | undefined, options: WardicAnimateOptions | undefined, head: Playback.Playhead, settled: () => void): Spine.ImperativeTrack =>
+const batchTrackOf = (env: AnimateEnv, binding: BatchCalls, target: Readonly<Record<string, unknown>>, members: ReadonlyArray<number> | undefined, options: WardicAnimateOptions | undefined, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack =>
   binding.track({
     target,
     transition: batchTransitionOf(options),
     reducedMotion: env.reducedMotion(),
     skipAnimations: skipsBatchCall(env, options),
     head,
-    settled,
+    settled: () => settled(true),
+    taken: () => settled(false),
     members,
   })
 
@@ -640,8 +692,15 @@ export interface WardicPlaybackControls extends PromiseLike<void> {
   speed: number
   /** How long it runs, in seconds: its longest Subject's longest key, a spring's to rest. */
   readonly duration: number
+  /**
+   * Where it is: `"running"`, `"paused"`, `"finished"` once it lands, and `"idle"` after `stop()` or
+   * `cancel()`, or once a later animation has taken one of its keys and the rest have landed.
+   */
   readonly state: WardicPlayState
-  /** Resolves when it lands, or at `complete()`; never at `stop()` or `cancel()`, as Motion's. */
+  /**
+   * Resolves when it lands, or at `complete()`; never at `stop()` or `cancel()`, nor once a later
+   * animation takes one of its keys, as Motion's.
+   */
   readonly finished: Promise<void>
   /** Play it on: from where it's paused, or again from its start once it's finished or cancelled. Not after `stop()`. */
   readonly play: () => void
@@ -665,11 +724,13 @@ export interface AnimationWatch {
 /** Playback controls over `tracks`, all run through `head`, started now. */
 const controlsOf = (tracks: ReadonlyArray<Spine.ImperativeTrack>, head: Playback.Playhead, watch: AnimationWatch, onComplete: (() => void) | undefined): {
   readonly controls: WardicPlaybackControls
-  readonly settledOne: () => void
+  readonly settledOne: (landed: boolean) => void
 } => {
   let state: WardicPlayState = "running"
   let stopped = false
   let landed = 0
+  // Whether a Subject's part ended without landing, a key of it taken by a later animation (#951).
+  let anyTaken = false
   let resolve: (() => void) | undefined
   let finished: Promise<void> | undefined
   let isResolved = false
@@ -680,6 +741,7 @@ const controlsOf = (tracks: ReadonlyArray<Spine.ImperativeTrack>, head: Playback
   }
   const runAll = (): void => {
     landed = 0
+    anyTaken = false
     Arr.forEach(tracks, (track) => track.run())
   }
   const fresh = (): void => {
@@ -777,10 +839,16 @@ const controlsOf = (tracks: ReadonlyArray<Spine.ImperativeTrack>, head: Playback
       runAll()
     },
   }
-  // Each Subject's legs landed: the last lands the animation.
-  const settledOne = (): void => {
+  // Each Subject's legs landed, or ended with a key taken: the last lands the animation, or, with one
+  // taken, ends it without landing, as a stop does (#951, Q1 and Q5). Motion's never resolves then.
+  const settledOne = (landedOne: boolean): void => {
     landed++
+    if (Bool.not(landedOne)) anyTaken = true
     if (landed < tracks.length) return
+    if (anyTaken) {
+      stopped = true
+      return end("idle", false)
+    }
     isResolved = true
     UndefinedOr.map(resolve, (done) => done())
     UndefinedOr.map(onComplete, (complete) => complete())
@@ -863,12 +931,12 @@ const started = (
   watch: AnimationWatch,
   count: number,
   onComplete: (() => void) | undefined,
-  tracksOf: (head: Playback.Playhead, settled: () => void) => ReadonlyArray<Spine.ImperativeTrack>,
+  tracksOf: (head: Playback.Playhead, settled: (landed: boolean) => void) => ReadonlyArray<Spine.ImperativeTrack>,
 ): WardicPlaybackControls => {
   if (count === 0) return finishedControls()
   const head = Playback.make()
-  let settledOne = constVoid
-  const tracks = tracksOf(head, () => settledOne())
+  let settledOne: (landed: boolean) => void = constVoid
+  const tracks = tracksOf(head, (landedOne) => settledOne(landedOne))
   const made = controlsOf(tracks, head, watch, onComplete)
   settledOne = made.settledOne
   watch.started(made.controls)
@@ -1064,7 +1132,7 @@ export const segmentAnimates = <S extends object>(ports: Ports<S>, segment: unkn
  * Interpolators on its tween over the sequence, each frame told to its callback. Cancelled, the
  * callback hears its first stop again, as Motion's motion value is set back.
  */
-const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequence.Animation, head: Playback.Playhead, settled: () => void): Spine.ImperativeTrack => {
+const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequence.Animation, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack => {
   const stops = RetargetLegs.filledStops(UndefinedOr.getOrThrow(animation.keyframes[VALUE]), 0)
   const options = UndefinedOr.getOrThrow(animation.transition[VALUE])
   // Skipped (#468): its callback told the value it would end on, on the first tick.
@@ -1082,7 +1150,7 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
   }
   const landed = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
     Exit.match(exit, {
-      onSuccess: () => Effect.sync(settled),
+      onSuccess: () => Effect.sync(() => settled(true)),
       onFailure: (cause) => Bool.match(Cause.hasInterruptsOnly(cause), { onTrue: () => Effect.void, onFalse: () => Report.failure("wardic.animate: a function Segment failed", cause) }),
     })
   const run = (): void => {
@@ -1130,7 +1198,7 @@ const sequenceOf = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: u
       return trackOf(env, ports.subjects, subject as S, animation.keyframes as Config.WardicVariant, animation.transition as Config.WardicTransition, head, settled)
     }),
     ...Arr.map(parts.batches, (part) =>
-      part.binding.sequenceTrack({ members: part.members, animations: part.animations, reducedMotion: env.reducedMotion(), skipAnimations: env.skipAnimations(), head, settled })),
+      part.binding.sequenceTrack({ members: part.members, animations: part.animations, reducedMotion: env.reducedMotion(), skipAnimations: env.skipAnimations(), head, settled: () => settled(true), taken: () => settled(false) })),
   ])
 }
 

@@ -228,7 +228,7 @@ export const make = <T extends object>(context: Context, objects: ReadonlyArray<
         animations[slot] = call.animations[n]
       })
       const keyframesOf = BatchCalls.keyframesFor(planning(), call, (slot) => UndefinedOr.getOrThrow(animations[slot]))
-      return controlsOf(running, Batch.keyframes(running, moving, keyframesOf, { head: call.head, onLanded: call.settled }))
+      return controlsOf(running, Batch.keyframes(running, moving, keyframesOf, { head: call.head, onLanded: call.settled, onTaken: call.taken }))
     },
   }
 

@@ -207,4 +207,64 @@ describe("ObjectBatch: many objects as one run", () => {
     expect(() => wardic.animate(swarm, { x: 1 })).toThrow(/member 1's "x" is "far"/)
     wardic.dispose()
   })
+  it("OB14: a Batch call, or a sequence of a Batch, a later one takes a member's key from ends without landing, once the keys it kept land (#951)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const dots = sprites(2)
+    const swarm = wardic.batch(dots)
+    const told: Array<number> = []
+    const first = wardic.animate(swarm, { x: 10, y: 10 }, { type: "tween", duration: 0.5, ease: "linear", onComplete: () => told.push(1) })
+    let resolved = false
+    void first.then(() => {
+      resolved = true
+    })
+    // A sequence's Segment of a Batch, the same.
+    const others = sprites(2)
+    const flock = wardic.batch(others)
+    const sequence = wardic.animate([[flock, { x: 10, y: 10 }, { duration: 0.5, ease: "linear" }]])
+    await tick()
+    pump(wardic, 6, clock)
+    wardic.animate(swarm.at(0), { x: 0 }, LINEAR)
+    wardic.animate(flock.at(0), { x: 0 }, LINEAR)
+    await tick()
+    pump(wardic, 40, clock)
+    await tick()
+    pump(wardic, 2, clock)
+    // Its other keys landed; member 0's x is the later call's.
+    expect(dots.map((dot) => [dot.x, dot.y])).toEqual([[0, 10], [10, 10]])
+    expect(first.state).toBe("idle")
+    expect(resolved).toBe(false)
+    expect(told).toEqual([])
+    expect(others.map((dot) => [dot.x, dot.y])).toEqual([[0, 10], [10, 10]])
+    expect(sequence.state).toBe("idle")
+    wardic.dispose()
+  })
+  it("OB15: a member's key taken after it landed, or one that snaps, doesn't keep a Batch call from landing (#951)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    // x on a 0.1 s entry, y on the call's 0.5 s: x lands, then a later call takes member 0's; the call lands with y.
+    const perKey = { type: "tween", duration: 0.5, ease: "linear", x: LINEAR } as const
+    const dots = sprites(2)
+    const swarm = wardic.batch(dots)
+    const call = wardic.animate(swarm, { x: 10, y: 10 }, perKey)
+    await tick()
+    pump(wardic, 14, clock)
+    expect(dots[0]!.x).toBe(10)
+    wardic.animate(swarm.at(0), { x: 0 }, LINEAR)
+    await tick()
+    pump(wardic, 30, clock)
+    await call
+    expect(call.state).toBe("finished")
+    wardic.dispose()
+    // Skipped: taken in the task it starts, before its first frame.
+    const skipping = WardicObject.make({ skipAnimations: true })
+    const flock = skipping.batch(sprites(2))
+    const skip = skipping.animate(flock, { x: 10 }, { type: "tween", duration: 2 })
+    skipping.animate(flock.at(0), { x: 0 }, LINEAR)
+    await tick()
+    pump(skipping, 4)
+    await skip
+    expect(skip.state).toBe("finished")
+    skipping.dispose()
+  })
 })

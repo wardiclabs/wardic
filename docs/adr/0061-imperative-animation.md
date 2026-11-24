@@ -299,3 +299,88 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
   - `f-slim`, Foldkit's Slim app, goes from 196.5 to 196.8 KB gzip. That was past its budget, so the budget was raised to 196.8 by what this measured, as #882's was.
   - `t2-stage` (243.5) and `t2-features` (251.2) stay within theirs.
   - Solid's apps don't ship the track, and are unchanged.
+
+## Amendment (#951, 2026-11-24): an animation a later one takes a key from ends without landing
+
+**What happened.** Found while building #896.
+- **Some keys taken:** a call whose key a later call took still landed once its other keys did. `finished` resolved, `onComplete` ran and `state` read `"finished"`.
+  - Why: the leg that gave the key up drew its other keys on, and settled the track (`giveUp`, `legEnded`).
+- **Every key taken:** the leg was given up whole, interrupted, and settled nothing. The call stayed `"running"` for good, and nothing heard an end.
+  - Foldkit's `Wardic.animate` Effect, which succeeds on the end, hung until its fiber was interrupted.
+  - `scope.settled()` waited on the call, and `scope.animations` kept it.
+- **A Batch call:** it withheld `onLanded` once a key was taken (`checkLanding`, "it ends unheard"), and hung the same way.
+
+**Motion** (14.6.0, and `.reference/motion` at `16c6122`): `value.start` stops the value's animation. `JSAnimation.stop` tears it down to `"idle"` without `notifyFinished`, so the group's `finished`, a `Promise.all`, never resolves, and `onComplete`, chained on it, never runs. The group's `state` is its first animation's (a `TODO` in `GroupAnimation`).
+
+**Decided (grilled 2026-11-24, Q1 and Q5–Q11 each A, and the run's retake asked as it came up):**
+1. **It never lands, and ends without landing, as a stop does** (Q1).
+   - Motion's promise: `finished` never resolves, `onComplete` never runs.
+   - Wardic's end: once the keys it still draws have landed, or at once with none left, `state` reads `"idle"` and its scope is told `ended(controls, false)`. Foldkit's Command then succeeds with `{ landed: false }`, `settled()` stops waiting, and `animations` drops it.
+   - Rejected: A, Motion's to the letter, with no end (every consumer above hangs); C, landing with its other keys.
+2. **A call over several Subjects** (Q5) lands only if every part does. With one taken, it ends without landing once every part is done.
+3. **Before its end, a run takes its keys back; after it, it's a stopped call** (Q6).
+   - A seek, `complete()` or replay runs it again, and its keys are taken from whatever draws them now. The later call has then lost a key in turn.
+   - This came up as it was built. A run only reassigned owners, leaving the later call's leg drawing the key too: two legs on one key, the later one's frames winning after the earlier landed. Asked, and fixed here (A).
+   - After its end, `play()` and `complete()` do nothing, as after `stop()`.
+4. **The element's own target taking a key counts** (Q7), as a later call's does: both are latest-wins takes, and #896 drops a Transition end on either.
+5. **Batch calls too** (Q8), on the same controls.
+6. **Sequences too** (Q9): each Subject's part of one runs as a call's does. A function Segment's value can't be taken.
+
+**Reviewed** (two-axis review, standards and spec). Three more decisions (each A), and one fix:
+7. **A key counts as taken only mid-flight.** A key taken after its leg landed, while the call's other keys still run, doesn't keep the call from landing, as Motion's resolved value doesn't. Batch calls follow the same rule.
+8. **A key that snaps counts as landed from its start.** That's `skipAnimations`, and reduced motion's positional keys. A take in the same task, before its next frame, takes nothing in flight, as Motion's skipped value makes no animation.
+9. **A ward's carry counts as a take** (Q7). A ward's own target changing to the value the call's leg is heading for carries the leg on as the ward's own, reassigning its landing. The call used to hang, `"running"` for good (before #951 too). Now the leg is Superseded, and the call ends without landing.
+- **The fix:** a take reported synchronously, inside the later call, and then, in the same task, a seek, `complete()` or a cancel and replay. The stale report used to end the new run: `"idle"`, unresolved, the plain Subject out of its gate. Every wait in the landing now checks the run count.
+- **Standards:**
+  - the vocabulary moved to the glossary's: a leg Superseded (`supersededAt`), a track's `taken`;
+  - one take loop (`takeEach`) serves an end and a run;
+  - the public `onTaken` doc cites no issue;
+  - afd1281d's three ideas were split into commits.
+
+**Built:**
+- **`controlsOf`'s `settledOne(landed)`** counts each part as before. With one not landed (`anyTaken`), the last part ends the call: `stopped`, then `end("idle", false)`, with no resolve and no `onComplete`. `runAll` clears it.
+- **The track's `settled(landed)`** (`Spine.ImperativeHooks`): `landed` false when its landing finds itself `taken`.
+  - **Taken:** a leg ending with fewer keys than it started with (`count < Rec.size(targets)`; only `giveUp` lowers it, and not for a done leg), one that doesn't snap (its machine's duration above 0, read only then), or a leg carried off.
+  - **Passed on** by the plain Subject's wrapper, function Segments, Batch calls and Batch sequences.
+  - **Every wait checks the run count:** the taken report, the plain landing, and #896's end.
+- **`supersededAt`**, told at each leg's end (the track's own `Effect.onExit`, a leg of the current run). A leg with a count of 0 had every key taken; one whose landing isn't the track's any more was carried by the element's own Retarget. Either counts toward the track's landing (`legDone`), as taken. Neither settles the track's landing otherwise: a leg `giveUp` ends exits Superseded, counting toward nothing.
+- **A run after the track's first** takes each key another leg draws (`takeEach(to, drawnByAnother)`, through `takeKey`), as the call took it.
+- **Batch:**
+  - **The options:** `Batch.AnimateOptions` and `KeyframesOptions` take `onTaken`. `BatchCalls`' change call, `ObjectBatch` and dom's `BatchMembers` pass the call's `taken` to it.
+  - **Which keys count:** `checkLanding` marks each held key at rest (`rested`), as does `play` for a key that starts at its target. At the end, a key no longer held and never rested calls `onTaken`; otherwise `onLanded`.
+
+**Tests:**
+- `packages/object/test/wardic-object.test.ts`:
+  - **WO15** changed. Its takeover case had pinned the landing: now `"idle"`, never resolved, no `onComplete`.
+  - **WO20:** every key taken ends at once. Two Subjects end once both parts are done. A seek takes the keys back from the later call, which ends in turn, and lands. A pair whose one part has ended lands after a seek. After the end, `play()` and `complete()` do nothing.
+  - **WO21:** a seek, `complete()`, and a cancel then `play()`, in the task a later call takes every key, each run again and land.
+  - **WO22:** a key taken after its leg landed. A skipped call's key, and reduced motion's snapped `x`, taken in the task they start. Each call lands.
+- `packages/object/test/object-batch.test.ts`:
+  - **OB14:** a Batch call and a Batch sequence, a member's key taken mid-flight, end `"idle"`.
+  - **OB15:** a member's key taken after it landed, and a skipped Batch call's taken in its task, each land.
+- `packages/solid/test/create-animate.browser.test.tsx`:
+  - **CV7** asserts the call ends `"idle"` when the ward's own target takes a key.
+  - **CV8:** `scope.settled()` stops waiting, and `animations` drops the call.
+  - **CV9:** a ward's carry ends the call without landing.
+  - **CV10:** a seek before that end takes the carried leg's key back, and the call lands, the ward settling too.
+- `packages/solid/test/v1/`:
+  - **CBA3** (`create-batch-animate`) had pinned the hang, `"running"`: now `"idle"`, never resolved.
+  - **CBS7** (`create-batch-sequence`): a DOM Batch sequence ends `"idle"`.
+- `packages/foldkit/test/animation-scope.browser.test.ts`, **C5:** the Command succeeds with `landed: false`, at once with every key taken.
+- **On `main`,** CV8, CV9 and C5 failed. C5's every-key Command never ended, and CV9's call stayed `"running"`.
+
+**Mutation-checked** (`.tmp/951/mutate.py`): 21 single-point mutations across core, dom and object, 20 caught.
+- **Three were caught only after a test was added or reworked:** a part's loss kept across a run (WO20), dom's Batch sequence dropping `taken` (CBS7), and `carried` kept across a run (CV10, its carried leg ending before the seek).
+- **The one missed:** the run check on a leg's end. A leg of an earlier run ends in `run()`'s own `end()`, before `run()` resets `carried` and `left`, so a stale count washes out. It's kept as a guard, should an Environment's legs end later than that.
+- **CBS7's first version threw on its own harness,** so its first catch was false. It was fixed, and the whole set rerun.
+
+**Measured** (`.tmp/896/probe.ts`, as #896's: six paired processes against `main`'s `Imperative.ts` and `Spine.ts`). One call over 3000 plain objects:
+- **Retained per Subject:** about 4.21 KB on both sides.
+- **The call:** 39.4 ms on `main`, 39.9 ms on the head, within the probe's spread (ratios 0.95–1.06).
+- **After the review's fixes:** the call 40.2 → 40.0 ms (ratios 0.98–1.02). Retained per Subject is 4213 → 4237 B at the median, +0.6%: the closure each leg's end now goes through.
+- **The benches ran on the review's first fix**, its hook in `Spine.ts`. The final build leaves the spine's code as `main`'s, and Batch's loop as timed, its two guards an `if … else` before.
+- **`bench:core --base main`:** passed on Bun, Node and Chromium, the Batch workloads within ±3%. Chromium's first two passes were too noisy (its control +3.0% and +3.1%); one rerun failed to launch the browser.
+- **`bench:solid --base main`:** passed on the third run, both bindings: warm tasks −1.2% to +4.7%, bytes per element −0.1% and +0.3%.
+  - The two runs before each failed one sub-millisecond item, a different one each time, on paths this doesn't touch: Solid 2's `restRetarget` (+5.5%, then +1.3%), then Solid 2's layout `page frame` (+7.9%, then −1.5% and +5.8%).
+- **Bytes** (`bun run size`): core grows 0.4–0.7 KB minified in the apps that ship the Imperative track, and 0.1 in the Batch apps. Three budgets were raised by what this measured, as #896's was: `f-slim` to 197.0, `t2-stage` to 243.9, `t2-features` to 251.5.
+  - The review's first fix put a hook in `Spine.ts`'s `giveUp` and its carry. That spine ships in Solid's slim apps, and `s2-slim` read 118.0 against its 118.0. The hook moved to the Imperative track's leg ending (`supersededAt`), where only an app with an Imperative animation pays for it, and Solid's slim apps are as they were.

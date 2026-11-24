@@ -7,6 +7,8 @@
 //   awaiting Command then succeeding with `landed: false`.
 // - C3: without a scope, a selector resolves under the `w.Provider()` element: an element outside it isn't found.
 // - C4: a scope whose element isn't mounted finds nothing: `AnimationFailed` with the selector.
+// - C5: an animation a later one takes a key from ends without landing: its Command succeeds with
+//   `landed: false`, once its other keys land, at once with none left (#951).
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import type { Html, HtmlBuilder } from "foldkit/html"
@@ -110,5 +112,25 @@ describe("The Animation scope on Foldkit (#798)", () => {
     expect(scope.element()).toBeUndefined()
     held.send("go")
     await until(() => doneOf(held).includes("go:missing:.item"), 2000, "fails with the selector")
+  })
+  it("C5: an animation a later one takes a key from ends with landed: false, its other keys landed first, or at once with none left", async () => {
+    const SLOW = { duration: 0.4, ease: "linear" } as const
+    const held = drive((_on, h, w) => w.div([w.Provider()], [h.div([h.Id("p"), h.Style(BOX)]), h.div([h.Id("q"), h.Style(BOX)])]), {
+      some: endedWord(Wardic.animate("#p", { x: 60, opacity: 0.5 }, SLOW)),
+      takeSome: endedWord(Wardic.animate("#p", { x: 0 }, FAST)),
+      all: endedWord(Wardic.animate("#q", { x: 60 }, SLOW)),
+      takeAll: endedWord(Wardic.animate("#q", { x: 0 }, FAST)),
+    })
+    await boxOf(held, "p")
+    await frames(2)
+    held.send("some")
+    held.send("all")
+    await frames(4)
+    held.send("takeSome")
+    held.send("takeAll")
+    await until(() => doneOf(held).includes("all:landed:false"), 2000, "every key taken: ended at once")
+    await until(() => doneOf(held).includes("some:landed:false"), 2000, "its opacity landed: ended without landing")
+    expect(doneOf(held)).toContain("takeSome:landed:true")
+    expect(doneOf(held)).toContain("takeAll:landed:true")
   })
 })
