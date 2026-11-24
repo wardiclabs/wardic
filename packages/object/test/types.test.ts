@@ -56,7 +56,7 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(bag, declared)
   void forward(ball, { x: 1 })
 
-  // A Record, or a type of any name alone (#959): its type inferred, its target as any such Subject's.
+  // A Record, or an index-only type (#959): its type inferred, its target as any such Subject's.
   const levels: Record<string, number> = { bass: 0, treble: 0 }
   const bands: { [band: string]: number } = { low: 0 }
   wardic.animate(levels, { bass: 1, treble: [0, 1] })
