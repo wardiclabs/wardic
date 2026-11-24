@@ -93,6 +93,23 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate([[cube, { x: 1 }]], { durration: 1 })
   // @ts-expect-error: nor a Segment's own, beside the sequence's options.
   wardic.animate([[cube, { x: 1 }, { duration: "slow" }]], { delay: 0.1 })
+  // Nor options that would fit an array's target: empty ones check the sequence, a target's field is no option.
+  wardic.animate([[cube, { x: 1 }]], {})
+  // @ts-expect-error: a Segment's value, with empty options.
+  wardic.animate([[cube, { x: true }]], {})
+  // @ts-expect-error: a target's `transition` isn't a sequence's option (its `defaultTransition` is).
+  wardic.animate([[cube, { x: 1 }]], { transition: { duration: 1 } })
+  // @ts-expect-error: nor a third argument.
+  wardic.animate([[cube, { x: 1 }]], {}, { duration: 1 })
+  // A list of unlike uniforms objects takes the uniforms they share, as ever.
+  const near = { uTime: { value: 0 }, uNear: { value: 0 } }
+  const far = { uTime: { value: 0 }, uFar: { value: 0 } }
+  wardic.animate([near, far], { uTime: 1 })
+  // @ts-expect-error: a uniform only one of them has.
+  wardic.animate([near, far], { uNear: 1 })
+  const tinted = { uTime: { value: 0 }, uTint: { value: new THREE.Color() } }
+  // @ts-expect-error: nor a colour uniform only one of them has.
+  wardic.animate([tinted, near], { uTint: "#f00" })
 
   // A transition's entries are the Subject's own keys (#952): a scene key's, a colour's.
   wardic.animate(cube, { x: 2, color: "#00f" }, { duration: 1, x: { duration: 0.2 }, color: { type: "tween", duration: 0.1 } })
