@@ -77,15 +77,17 @@ type ColourKeyOf<T> = { readonly [K in keyof T]-?: T[K] extends IsColor ? K : ne
 type ChannelKey<K extends string> = `${K}${(typeof ThreeColours.CHANNELS)[number]}`
 
 /** The names of `U`'s uniforms that hold a number, a vector's axes, or a colour's channels. An array has none. */
-// #963: as AnimatableKey's, over an array the mapped keys come out as `string`.
-type UniformKey<U> = U extends ReadonlyArray<unknown>
+// #963: as AnimatableKey's, over an array the mapped keys come out as `string`; `[U]`, so a union keeps
+// only the uniforms its members share.
+type UniformKey<U> = [U] extends [ReadonlyArray<unknown>]
   ? never
   : {
       readonly [K in keyof U]-?: U[K] extends { value: number } ? K : U[K] extends { value: IsColor } ? (K extends string ? ChannelKey<K> : never) : U[K] extends { value: infer V } ? (K extends string ? `${K}${AxesOf<V>}` : never) : never
     }[keyof U] & string
 
 /** The names of `U`'s uniforms that hold a `Color`. An array has none. */
-type UniformColourKey<U> = U extends ReadonlyArray<unknown> ? never : { readonly [K in keyof U]-?: U[K] extends { value: IsColor } ? K : never }[keyof U] & string
+// #963: as UniformKey's.
+type UniformColourKey<U> = [U] extends [ReadonlyArray<unknown>] ? never : { readonly [K in keyof U]-?: U[K] extends { value: IsColor } ? K : never }[keyof U] & string
 
 /** The uniforms `M` holds, a `ShaderMaterial`'s. */
 type UniformsOf<M> = M extends { readonly uniforms: infer U } ? U : never
@@ -139,11 +141,15 @@ type TransitionKey<T> = [SceneKey<T>] extends [never] ? WardicObject.AnimatableK
 /**
  * A target for `T`: a scene object's or a material's by its scene keys and colours; a uniforms object's
  * by its uniforms' names; any other object's (a `Vector3`, a plain `{ x }`) by its own keys, as `@wardic/object`'s.
- * Its transition takes an entry under any of them, a colour's or a channel's.
+ * Its transition takes an entry under any of them, a colour's or a channel's. An array has none that
+ * fits: `animate` reads one as a list of Subjects, or a sequence, never as one Subject.
  */
-export type ThreeTarget<T> = [SceneKey<T>] extends [never]
-  ? Omit<WardicObject.ObjectTarget<T>, "transition"> & SceneTarget<UniformKey<T>, UniformColourKey<T>, TransitionKey<T>>
-  : SceneTarget<SceneKey<T>, ColourKey<T>, TransitionKey<T>>
+// #963: an array's is `@wardic/object`'s, which nothing fits.
+export type ThreeTarget<T> = [T] extends [ReadonlyArray<unknown>]
+  ? WardicObject.ObjectTarget<T>
+  : [SceneKey<T>] extends [never]
+    ? Omit<WardicObject.ObjectTarget<T>, "transition"> & SceneTarget<UniformKey<T>, UniformColourKey<T>, TransitionKey<T>>
+    : SceneTarget<SceneKey<T>, ColourKey<T>, TransitionKey<T>>
 
 /**
  * A target for `T` whose keys are any name (a `ShaderMaterial`'s uniforms, a mesh drawn with one), checked

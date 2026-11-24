@@ -70,21 +70,30 @@ import * as PumpedFrames from "./PumpedFrames.ts"
 
 /** A key of `T` Wardic animates: one whose value is a number or a string. An array has none: a list is many Subjects. */
 // #963: over an array, the mapped keys come out as `string`, so an inline sequence, read as a list of
-// arrays, looked like Subjects of any name, its options unchecked.
-export type AnimatableKey<T> = T extends ReadonlyArray<unknown> ? never : { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
+// arrays, looked like Subjects of any name, its options unchecked. `[T]`, not `T`: a union of Subjects
+// (a mixed list's) keeps only the keys its members share, not distributed over each.
+export type AnimatableKey<T> = [T] extends [ReadonlyArray<unknown>] ? never : { readonly [K in keyof T]-?: T[K] extends number | string ? K : never }[keyof T] & string
 
 /**
  * A target for `T`: each of its animatable keys a value or keyframes; a transition, with an entry
  * under any of those keys, which `animate`'s options are laid over field by field; and a Transition
- * end, its values set once the object lands.
+ * end, its values set once the object lands. An array has none that fits: `animate` reads one as a
+ * list of Subjects, or a sequence, never as one Subject.
  */
-export type ObjectTarget<T> = {
-  readonly [K in AnimatableKey<T>]?: ValueAt<T, K>
-} & {
-  /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
-  readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
-  readonly transitionEnd?: TransitionEndOf<T> | undefined
-}
+// #963: else an inline sequence with options, read as a list of arrays, fit the subject signature
+// with whatever options fit an array's target (`{}`, a `transition`), unchecked, its Segments with it.
+export type ObjectTarget<T> = [T] extends [ReadonlyArray<unknown>]
+  ? NotOneSubject
+  : {
+      readonly [K in AnimatableKey<T>]?: ValueAt<T, K>
+    } & {
+      /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
+      readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
+      readonly transitionEnd?: TransitionEndOf<T> | undefined
+    }
+
+/** The target an array meets, which nothing fits: its name says why. */
+type NotOneSubject = { readonly "an array isn't one Subject: a list of them, or a sequence, whose options are WardicSequenceOptions": never }
 
 /** A target's value for `T`'s key `K`: one of its values, or keyframes of them. */
 type ValueAt<T, K extends keyof T> = T[K] | Config.WardicKeyframes<T[K]>
