@@ -6,6 +6,7 @@
 import * as TestStage from "@wardic/three/TestStage"
 import * as ThreeInput from "@wardic/three/ThreeInput"
 import * as WardicThree from "@wardic/three/WardicThree"
+import { reportsDuring } from "./reports.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as THREE from "three"
 
@@ -42,6 +43,28 @@ const journal = () => {
       return (end, { success }) => void told.push(`${["cancel", "tap"][Number(success)]} ${name}${memberTag(end)}`)
     },
   }
+}
+
+/** A stage whose raycast throws while `broken.on`: its `hitTest`'s, or the raycast of a mesh beside the others. */
+const brokenStage = (way: "hitTest" | "raycast") => {
+  const broken = { on: true }
+  if (way === "hitTest") {
+    const made = staged({
+      hitTest: (raycaster, root) => {
+        if (broken.on) throw new Error("the hitTest broke")
+        return raycaster.intersectObject(root, true)
+      },
+    })
+    return { ...made, broken }
+  }
+  const made = staged()
+  const faulty = boxAt(made.scene, -3, 2, 0, "faulty")
+  const own = faulty.raycast.bind(faulty)
+  faulty.raycast = (raycaster, hits) => {
+    if (broken.on) throw new Error("its raycast broke")
+    own(raycaster, hits)
+  }
+  return { ...made, broken }
 }
 
 /** A Batch member's tag on a journal line: `#2`, none for a lone object. */
@@ -284,6 +307,61 @@ describe("ThreeInput: hover and press on a scene, hit by a raycast", () => {
     stage.pointer.at(10, 10)
     stage.frame()
     expect(log.told).toEqual(["start crate"])
+  })
+
+  it.each(["hitTest", "raycast"] as const)(
+    "IN12: a raycast that throws (a %s) is reported once until one succeeds, and the runtime's writes still run: another mesh's animation lands (#979)",
+    async (way) => {
+      const { stage, scene, broken } = brokenStage(way)
+      const crate = boxAt(scene, 0, 0, 0, "crate")
+      const other = boxAt(scene, 5, 0, 0, "other")
+      const log = journal()
+      stage.hover(crate, log.hover("crate"))
+      stage.pointer.over(crate)
+      const reports = await reportsDuring(async () => {
+        const moving = stage.animate(other, { x: 8 }, { type: "tween", duration: 0.1, ease: "linear" })
+        await Promise.resolve()
+        // Before #979, each frame threw at its raycast, before Wardic's writes: `other` stayed at 5.
+        for (let i = 0; i < 20; i++) stage.frame()
+        expect(other.position.x).toBe(8)
+        expect(moving.state).toBe("finished")
+        expect(log.told).toEqual([])
+        broken.on = false
+        stage.frame()
+        expect(log.told).toEqual(["start crate"])
+        // Broken again once a raycast succeeded: reported again, the hit kept as it was.
+        broken.on = true
+        for (let i = 0; i < 3; i++) stage.frame()
+        expect(log.told).toEqual(["start crate"])
+      })
+      expect(reports).toEqual(["wardic.input: a raycast failed", "wardic.input: a raycast failed"])
+      stage.dispose()
+    },
+  )
+
+  it("IN13: a press whose cast at its down throws hits nothing, and nothing escapes the event: reported once until a cast succeeds, the next press hits (#979)", async () => {
+    const { stage, scene, broken } = brokenStage("hitTest")
+    const crate = boxAt(scene, 0, 0, 0, "crate")
+    const log = journal()
+    stage.press(crate, log.press("crate"))
+    const reports = await reportsDuring(() => {
+      stage.pointer.over(crate)
+      // Before #979, the cast threw out of the canvas's listener.
+      stage.pointer.down()
+      stage.pointer.up()
+      expect(log.told).toEqual([])
+      broken.on = false
+      stage.pointer.down()
+      stage.pointer.up()
+      expect(log.told).toEqual(["down crate", "tap crate"])
+      // Broken again once a press's cast succeeded: reported again.
+      broken.on = true
+      stage.pointer.down()
+      stage.pointer.up()
+      expect(log.told).toEqual(["down crate", "tap crate"])
+    })
+    expect(reports).toEqual(["wardic.input: a raycast failed", "wardic.input: a raycast failed"])
+    stage.dispose()
   })
 
   it("TS1: a stage's frame advances its time and makes the scene's matrices current, as a render does", async () => {

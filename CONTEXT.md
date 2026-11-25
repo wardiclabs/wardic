@@ -541,11 +541,11 @@ The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, the
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
 
 **Scene input**:
-A scene's pointer input, as core's `InputSource`: its canvas's pointer events, each hitting the nearest drawn object under the pointer, cast once a **Refresh frame** per pointer while a gesture is watched, and at once for a press or a release. A hit on an object is a hit on each object above it, and an `InstancedMesh`'s instance is hit by its index. Hover follows what moves under a still pointer (#883, ADR-0069 decisions 22 and 23).
+A scene's pointer input, as core's `InputSource`: its canvas's pointer events, each hitting the nearest drawn object under the pointer, cast once a **Refresh frame** per pointer while a gesture is watched, and at once for a press or a release. A hit on an object is a hit on each object above it, and an `InstancedMesh`'s instance is hit by its index. Hover follows what moves under a still pointer (#883, ADR-0069 decisions 22 and 23). A cast that throws is reported, and the frame's writes still run (#979).
 _Avoid_: picking (a GPU pick is one way to hit), raycaster (three's, which casts it).
 
 **Stage**:
-What runs a scene for its owner: its **Host loop**, its input and its canvas's size, ended with its owner. `createStage` makes one on Solid, and the hooks under its Solid context, `WardicStage`, find it there, or are called on it directly. It draws the app's renderer, scene and camera and never makes them. A runtime made outside Solid, a game loop's, can be adopted, its disposal left to its maker.
+What runs a scene for its owner: its **Host loop**, its input and its canvas's size, ended with its owner. `createStage` makes one on Solid, and the hooks under its Solid context, `WardicStage`, find it there, or are called on it directly. It draws the app's renderer, scene and camera and never makes them. A runtime made outside Solid, a game loop's, can be adopted, its disposal left to its maker. A render that throws is reported and its loop goes on, and its end still lands every exit in flight when one's landing throws (#979).
 _Avoid_: canvas (the element it sizes; r3f's component), scene (three's `Scene`, which it draws), runtime (bare: what `WardicThree.make` returns, which a Stage holds).
 
 **Frame effect**:

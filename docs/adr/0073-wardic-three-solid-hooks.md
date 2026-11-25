@@ -1017,3 +1017,37 @@ What *Amendment (#885)*'s list left to 1.3's release PR, as #856 did for Foldkit
 - **The "private until 1.3" lines** were in both READMEs, both `index.ts` files and `TestStage.ts`'s comment. Beside them: the root README's packages table and Status, CONTRIBUTING's group, `release.yml`'s and `changesets-waiting.sh`'s comments, the roadmap's 1.3 and its description, the guide's opening line, the Why page, and the storefront's four "Ships in Wardic 1.3" notes (its `release` field stays, for a later release's examples).
 - **Found:** three's README taught `(y) => shadow.scale.setScalar(1 - y / 2)` as a Frame effect's apply. It returns the vector, which Solid 2 keeps as the cleanup, so the next run throws: a block now, as #947's examples are.
 - **The first publish** is the owner's, as `@wardic/foldkit`'s was: npm adds a trusted publisher only to a package that exists, so the Version PR's publish runs on a one-off granular `NPM_TOKEN`, then each package gets its trusted publisher, and the token goes.
+
+## Amendment (#979, group A, 2026-11-25): three's frame, a failure its own
+
+**What happened.** ADR-0074's audit, rows 15 and 36: three's frame didn't follow its rule, one Subject's failure is its own.
+- **Row 15, probed.** The Host loop's raycast runs first, against what was last drawn, before Wardic's writes. A raycast that threw (the camera's function, `hitTest`, an object's own `raycast`) came out of `frame(t)`, so the runtime's writes were skipped, every frame, with nothing logged. On `TestStage`, over 20 frames, another mesh's animation stayed where it started, its call `"running"`. At a down, a release or a cancel, the cast threw out of the canvas's listener.
+- **The render.** A Stage's render that threw (an object's `onBeforeRender`, a shader's compile) came out of its loop every frame, uncaught. three asks for the next frame before it calls the loop, so the loop went on, and that frame's writes were made.
+- **Row 36, read.** The Stage's end ran straight through, its exits' landings first. One landing that threw (an app's `removed` or `dispose` listener) skipped the later exits and the rest of the end: the loop's stop, the canvas's removal, the observer, and the input's and the runtime's dispose. `TestStage`'s `dispose` lands its exits the same way.
+
+**Decided (grilled 2026-11-25, Q1–Q7, Q7's tests trimmed after the Motion comparison):**
+1. **A raycast's failure is the input's** (Q1, Q6). It's caught where it's cast: a frame's pointer keeps the hit it had, and an event's cast hits nothing. It's reported once, `wardic.input: a raycast failed`, until a raycast succeeds again, any pointer's, since what failed is the scene's raycast, not one pointer. The runtime's writes and the render run on.
+2. **A render's failure is the Stage's** (Q2, Q6). It's caught in the loop, reported once until a render draws (`wardic.stage: a render failed`), and the loop goes on. Under `frameloop: "demand"`, a failed render doesn't ask for another: it draws at the next frame that would draw, as a failed element waits for the gate's next flush (ADR-0033, *Amendment (#969)*), so a render that keeps throwing doesn't keep a demand loop drawing.
+3. **Each exit's landing is its own** (Q3). Each has its own `try` in `landExits`, reported each time (`wardic.stage: an exit's landing failed`), and the other exits still land, so the rest of the Stage's end always runs. `TestStage`'s `dispose` shares `landExits`.
+   - **Where each is reported:** the Stage's two through its runtime, so they reach the Environment's `ErrorReporter`s, as the Stage ward's do; the input's on Effect's default runtime, as its gesture callbacks' are, since it holds none.
+4. **A `try`, not ADR-0074's ordering** (its *Amendment (#979, group A)*): the raycast has to run first, against what was last drawn, and the render after Wardic's writes. Neither can be moved after the app's code, so each is caught where it runs.
+5. **Cost** (Q4). The input's `try` is written into each cast's site, as ADR-0074 decision 5 has it: the frame's loop, one per pointer over the canvas, and an event's, each around its direct `cast` call, with one flag stored. Only the catch's report is shared (`castFailed`), as FlushGate's `failedAt` is. The render's is one a frame.
+   - **A paired microbench** (`packages/three/.tmp/979a/`): `ThreeInput`'s frame, `main`'s source against the branch's, bundled once, one pointer over the canvas and a hover watched, nothing throwing. A `main`-against-`main` control showed how much each reading moves with the fixture's place alone. Medians of 21 alternating reps, on the quiet bench host:
+
+     | scene | Bun 1.3.13, `main` | branch | control | Node 22.22, `main` | branch | control |
+     |---|---|---|---|---|---|---|
+     | a `hitTest` with a fixed hit (the frame's own cost) | 42.4 ns | −0.4% | +2.3% | 58.5 ns | −8.8% | −9.7% |
+     | three's raycast, one box | 644 ns | −1.6% | −0.7% | 1,137 ns | −1.0% | −1.1% |
+     | three's raycast, 100 boxes | 3,036 ns | −1.3% | −1.2% | 5,301 ns | −0.2% | −0.1% |
+
+     None reads more than 0.9 points over its control: Node's fixed hit, about 0.5 ns a frame. Node's −9% comes from the fixture's place, since its control reads the same. The first build, the `try` inside a `castOr` both sites called, read the same.
+   - **Size:** `t2-stage` +137 B gzip and `t2-features` +186 B, their budgets raised by that, to 244.8 and 252.6. The other apps don't ship `@wardic/three`.
+6. **Tests** (Q7): each failed on `main` first.
+   - **IN12** (`input.test.ts`), a throwing `hitTest`, then a mesh's throwing `raycast`: another mesh's animation lands, nothing hovers while it throws, the hover starts once it stops, and a second run is reported again, the hit kept.
+   - **IN13:** a press whose cast at its down throws hits nothing, nothing escapes the listener, the next press hits, and a second broken press is reported again.
+   - **CS12** (`stage.solid.test.tsx`), two exits in flight at the Stage's end, the first's `removed` listener throwing: the second lands, and the loop, the canvas and the runtime (its imperative call stopped) all end.
+   - **CS13:** an `onBeforeRender` throwing for 20 frames: a ward still moves, and once it stops, renders resume.
+   - **Mutations:** 13 of 13 caught, each run alone: each `try` dropped, the frame's kept hit, each flag never set or never cleared, each report dropped. An event's clearing of the input's flag was missed until IN13 broke a second press.
+7. **A patch** (Q5): this amendment, `ThreeInput`'s and the Stage's module docs, and the glossary's **Scene input** and **Stage**.
+
+**Found, not here:** a Scene object's landing (`@wardic/solid`'s `stage-ward.tsx`, `land`) calls its membership's `leave` before it tells `exitComplete` and counts the exit out. When `leave` throws, both are skipped, so that object's exit waits never end, at the Stage's end or at an exit's own landing (read, not run).

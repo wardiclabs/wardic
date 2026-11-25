@@ -135,3 +135,23 @@ Not a throw, but silent: a three key whose place is gone (a material swapped mid
 - Logs change: a run of failures is reported once rather than every frame. An app watching for `wardic.gate: a flush failed` sees the step's name instead (#969).
 - Each group's per-frame isolation costs a `try` per element in its loop, measured against `main` before it merges.
 - New code that writes to, reads from, or calls into a Subject's path follows the rule from the start. A reviewer can check it against decision 1.
+
+## Amendment (#979, group A, 2026-11-25): Wardic's own state before the app's code
+
+From group A's grill (ADR-0073, *Amendment (#979, group A)*), on the owner's question of what Wardic does differently from Motion here. `.reference/motion` at `16c6122`, read, not run.
+- **Motion catches less, and owns less.** `processBatch` (`motion-dom`'s `frameloop/batcher.ts`) runs its eight steps with no `try`. A throw skips the frame's later callbacks and steps, and leaves `state.isProcessing` true, so `wake()` never schedules another batch. Its `invariant`s are dev-only. In 3D it owns neither the render nor the input: React Three Fiber does both.
+- **What it does right:** `JSAnimation.finish()` sets `state = "finished"` before it calls `onComplete`. An `onComplete` that throws can't leave its animation running.
+
+```ts
+finish() {
+  this.notifyFinished()
+  this.teardown()
+  this.state = "finished"
+  this.options.onComplete?.()
+}
+```
+
+**Decided (group A's grill, after the Motion comparison):** decision 1 gains a first tool, ahead of the `try`.
+- **Order first.** Wardic updates its own state and makes its own writes before it calls app code, as `finish()` does. A throw from the app's code then leaves nothing of Wardic's half done, and keeping the rule needs no `try`.
+- **A `try` where it can't be ordered so:** a loop over Subjects, where one Subject's app code runs before the next Subject's write, or a step the frame's order fixes. Group A's are of that kind: the raycast runs against what was last drawn, before Wardic's writes, and the render after them.
+- **Each group's grill asks it first:** can Wardic's own part come before the app's code? Row 16's `onComplete` (group C) is the plainest case: its call can end `"finished"` before `onComplete` is called.
