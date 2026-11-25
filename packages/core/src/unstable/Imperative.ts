@@ -1033,8 +1033,34 @@ const started = (
   const made = controlsOf(tracks, head, watch, onComplete, runtime)
   settledOne = made.settledOne
   watch.started(made.controls)
-  Arr.forEach(tracks, (track) => track.run())
+  // A run that refuses the call (a Batch part's `delay` that throws, at its first play) stops it, so its
+  // scope hears it end, and the throw goes on to the call (#979, row 20).
+  try {
+    Arr.forEach(tracks, (track) => track.run())
+  } catch (defect) {
+    made.controls.stop()
+    throw defect
+  }
   return made.controls
+}
+
+/**
+ * A track built as it first runs: a mixed call's plain Subject, whose keys are taken only once the Batch
+ * parts before it have run, a Batch part's `delay` among what they call. Stopped or cancelled before it
+ * runs, it has taken nothing.
+ */
+const builtAtRun = (build: () => Spine.ImperativeTrack): Spine.ImperativeTrack => {
+  let built: Spine.ImperativeTrack | undefined
+  const track = (): Spine.ImperativeTrack => {
+    if (Predicate.isUndefined(built)) built = build()
+    return built
+  }
+  return {
+    run: () => track().run(),
+    stop: () => UndefinedOr.map(built, (made) => made.stop()),
+    cancel: () => UndefinedOr.map(built, (made) => made.cancel()),
+    duration: () => track().duration(),
+  }
 }
 
 /**
@@ -1075,19 +1101,20 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
         // Every Subject readied, and its transition worked out (a `delay(i, n)` called), before any track takes a key (#973; #979, row 20).
         const readied = Arr.map(subjects, (subject) => readiedOf(env, ports.subjects, subject, target))
         const transitions = Arr.map(subjects, (_, index) => transitionFor(third, index, subjects.length))
-        return Arr.map(readied, (each, index) => trackOf(env, each, transitions[index], head, settled))
+        return Arr.zipWith(readied, transitions, (each, transition) => trackOf(env, each, transition, head, settled))
       })
     }
     // A Batch's members' Subjects as one call over them, with its keys; the rest of each Subject's on its own (#665, Q14, Q35).
     const parts = ports.batches.callPartsOf(subjects, target)
     return started(env.runtime, watch, parts.members.length + parts.subjects.length, onComplete, (head, settled) => {
       // A Batch's track takes nothing until it runs; every other Subject readied, and its transition worked
-      // out, before any track is built (#973; #979, row 20).
+      // out, before any track is built (#973). The Batch parts run first, and each other Subject's track is
+      // built as it runs, so a Batch part's `delay` that throws takes nothing either (#979, row 20).
       const readied = Arr.map(parts.subjects, (part) => readiedOf(env, ports.subjects, part.subject, part.target as Config.WardicVariant))
       const transitions = Arr.map(parts.subjects, (part) => transitionFor(third, part.index, subjects.length))
       return [
         ...Arr.map(parts.members, (part) => batchTrackOf(env, part.binding, part.target, part.members, third, head, settled)),
-        ...Arr.map(parts.subjects, (_, i) => trackOf(env, UndefinedOr.getOrThrow(readied[i]), transitions[i], head, settled)),
+        ...Arr.zipWith(readied, transitions, (each, transition) => builtAtRun(() => trackOf(env, each, transition, head, settled))),
       ]
     })
   }
@@ -1114,6 +1141,9 @@ const ZERO_TO_ONE: ReadonlyArray<number> = [0, 1]
 
 /** No fields. */
 const NO_FIELDS: Readonly<Record<string, unknown>> = {}
+
+/** What a function Segment's callback, or its run, failing is reported as. */
+const SEGMENT_FAILED = "wardic.animate: a function Segment failed"
 
 /**
  * What a Segment's transition doesn't take from the sequence's `defaultTransition` (Motion's): its
@@ -1267,22 +1297,25 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
   const landed = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
     Exit.match(exit, {
       onSuccess: () => Effect.sync(() => settled(true)),
-      onFailure: (cause) => Bool.match(Cause.hasInterruptsOnly(cause), { onTrue: () => Effect.void, onFalse: () => Report.failure("wardic.animate: a function Segment failed", cause) }),
+      onFailure: (cause) => Bool.match(Cause.hasInterruptsOnly(cause), { onTrue: () => Effect.void, onFalse: () => Report.failure(SEGMENT_FAILED, cause) }),
     })
   const run = (): void => {
     end()
+    // A run of its own: a throw in it is reported, whatever the last run's last call did.
+    failing = false
     fiber = env.runtime.runFork(
       machine.pipe(
         Effect.map(Playback.drive(head)),
         Effect.flatMap(Machine.run((frame) => {
+          const value = UndefinedOr.getOrThrow(frame.value[VALUE])
           // Its callback's throw is its own: told again next frame, its Segment landing as its stops do (ADR-0074).
           try {
-            callback.call(UndefinedOr.getOrThrow(frame.value[VALUE]))
+            callback.call(value)
             if (failing) failing = false
           } catch (defect) {
             if (!failing) {
               failing = true
-              env.runtime.runFork(Report.failure("wardic.animate: a function Segment failed", Cause.die(defect)))
+              env.runtime.runFork(Report.failure(SEGMENT_FAILED, Cause.die(defect)))
             }
           }
           return undefined
@@ -1296,9 +1329,10 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
     stop: end,
     cancel: () => {
       end()
+      const first = UndefinedOr.getOrThrow(stops[0])
       // Told its first stop once its run has ended: a throw there is reported, and the call's cancel goes on (#979, row 19).
       try {
-        callback.call(UndefinedOr.getOrThrow(stops[0]))
+        callback.call(first)
       } catch (defect) {
         env.runtime.runFork(Report.failure("wardic.animate: a function Segment's cancel failed", Cause.die(defect)))
       }

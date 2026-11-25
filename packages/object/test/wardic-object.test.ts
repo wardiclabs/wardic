@@ -834,21 +834,20 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     wardic.dispose()
   })
 
-  it("WO30: a function Segment whose callback throws is called again each frame and lands with its sequence, reported once a run of throws (#979)", async () => {
+  it("WO30: a function Segment whose callback throws is called again each frame and lands with its sequence, reported once a run of throws, a replay's its own (#979)", async () => {
     const wardic = WardicObject.make()
     const clock = { time: 0 }
     const ball = { x: 0 }
     const told: Array<number> = []
     let calls = 0
-    // Its 3rd to 5th calls throw, then its 9th: two runs of throws.
-    const throwsAt = new Set([3, 4, 5, 9])
+    let breaking = false
     const reports = await reportsDuring(async () => {
       const sequence = wardic.animate([
         [ball, { x: 10 }, { duration: 0.2, ease: "linear" }],
         [
           (value: number) => {
             calls++
-            if (throwsAt.has(calls)) throw new Error(`call ${calls} threw`)
+            if (breaking) throw new Error(`call ${calls} threw`)
             told.push(value)
           },
           [0, 1],
@@ -856,16 +855,31 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
         ],
       ])
       await tick()
+      pump(wardic, 2, () => undefined, clock)
+      // Two runs of throws: three frames, then from the fifth frame on to its last.
+      breaking = true
+      pump(wardic, 3, () => undefined, clock)
+      breaking = false
+      pump(wardic, 2, () => undefined, clock)
+      breaking = true
       pump(wardic, 30, () => undefined, clock)
       await tick()
       // Before #979, its first throw ended its run: it was told no more, and the sequence stayed "running".
       expect(calls).toBeGreaterThan(10)
-      expect(told.at(-1)).toBe(1)
       expect(ball.x).toBe(10)
       expect(sequence.state).toBe("finished")
       await sequence
+      // Played again, still throwing: a run of its own, reported again; then told to its end.
+      sequence.play()
+      await tick()
+      pump(wardic, 2, () => undefined, clock)
+      breaking = false
+      pump(wardic, 30, () => undefined, clock)
+      await tick()
+      expect(told.at(-1)).toBe(1)
+      expect(sequence.state).toBe("finished")
     })
-    expect(reports).toEqual(["wardic.animate: a function Segment failed", "wardic.animate: a function Segment failed"])
+    expect(reports).toEqual(["wardic.animate: a function Segment failed", "wardic.animate: a function Segment failed", "wardic.animate: a function Segment failed"])
     wardic.dispose()
   })
 
