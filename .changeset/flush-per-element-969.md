@@ -17,6 +17,6 @@ Object.freeze(stuck) // after its animation started
 // now: plain animates and lands; "wardic.gate: a commit failed" is logged once, for `stuck`
 ```
 
-- **Each element's own:** a throw in its commit, the read of its own value, its Timeline values, or its binding's `beforeFirstCommit` or `onHeld`. That element commits nothing that frame, and every other element still commits, in a frame's flush and in a layout pass's.
-- **Reported once,** naming the step (`a commit failed`, `a beforeFirstCommit failed`, `an onHeld failed`, `a Timeline sync failed`) and annotated with the element's gate id, until it commits again.
-- **Its animation runs on:** each frame tries again, so it recovers by itself, or lands as before.
+- **Each element's own:** a write to it that throws, a read of its own value, or a binding's hook for it. That element commits nothing that frame, and every other element still commits, in a frame's flush and in a Measure pass's.
+- **Logged once,** naming what failed (`a commit failed`, for one), until the element commits again.
+- **Tried again:** a failed element is written again at the next flush, so it recovers by itself. Its animation runs on, and lands as before.

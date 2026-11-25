@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import { AtomRegistry } from "effect/reactivity"
 import * as ManagedRuntime from "effect/ManagedRuntime"
+import * as Predicate from "effect/Predicate"
 import * as References from "effect/References"
 import * as Stream from "effect/Stream"
 import { beforeEach, describe, expect, it } from "vitest"
@@ -513,10 +514,10 @@ describe("makeFlushGate — one element's failure is its own (#969)", () => {
       },
     })
     // `calls`: how often its step ran over both frames. A Starting-style switch that threw is kept and runs
-    // again; an onHeld runs only when the keys held change, which they didn't.
+    // again, and an onHeld that threw is told again; a let-go Timeline's cancel runs once.
     const cases: ReadonlyArray<{ readonly step: string; readonly bad: (applied: Array<string>) => CoreFlushGate.FlushSink; readonly calls: number; readonly timeline?: true; readonly ending?: true; readonly pass?: true }> = [
       { step: "a beforeFirstCommit", bad: (applied) => sinkOf(heardBy(applied), { beforeFirstCommit: step }), calls: 2 },
-      { step: "an onHeld", bad: (applied) => sinkOf(heardBy(applied), { onHeld: step }), calls: 1 },
+      { step: "an onHeld", bad: (applied) => sinkOf(heardBy(applied), { onHeld: step }), calls: 2 },
       { step: "a commit", bad: (applied) => ({ target: unreadable(applied) }), calls: 2 },
       { step: "a Timeline sync", bad: (applied) => sinkOf(heardBy(applied)), calls: 2, timeline: true },
       // One it let go of, whose cancel throws at the flush that draws the key without it.
@@ -563,6 +564,158 @@ describe("makeFlushGate — one element's failure is its own (#969)", () => {
         expect(applied, named).toEqual(["good 1", "bad 2", "good 2"])
         expect(logged, named).toHaveLength(1)
         expect(calls, named).toBe(ran)
+        gate.dispose()
+      } finally {
+        void runtime.dispose()
+      }
+    }
+  })
+})
+
+describe("makeFlushGate — an element's failure, tried again (#969)", () => {
+  it("G10: a failed element is tried again at the gate's next flush, its own write or another's: its last commit, its Starting-style switch, a restore of a key it let go of", async () => {
+    // Each: `bad` fails at its last write; the next flush, from `good`'s write alone, commits it.
+    let throwing = true
+    const cases: ReadonlyArray<{ readonly name: string; readonly bad: (applied: Array<string>) => CoreFlushGate.FlushSink; readonly first?: Readonly<Record<string, unknown>>; readonly drop?: ReadonlyArray<string>; readonly last: Readonly<Record<string, unknown>>; readonly then: ReadonlyArray<string> }> = [
+      {
+        name: "its last commit",
+        bad: (applied) => sinkOf((p) => {
+          if (throwing) throw new Error("its commit threw")
+          applied.push(`bad ${JSON.stringify(p)}`)
+        }),
+        last: { x: 9 },
+        then: ['bad {"x":9}'],
+      },
+      {
+        name: "its Starting-style switch",
+        bad: (applied) => sinkOf((p) => void applied.push(`bad ${JSON.stringify(p)}`), {
+          beforeFirstCommit: () => {
+            if (throwing) throw new Error("its switch threw")
+            applied.push("bad switched")
+          },
+        }),
+        last: { x: 9 },
+        then: ["bad switched", 'bad {"x":9}'],
+      },
+      {
+        // `y` let go of: its own value is committed back before the gate stops holding it.
+        name: "a restore of a key it let go of",
+        bad: (applied) => sinkOf((p) => {
+          if (throwing && "y" in p) throw new Error("its restore threw")
+          applied.push(`bad ${JSON.stringify(p)}`)
+        }),
+        first: { x: 1, y: 1 },
+        drop: ["y"],
+        last: { x: 9 },
+        then: ['bad {"y":""}', 'bad {"x":9}'],
+      },
+    ]
+    for (const { name, bad, first, drop, last, then } of cases) {
+      const { runtime, logged, settle } = logging()
+      try {
+        throwing = false
+        const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+        const applied: Array<string> = []
+        gate.register("bad", bad(applied))
+        gate.register("good", sinkOf((p) => void applied.push(`good ${p.x}`)))
+        if (Predicate.isNotUndefined(first)) {
+          gate.write("bad", first)
+          fireFrame()
+        }
+        applied.length = 0
+        throwing = true
+        if (Predicate.isNotUndefined(drop)) gate.release("bad", drop)
+        gate.write("bad", last)
+        gate.write("good", { x: 1 })
+        fireFrame()
+        await settle()
+        expect(applied, name).toEqual(["good 1"])
+        expect(logged, name).toHaveLength(1)
+        // No write of its own: another element's brings the flush that tries it again.
+        throwing = false
+        gate.write("good", { x: 2 })
+        fireFrame()
+        expect(applied, name).toEqual(["good 1", ...then, "good 2"])
+        gate.dispose()
+      } finally {
+        void runtime.dispose()
+      }
+    }
+  })
+
+  it("G11: a Starting-style switch that registers its id again leaves the new entry's to come; a let-go Timeline whose cancel throws stops none of the others; a commit that fails after a Measure pass's tells its onCommit nothing", async () => {
+    // Its switch registers "a" again: the new entry's switch runs at its own first commit.
+    {
+      const { runtime } = logging()
+      try {
+        const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+        const events: Array<string> = []
+        gate.register(
+          "a",
+          sinkOf(() => undefined, {
+            beforeFirstCommit: () => {
+              events.push("old switch")
+              gate.register("a", sinkOf((p) => void events.push(`new ${p.x}`), { beforeFirstCommit: () => void events.push("new switch") }))
+              gate.write("a", { x: 2 })
+            },
+          }),
+        )
+        gate.write("a", { x: 1 })
+        fireFrame()
+        fireFrame()
+        expect(events).toEqual(["old switch", "new switch", "new 2"])
+        gate.dispose()
+      } finally {
+        void runtime.dispose()
+      }
+    }
+    // Two Timeline values let go of: the first's cancel throws, the second's still runs.
+    {
+      const { runtime, logged, settle } = logging()
+      try {
+        const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+        const events: Array<string> = []
+        gate.register("t", sinkOf((p) => void events.push(`t ${p.x}`)))
+        gate.timeline("t", "x", {
+          sync: () => undefined,
+          cancel: () => {
+            throw new Error("its cancel threw")
+          },
+        })
+        gate.timeline("t", "y", { sync: () => undefined, cancel: () => void events.push("y cancelled") })
+        gate.timeline("t", "x", undefined)
+        gate.timeline("t", "y", undefined)
+        gate.write("t", { x: 1 })
+        fireFrame()
+        await settle()
+        expect(events).toEqual(["y cancelled"])
+        expect(logged).toEqual([{ message: "wardic.gate: a Timeline sync failed", id: "t" }])
+        gate.dispose()
+      } finally {
+        void runtime.dispose()
+      }
+    }
+    // Committed in a Measure pass, then failing in the frame's flush: its onCommit isn't told that frame.
+    {
+      const { runtime } = logging()
+      try {
+        const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+        const told: Array<unknown> = []
+        let throwing = false
+        gate.register(
+          "c",
+          sinkOf(
+            () => {
+              if (throwing) throw new Error("its commit threw")
+            },
+            { onCommit: (values) => void told.push(values.x) },
+          ),
+        )
+        gate.flushPass(() => gate.write("c", { x: 1 }))
+        throwing = true
+        gate.write("c", { x: 2 })
+        fireFrame()
+        expect(told).toEqual([])
         gate.dispose()
       } finally {
         void runtime.dispose()

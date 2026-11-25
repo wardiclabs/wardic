@@ -51,7 +51,7 @@
  * `tick` — it stays quiet (no span, no per-call log, no metric). A throw in one element's step (its
  * binding's hook, the read of its own value, its Timeline values, its commit) is that element's: it
  * commits nothing that frame, a run of them is reported once (`Report.failure`) until it commits again,
- * and every other element still commits (#969). Anything else a flush throws is reported and the gate
+ * and every other element still commits. Anything else a flush throws is reported and the gate
  * goes on, so it can't fail the Frame loop's tick it runs in (ADR-0033).
  *
  * Unstable, for Wardic's own packages: public, with no semver promise.
@@ -60,6 +60,7 @@
  */
 // Unstable: ADR-0071, decision 5. #672: dom's `internal/gate.ts`, moved for the spine to write through
 // it in core; dom's `FlushGate` builds it with the DOM's edges (`DOM_GATE`) and gives it as a Layer.
+// #969 (ADR-0033, *Amendment (#969)*): one element's failure in a flush is its own.
 import * as FrameLoop from "../FrameLoop.ts"
 import * as RefreshFrameSource from "../RefreshFrameSource.ts"
 import * as Renderer from "../Renderer.ts"
@@ -135,12 +136,14 @@ interface Entry {
    * Whether its `onCommit` threw at its last call (#257 item 4): a run of throws is logged and
    * reported at its first, so one that throws every frame logs once; a call that returns ends it.
    */
-  failing: boolean
+  onCommitFailing: boolean
   /**
    * Whether one of its own steps threw at a flush since its last commit (#969): a run of them is reported
    * at its first, so one that throws every frame logs once; a commit that lands ends it.
    */
-  flushFailing: boolean
+  stepFailing: boolean
+  /** Whether its sink's `onHeld` threw before it heard the keys held (#969): its next flush tells it again. */
+  heldUntold: boolean
   /** Its patch, projected this flush and committed once the binding has heard the keys held. */
   patch: Renderer.Patch | undefined
 }
@@ -171,6 +174,9 @@ export interface GateEnvironment {
   readonly valueBeforeOf: (target: unknown, key: string) => string
   readonly templateKey: string
 }
+
+/** A step of one element's flush, as its failure is reported (#969): `prepare`'s report as its commit. */
+type Step = "a commit" | "a beforeFirstCommit" | "an onHeld" | "a Timeline sync"
 
 /** Each of `values` cancelled (#240). Per flush: a plain loop. */
 const cancelEach = (values: Iterable<GateTimeline>): void => {
@@ -366,12 +372,16 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
         if (key in patch) continue
         if (Predicate.isUndefined(restore)) restore = {}
         restore[key] = own
-        committed.delete(key)
       }
     }
-    if (Predicate.isNotUndefined(restore)) commit(target, restore)
-    // The keys held changed (the usual frame changes none): the binding hears before the commit.
-    if ((added || Predicate.isNotUndefined(restore)) && Predicate.isNotUndefined(sink.onHeld)) held.push(entry)
+    // Committed before its keys are let go of, so a restore that throws is tried again at the next flush (#969).
+    if (Predicate.isNotUndefined(restore)) {
+      commit(target, restore)
+      for (const key in restore) committed.delete(key)
+    }
+    // The keys held changed (the usual frame changes none), or its sink threw before it heard them: the
+    // binding hears before the commit.
+    if ((added || Predicate.isNotUndefined(restore) || entry.heldUntold) && Predicate.isNotUndefined(sink.onHeld)) held.push(entry)
   }
 
   /**
@@ -384,10 +394,13 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     for (const [entry, ended] of endings) {
       if (Predicate.isUndefined(entry.patch)) continue
       endings.delete(entry)
-      try {
-        cancelEach(ended)
-      } catch (defect) {
-        failedAt(entry, "a Timeline sync", defect)
+      // Each on its own: one whose cancel throws stops none of the others (#969).
+      for (let i = 0; i < ended.length; i++) {
+        try {
+          ended[i].cancel()
+        } catch (defect) {
+          failedAt(entry, "a Timeline sync", defect)
+        }
       }
     }
     for (const [entry, byKey] of timelines) {
@@ -416,7 +429,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     if (Predicate.isUndefined(patch)) return
     entry.patch = undefined
     commit(entry.sink.target, patch)
-    if (entry.flushFailing) entry.flushFailing = false
+    if (entry.stepFailing) entry.stepFailing = false
     if (Predicate.isNotUndefined(entry.sink.onCommit)) committedSince.add(entry)
   }
 
@@ -425,10 +438,15 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
    * them, and the other elements' going on. A run of them is reported at its first, `step` naming it.
    */
   // A failure's path, never the frame's: one place each loop's catch calls.
-  const failedAt = (entry: Entry, step: string, defect: unknown): void => {
+  const failedAt = (entry: Entry, step: Step, defect: unknown): void => {
     entry.patch = undefined
-    if (entry.flushFailing) return
-    entry.flushFailing = true
+    // Tried again at the gate's next flush, which it doesn't ask for itself: a Subject frozen for good would
+    // keep the host's frames running. A later write, its own or another element's, brings that flush.
+    entry.dirty = true
+    // Its sink's `onCommit` hears nothing of a frame it didn't commit in.
+    committedSince.delete(entry)
+    if (entry.stepFailing) return
+    entry.stepFailing = true
     runtime.runFork(Effect.annotateLogs(Report.failure(`wardic.gate: ${step} failed`, Cause.die(defect)), { id: entry.id }))
   }
 
@@ -459,7 +477,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       if (Predicate.isUndefined(onHeld)) continue
       try {
         onHeld(Array.from(entry.committed.keys()))
+        if (entry.heldUntold) entry.heldUntold = false
       } catch (defect) {
+        // Told again at its next flush, before its commit (#969).
+        entry.heldUntold = true
         failedAt(entry, "an onHeld", defect)
       }
     }
@@ -484,10 +505,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       delete latest[templateKey]
       try {
         onCommit(latest)
-        entry.failing = false
+        entry.onCommitFailing = false
       } catch (defect) {
-        if (entry.failing) continue
-        entry.failing = true
+        if (entry.onCommitFailing) continue
+        entry.onCommitFailing = true
         runtime.runFork(Report.failure("wardic.gate: an onCommit failed", Cause.die(defect)))
       }
     }
@@ -523,10 +544,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       const hook = entry.sink.beforeFirstCommit
       try {
         if (Predicate.isNotUndefined(hook)) hook()
-        firstCommits.delete(id)
+        // Its own: a hook that registered the id again leaves the new entry's switch to come (#969).
+        if (accumulator.get(id) === entry) firstCommits.delete(id)
       } catch (defect) {
-        // Kept, so its next flush switches it; nothing of it commits before (#969).
-        entry.dirty = false
+        // Kept, so the gate's next flush switches it; nothing of it commits before (#969).
         failedAt(entry, "a beforeFirstCommit", defect)
       }
     }
@@ -541,6 +562,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       // from an effect a sink's hook runs requests the next frame (it isn't stranded).
       for (const entry of accumulator.values()) {
         if (!entry.dirty) continue
+        // Its Starting-style switch threw this frame: it waits for the next flush's (#969).
+        if (firstCommits.size > 0 && firstCommits.has(entry.id)) continue
         try {
           prepare(entry, prepared, heldChanged)
         } catch (defect) {
@@ -602,8 +625,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       outputs: outputsById.get(id),
       id,
       latest: undefined,
-      failing: false,
-      flushFailing: false,
+      onCommitFailing: false,
+      stepFailing: false,
+      heldUntold: false,
       patch: undefined,
     }
     // An entry the id had: its Timeline values end with it (#240).

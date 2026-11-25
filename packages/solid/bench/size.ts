@@ -82,9 +82,11 @@ const GATE = 1.01
  * by what it measured, 0.2 each (211, 216 and 196 B): every Subject's keys read before a call takes any, so
  * a call refused at the call takes nothing (ADR-0061, *Amendment (#973)*), core's 0.5 KB of it minified;
  * Solid's slim apps as they were. #969 raised all five, `s1-slim`'s, `s2-slim`'s, `f-slim`'s, `t2-stage`'s
- * and `t2-features`', to 95.4, 118.2, 197.5, 244.6 and 252.3 by what it measured, 145, 181, 168, 140 and
- * 186 B: one element's failure in the Flush gate its own (ADR-0033, *Amendment (#969)*), core's 0.5 KB
- * of it minified in every app, since every app has the gate. `@wardic/three/solid`'s
+ * and `t2-features`', to 95.5, 118.3, 197.6, 244.7 and 252.4 by what it measured, 0.3, 0.3, 0.3, 0.2 and
+ * 0.2 (236, 247, 249, 218 and 248 B): one element's failure in the Flush gate its own, and tried again at
+ * its next flush (ADR-0033, *Amendment (#969)*), core's 0.7 KB of it minified in every app, since every
+ * app has the gate.
+ * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
  * #885's PR 2 raised it to 298.9 by what it measured: a Scene object's code is a side only `createSceneObject`
@@ -104,7 +106,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.4, "s2-slim": 118.2, "f-slim": 197.5, "t2-stage": 244.6, "t2-features": 252.3 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.5, "s2-slim": 118.3, "f-slim": 197.6, "t2-stage": 244.7, "t2-features": 252.4 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
