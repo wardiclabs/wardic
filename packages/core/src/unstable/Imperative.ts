@@ -305,8 +305,11 @@ const lastTargetsOf = (host: Spine.SpineHost): Values.Values => UndefinedOr.matc
 /**
  * `key` taken by an Imperative animation from whatever runs it (#433): noted in `taking` with `noted`,
  * the target the Override stack has for it now, no longer returning, its Timeline value stopped, given
- * up by its owner, owned, and started where it's drawn toward `like`, noted in `started`.
+ * up by its owner, owned, and started where it's drawn toward `like`, noted in `started`. Its Own value
+ * is read before it's taken, by the call (`readiedOf`) or the landing (`settableOrReported`).
  */
+// #973 (ADR-0061, *Amendment (#973)*, Q3): read here, a key refused at the call had already taken the keys
+// before it, of its Subject and of a list's earlier Subjects, ending the animations that drew them.
 const takeKey = (host: Spine.SpineHost, taking: Map<string, number | string | undefined>, key: string, noted: number | string | undefined, like: number | string, started: Record<string, string>): void => {
   taking.set(key, noted)
   host.returning().delete(key)
@@ -315,7 +318,6 @@ const takeKey = (host: Spine.SpineHost, taking: Map<string, number | string | un
   if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
   const owner = host.owners.get(key)
   if (Predicate.isNotUndefined(owner)) host.giveUp(key, owner)
-  readOwn(host, key)
   host.startKey(key, like, started)
 }
 
@@ -341,9 +343,9 @@ const endFree = (owner: Spine.Running | undefined): boolean => {
  * Its legs start where the keys are drawn, with their velocity, on `given` (a key with none of its own
  * on its Default transition), reduced motion as the provider says, and run through `head` once
  * {@link Spine.ImperativeTrack.run} is called. Once they land, none taken, its target's Transition
- * end is set (#896), and put back by a cancel or a run again. The end's keys are read as it's made, as
- * the keys it animates are, so one the Subject can't take is an error then; one it can no longer set by a
- * landing is reported there and left as it is, and the rest set (#970).
+ * end is set (#896), and put back by a cancel or a run again. Its keys, the end's too, were read before
+ * it's made (`readiedOf`); one the Subject can no longer set by a landing is reported there and left as it
+ * is, and the rest of the end set (#970).
  */
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
 // imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
@@ -360,9 +362,6 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   }
   const to = target.values
   const ends = target.transitionEnd
-  // Its Transition end's keys read now, before it takes any key, as the keys it animates are as they're
-  // taken: one the Subject lacks or can't write is an error at the call, naming it, not at its landing (#970).
-  if (Predicate.isNotUndefined(ends)) Arr.forEach(Rec.keys(ends), (key) => readOwn(host, key))
   const before = lastTargetsOf(host)
   const started: Record<string, string> = {}
   let measuring: Array<string> | undefined
@@ -591,17 +590,50 @@ const overOwn = (own: Config.WardicVariantTransition | undefined, given: Config.
   return { ...own, ...given } as Config.WardicTransition
 }
 
+/** A Subject's animation, its keys read and none taken yet: its target, and the spine it runs through. */
+interface Readied<S extends object> {
+  readonly subject: S
+  readonly target: VariantTarget.Target
+  readonly host: Spine.SpineHost
+  /** Its plain spine: `undefined` for a Wardic element's, which runs through the element's own. */
+  readonly plain: Plain | undefined
+}
+
 /**
- * A Subject's animation of `target`: through its spine when it's a Wardic element's, else through its
- * plain spine, in the gate while any of its animations runs.
+ * `subject`'s animation of `target`, readied: each key the target names, its values' and its Transition
+ * end's, read as its Environment reads it, so one the Subject can't take is an error now, naming it.
+ * A call readies each of its Subjects before it builds any track ({@link trackOf}), so a call refused here
+ * has taken nothing: an animation it would have taken a key from runs on.
  */
-const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, target: Config.WardicVariant, given: Config.WardicTransition | undefined, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack => {
-  const resolved = VariantTarget.resolveTarget(target, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
+// #973 (ADR-0061, *Amendment (#973)*, Q1): tracks took their keys as each was built, so a later key's
+// refusal, its Subject's or a later Subject's, ended the animations that drew the keys taken before it.
+const readiedOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, given: Config.WardicVariant): Readied<S> => {
+  const target = VariantTarget.resolveTarget(given, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
   const own = wardicElements.get(subject)
+  if (Predicate.isNotUndefined(own)) return readKeys({ subject, target, host: own.host(), plain: undefined })
+  const plain = plainOf(env, subjects, subject)
+  return readKeys({ subject, target, host: plain.spine.host(), plain })
+}
+
+/** `readied`'s keys read, a target's and its Transition end's: an error the Environment's read throws is thrown. */
+// Per key at a call, the hot path (effect-first.md): statements, a loop's body its closure.
+const readKeys = <S extends object>(readied: Readied<S>): Readied<S> => {
+  const { host, target } = readied
+  Arr.forEach(Rec.keys(target.values), (key) => readOwn(host, key))
+  const ends = target.transitionEnd
+  if (Predicate.isNotUndefined(ends)) Arr.forEach(Rec.keys(ends), (key) => readOwn(host, key))
+  return readied
+}
+
+/**
+ * A readied Subject's animation (`readiedOf`): through its spine when it's a Wardic element's, else through
+ * its plain spine, in the gate while any of its animations runs.
+ */
+const trackOf = <S extends object>(env: AnimateEnv, readied: Readied<S>, given: Config.WardicTransition | undefined, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack => {
+  const { subject, target: resolved, host, plain } = readied
   const hooks = { settled, failed: constVoid }
   const transition = skippedIn(env, overOwn(resolved.transition, given))
-  if (Predicate.isNotUndefined(own)) return imperativeTrackOf(own.host(), resolved, transition, head, hooks)
-  const plain = plainOf(env, subjects, subject)
+  if (Predicate.isUndefined(plain)) return imperativeTrackOf(host, resolved, transition, head, hooks)
   // In the gate while it runs; out once its last animation is done, after the flush of its last frame.
   let live = false
   const enter = (): void => {
@@ -622,7 +654,7 @@ const trackOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subje
       if (plain.running === 0) plain.unregister()
     })
   }
-  const track = imperativeTrackOf(plain.spine.host(), resolved, transition, head, {
+  const track = imperativeTrackOf(host, resolved, transition, head, {
     settled: (landed) => {
       leave()
       settled(landed)
@@ -992,7 +1024,8 @@ const started = (
  * types its own overloads over it.
  *
  * A key a target or its Transition end names that a Subject can't take (its Environment's own value
- * read throws: a key it lacks, say) is an error at the call, naming it, and none of the call starts.
+ * read throws: a key it lacks, say) is an error at the call, naming it. The call then takes nothing from
+ * any of its Subjects: an animation it would have taken a key from runs on.
  * A Transition end's key a Subject can no longer set when it lands is reported, left as it is, and the
  * rest of its end set: the call lands.
  */
@@ -1013,15 +1046,24 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
     // No member's Subject among them: each Subject's track, building no parts (bench:solid --batch's
     // per-element page, a call per element: 8.2 -> 8.5 ms at 1,000 with the parts built for every call; #665).
     if (Bool.not(ports.batches.hasMembers(subjects))) {
-      return started(watch, subjects.length, onComplete, (head, settled) =>
-        Arr.map(subjects, (subject, index) => trackOf(env, ports.subjects, subject, target, transitionFor(third, index, subjects.length), head, settled)))
+      return started(watch, subjects.length, onComplete, (head, settled) => {
+        // One Subject: readied, then its track, which takes its keys once they're all read.
+        if (subjects.length === 1) return [trackOf(env, readiedOf(env, ports.subjects, subjects[0] as S, target), transitionFor(third, 0, 1), head, settled)]
+        // Every Subject readied before any track takes a key (#973).
+        const readied = Arr.map(subjects, (subject) => readiedOf(env, ports.subjects, subject, target))
+        return Arr.map(readied, (each, index) => trackOf(env, each, transitionFor(third, index, subjects.length), head, settled))
+      })
     }
     // A Batch's members' Subjects as one call over them, with its keys; the rest of each Subject's on its own (#665, Q14, Q35).
     const parts = ports.batches.callPartsOf(subjects, target)
-    return started(watch, parts.members.length + parts.subjects.length, onComplete, (head, settled) => [
-      ...Arr.map(parts.members, (part) => batchTrackOf(env, part.binding, part.target, part.members, third, head, settled)),
-      ...Arr.map(parts.subjects, (part) => trackOf(env, ports.subjects, part.subject, part.target as Config.WardicVariant, transitionFor(third, part.index, subjects.length), head, settled)),
-    ])
+    return started(watch, parts.members.length + parts.subjects.length, onComplete, (head, settled) => {
+      // A Batch's track takes nothing until it runs; every other Subject readied before any track is built (#973).
+      const readied = Arr.map(parts.subjects, (part) => readiedOf(env, ports.subjects, part.subject, part.target as Config.WardicVariant))
+      return [
+        ...Arr.map(parts.members, (part) => batchTrackOf(env, part.binding, part.target, part.members, third, head, settled)),
+        ...Arr.map(parts.subjects, (part, i) => trackOf(env, UndefinedOr.getOrThrow(readied[i]), transitionFor(third, part.index, subjects.length), head, settled)),
+      ]
+    })
   }
 
 // --- Sequences (#433's PR 2) ------------------------------------------------------------------
@@ -1236,14 +1278,24 @@ const sequenceOf = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: u
   const compiled = Arr.fromIterable(Sequence.compile(stepsOf(ports, sequence, scope, defaults), whole))
   // Each Batch's members as one track, their other keys their Subjects' (#665, Q40).
   const parts = ports.batches.sequencePartsOf<S | Callback>(compiled)
-  return started(watch, compiled.length, UndefinedOr.map(options, (given) => given.onComplete), (head, settled) => [
-    ...Arr.map(parts.others, ([subject, animation]) => {
-      if (isCallback(subject)) return callbackTrackOf(env, subject, animation, head, settled)
-      return trackOf(env, ports.subjects, subject as S, animation.keyframes as Config.WardicVariant, animation.transition as Config.WardicTransition, head, settled)
-    }),
-    ...Arr.map(parts.batches, (part) =>
-      part.binding.sequenceTrack({ members: part.members, animations: part.animations, reducedMotion: env.reducedMotion(), skipAnimations: env.skipAnimations(), head, settled: () => settled(true), taken: () => settled(false) })),
-  ])
+  return started(watch, compiled.length, UndefinedOr.map(options, (given) => given.onComplete), (head, settled) => {
+    // Every Segment's Subject readied before any track takes a key, a later one's refusal taking nothing (#973).
+    const readied = Arr.map(parts.others, ([subject, animation]) => segmentReadiedOf(env, ports.subjects, subject, animation))
+    return [
+      ...Arr.map(parts.others, ([subject, animation], i) => {
+        if (isCallback(subject)) return callbackTrackOf(env, subject, animation, head, settled)
+        return trackOf(env, UndefinedOr.getOrThrow(readied[i]), animation.transition as Config.WardicTransition, head, settled)
+      }),
+      ...Arr.map(parts.batches, (part) =>
+        part.binding.sequenceTrack({ members: part.members, animations: part.animations, reducedMotion: env.reducedMotion(), skipAnimations: env.skipAnimations(), head, settled: () => settled(true), taken: () => settled(false) })),
+    ]
+  })
+}
+
+/** A sequence's Subject readied (`readiedOf`) for its compiled animation: none for a function Segment's callback, which has no keys. */
+const segmentReadiedOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S | Callback, animation: Sequence.Animation): Readied<S> | undefined => {
+  if (isCallback(subject)) return undefined
+  return readiedOf(env, subjects, subject as S, animation.keyframes as Config.WardicVariant)
 }
 
 /** `watch`, with `also` told each start and end after it, when given: a scope's own watch beside its owner's (#433), a binding's beside a scope's (#798). */
