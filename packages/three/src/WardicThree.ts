@@ -125,6 +125,11 @@ type ValueOf<Key, K, C, N, Colour> = Key extends C ? (Key extends K ? N | Colour
 type SceneTarget<K extends string, C extends string, E extends string> = { readonly [Key in K | C]?: ValueOf<Key, K, C, SceneValue, ColourTargetValue> } & {
   /** How it gets there: a spring, a tween or an inertia, with an entry under any of its keys, a colour's or a channel's. */
   readonly transition?: Config.WardicTransitionFor<E> | undefined
+  /**
+   * Values set once it lands, with no animation, each under a key the Subject has and three can write:
+   * one it lacks, or can't write (its `id`), is an error at the call, as a key it animates is. One it can
+   * no longer set by then is reported and left as it is, and the rest are set.
+   */
   readonly transitionEnd?: SceneTransitionEnd<K, C> | undefined
 }
 

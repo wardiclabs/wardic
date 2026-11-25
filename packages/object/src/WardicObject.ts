@@ -119,6 +119,11 @@ export type ObjectTarget<T> = [T] extends [ReadonlyArray<unknown>]
     } & {
       /** How it gets there: a spring, a tween or an inertia, with an entry under any of `T`'s keys it animates. */
       readonly transition?: Config.WardicTransitionFor<AnimatableKey<T>> | undefined
+      /**
+       * Values set once it lands, with no animation, each under a key the object has and can write: one
+       * it lacks or can't write is an error at the call, as a key it animates is. One it has lost, or can
+       * no longer write, by then is reported and left as it is, and the rest are set.
+       */
       readonly transitionEnd?: TransitionEndOf<T> | undefined
     }
 
