@@ -126,7 +126,7 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     wardic.dispose()
   })
 
-  it("WO7: a key the object lacks, one that isn't a number or a string, and a subject that isn't an object are errors naming them", () => {
+  it("WO7: a key the object lacks, one that isn't a number or a string, one it can't write, and a subject that isn't an object are errors naming them", () => {
     const wardic = WardicObject.make()
     class Sprite {
       x = 0
@@ -148,6 +148,10 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
       }
     }
     expect(() => wardic.animate(new Gauge(), { level: 1 })).toThrow(/a Gauge's "level" can't be written/)
+    // An inherited writable one where the object takes no property of its own: frozen, sealed or not extensible.
+    expect(() => wardic.animate(Object.freeze(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(/the object's "y" can't be written/)
+    expect(() => wardic.animate(Object.seal(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(unwritable)
+    expect(() => wardic.animate(Object.preventExtensions(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(unwritable)
     // A later Segment's, at the call too.
     expect(() => wardic.animate([[{ y: 0 }, { y: 1 }], [Object.freeze({ x: 0 }), { x: 1 }]])).toThrow(/the object's "x" can't be written/)
     wardic.dispose()
@@ -167,12 +171,14 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     const dial = new Dial()
     const sealed = Object.seal({ x: 0 })
     const inherited = Object.create({ y: 0 }) as { y: number }
+    let held = 0
+    const own = Object.defineProperty({}, "level", { get: () => held, set: (level: number) => void (held = level), enumerable: true }) as { level: number }
     const short = { type: "tween", duration: 0.1, ease: "linear" } as const
-    const calls = [wardic.animate(dial, { turn: 1 }, short), wardic.animate(sealed, { x: 1 }, short), wardic.animate(inherited, { y: 1 }, short)]
+    const calls = [wardic.animate(dial, { turn: 1 }, short), wardic.animate(sealed, { x: 1 }, short), wardic.animate(inherited, { y: 1 }, short), wardic.animate(own, { level: 1 }, short)]
     await tick()
     pump(wardic, 10, () => undefined)
     await Promise.all(calls)
-    expect([dial.turn, sealed.x, inherited.y]).toEqual([1, 1, 1])
+    expect([dial.turn, sealed.x, inherited.y, held]).toEqual([1, 1, 1, 1])
     wardic.dispose()
   })
 

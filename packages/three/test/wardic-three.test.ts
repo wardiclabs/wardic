@@ -184,6 +184,13 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     expect(() => wardic.animate(shader, { uProgress: 1 })).toThrow(/"uProgress" can't be written/)
     const frozen: { readonly x: number } = Object.freeze({ x: 0 })
     expect(() => wardic.animate(frozen, { x: 1 })).toThrow(/the object's "x" can't be written/)
+    // A transform whose vector is frozen: its axis is where it's written.
+    const pinned = box()
+    Object.freeze(pinned.position)
+    Object.freeze(pinned.scale)
+    expect(() => wardic.animate(pinned, { x: 1 })).toThrow(/a Mesh's "x" can't be written/)
+    expect(() => wardic.animate(pinned, { scale: 2 })).toThrow(unwritable)
+    expect(() => wardic.animate(pinned, { rotateY: 90 })).not.toThrow()
     // An inherited getter with no setter, as a class's; one with a setter is written as any key.
     class Gauge {
       get level() {
@@ -201,6 +208,11 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     }
     expect(() => wardic.animate(new Gauge(), { level: 1 })).toThrow(/the object's "level" can't be written/)
     expect(() => wardic.animate(new Dial(), { turn: 1 })).not.toThrow()
+    expect(() => wardic.animate(Object.defineProperty({}, "level", { get: () => 0, set: () => undefined, enumerable: true }) as { level: number }, { level: 1 })).not.toThrow()
+    // Two prototypes up: a typed array's length, its type's type's.
+    expect(() => wardic.animate(new Float32Array(3) as unknown as { length: number }, { length: 5 })).toThrow(/"length" can't be written/)
+    // An inherited writable key where the object takes none of its own: frozen.
+    expect(() => wardic.animate(Object.freeze(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(/the object's "y" can't be written/)
     // A key it can write beside them still animates: the mesh's material's own.
     expect(() => wardic.animate(cube, { opacity: 0.5 })).not.toThrow()
     wardic.dispose()

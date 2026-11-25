@@ -220,6 +220,8 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(cube.material, { id: 5 })
   // @ts-expect-error: nor in a transition.
   wardic.animate(cube, { x: 1 }, { id: { duration: 0.2 } })
+  // @ts-expect-error: nor a Batch's: its keys are its members'.
+  wardic.animate(wardic.batch([cube, cube.clone()]), { id: 5 })
   // Any other object's `id` is its own, as any key; and a typed array's length is no key here either.
   wardic.animate({ id: 0 }, { id: 1 })
   // @ts-expect-error: a typed array's length.
