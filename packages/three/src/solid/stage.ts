@@ -13,13 +13,14 @@
  *
  * - **Its Host loop:** `renderer.setAnimationLoop`, the scene's raycast, then Wardic's frame, then the
  *   render. With `frameloop: "demand"`, it renders only when something moves, or after `invalidate()`.
+ *   A render that throws is reported once until one draws, and the loop goes on.
  * - **Given as a ref,** an element mounts `renderer.domElement` and keeps it sized: `setSize`, and a
  *   perspective camera's `aspect`. `resize: false` leaves the size to the app.
  * - **`renderer`** is an instance, in client-only code, or a factory the browser calls once the page has
  *   settled. `{ wardic: made }` adopts a runtime made outside Solid, whose maker pumps its frames.
  * - **On a server** it does nothing: its ref renders nothing, and the hooks under it animate nothing.
- * - **It ends with its owner:** the loop, the input and the runtime stop; the renderer, scene and camera
- *   stay the app's.
+ * - **It ends with its owner:** each exit still in flight lands, and the loop, the input and the runtime
+ *   stop, though a landing throws; the renderer, scene and camera stay the app's.
  *
  * @module
  */
@@ -27,9 +28,12 @@
 import { isServer } from "@solidjs/web"
 import * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
+import * as Report from "@wardic/core/unstable/Report"
 import { type Stage, type StageDrag, type StageGraph, type StageWard, stageWard, type StageWardEnvironment } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
+import * as Effect from "effect/Effect"
 import { constUndefined, constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -200,9 +204,20 @@ export interface SceneOf {
 /** A three.js Stage, with what `createSceneObject` needs of it. */
 export type SceneStage = Stage & { readonly [SCENE]: SceneOf }
 
-/** Every exit still in flight landed: its Subject taken out, as the Stage ends (*Amendment (#885)* Q5). */
+/**
+ * Every exit still in flight landed: its Subject taken out, as the Stage ends. A landing that throws (an
+ * app's `removed` or `dispose` listener) is reported, and the others still land.
+ */
+// *Amendment (#885)* Q5; #979, group A (ADR-0074): before, one landing's throw skipped the later exits and
+// the rest of the Stage's end, `runtime.dispose` among them.
 export const landExits = (stage: { readonly [SCENE]: SceneOf }): void =>
-  Arr.forEach(Arr.fromIterable(stage[SCENE].exits), (land) => land())
+  Arr.forEach(Arr.fromIterable(stage[SCENE].exits), (land) => {
+    try {
+      land()
+    } catch (defect) {
+      Effect.runFork(Report.failure("wardic.stage: an exit's landing failed", Cause.die(defect)))
+    }
+  })
 
 /** The first of `features` that gives `pick`'s. */
 const firstOf = <A,>(features: ReadonlyArray<StageFeature>, pick: (feature: StageFeature) => A | undefined): A | undefined =>
@@ -336,6 +351,8 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
   let observer: ResizeObserver | undefined
   // The first frame draws, as does each one after `invalidate()`.
   let invalidated = true
+  // A render threw (an object's `onBeforeRender`, a shader's compile), reported, since one last drew.
+  let renderFailing = false
 
   /** The canvas in `element`, kept sized to it: the renderer's size, and a perspective camera's aspect. */
   const mount = (element: HTMLElement, made: RendererLike): void => {
@@ -373,7 +390,16 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
       runtime.frame(time)
       if (frameloop === "demand" && Bool.not(Bool.some([invalidated, asked, runtime.wantsFrame(), madeInput.wantsFrame()]))) return
       invalidated = false
-      made.render(scene, cameraOf(camera))
+      // #979, group A (ADR-0074): a render that throws is reported once until one draws, and the loop
+      // goes on. Its frame's writes are made; a demand loop draws again once something moves.
+      try {
+        made.render(scene, cameraOf(camera))
+        renderFailing = false
+      } catch (defect) {
+        if (renderFailing) return
+        renderFailing = true
+        Effect.runFork(Report.failure("wardic.stage: a render failed", Cause.die(defect)))
+      }
     })
   }
 

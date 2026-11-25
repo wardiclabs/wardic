@@ -10,6 +10,8 @@
  * - **When:** once a frame per pointer over the canvas, at the start of `frame(t)`, against what was last
  *   drawn, so hover follows what moves under a still pointer; a down and a release at once, where they
  *   happen. With no gesture watched, nothing is cast.
+ * - **A raycast that throws** (the camera's, `hitTest`'s, an object's `raycast`) is reported once until one
+ *   succeeds: a pointer keeps what it was over, a down or a release hits nothing, and Wardic's writes run on.
  * - **A Batch:** `hover(swarm, onStart)` watches each member, an `InstancedMesh`'s instance by the hit's
  *   `instanceId`, and tells which as the event's `member`; `hover(swarm.at(i), onStart)` member `i` alone.
  *
@@ -37,7 +39,7 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/core/unstable/Report"
 import * as ObjectBatch from "@wardic/object/ObjectBatch"
 import * as Arr from "effect/Array"
-import type * as Cause from "effect/Cause"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import { constVoid } from "effect/Function"
@@ -349,6 +351,29 @@ export const make = (options: Options): SceneInput => {
     return undefined
   }
 
+  // A raycast threw (its camera, its `hitTest`, an object's `raycast`), reported, since one last succeeded.
+  let castFailing = false
+
+  /**
+   * `cast`, or `instead` where the raycast throws: a frame's pointer keeps the hit it had, an event's hits
+   * nothing. A failure is the input's, reported once until a raycast succeeds again, and Wardic's writes
+   * and the render still run.
+   */
+  // #979, group A (ADR-0074): before, it threw out of `frame`, skipping the runtime's writes every frame.
+  const castOr = (ndcX: number, ndcY: number, instead: Intersection | undefined): Intersection | undefined => {
+    try {
+      const intersection = cast(ndcX, ndcY)
+      castFailing = false
+      return intersection
+    } catch (defect) {
+      if (!castFailing) {
+        castFailing = true
+        Effect.runFork(Report.failure("wardic.input: a raycast failed", Cause.die(defect)))
+      }
+      return instead
+    }
+  }
+
   /** `intersection` as a hit: its path made once it changes. */
   const hitOf = (intersection: Intersection | undefined): Hit => {
     if (Predicate.isUndefined(intersection)) return NO_HIT
@@ -378,7 +403,7 @@ export const make = (options: Options): SceneInput => {
     if (ev === lastNative && Predicate.isNotUndefined(lastScene)) return lastScene
     const [inside, ndcX, ndcY] = ndcAt(ev.clientX, ev.clientY)
     let hit = NO_HIT
-    if (inside && ev.type !== "pointermove" && watched()) hit = hitOf(cast(ndcX, ndcY))
+    if (inside && ev.type !== "pointermove" && watched()) hit = hitOf(castOr(ndcX, ndcY, undefined))
     if (inside && ev.type === "pointermove") hit = UndefinedOr.match(pointers.get(ev.pointerId), { onUndefined: () => NO_HIT, onDefined: (pointer) => pointer.hit })
     lastNative = ev
     lastHit = hit
@@ -727,7 +752,7 @@ export const make = (options: Options): SceneInput => {
     moved = false
     for (const [id, pointer] of pointers) {
       if (!pointer.over) continue
-      const intersection = cast(pointer.ndcX, pointer.ndcY)
+      const intersection = castOr(pointer.ndcX, pointer.ndcY, pointer.hit.intersection)
       if (sameHit(pointer.hit.intersection, intersection)) continue
       const next = hitOf(intersection)
       moveTo(id, pointer, next, sceneEvent(pointer.x, pointer.y, next, undefined))
