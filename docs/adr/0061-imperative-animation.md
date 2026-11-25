@@ -545,3 +545,45 @@ UndefinedOr.map(onComplete, (complete) => {
   - **OB17 and OB18** (`object-batch.test.ts`): a Batch call's, and a call that moves no member.
 - **Mutations:** three caught, each run alone: the order swapped back, the `try` dropped, the report dropped.
 - **Row 16 is done here.** Group C keeps rows 18, 19 and 20: a function Segment's callback, and on `cancel()`, and `delay(i, n)`.
+
+## Amendment (#979, group C, 2026-11-25): a call ends, though its function Segment or its `delay` throws
+
+**What happened.** ADR-0074's audit, group C (rows 18, 19 and 20; row 16 is *Amendment (#977)*'s). Each was probed on `main`:
+- **Row 18, a function Segment's callback** (`callbackTrackOf`). The track runs a machine on its own fiber, its sink calling `callback.call(value)` each frame. A throw failed the fiber, and `landed` reported `wardic.animate: a function Segment failed` once but never settled the track. The callback was told nothing more, and the sequence stayed `"running"` for good.
+- **Row 19, its `cancel()`.** It ends the run, then tells the callback its first stop. A throw there came out of `controls.cancel()` before the other tracks were cancelled, the head sought to 0 and the call ended, so the call stayed `"running"`, with nothing logged.
+- **Row 20, `delay(i, n)`.** A list call worked out each Subject's transition, its `delay` called, as it built that Subject's track, and building a track takes its keys. So a `delay` throwing at index 1 came after index 0 had taken its keys from the animation running them, which broke *Amendment (#973)*'s "takes nothing". The mixed path, members' elements beside plain Subjects, did the same.
+
+**Decided (grilled 2026-11-25, Q1–Q6 each A):**
+1. **A callback's throw is its own** (Q1): a `try` in the sink, around the direct call. The callback is told the next frame's value all the same, and the Segment lands as its stops do, so the sequence lands (ADR-0074 decision 4). A run of throws is reported once, ended by its next normal return (decision 3), under the message it had. `landed`'s failure branch stays, for a failure of the machine itself.
+2. **On `cancel()`, the track ends first** (Q2), as it did: its run interrupted. Then its callback is told its first stop inside a `try`, reported each time (`wardic.animate: a function Segment's cancel failed`), and `controls.cancel` goes on. No `try` per track in `controls.cancel`: a function Segment's is the only cancel that calls app code. A plain track's put-back goes through the gate (#969), a Batch's through its run (#977).
+3. **Every transition is worked out before any track** (Q3): a first pass computes each Subject's transition, its `delay(i, n)` called, in the list path and the mixed path. A `delay` that throws stays an error at the call that takes nothing, the app's own error, as ADR-0074 keeps a refusal at the call. The one-Subject path already worked its transition out first.
+   - Rejected: catching it, using a delay of 0 and reporting it, which would turn the app's error at its own call into a quiet fallback.
+
+**Cost** (Q4), against `main` on the quiet bench host:
+- **#973's call bench, extended** (`.tmp/979c/`): `main`'s `Imperative.ts` against the branch's in paired processes, 12 pairs, medians and quartiles:
+
+  | call | Bun 1.3.13, `main` | branch | Node 22.22, `main` | branch |
+  |---|---|---|---|---|
+  | one object, two keys, + stop | 6.6 µs | +4.0% [−6.9%, +8.8%] | 7.0 µs | −0.3% [−2.3%, +1.3%] |
+  | 100 objects | 599 µs | +0.9% [−3.9%, +10.3%] | 652 µs | −0.1% [−0.9%, +2.2%] |
+  | 100 objects, a `delay(i, n)` | 688 µs | +0.2% [−1.3%, +1.0%] | 911 µs | −0.5% [−3.6%, +0.2%] |
+
+  The one-object call's path didn't change, so Bun's +4.0% is its spread. The path with the first pass and a `delay` reads +0.2% and −0.5%.
+- **`bench:core --base main`** passes on Bun, Node and Chromium at the first try.
+- **Size:** `f-slim` +48 B gzip, `t2-stage` +81 B and `t2-features` +59 B, the apps with the Imperative track. `f-slim`'s and `t2-stage`'s budgets were raised by that, to 197.7 and 245.4.
+
+**Tests** (Q5): each failed on `main` first.
+- **WO30** (`wardic-object.test.ts`): a function Segment whose callback throws for three calls, returns, then throws again. It's called every frame and told 1 at the end. The object lands, and the sequence ends `"finished"` and resolves. It's reported twice, once a run.
+- **WO31:** `cancel()` while the callback throws at its first stop. Nothing comes out of `cancel()`, the object's Segment is put back, the call is `"idle"`, and it's reported once.
+- **WO32:** a list call whose `delay` throws for the second object. It's an error at the call, and an earlier call on the first object runs on and lands.
+- **CV13** (Solid 2's `create-batch.browser.test.tsx`): the mixed path, a member's element between two plain ones, the later plain one's `delay` throwing. The earlier call on the first lands. Q5 had object's seam alone, but the mixed path is the DOM's only, and untested code can't be mutation-checked.
+- **Mutations:** 8 of 8 caught, each run alone:
+  - the sink's `try` dropped;
+  - its flag never set or never cleared;
+  - each report dropped;
+  - the cancel's `try` dropped;
+  - each path's first pass undone.
+
+  The first pass's two mutations were first written leaving that pass in, and slipped through. Undoing the pass with them, as `main` has it, was caught.
+
+Group C is done. Groups D to I, and rows 37 and 38 (#981, #983), are left in #979.
