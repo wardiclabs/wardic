@@ -610,5 +610,30 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(snap.state).toBe("finished")
     reduced.dispose()
   })
+
+  it("WO23: a typed array's elements animate by index, each on its own entry, and an optional key the object has animates (#964)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const short = { type: "tween", duration: 0.1, ease: "linear" } as const
+    // [0] on a 0.1 s entry, [1] on the call's 0.5 s: a quarter second in, the first has landed, the second hasn't.
+    const weights = new Float32Array(2)
+    const call = wardic.animate(weights, { 0: 1, 1: 1 }, { type: "tween", duration: 0.5, ease: "linear", 0: short })
+    await tick()
+    pump(wardic, 15, () => undefined, clock)
+    expect(weights[0]).toBe(1)
+    expect(weights[1], `[1] at a quarter second: ${weights[1]}`).toBeGreaterThan(0.3)
+    expect(weights[1]).toBeLessThan(0.7)
+    pump(wardic, 20, () => undefined, clock)
+    await call
+    expect(Array.from(weights)).toEqual([1, 1])
+    // A key the object may lack, which it has: as any other.
+    const sprite: { a?: number; b: number } = { a: 0, b: 0 }
+    const moved = wardic.animate(sprite, { a: 1, transitionEnd: { a: 2 } }, short)
+    await tick()
+    pump(wardic, 10, () => undefined, clock)
+    await moved
+    expect(sprite).toEqual({ a: 2, b: 0 })
+    wardic.dispose()
+  })
 })
 

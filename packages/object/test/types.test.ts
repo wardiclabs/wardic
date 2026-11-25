@@ -102,6 +102,59 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate([left, right], { a: 1 })
   // @ts-expect-error: nor its entry.
   wardic.animate([left, right], { x: 1 }, { a: { duration: 0.2 } })
+
+  // A key it may lack, an optional one (#964): its value, its entry and its end, as a key it has.
+  const sprite: { a?: number; b: number; label?: string } = { a: 0, b: 0 }
+  wardic.animate(sprite, { a: 1, b: [0, 1], label: "on", transition: { a: { duration: 0.2 } }, transitionEnd: { a: 0 } }, { a: { duration: 0.1 } })
+  wardic.animate([sprite, { a: 0, b: 0 }], { a: 1 })
+  // A key that may hold `undefined` too, and a Partial Record's, any name.
+  const maybe: { a: number | undefined } = { a: 0 }
+  wardic.animate(maybe, { a: 1 })
+  const sparse: Partial<Record<string, number>> = { a: 0 }
+  wardic.animate(sparse, { a: 1, transition: { a: { duration: 0.2 } }, transitionEnd: { a: 0 } })
+  // @ts-expect-error: its value is a number, as a key it has.
+  wardic.animate(sprite, { a: "x" })
+  // @ts-expect-error: never `undefined`, which isn't a value to animate to.
+  wardic.animate(sprite, { a: undefined })
+  // @ts-expect-error: nor where the key's type says it may hold one.
+  wardic.animate(maybe, { a: undefined })
+  // @ts-expect-error: nor its end.
+  wardic.animate(maybe, { a: 1, transitionEnd: { a: undefined } })
+  // @ts-expect-error: nor a Partial Record's.
+  wardic.animate(sparse, { a: "x" })
+  // @ts-expect-error: nor its end.
+  wardic.animate(sprite, { b: 1, transitionEnd: { a: "x" } })
+  // @ts-expect-error: a key that only ever holds `undefined` has no value to animate.
+  wardic.animate({ u: undefined, b: 0 }, { u: 1 })
+  // @ts-expect-error: nor an entry.
+  wardic.animate({ u: undefined, b: 0 }, { b: 1 }, { u: { duration: 0.2 } })
+
+  // A numeric key (#964): a typed array's elements, by index, their entries and their end.
+  const buffer = new Float32Array(3)
+  wardic.animate(buffer, { 0: 1, 1: [0, 1], transition: { 0: { duration: 0.2 }, default: { duration: 1 } }, transitionEnd: { 0: 0 } }, { 1: { duration: 0.1 } })
+  wardic.animate([buffer, new Float32Array(2)], { 1: 1 })
+  // A number index's, and one beside a named key.
+  const slots: { [slot: number]: number } = { 0: 0 }
+  wardic.animate(slots, { 0: 1, "1": 2 })
+  const track: { [step: number]: number; name: string } = { 0: 0, name: "" }
+  wardic.animate(track, { 0: 1, name: "intro" })
+  // @ts-expect-error: an element's value is a number.
+  wardic.animate(buffer, { 0: "x" })
+  // @ts-expect-error: written as a string too.
+  wardic.animate(buffer, { "0": "x" })
+  // @ts-expect-error: nor its end.
+  wardic.animate(buffer, { 0: 1, transitionEnd: { 0: "x" } })
+  // @ts-expect-error: nor its entry.
+  wardic.animate(buffer, { 0: 1, transition: { 0: { duration: "slow" } } })
+  // @ts-expect-error: a misspelt key is caught beside the index.
+  wardic.animate(buffer, { lenght: 1 })
+  // @ts-expect-error: a number index has no named key.
+  wardic.animate(slots, { a: 1 })
+  // A name that only reads as a number (`"01"`, `"1e3"`) stays a name, as it was.
+  const pads = { "01": 0, "1e3": 0 }
+  wardic.animate(pads, { "01": 1, "1e3": 1 })
+  // @ts-expect-error: and gives no number index.
+  wardic.animate(pads, { 5: 1 })
 }
 
 it("TY1: the typed calls compile", () => {
