@@ -393,18 +393,24 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 - **So:** the end's keys after the failing one weren't set, `await` never resolved, and `state` stayed `"running"`.
 - **Not affected:** a ward's Transition end, which Spine's `resolvedOf` merges into the values its Retarget reads, so a key it can't take is refused as its leg starts. Nor Segments, which take no Transition end.
 
+**Motion** (`.reference/motion` at `16c6122`): `animateValues` sets a Transition end once its animations' promises resolve, in a `frame.update` callback (`motion-dom/src/animation/animate/effects.ts`). Its call has finished by then. An end key its effect can't read fails inside that callback, at an `invariant` ("can't be read from the animated subject") that only development builds throw. Nothing checks the end at the call.
+
 **Decided (grilled 2026-11-25, Q1–Q6 each A):**
 1. **The end's keys are read at the call** (Q1), each as `takeKey` reads a key it animates, before the call takes any key. A key the Subject lacks or can't write is the Environment's error, thrown at the call and naming it, and none of the call starts. The DOM's read, cached once per key, happens then instead of at the landing, as a ward's does.
-2. **A key that can't be set by the landing doesn't hold the call** (Q2). That's one made read-only or deleted after the call. The key is reported once and left as it is, the rest of the end is set, and the call lands.
+2. **A key that can't be set by the landing doesn't hold the call** (Q2). That's one made read-only or deleted after the call. The key is reported at that landing and left as it is, the rest of the end is set, and the call lands. A replay that lands again reports it again.
    - Rejected: B, failing the call. An Imperative call's hooks have no failure (`failed` is `constVoid`), and its controls no rejection.
 3. **Every Environment, through core** (Q3). Not wards, already right; not Segments; not #969, the flush stopping at one bad write.
-4. **The report** (Q5): `Report.failure("wardic.animate: a Transition end's \"y\" couldn't be set, the rest of it set and the animation landed", cause)`, once per key, with the Environment's error as the cause.
+4. **Tests and cost** (Q4): object's and three's run-time seams, the DOM's Transition end browser tests unchanged, three mutations, and an object call with a two-key end timed against `main`.
+5. **The report** (Q5): `Report.failure("wardic.animate: a Transition end's \"y\" couldn't be set, the rest of it set and the animation landed", cause)`, once per key a landing can't set, with the Environment's error as the cause.
+6. **A patch** for core, object and three (Q6), with the hovers of core's `animate` and of object's and three's `transitionEnd` saying so. No glossary change.
 
 **Built** (`packages/core/src/unstable/Imperative.ts`):
 - **`readOwn`**, `takeKey`'s Own value read as a function: a statement, where the key has no `initial` value.
 - **`imperativeTrackOf`** reads each of `target.transitionEnd`'s keys through it before its loop over the target's keys, so a throw leaves the Subject's keys untaken.
-- **`settable`**, a guard in `writeEnds` beside `endFree`, reads the key again at the landing, in a `try`. A key it can't read is reported and left out of what's taken, recorded (`overwritten`) and set.
+  - **A list's earlier Subjects** have had their tracks built by then, and their keys taken from whatever drew them. A later Subject's throw leaves those animations ended, as a later Subject's bad target key has since #968. That's the follow-up's.
+- **`settableOrReported`**, a guard in `writeEnds` beside `endFree`, reads the key again at the landing, in a `try`. A key it can't read is reported and left out of what's taken, recorded (`overwritten`) and set.
   - The landing then reads each end key twice, once here and once in `takeKey`. That's simpler than a take loop of its own for the end, and costs one read a key.
+  - **Not guarded:** `putBack`. A key frozen after the landing, then a cancel, fails in the flush, which stops there: #969's.
 
 **Tests:**
 - `packages/object/test/wardic-object.test.ts`:
@@ -415,6 +421,8 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 - **The DOM:** `create-animate` and `transition-end` (Solid 2) and `create-animate`, `create-animate-sequence` and `transition-end` (Solid 1) pass unchanged.
 
 **Mutation-checked** (`.tmp/970/mutate.py`): four single-point mutations, each run alone, all caught. The call-time read dropped (WO25, WT19). The landing guard dropped, the guard reporting every key, and a failing key kept (each WO26).
+
+**Reviewed** (two-axis review, standards and spec): the guard renamed for its report, `readOwn`'s comment naming the landing, the changeset's example typed, and the decisions above completed. A list's earlier Subjects (above) went to a follow-up; the put back is #969's.
 
 **Measured** (`.tmp/970/bench.ts`, `drive.sh`): twelve paired processes on the quiet bench host, `main`'s `Imperative.ts` against this one, alternating which goes first.
 

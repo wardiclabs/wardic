@@ -323,7 +323,7 @@ const takeKey = (host: Spine.SpineHost, taking: Map<string, number | string | un
  * `key`'s Own value read, where it has no `initial` value: a key the Subject lacks, or can't write, is
  * its Environment's error, naming it.
  */
-// Per key at a call, the hot path (effect-first.md): a statement.
+// Per key at a call and at a landing, the hot path (effect-first.md): a statement.
 const readOwn = (host: Spine.SpineHost, key: string): void => {
   if (!Object.hasOwn(host.initialValues, key)) host.ownValue(key)
 }
@@ -342,8 +342,8 @@ const endFree = (owner: Spine.Running | undefined): boolean => {
  * on its Default transition), reduced motion as the provider says, and run through `head` once
  * {@link Spine.ImperativeTrack.run} is called. Once they land, none taken, its target's Transition
  * end is set (#896), and put back by a cancel or a run again. The end's keys are read as it's made, as
- * its own are, so one the Subject can't take is an error then; one it can no longer set by its landing
- * is reported and left as it is, and the rest set (#970).
+ * the keys it animates are, so one the Subject can't take is an error then; one it can no longer set by a
+ * landing is reported there and left as it is, and the rest set (#970).
  */
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
 // imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
@@ -360,8 +360,8 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   }
   const to = target.values
   const ends = target.transitionEnd
-  // Its Transition end's keys read now, before it takes any key, as its own are as they're taken: one
-  // the Subject lacks or can't write is an error at the call, naming it, not at its landing (#970).
+  // Its Transition end's keys read now, before it takes any key, as the keys it animates are as they're
+  // taken: one the Subject lacks or can't write is an error at the call, naming it, not at its landing (#970).
   if (Predicate.isNotUndefined(ends)) Arr.forEach(Rec.keys(ends), (key) => readOwn(host, key))
   const before = lastTargetsOf(host)
   const started: Record<string, string> = {}
@@ -426,9 +426,10 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
       if (only(key)) takeKey(host, takingNow, key, targetsNow[key], UndefinedOr.getOrThrow(values[key]), startedNow)
     })
   }
-  // Whether an end's `key` can still be set: one its Subject has lost, or can no longer write, since the
-  // call read it is reported once and left as it is, and the rest of the end is set (#970).
-  const settable = (key: string): boolean => {
+  // Whether an end's `key` can still be set, else reported: one its Subject has lost, or can no longer
+  // write, since the call read it is reported at the landing and left as it is, and the rest of the end is
+  // set (#970).
+  const settableOrReported = (key: string): boolean => {
     try {
       readOwn(host, key)
       return true
@@ -438,7 +439,7 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
     }
   }
   const writeEnds = (values: Values.Values): void => {
-    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)) && settable(key))
+    const free = Rec.filter(values, (_, key) => endFree(owners.get(key)) && settableOrReported(key))
     if (Rec.isEmptyRecord(free)) return
     takeEach(free, constTrue)
     // Kept from an earlier landing a run from its end didn't put back: what they were before any.
