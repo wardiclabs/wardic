@@ -6,7 +6,8 @@
  *
  * - **Keys** are an object's own properties, by name: `animate(sprite, { x: 100 })` writes `sprite.x`.
  *   Each starts from the property's value when the animation starts. A key the object doesn't have,
- *   or whose value is neither a number nor a string, is an error naming it.
+ *   can't write, or whose value is neither a number nor a string, is an error at the call naming it,
+ *   and the call takes nothing: what animated the other keys runs on.
  * - **Values** are numbers, and strings with a unit or of numbers (`"10px"`, `"0 0 4px"`). An array in
  *   a target is keyframes, as Motion's.
  * - **Transitions** are Motion's by a key's name when a key gives none: a spring for a transform's

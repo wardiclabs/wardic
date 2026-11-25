@@ -434,3 +434,84 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 - **The call with an end** pays two own-value reads, about 0.1 µs, against 6 µs.
 - **A call with none** is within the run's spread on both engines.
 - **Bytes** (`bun run size`): gzip grows 88 B in `f-slim`, 125 in `t2-stage` and 65 in `t2-features`, the apps that ship the Imperative track, core 0.2 KB more minified in each. Their budgets were raised by what this measured, to 197.1, 244.3 and 252.0. Solid's slim apps are as they were.
+
+## Amendment (#973, 2026-11-25): a call refused at the call takes nothing
+
+**What happened.** Found reviewing #970. A call refused at the call (a key a Subject can't take, so its Environment's own value read throws) had already taken the keys read before it. `animate` built each Subject's track in turn, and a track took its keys as it was built: `takeKey` gave each up from whatever drew it, then read it. So the animations drawing those keys ended `"idle"`, their keys stuck mid-flight, and the new call never ran.
+- **Three shapes**, probed on `main` after #974:
+  - one Subject whose later key is refused: `{ x, y }` with `y` read-only. `{ y, x }` was fine, so the key order decided;
+  - a list's later Subject;
+  - a sequence's later Segment's Subject.
+- **A Stage ward's mesh too:** the take stopped the ward's own leg mid-flight.
+- **Not affected:**
+  - Batches. A Batch's animation takes nothing until it plays (`Batch.animate` is worked out at its first play), and in a mixed call its checks run before the plain tracks.
+  - The DOM, whose read never throws.
+
+**Motion** (`.reference/motion` at `16c6122`): `animateSubject` starts each Subject in turn (`framer-motion/src/animation/animate/subject.ts`). A later Subject's `invariant`, thrown only in development builds, leaves the earlier Subjects animating to the call's target, and the call returns no controls for them.
+
+**Decided (grilled 2026-11-25, Q1–Q5 each A):**
+1. **A call refused at the call takes nothing** (Q1). Every key a call names is read before any is taken: each Subject's target keys and its Transition end's, for every Subject of a list or a sequence. An animation the call would have taken a key from runs on and lands.
+   - Rejected: B, Motion's. The earlier Subjects animate on, with no controls to await, stop or cancel them.
+   - Rejected: C, undoing the takes. `giveUp` has ended the earlier leg's hold on the key, and restarting it would need its machine mid-flight.
+   - Rejected: D, leaving it.
+2. **All three shapes, through core** (Q2). Batches, #969 and the DOM are unchanged.
+3. **One read a key** (Q3). The new read is the call's, and `takeKey` stops reading.
+   - A landing's `settableOrReported` is then its only read, so #970's second read there goes.
+   - A run's retake, at a replay, reads none. A key frozen since the call fails at its write, as a key nothing else draws already did (#969).
+4. **Tests and cost** (Q4): object's seam and a Stage ward's, mutations, an object call and a list call timed against `main`, and the bytes.
+5. **A patch** (Q5), with core's `animate` hover, object's module doc and the glossary's **Imperative animation** saying so.
+
+**Built** (`packages/core/src/unstable/Imperative.ts`):
+- **`readiedOf`** resolves a Subject's target and finds the spine it runs through: its Wardic element's host, else its plain spine. It reads the target's keys (`readOwnValues`: its Transition end's, then its values, each through `readOwn`) and returns them as a `Readied`, building nothing.
+- **`trackOf`** takes a `Readied`, so a call readies every Subject before it builds any track:
+  - **a list:** an `Arr.map` of `readiedOf`, then the tracks;
+  - **one Subject:** readied, then its track, with no second map; the read before its take is all it needs. The list form's second map measured +0.39 µs a call on Bun (10 of 12 pairs slower), and this path took it back;
+  - **a call with Batch members' Subjects** (the DOM's): its other Subjects readied first;
+  - **a sequence's Subjects** (`segmentReadiedOf`): a function Segment's callback has none.
+- **No reads left:** `takeKey` no longer reads, and `imperativeTrackOf` no longer reads its end's keys (#970's read moved into `readOwnValues`).
+- **Error order:** a Subject's end keys are read before its target's, as #970 read them, so each error names the key it named before.
+- **Not covered:** a `delay(i, n)` that throws for a later Subject. Each Subject's transition is worked out as its track is built, so the earlier Subjects' keys are taken by then, as on `main`. It isn't a key the Subject can't take.
+
+**Tests:**
+- `packages/object/test/wardic-object.test.ts`, **WO27:** an earlier call on a Subject runs on and lands at its target, `"finished"`, after each of four calls refused at the call:
+  - the same Subject's later key;
+  - a list's later Subject;
+  - a list's later Subject's end key;
+  - a sequence's later Segment's Subject.
+
+  Each shape asserts on its own (`expect.soft`). On `main` all four failed: `"idle"`, the key at 1.67–2.
+- `packages/three/test/stage.solid.test.tsx`, **CS11:** a ward animates a mesh's `x`, and `animate(mesh, { x: 1, id: 5 })` throws at the call. The ward's own animation lands at 3. On `main` it stopped at 0.96.
+- **Unchanged:** WO7, WO25, WT18 and WT19 pass, each error still at the call and naming its key. The DOM's `create-animate`, `transition-end` and Batch browser tests pass on Solid 1 and 2.
+
+**Mutation-checked** (`.tmp/973/mutate.py`): six single-point mutations, each run alone, all caught:
+- the first read dropped;
+- a list's read interleaved with its tracks;
+- only target keys read first;
+- a sequence's read interleaved with its tracks;
+- target keys read as they're taken, `main`'s;
+- the target's keys read before the end's (WO25).
+
+**Reviewed** (two-axis review, standards and spec):
+- **The read order:** the first build read a Subject's target keys before its end's, so WO25's list case, a frozen later object, named its `x` and had been changed to keep naming `y`. The end's keys are read first again, and WO25 is `main`'s.
+- **Names:** `readiedOf` takes a `variant`, `trackOf` keeps its `target`, and `readKeys` is `readOwnValues`. `takeKey`'s doc names the replay, which reads none.
+- **Left as they are:** a sequence's two maps each check `isCallback`, clearer than pairing them in one. The `delay(i, n)` case is above.
+
+**Measured** (`.tmp/973/bench.ts`, `drive.sh`): twelve paired processes on the quiet bench host, `main`'s `Imperative.ts` against this one. The order alternates, and each run checks which it loaded.
+
+| a call and its stop | Bun | Node |
+|---|---|---|
+| one object, two keys | 6.94 → 6.83 µs (−0.05 µs, 5 of 12 slower) | 7.08 → 7.03 µs (−0.05 µs, 5 of 12) |
+| 100 objects, two keys | 635.9 → 620.5 µs (−2.1%, 5 of 12) | 666.9 → 664.4 µs (−0.2%, 4 of 12) |
+
+- **Time:** within the runs' spread on both engines.
+- **The DOM** (asked after the review, on the same quiet host):
+  - **`bench:solid --base main`** passed on both bindings, its control +0.4%. The ward's paths moved −1.6% to +1.0%: mount, the Retargets, unmount, allocation, retained memory, and the layout scenes. None of its timed tasks calls `createAnimate`.
+  - **A DOM `createAnimate` call:** `?kind=batch-animate`, 1000 calls, one per element, paired against `main` over 11 reps (a copy of `run.ts` whose `--batch-frames` ran that page). Its control was +0.7%.
+
+    | `batch-animate`, warm | `main` | this | change |
+    |---|---|---|---|
+    | the calls (the change task) | 8.300 ms | 8.445 ms | +0.4% [+0.1% – +3.0%] |
+    | the frames | 1.705 ms | 1.695 ms | −0.3% [−1.7% – +2.5%] |
+
+    About 35 ns a call, out of 8.3 µs, under the +5% gate. Its p25 above 0 says it's likely real: each Subject's `Readied` and the call that makes it.
+- **Bytes** (`bun run size`): gzip grows 211 B in `f-slim`, 216 in `t2-stage` and 196 in `t2-features`, with core 0.5 KB more minified in each. Their budgets were raised by what this measured, 0.2 each, to 197.3, 244.5 and 252.2. Solid's slim apps are as they were.

@@ -329,4 +329,30 @@ describe("@wardic/three/solid's Stage (#885's PR 1)", () => {
     expect(other.position.x).toBeCloseTo(3, 5)
     expect(said.filter((line) => line.includes("a flush failed"))).toEqual([])
   })
+
+  it("CS11: an imperative call refused at the call takes nothing from a ward: its own animation of the mesh lands (#973)", async () => {
+    const { mesh } = sceneOf()
+    const made = WardicThree.make()
+    let stage!: ReturnType<typeof createStage>
+    const Crate = () => ward(mesh, { initial: { x: 0 }, animate: { x: 3 }, transition: { type: "tween", duration: 0.5, ease: "linear" } }).held
+    mountTree(() => {
+      stage = createStage({ wardic: made })
+      return (
+        <WardicStage value={stage}>
+          <Crate />
+        </WardicStage>
+      )
+    })
+    flush()
+    await later()
+    let time = 0
+    for (; time < 160; time += 16) made.frame(time)
+    const mid = mesh.position.x
+    expect(mid, "the ward's own animation mid-flight").toBeGreaterThan(0.2)
+    expect(mid).toBeLessThan(2.8)
+    // Its `x` before `id`, which three can't write: the call takes `x` from the ward before it's refused, unless it reads first.
+    expect(() => stage.animate(mesh, { x: 1, id: 5 } as never)).toThrow(/a Mesh's "id" can't be written/)
+    for (; time < 1200; time += 16) made.frame(time)
+    expect(mesh.position.x).toBeCloseTo(3, 5)
+  })
 })
