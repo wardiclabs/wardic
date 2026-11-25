@@ -465,7 +465,7 @@ The imperative half of the Renderer — writing a projected patch onto a target.
 _Avoid_: apply, flush, paint.
 
 **Flush gate**:
-The accumulator every binding writes an element's values into. It merges each element's writes by key and commits them onto each element once per Refresh frame, all in one flush (ADR-0006, ADR-0034): at the end of the **Frame loop**'s tick, in the Refresh frame that computed them, or, for a write made outside a tick (a drag's move, a release), at the next Refresh frame (ADR-0033). A **Measure pass**'s own writes are applied at the end of its task (ADR-0018). A server render gets one that does nothing (ADR-0021).
+The accumulator every binding writes an element's values into. It merges each element's writes by key and commits them onto each element once per Refresh frame, all in one flush (ADR-0006, ADR-0034): at the end of the **Frame loop**'s tick, in the Refresh frame that computed them, or, for a write made outside a tick (a drag's move, a release), at the next Refresh frame (ADR-0033). A **Measure pass**'s own writes are applied at the end of its task (ADR-0018). An element whose writes fail is reported, and the others still commit (#969). A server render gets one that does nothing (ADR-0021).
 _Avoid_: batcher, scheduler (Effect's), coordinator (the **Frame loop**'s old name).
 
 **Imperative path**:
