@@ -29,6 +29,8 @@
 //   Batch's effect apply, untracked, where Solid reported the read (STRICT_READ_UNTRACKED).
 // - CV12 (#977): an element with no inline style (a foreign namespace's) is refused as a member, naming it,
 //   before it's entered, so the Batch's runs go on: its other member still animates.
+// - CV13 (#979): a call through members' elements and plain ones whose `delay(i, n)` throws for a later plain
+//   one takes nothing: an earlier call on the first plain one runs on and lands.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
@@ -395,5 +397,24 @@ describe("createBatch on Solid 2 (#665)", () => {
     // Before #977, it was entered, and its write ended each of the Batch's runs: the other never moved.
     const xs = await xsOver(60, [member])
     expect(xs[0].at(-1)).toBe(30)
+  })
+
+  it("CV13: a call through members' and plain elements whose delay(i, n) throws for a later plain one takes nothing: an earlier call on the first runs on and lands (#979)", async () => {
+    const both = mountBoth(2)
+    await raf()
+    const animate = both.animate()
+    const earlier = animate(both.plain[0], { x: 60 }, TWEEN)
+    await raf()
+    await raf()
+    // Its plain elements at indices 0 and 2, a member's between: the second's delay throws.
+    const delay = (i: number): number => {
+      if (i === 2) throw new Error("its delay threw")
+      return 0
+    }
+    expect(() => animate([both.plain[0], both.members[0], both.plain[1]], { x: 10 }, { ...TWEEN, delay })).toThrow(/its delay threw/)
+    // Before #979, the first plain element's track took x from the earlier call before the later one's delay threw.
+    const xs = await xsOver(40, [both.plain[0]])
+    expect(xs[0].at(-1)).toBe(60)
+    expect(earlier.state).toBe("finished")
   })
 })

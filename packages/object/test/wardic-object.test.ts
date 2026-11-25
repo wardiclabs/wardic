@@ -833,4 +833,92 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(seen).toEqual(["finished", "finished"])
     wardic.dispose()
   })
+
+  it("WO30: a function Segment whose callback throws is called again each frame and lands with its sequence, reported once a run of throws (#979)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const ball = { x: 0 }
+    const told: Array<number> = []
+    let calls = 0
+    // Its 3rd to 5th calls throw, then its 9th: two runs of throws.
+    const throwsAt = new Set([3, 4, 5, 9])
+    const reports = await reportsDuring(async () => {
+      const sequence = wardic.animate([
+        [ball, { x: 10 }, { duration: 0.2, ease: "linear" }],
+        [
+          (value: number) => {
+            calls++
+            if (throwsAt.has(calls)) throw new Error(`call ${calls} threw`)
+            told.push(value)
+          },
+          [0, 1],
+          { duration: 0.2, ease: "linear", at: 0 },
+        ],
+      ])
+      await tick()
+      pump(wardic, 30, () => undefined, clock)
+      await tick()
+      // Before #979, its first throw ended its run: it was told no more, and the sequence stayed "running".
+      expect(calls).toBeGreaterThan(10)
+      expect(told.at(-1)).toBe(1)
+      expect(ball.x).toBe(10)
+      expect(sequence.state).toBe("finished")
+      await sequence
+    })
+    expect(reports).toEqual(["wardic.animate: a function Segment failed", "wardic.animate: a function Segment failed"])
+    wardic.dispose()
+  })
+
+  it("WO31: a cancel whose function Segment's callback throws at its first stop still cancels the call: nothing comes out of cancel(), its object is put back, and it's reported (#979)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const ball = { x: 0 }
+    let cancelling = false
+    const reports = await reportsDuring(async () => {
+      const sequence = wardic.animate([
+        [
+          () => {
+            if (cancelling) throw new Error("its cancel threw")
+          },
+          [0, 1],
+          { duration: 0.5, ease: "linear" },
+        ],
+        [ball, { x: 10 }, { duration: 0.5, ease: "linear", at: 0 }],
+      ])
+      await tick()
+      pump(wardic, 6, () => undefined, clock)
+      expect(ball.x).toBeGreaterThan(0)
+      cancelling = true
+      // Before #979, its throw came out of cancel(), before the object's Segment was put back.
+      expect(() => sequence.cancel()).not.toThrow()
+      await tick()
+      pump(wardic, 2, () => undefined, clock)
+      expect(ball.x).toBe(0)
+      expect(sequence.state).toBe("idle")
+    })
+    expect(reports).toEqual(["wardic.animate: a function Segment's cancel failed"])
+    wardic.dispose()
+  })
+
+  it("WO32: a list call whose delay(i, n) throws for a later Subject takes nothing: an earlier call's animation of the first runs on and lands (#979)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const first = { x: 0 }
+    const second = { x: 0 }
+    const earlier = wardic.animate(first, { x: 10 }, { type: "tween", duration: 0.5, ease: "linear" })
+    await tick()
+    pump(wardic, 5, () => undefined, clock)
+    // Before #979, each Subject's delay was worked out as its track was built: the first's took x first.
+    const delay = (i: number): number => {
+      if (i === 1) throw new Error("its delay threw")
+      return 0
+    }
+    expect(() => wardic.animate([first, second], { x: 1 }, { delay })).toThrow(/its delay threw/)
+    await tick()
+    pump(wardic, 40, () => undefined, clock)
+    expect(earlier.state).toBe("finished")
+    expect(first.x).toBe(10)
+    await earlier
+    wardic.dispose()
+  })
 })
