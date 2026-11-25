@@ -515,3 +515,33 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 
     About 35 ns a call, out of 8.3 µs, under the +5% gate. Its p25 above 0 says it's likely real: each Subject's `Readied` and the call that makes it.
 - **Bytes** (`bun run size`): gzip grows 211 B in `f-slim`, 216 in `t2-stage` and 196 in `t2-features`, with core 0.5 KB more minified in each. Their budgets were raised by what this measured, 0.2 each, to 197.3, 244.5 and 252.2. Solid's slim apps are as they were.
+
+## Amendment (#977, 2026-11-25): a call finishes before its `onComplete` runs
+
+**What happened.** ADR-0074's audit, rows 16 and 17. `settledOne`, every call's landing (a plain Subject's, a sequence's, a Batch's), resolved the call, then called `onComplete`, then ended it `"finished"`. An `onComplete` that threw skipped the end:
+- the call stayed `"running"` for good, `play()` did nothing, and Solid 2's `scope.settled()` stayed pending;
+- a plain call's was logged at every landing, as an `afterFlush` failure;
+- a Batch call's ran inside `Batch.step`, so its throw ended the Batch's run (ADR-0069, *Amendment (#977)*);
+- a call that moved no member threw out of `animate()`.
+
+**Decided** (#977's grill, Q4): by ADR-0074's *Amendment (#979, group A)*, as Motion's `JSAnimation.finish()` does, the call ends first, then its `onComplete` runs in a `try`. A throw there is reported each time it lands (`wardic.animate: an onComplete failed`), on the call's runtime (`controlsOf` takes it from `started`).
+
+```ts
+isResolved = true
+UndefinedOr.map(resolve, (done) => done())
+end("finished", true)
+UndefinedOr.map(onComplete, (complete) => {
+  try {
+    complete()
+  } catch (defect) {
+    runtime.runFork(Report.failure("wardic.animate: an onComplete failed", Cause.die(defect)))
+  }
+})
+```
+
+- **What's different:** an `onComplete` sees the call `"finished"`, as Motion's does, so a `play()` from it plays the call again. Its scope hears the call end before `onComplete` runs.
+- **Tests:**
+  - **WO29** (`wardic-object.test.ts`): a plain call's throwing `onComplete` sees `"finished"`, is reported at each landing, and `play()` plays the call again.
+  - **OB17 and OB18** (`object-batch.test.ts`): a Batch call's, and a call that moves no member.
+- **Mutations:** three caught, each run alone: the order swapped back, the `try` dropped, the report dropped.
+- **Row 16 is done here.** Group C keeps rows 18, 19 and 20: a function Segment's callback, and on `cancel()`, and `delay(i, n)`.

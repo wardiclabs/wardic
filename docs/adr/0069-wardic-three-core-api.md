@@ -229,3 +229,59 @@ Decision 2 put the spine and the Flush gate in core's `internal/*`. ADR-0071 (#5
 ## Amendment (#566, 2026-11-18): exact pins, not the fixed group
 
 The *Amendment (#672)*'s `unstable/` subpaths have no semver promise, and Wardic's own packages match it through exact pins, not through the Changesets fixed group alone, since `@wardic/solid` left the group at its 2.0: ADR-0071, *Amendment (#566)*.
+
+## Amendment (#977, 2026-11-25): one member's failure is its own
+
+**What happened.** ADR-0074's audit, group B (rows 3, 4 and 17). Every Batch, object's, three's and the DOM's, moves its members in one run on the Frame loop, and `Batch.step` runs each member's path in it:
+- the start pass: a member's start partway, the DOM's Handoff reads among them;
+- each moving member's write, through its Environment's writer;
+- each change's landing check, which tells its members (`onMemberLanded`: a keyed exit's removal) and its call (`onLanded`, and through it the app's `onComplete`);
+- the writer's `flush`, and `onFrame`.
+
+A throw on any of them came out of the step. The Frame loop ended the run with it as its defect, and every binding forks its run without watching it, so nothing was logged. Every member stopped where it was and every call on the Batch stayed `"running"`. Probed with `@wardic/object` (a member frozen mid-run, a Batch call's throwing `onComplete`) and three's `InstancedMesh` with its `instanceColor` taken away; the DOM's rows read, then confirmed by its tests below. Outside the step:
+- **A call that moves no member** landed at once, so its `onComplete`'s throw came out of `animate()`.
+- **A change's idle members** are told at its `play`, and one's throw came out of it.
+- **The DOM's Handoff** reads every member in its first `startAt` call, so one element's throw voided every member's.
+- **Its release** (a microtask) skipped the members after a throw.
+- **An element with no inline style** (a foreign namespace's) was entered as a member, and its write then ended every run.
+
+**Decided (grilled 2026-11-25, Q1–Q12 each A):**
+1. **Core's step catches, once for every Environment** (Q1): a `try` per member write at each write site (`stepPlain`, `stepRuled`, `stepRuledDriven`, `startedPartway`, `draw`), ADR-0074 decision 5's form. Only the catch's report is shared (`writeFailed`), as FlushGate's `failedAt` is. The writers are unchanged.
+2. **A failing member is driven on while it moves** (Q2): its keys step each frame and it's written again each frame, landing with the others (ADR-0074 decision 4). At rest it isn't retried until a change moves it, so a member frozen for good asks for no frames.
+3. **Reported once per Batch, per path** (Q3): writes, starts, `flush` and `onFrame`, naming the member's slot (`member`), and cleared by a step in which that path didn't throw. A `draw` between steps isn't a step. A landing's callback is reported each time, since each is told once.
+   - Rejected: per member, ADR-0074's literal "per Subject". An `InstancedMesh` of 10,000 would log 10,000 lines a frame, and a member's flag can't live in `flags`, whose exact-byte compares are the step's fast path.
+4. **Reported on the run's own services** (Q7): `Batch.run` reads its fiber's context once as it starts (`Effect.contextWith`), and each report is `Effect.runForkWith(services)(Report.failure(…))`, the Environment's Logger and ErrorReporters. Before a first run (a `draw` at arrival, `play`'s idle tells) it's an empty `Context`, Effect's defaults. No new option, so a patch.
+   - Rejected: an unstable hook each binding passes (four bindings to wire), or a public `Options.onDefect` (new API, a minor).
+5. **Landings** (Q8): a `try` per member where members are told (`tellMembers`, `tellIdle`), and per change in the step's landing loop (`for…of` over its changes). Wardic's own state already comes first: `finish` before `onLanded`, `told` before `tell`, so each `try` only keeps one callback from skipping the rest.
+6. **Starts** (Q9): `startedPartway` catches a `startAt` that throws, and its member starts from its start, `NaN`'s path. The DOM's Handoff keeps each member's read its own: a failed read's `startAt` throws that member's defect for core to report, and every other member keeps its time. A failed member plays its change from its start, the jump a Handoff avoids, for that member only.
+7. **The DOM** (Q5, Q6): `arrive` refuses an element with no inline style before it's entered (`createBatch: a member's element (…) has no inline style …`). The Appear release has a `try` per member, reported once a release (`wardic.batch: a member's Appear release failed`).
+8. **The call ends before `onComplete`** (Q4): ADR-0061, *Amendment (#977)*.
+9. **Not here** (Q5): the binding hooks a run's fiber observer calls (rows 25 and 33), and presence's `allLeft` and `mode="wait"` release behind a keyed exit (group F). The landing `try`s keep them from ending a run.
+
+**Cost** (Q10), against `main` on the quiet bench host:
+- **`bench:core --base main`** passes on every engine. Its Batch workloads (10,000 members):
+
+  | engine | `batch` | `batch/table` | `batch/probe` (the hand loop, untouched) | noise control |
+  |---|---|---|---|---|
+  | Bun 1.3.13 | +1.3% | +1.2% | +0.4% | +2.1% |
+  | Node 22.22 (its rerun; the first was too noisy) | +0.2% | +0.5% | −0.2% | −2.3% |
+  | Chromium 147 | +0.0% | +3.3% (0.15 → 0.16 ms, the timer's step) | +0.0% | −1.5% |
+
+- **`bench:solid --base main`:** every Batch row (mount, retarget, bytes, hover and press, reorder) within its spread on both bindings. Its first run flagged Solid 1's layout `list frame`, +5.3% [+0.0% – +5.4%], a page with no Batch on it, while Solid 2's read +0.0%. A rerun of Solid 1 passed (+3.8% [−3.8% – +6.6%]).
+- **Size:** the Batch apps +417 to +501 B gzip, core's code 1.2 KB of it minified (the `try`s, the report path). `t2-stage`'s and `t2-features`' budgets were raised by that, to 245.3 and 252.9.
+
+**Tests** (Q11): each failed on `main` first.
+- **Core** (`batch.test.ts`):
+  - **B32:** a member's write throwing in the plain list and in the ruled list, and through a `draw`. The other member is written every frame and both land. It's reported once, naming the slot, and again after a clean step, through the run's Logger and an installed ErrorReporter.
+  - **B33:** two members' starts throwing in one step, reported once, and again at a later change's. Each starts from its start, and a third member's write throws as its start draws it.
+  - **B34:** an idle member's tell at `play`, a member's landing and a change's `onLanded` throwing. The others are told and every change lands. A `flush` and an `onFrame` are reported once until they return.
+- **Object** (`object-batch.test.ts`):
+  - **OB16:** a member frozen mid-run; the others move every frame and land, and the call ends.
+  - **OB17:** a Batch call's throwing `onComplete`. The call is `"finished"`, its `await` resolves, and a later call on the Batch lands.
+  - **OB18:** a call that moves no member; its throwing `onComplete` doesn't come out of `animate()`.
+- **Three** (`instances.test.ts`), **TI10:** an `InstancedMesh`'s `instanceColor` taken away mid-run. Every instance's transforms land, reported once.
+- **The DOM,** through Solid 2's browser tests:
+  - **CV12:** a foreign namespace's element refused at arrival, the other member animating.
+  - **BH10:** one member's Handoff read throwing. The others are taken over at their CSS time, frame for frame, and it plays from its start.
+  - **BH11:** one member's release throwing; the others are let go.
+- **Mutations:** 30 of 30 caught, each run alone: each `try` dropped, each flag never set or never cleared, the member's name, the run's services, the step's reset, each report, the DOM's check, the Handoff's keep and rethrow.
