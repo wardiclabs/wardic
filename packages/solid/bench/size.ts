@@ -85,10 +85,10 @@ const GATE = 1.01
  * and `t2-features`', to 95.5, 118.3, 197.6, 244.7 and 252.4 by what it measured, 0.3, 0.3, 0.3, 0.2 and
  * 0.2 (236, 247, 249, 218 and 248 B): one element's failure in the Flush gate its own, and tried again at
  * its next flush (ADR-0033, *Amendment (#969)*), core's 0.7 KB of it minified in every app, since every
- * app has the gate. #979's group A raised `t2-stage`'s and `t2-features`' to 244.8 and 252.5 by what it
- * measured, 0.1 each (142 and 134 B): a raycast, a render or an exit's landing that throws on a Stage reported,
- * the frame's writes run on (ADR-0073, *Amendment (#979, group A)*), `@wardic/three`'s 0.3 KB of it minified;
- * the other apps as they were.
+ * app has the gate. #979's group A raised `t2-stage`'s and `t2-features`' to 244.8 and 252.6 by what it
+ * measured, 0.1 and 0.2 (137 and 186 B): a raycast, a render or an exit's landing that throws on a Stage
+ * reported, the frame's writes run on (ADR-0073, *Amendment (#979, group A)*), `@wardic/three`'s 0.3 KB of it
+ * minified; the other apps as they were.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -109,7 +109,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.5, "s2-slim": 118.3, "f-slim": 197.6, "t2-stage": 244.8, "t2-features": 252.5 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.5, "s2-slim": 118.3, "f-slim": 197.6, "t2-stage": 244.8, "t2-features": 252.6 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

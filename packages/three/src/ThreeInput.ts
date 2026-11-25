@@ -354,24 +354,12 @@ export const make = (options: Options): SceneInput => {
   // A raycast threw (its camera, its `hitTest`, an object's `raycast`), reported, since one last succeeded.
   let castFailing = false
 
-  /**
-   * `cast`, or `instead` where the raycast throws: a frame's pointer keeps the hit it had, an event's hits
-   * nothing. A failure is the input's, reported once until a raycast succeeds again, and Wardic's writes
-   * and the render still run.
-   */
-  // #979, group A (ADR-0074): before, it threw out of `frame`, skipping the runtime's writes every frame.
-  const castOr = (ndcX: number, ndcY: number, instead: Intersection | undefined): Intersection | undefined => {
-    try {
-      const intersection = cast(ndcX, ndcY)
-      castFailing = false
-      return intersection
-    } catch (defect) {
-      if (!castFailing) {
-        castFailing = true
-        Effect.runFork(Report.failure("wardic.input: a raycast failed", Cause.die(defect)))
-      }
-      return instead
-    }
+  /** A raycast that threw: the input's failure, reported once until a raycast succeeds again. */
+  // #979, group A (ADR-0074): each cast's site catches it, so Wardic's writes and the render still run.
+  const castFailed = (defect: unknown): void => {
+    if (castFailing) return
+    castFailing = true
+    Effect.runFork(Report.failure("wardic.input: a raycast failed", Cause.die(defect)))
   }
 
   /** `intersection` as a hit: its path made once it changes. */
@@ -403,7 +391,15 @@ export const make = (options: Options): SceneInput => {
     if (ev === lastNative && Predicate.isNotUndefined(lastScene)) return lastScene
     const [inside, ndcX, ndcY] = ndcAt(ev.clientX, ev.clientY)
     let hit = NO_HIT
-    if (inside && ev.type !== "pointermove" && watched()) hit = hitOf(castOr(ndcX, ndcY, undefined))
+    if (inside && ev.type !== "pointermove" && watched()) {
+      // A cast that throws hits nothing (#979).
+      try {
+        hit = hitOf(cast(ndcX, ndcY))
+        castFailing = false
+      } catch (defect) {
+        castFailed(defect)
+      }
+    }
     if (inside && ev.type === "pointermove") hit = UndefinedOr.match(pointers.get(ev.pointerId), { onUndefined: () => NO_HIT, onDefined: (pointer) => pointer.hit })
     lastNative = ev
     lastHit = hit
@@ -752,7 +748,15 @@ export const make = (options: Options): SceneInput => {
     moved = false
     for (const [id, pointer] of pointers) {
       if (!pointer.over) continue
-      const intersection = castOr(pointer.ndcX, pointer.ndcY, pointer.hit.intersection)
+      let intersection: Intersection | undefined
+      // A cast that throws keeps the hit the pointer had (#979).
+      try {
+        intersection = cast(pointer.ndcX, pointer.ndcY)
+      } catch (defect) {
+        castFailed(defect)
+        continue
+      }
+      castFailing = false
       if (sameHit(pointer.hit.intersection, intersection)) continue
       const next = hitOf(intersection)
       moveTo(id, pointer, next, sceneEvent(pointer.x, pointer.y, next, undefined))

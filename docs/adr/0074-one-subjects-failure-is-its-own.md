@@ -151,7 +151,7 @@ finish() {
 }
 ```
 
-**Decided (group A's Q7):** decision 1 gains a first tool, ahead of the `try`.
+**Decided (group A's grill, after the Motion comparison):** decision 1 gains a first tool, ahead of the `try`.
 - **Order first.** Wardic updates its own state and makes its own writes before it calls app code, as `finish()` does. A throw from the app's code then leaves nothing of Wardic's half done, and keeping the rule needs no `try`.
 - **A `try` where it can't be ordered so:** a loop over Subjects, where one Subject's app code runs before the next Subject's write, or a step the frame's order fixes. Group A's are of that kind: the raycast runs against what was last drawn, before Wardic's writes, and the render after them.
 - **Each group's grill asks it first:** can Wardic's own part come before the app's code? Row 16's `onComplete` (group C) is the plainest case: its call can end `"finished"` before `onComplete` is called.

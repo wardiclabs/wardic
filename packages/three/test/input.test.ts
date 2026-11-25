@@ -6,6 +6,7 @@
 import * as TestStage from "@wardic/three/TestStage"
 import * as ThreeInput from "@wardic/three/ThreeInput"
 import * as WardicThree from "@wardic/three/WardicThree"
+import { reportsDuring } from "./reports.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as THREE from "three"
 
@@ -42,20 +43,6 @@ const journal = () => {
       return (end, { success }) => void told.push(`${["cancel", "tap"][Number(success)]} ${name}${memberTag(end)}`)
     },
   }
-}
-
-/** What Wardic reports while `run` runs: each failure's message, as its log line names it. */
-const reportsDuring = async (run: () => void | Promise<void>): Promise<ReadonlyArray<string>> => {
-  const said: Array<string> = []
-  const log = console.log
-  console.log = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
-  try {
-    await run()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  } finally {
-    console.log = log
-  }
-  return said.flatMap((line) => line.match(/wardic\.\w+: [a-z' ]+failed/g) ?? [])
 }
 
 /** A stage whose raycast throws while `broken.on`: its `hitTest`'s, or the raycast of a mesh beside the others. */
@@ -352,7 +339,7 @@ describe("ThreeInput: hover and press on a scene, hit by a raycast", () => {
     },
   )
 
-  it("IN13: a press whose cast at its down throws hits nothing, and nothing escapes the event: reported once, the next press hits (#979)", async () => {
+  it("IN13: a press whose cast at its down throws hits nothing, and nothing escapes the event: reported once until a cast succeeds, the next press hits (#979)", async () => {
     const { stage, scene, broken } = brokenStage("hitTest")
     const crate = boxAt(scene, 0, 0, 0, "crate")
     const log = journal()
@@ -367,8 +354,13 @@ describe("ThreeInput: hover and press on a scene, hit by a raycast", () => {
       stage.pointer.down()
       stage.pointer.up()
       expect(log.told).toEqual(["down crate", "tap crate"])
+      // Broken again once a press's cast succeeded: reported again.
+      broken.on = true
+      stage.pointer.down()
+      stage.pointer.up()
+      expect(log.told).toEqual(["down crate", "tap crate"])
     })
-    expect(reports).toEqual(["wardic.input: a raycast failed"])
+    expect(reports).toEqual(["wardic.input: a raycast failed", "wardic.input: a raycast failed"])
     stage.dispose()
   })
 

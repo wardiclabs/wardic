@@ -24,6 +24,7 @@ import { createFrameEffect, createHover, ward, WardicStage } from "@wardic/solid
 import { createSceneObject, createStage, TestStage } from "@wardic/three/solid"
 import * as WardicThree from "@wardic/three/WardicThree"
 import { inertStage, lateInput } from "../src/solid/stage.ts"
+import { reportsDuring } from "./reports.ts"
 import type { JSX } from "@solidjs/web"
 import { children, createRenderEffect, createRoot, createSignal, Errored, flush } from "solid-js"
 import { BoxGeometry, Color, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from "three"
@@ -50,9 +51,9 @@ const later = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 
 
 /**
  * A renderer standing in for three's: a canvas that hears nothing, its loop the test's to run, its renders
- * counted. `drawing` runs as each render does, as three calls an object's `onBeforeRender`.
+ * counted. `onRender` runs as each render does, as three calls an object's `onBeforeRender` there.
  */
-const standIn = (drawing: () => void = () => undefined) => {
+const standIn = (onRender: () => void = () => undefined) => {
   let removed = 0
   const canvas = Object.assign(new EventTarget(), {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
@@ -71,7 +72,7 @@ const standIn = (drawing: () => void = () => undefined) => {
       loop = callback
     },
     render: () => {
-      drawing()
+      onRender()
       renders++
     },
   }
@@ -92,20 +93,6 @@ const standIn = (drawing: () => void = () => undefined) => {
       flush()
     },
   }
-}
-
-/** What Wardic reports while `run` runs: each failure's message, as its log line names it. */
-const reportsDuring = async (run: () => void | Promise<void>): Promise<ReadonlyArray<string>> => {
-  const said: Array<string> = []
-  const log = console.log
-  console.log = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
-  try {
-    await run()
-    await later()
-  } finally {
-    console.log = log
-  }
-  return said.flatMap((line) => line.match(/wardic\.\w+: [a-z' ]+failed/g) ?? [])
 }
 
 const sceneOf = () => {

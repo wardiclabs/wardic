@@ -33,7 +33,6 @@ import { type Stage, type StageDrag, type StageGraph, type StageWard, stageWard,
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
-import * as Effect from "effect/Effect"
 import { constUndefined, constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -215,7 +214,7 @@ export const landExits = (stage: { readonly [SCENE]: SceneOf }): void =>
     try {
       land()
     } catch (defect) {
-      Effect.runFork(Report.failure("wardic.stage: an exit's landing failed", Cause.die(defect)))
+      stage[SCENE].environment.runtime.runFork(Report.failure("wardic.stage: an exit's landing failed", Cause.die(defect)))
     }
   })
 
@@ -398,7 +397,7 @@ export const createStage = (options: StageOptions | AdoptOptions): ThreeStage =>
       } catch (defect) {
         if (renderFailing) return
         renderFailing = true
-        Effect.runFork(Report.failure("wardic.stage: a render failed", Cause.die(defect)))
+        runtime.stageEnvironment.runtime.runFork(Report.failure("wardic.stage: a render failed", Cause.die(defect)))
       }
     })
   }
