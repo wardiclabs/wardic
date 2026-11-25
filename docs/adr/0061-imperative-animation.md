@@ -407,7 +407,7 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 **Built** (`packages/core/src/unstable/Imperative.ts`):
 - **`readOwn`**, `takeKey`'s Own value read as a function: a statement, where the key has no `initial` value.
 - **`imperativeTrackOf`** reads each of `target.transitionEnd`'s keys through it before its loop over the target's keys, so a throw leaves the Subject's keys untaken.
-  - **A list's earlier Subjects** have had their tracks built by then, and their keys taken from whatever drew them. A later Subject's throw leaves those animations ended, as a later Subject's bad target key has since #968. That's the follow-up's.
+  - **A list's earlier Subjects** have had their tracks built by then, and their keys taken from whatever drew them. A later Subject's throw leaves those animations ended, as a later Subject's bad target key has since #968: #973.
 - **`settableOrReported`**, a guard in `writeEnds` beside `endFree`, reads the key again at the landing, in a `try`. A key it can't read is reported and left out of what's taken, recorded (`overwritten`) and set.
   - The landing then reads each end key twice, once here and once in `takeKey`. That's simpler than a take loop of its own for the end, and costs one read a key.
   - **Not guarded:** `putBack`. A key frozen after the landing, then a cancel, fails in the flush, which stops there: #969's.
@@ -422,7 +422,7 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 
 **Mutation-checked** (`.tmp/970/mutate.py`): four single-point mutations, each run alone, all caught. The call-time read dropped (WO25, WT19). The landing guard dropped, the guard reporting every key, and a failing key kept (each WO26).
 
-**Reviewed** (two-axis review, standards and spec): the guard renamed for its report, `readOwn`'s comment naming the landing, the changeset's example typed, and the decisions above completed. A list's earlier Subjects (above) went to a follow-up; the put back is #969's.
+**Reviewed** (two-axis review, standards and spec): the guard renamed for its report, `readOwn`'s comment naming the landing, the changeset's example typed, and the decisions above completed. A list's earlier Subjects (above) went to #973; the put back is #969's.
 
 **Measured** (`.tmp/970/bench.ts`, `drive.sh`): twelve paired processes on the quiet bench host, `main`'s `Imperative.ts` against this one, alternating which goes first.
 
