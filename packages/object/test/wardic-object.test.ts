@@ -687,10 +687,9 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(() => wardic.animate(sprite as { x: number; y: number; z: number }, { x: 1, transitionEnd: { y: 2, z: 3 } })).toThrow(/the object has no "y" to animate/)
     const pinned = Object.defineProperty({ x: 0, z: 0 }, "y", { value: 0, enumerable: true }) as { x: number; y: number; z: number }
     expect(() => wardic.animate(pinned, { x: 1, transitionEnd: { y: 2, z: 3 } })).toThrow(/the object's "y" can't be written/)
-    // A list's later object's, its `x` writable, and an end with no key to animate.
+    // A list's later object's, and an end with no key to animate.
     const first = { x: 0, y: 0 }
-    const later = Object.defineProperty({ x: 0 }, "y", { value: 0, enumerable: true }) as { x: number; y: number }
-    expect(() => wardic.animate([first, later], { x: 1, transitionEnd: { y: 2 } })).toThrow(/the object's "y" can't be written/)
+    expect(() => wardic.animate([first, Object.freeze({ x: 0, y: 0 })], { x: 1, transitionEnd: { y: 2 } })).toThrow(/the object's "y" can't be written/)
     const bare: { readonly v: number } = Object.freeze({ v: 0 })
     expect(() => wardic.animate(bare, { transitionEnd: { v: 5 } })).toThrow(/the object's "v" can't be written/)
     await tick()

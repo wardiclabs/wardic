@@ -81,8 +81,7 @@ const GATE = 1.01
  * Solid's slim apps, which ship no Imperative track, as they were. #973 raised them to 197.3, 244.5 and 252.2
  * by what it measured, 0.2 each (211, 216 and 196 B): every Subject's keys read before a call takes any, so
  * a call refused at the call takes nothing (ADR-0061, *Amendment (#973)*), core's 0.5 KB of it minified;
- * Solid's slim apps as they were.
- * `@wardic/three/solid`'s
+ * Solid's slim apps as they were. `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
  * #885's PR 2 raised it to 298.9 by what it measured: a Scene object's code is a side only `createSceneObject`

@@ -306,7 +306,8 @@ const lastTargetsOf = (host: Spine.SpineHost): Values.Values => UndefinedOr.matc
  * `key` taken by an Imperative animation from whatever runs it (#433): noted in `taking` with `noted`,
  * the target the Override stack has for it now, no longer returning, its Timeline value stopped, given
  * up by its owner, owned, and started where it's drawn toward `like`, noted in `started`. Its Own value
- * is read before it's taken, by the call (`readiedOf`) or the landing (`settableOrReported`).
+ * is read before it's taken, by the call (`readiedOf`) or the landing (`settableOrReported`); a run's
+ * retake at a replay reads none, the call having read it.
  */
 // #973 (ADR-0061, *Amendment (#973)*, Q3): read here, a key refused at the call had already taken the keys
 // before it, of its Subject and of a list's earlier Subjects, ending the animations that drew them.
@@ -600,28 +601,32 @@ interface Readied<S extends object> {
 }
 
 /**
- * `subject`'s animation of `target`, readied: each key the target names, its values' and its Transition
- * end's, read as its Environment reads it, so one the Subject can't take is an error now, naming it.
+ * `subject`'s animation of `variant`, readied: each key the target names, its Transition end's then its
+ * values', read as its Environment reads it, so one the Subject can't take is an error now, naming it.
  * A call readies each of its Subjects before it builds any track ({@link trackOf}), so a call refused here
  * has taken nothing: an animation it would have taken a key from runs on.
  */
 // #973 (ADR-0061, *Amendment (#973)*, Q1): tracks took their keys as each was built, so a later key's
 // refusal, its Subject's or a later Subject's, ended the animations that drew the keys taken before it.
-const readiedOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, given: Config.WardicVariant): Readied<S> => {
-  const target = VariantTarget.resolveTarget(given, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
+const readiedOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, variant: Config.WardicVariant): Readied<S> => {
+  const target = VariantTarget.resolveTarget(variant, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
   const own = wardicElements.get(subject)
-  if (Predicate.isNotUndefined(own)) return readKeys({ subject, target, host: own.host(), plain: undefined })
+  if (Predicate.isNotUndefined(own)) return readOwnValues({ subject, target, host: own.host(), plain: undefined })
   const plain = plainOf(env, subjects, subject)
-  return readKeys({ subject, target, host: plain.spine.host(), plain })
+  return readOwnValues({ subject, target, host: plain.spine.host(), plain })
 }
 
-/** `readied`'s keys read, a target's and its Transition end's: an error the Environment's read throws is thrown. */
-// Per key at a call, the hot path (effect-first.md): statements, a loop's body its closure.
-const readKeys = <S extends object>(readied: Readied<S>): Readied<S> => {
+/**
+ * `readied`'s Own values read, its Transition end's keys then its target's: an error the Environment's
+ * read throws is thrown, naming the first key it can't take.
+ */
+// Its end's first, as #970 read them, so a key refused in both names the end's. Per key at a call, the hot
+// path (effect-first.md): statements, a loop's body its closure.
+const readOwnValues = <S extends object>(readied: Readied<S>): Readied<S> => {
   const { host, target } = readied
-  Arr.forEach(Rec.keys(target.values), (key) => readOwn(host, key))
   const ends = target.transitionEnd
   if (Predicate.isNotUndefined(ends)) Arr.forEach(Rec.keys(ends), (key) => readOwn(host, key))
+  Arr.forEach(Rec.keys(target.values), (key) => readOwn(host, key))
   return readied
 }
 
@@ -630,10 +635,10 @@ const readKeys = <S extends object>(readied: Readied<S>): Readied<S> => {
  * its plain spine, in the gate while any of its animations runs.
  */
 const trackOf = <S extends object>(env: AnimateEnv, readied: Readied<S>, given: Config.WardicTransition | undefined, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack => {
-  const { subject, target: resolved, host, plain } = readied
+  const { subject, target, host, plain } = readied
   const hooks = { settled, failed: constVoid }
-  const transition = skippedIn(env, overOwn(resolved.transition, given))
-  if (Predicate.isUndefined(plain)) return imperativeTrackOf(host, resolved, transition, head, hooks)
+  const transition = skippedIn(env, overOwn(target.transition, given))
+  if (Predicate.isUndefined(plain)) return imperativeTrackOf(host, target, transition, head, hooks)
   // In the gate while it runs; out once its last animation is done, after the flush of its last frame.
   let live = false
   const enter = (): void => {
@@ -654,7 +659,7 @@ const trackOf = <S extends object>(env: AnimateEnv, readied: Readied<S>, given: 
       if (plain.running === 0) plain.unregister()
     })
   }
-  const track = imperativeTrackOf(host, resolved, transition, head, {
+  const track = imperativeTrackOf(host, target, transition, head, {
     settled: (landed) => {
       leave()
       settled(landed)
@@ -1048,7 +1053,7 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
     if (Bool.not(ports.batches.hasMembers(subjects))) {
       return started(watch, subjects.length, onComplete, (head, settled) => {
         // One Subject: readied, then its track, which takes its keys once they're all read.
-        if (subjects.length === 1) return [trackOf(env, readiedOf(env, ports.subjects, subjects[0] as S, target), transitionFor(third, 0, 1), head, settled)]
+        if (subjects.length === 1) return [trackOf(env, readiedOf(env, ports.subjects, subjects[0], target), transitionFor(third, 0, 1), head, settled)]
         // Every Subject readied before any track takes a key (#973).
         const readied = Arr.map(subjects, (subject) => readiedOf(env, ports.subjects, subject, target))
         return Arr.map(readied, (each, index) => trackOf(env, each, transitionFor(third, index, subjects.length), head, settled))

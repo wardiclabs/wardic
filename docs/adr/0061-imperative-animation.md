@@ -462,14 +462,15 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 5. **A patch** (Q5), with core's `animate` hover, object's module doc and the glossary's **Imperative animation** saying so.
 
 **Built** (`packages/core/src/unstable/Imperative.ts`):
-- **`readiedOf`** resolves a Subject's target and finds the spine it runs through: its Wardic element's host, else its plain spine. It reads the target's keys (`readKeys`: its values, then its Transition end's, each through `readOwn`) and returns them as a `Readied`, building nothing.
+- **`readiedOf`** resolves a Subject's target and finds the spine it runs through: its Wardic element's host, else its plain spine. It reads the target's keys (`readOwnValues`: its Transition end's, then its values, each through `readOwn`) and returns them as a `Readied`, building nothing.
 - **`trackOf`** takes a `Readied`, so a call readies every Subject before it builds any track:
   - **a list:** an `Arr.map` of `readiedOf`, then the tracks;
   - **one Subject:** readied, then its track, with no second map; the read before its take is all it needs. The list form's second map measured +0.39 µs a call on Bun (10 of 12 pairs slower), and this path took it back;
   - **a call with Batch members' Subjects** (the DOM's): its other Subjects readied first;
   - **a sequence's Subjects** (`segmentReadiedOf`): a function Segment's callback has none.
-- **No reads left:** `takeKey` no longer reads, and `imperativeTrackOf` no longer reads its end's keys (#970's read moved into `readKeys`).
-- **Error order:** a Subject's target keys are read before its end's, so a key refused in both is named as the target's. WO25's list case gave a frozen later object. It now gives one whose `y` alone is read-only, so it names the end's key, as it means to.
+- **No reads left:** `takeKey` no longer reads, and `imperativeTrackOf` no longer reads its end's keys (#970's read moved into `readOwnValues`).
+- **Error order:** a Subject's end keys are read before its target's, as #970 read them, so each error names the key it named before.
+- **Not covered:** a `delay(i, n)` that throws for a later Subject. Each Subject's transition is worked out as its track is built, so the earlier Subjects' keys are taken by then, as on `main`. It isn't a key the Subject can't take.
 
 **Tests:**
 - `packages/object/test/wardic-object.test.ts`, **WO27:** an earlier call on a Subject runs on and lands at its target, `"finished"`, after each of four calls refused at the call:
@@ -482,12 +483,18 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 - `packages/three/test/stage.solid.test.tsx`, **CS11:** a ward animates a mesh's `x`, and `animate(mesh, { x: 1, id: 5 })` throws at the call. The ward's own animation lands at 3. On `main` it stopped at 0.96.
 - **Unchanged:** WO7, WO25, WT18 and WT19 pass, each error still at the call and naming its key. The DOM's `create-animate`, `transition-end` and Batch browser tests pass on Solid 1 and 2.
 
-**Mutation-checked** (`.tmp/973/mutate.py`): five single-point mutations, each run alone, all caught:
+**Mutation-checked** (`.tmp/973/mutate.py`): six single-point mutations, each run alone, all caught:
 - the first read dropped;
 - a list's read interleaved with its tracks;
 - only target keys read first;
 - a sequence's read interleaved with its tracks;
-- target keys read as they're taken, `main`'s.
+- target keys read as they're taken, `main`'s;
+- the target's keys read before the end's (WO25).
+
+**Reviewed** (two-axis review, standards and spec):
+- **The read order:** the first build read a Subject's target keys before its end's, so WO25's list case, a frozen later object, named its `x` and had been changed to keep naming `y`. The end's keys are read first again, and WO25 is `main`'s.
+- **Names:** `readiedOf` takes a `variant`, `trackOf` keeps its `target`, and `readKeys` is `readOwnValues`. `takeKey`'s doc names the replay, which reads none.
+- **Left as they are:** a sequence's two maps each check `isCallback`, clearer than pairing them in one. The `delay(i, n)` case is above.
 
 **Measured** (`.tmp/973/bench.ts`, `drive.sh`): twelve paired processes on the quiet bench host, `main`'s `Imperative.ts` against this one. The order alternates, and each run checks which it loaded.
 
