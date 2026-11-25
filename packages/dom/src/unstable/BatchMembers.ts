@@ -874,6 +874,9 @@ export const markLayoutElement = (element: Element): void => {
 }
 
 /** The error for a layout node on a Batch member's element. */
+const styleless = (element: Element): string =>
+  `a member's element (${elementName(element)}) has no inline style for the Batch to draw its \`transform\` and \`opacity\` on: give it an HTML, SVG or MathML element`
+
 const layoutOnMember = (element: Element): string =>
   `a member's element (${elementName(element)}) has \`layout\` or \`layoutId\`: the Batch draws its transform, under which the projection measures it. Give its Wardic element no layout, or leave it out of the Batch`
 
@@ -2209,7 +2212,17 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * them, one a change didn't move among them, or each one the Handoff's code never came for.
    */
   const releaseAppearing = (): void => {
-    Iter.forEach(appearing, (slot) => UndefinedOr.map(elementOf[memberOf[slot] as number] as (Element & ElementCSSInlineStyle) | undefined, Appear.release))
+    // Each member's own: one that throws leaves the others let go, reported once a release (#977).
+    let failed = false
+    Iter.forEach(appearing, (slot) => {
+      try {
+        UndefinedOr.map(elementOf[memberOf[slot] as number] as (Element & ElementCSSInlineStyle) | undefined, Appear.release)
+      } catch (defect) {
+        if (failed) return
+        failed = true
+        env.runtime.runFork(Report.failure("wardic.batch: a member's Appear release failed", Cause.die(defect)))
+      }
+    })
     appearing.clear()
     handoffAt = undefined
   }
@@ -2646,6 +2659,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     // can't be a member: the projection measures it under the transform the Batch draws.
     if (drawnByAnother(el)) return fail(`an element (${elementName(el)}) is a member of two Batches: one Batch draws an element's \`transform\` and \`opacity\``)
     if (LAYOUT_ELEMENTS.has(el)) return fail(layoutOnMember(el))
+    // Its inline style is what the Batch draws: one with none is refused before it's entered (#977, Q6).
+    if (Predicate.isUndefined((el as Partial<ElementCSSInlineStyle>).style)) return fail(styleless(el))
     const was = elementOf[i]
     if (Predicate.isNotUndefined(was)) forget(was, i)
     elementOf[i] = el

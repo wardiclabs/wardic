@@ -43,6 +43,9 @@ const MISMATCH = /*#__PURE__*/ Effect.logDebug("wardic.hydration: a Batch member
  */
 export const startAtOf = (members: HandoffMembers): ((slot: number) => number) => {
   let times: Map<number, number> | undefined = undefined
+  // Each member whose read threw, by slot: its own start throws it, for its Batch to report, and it plays
+  // its change from its start; every other member keeps its time (#977).
+  const failures = new Map<number, unknown>()
   /** Every such member's time, read at once. */
   const timesNow = (): Map<number, number> => {
     const read = new Map<number, number>()
@@ -50,16 +53,20 @@ export const startAtOf = (members: HandoffMembers): ((slot: number) => number) =
     const keyOf = members.keyOf
     // Once a Handoff, over its members (#665's per-member site): reads alone.
     Iter.forEach(members.appearing, (slot) => {
-      const el = members.elementOf(slot)
-      if (Predicate.isUndefined(el)) return
-      const animation = AppearAnimations.pageAnimationsOf(el).get(el)
-      if (Predicate.isUndefined(animation)) return
-      const name = (animation as Animation & { readonly animationName: string }).animationName
-      if (Predicate.isNotUndefined(keyOf) && !checked.has(name)) {
-        checked.add(name)
-        if (!Option.exists(keyOf(slot), (key) => Appear.matchesBatch(animation, key))) members.runtime.runFork(MISMATCH)
+      try {
+        const el = members.elementOf(slot)
+        if (Predicate.isUndefined(el)) return
+        const animation = AppearAnimations.pageAnimationsOf(el).get(el)
+        if (Predicate.isUndefined(animation)) return
+        const name = (animation as Animation & { readonly animationName: string }).animationName
+        if (Predicate.isNotUndefined(keyOf) && !checked.has(name)) {
+          checked.add(name)
+          if (!Option.exists(keyOf(slot), (key) => Appear.matchesBatch(animation, key))) members.runtime.runFork(MISMATCH)
+        }
+        read.set(slot, Appear.elapsedOf(animation))
+      } catch (defect) {
+        failures.set(slot, defect)
       }
-      read.set(slot, Appear.elapsedOf(animation))
     })
     // Every one let go once this step's starts are done, a member it didn't move among them.
     queueMicrotask(members.release)
@@ -69,7 +76,8 @@ export const startAtOf = (members: HandoffMembers): ((slot: number) => number) =
   return (slot) => {
     if (Predicate.isUndefined(times)) times = timesNow()
     const time = times.get(slot)
-    if (Predicate.isUndefined(time)) return Number.NaN
-    return time
+    if (Predicate.isNotUndefined(time)) return time
+    if (failures.has(slot)) throw failures.get(slot)
+    return Number.NaN
   }
 }
