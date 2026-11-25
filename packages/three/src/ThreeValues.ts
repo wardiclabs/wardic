@@ -17,11 +17,9 @@ import * as ObjectValues from "@wardic/object/ObjectValues"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Spine from "@wardic/core/unstable/Spine"
 import * as Arr from "effect/Array"
-import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as UndefinedOr from "effect/UndefinedOr"
 import * as Lookup from "./internal/lookup.ts"
 
 /** Any object of a scene. */
@@ -47,37 +45,11 @@ const isColorKey = (subject: object, key: string): boolean => isColorAt(subject,
  */
 export const read: (subject: object, key: string) => unknown = Lookup.read
 
-/** `holder`'s descriptor for `prop`: its own, else the nearest one up its prototypes; none where none has it. */
-const descriptorOf = (holder: object, prop: string): Option.Option<PropertyDescriptor> =>
-  Option.orElse(Option.fromUndefinedOr(Object.getOwnPropertyDescriptor(holder, prop)), () =>
-    Option.flatMap(Option.fromNullishOr(Object.getPrototypeOf(holder) as object | null), (above) => descriptorOf(above, prop)),
-  )
-
-/** Whether Wardic can write `holder`'s `prop`: a writable property, or a getter with a setter, its own or inherited. */
-// #968: as @wardic/object's ObjectValues has its own, for a plain object's key; three's own `id` is read-only.
-const isWritable = (holder: object, prop: string): boolean =>
-  Option.match(descriptorOf(holder, prop), {
-    onNone: () => true,
-    onSome: (descriptor) => Bool.or(descriptor.writable === true, Predicate.isNotUndefined(descriptor.set)),
-  })
-
-/** Whether Wardic can write `key` on `subject`: on each holder the lookup finds it at. A scene object's transform is written to its vector's axis, which three never makes read-only. */
-// A transform has no place to find: looking for one ran the whole lookup (ADR-0069 decision 4).
-const canWrite = (subject: object, key: string): boolean =>
-  Bool.match(Bool.and(Lookup.isTransformKey(key), Lookup.isObject3D(subject)), {
-    onTrue: () => true,
-    onFalse: () =>
-      UndefinedOr.match(Lookup.placeOf(subject as Holder, key), {
-        onUndefined: () => true,
-        onDefined: (place) => Arr.every(Arr.zip(place.holders, place.props), ([holder, prop]) => isWritable(holder, prop)),
-      }),
-  })
-
 /** `subject`'s own value for `key`, a number or a string it can write, else an error naming the key. */
 const ownValueOf = (subject: object, key: string): Option.Option<number | string> => {
   const value = Lookup.read(subject, key)
   if (Predicate.isNumber(value) || Predicate.isString(value)) {
-    if (Bool.not(canWrite(subject, key))) {
+    if (!Lookup.canWrite(subject as Holder, key)) {
       throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" can't be written (it's read-only, or a getter with no setter), so Wardic can't animate it. Give a key it can write.`)
     }
     return Option.some(value)

@@ -34,26 +34,37 @@ const nameOf = (subject: object): string =>
     Option.match({ onNone: () => "the object", onSome: (name) => `a ${name}` }),
   )
 
-/** `holder`'s descriptor for `key`: its own, else the nearest one up its prototypes; none where none has it. */
-const descriptorOf = (holder: object, key: string): Option.Option<PropertyDescriptor> =>
-  Option.orElse(Option.fromUndefinedOr(Object.getOwnPropertyDescriptor(holder, key)), () =>
-    Option.flatMap(Option.fromNullishOr(Object.getPrototypeOf(holder) as object | null), (above) => descriptorOf(above, key)),
-  )
+/** The nearest descriptor for `key` up `holder`'s prototypes, past its own; none where none has it. */
+const inheritedOf = (holder: object, key: string): PropertyDescriptor | undefined => {
+  const above = Object.getPrototypeOf(holder) as object | null
+  if (Predicate.isNull(above)) return undefined
+  const found = Object.getOwnPropertyDescriptor(above, key)
+  if (Predicate.isNotUndefined(found)) return found
+  return inheritedOf(above, key)
+}
 
-/** Whether Wardic can write `holder`'s `key`: a writable property, or a getter with a setter, its own or inherited. */
-// #968: else each frame's write throws, in strict mode, and the flush stops at it (#969). @wardic/three's
-// ThreeValues has its own, over each holder its lookup finds.
-const isWritable = (holder: object, key: string): boolean =>
-  Option.match(descriptorOf(holder, key), {
-    onNone: () => true,
-    onSome: (descriptor) => Bool.or(descriptor.writable === true, Predicate.isNotUndefined(descriptor.set)),
-  })
+/**
+ * Whether Wardic can write `holder`'s `key`: a writable property of its own, or a getter with a setter, its
+ * own or inherited; or an inherited writable property, where the holder can take one of its own (it isn't
+ * frozen, sealed or kept from extending).
+ */
+// #968: else each frame's write threw, in strict mode, and the flush stopped at it (#969). @wardic/three's
+// lookup has its own, over each holder it finds a key at. Per key at a leg's start, the hot path
+// (effect-first.md): statements.
+const isWritable = (holder: object, key: string): boolean => {
+  const own = Object.getOwnPropertyDescriptor(holder, key)
+  if (Predicate.isNotUndefined(own)) return own.writable === true || Predicate.isNotUndefined(own.set)
+  const inherited = inheritedOf(holder, key)
+  if (Predicate.isUndefined(inherited)) return true
+  if (Predicate.isNotUndefined(inherited.set)) return true
+  return inherited.writable === true && Object.isExtensible(holder)
+}
 
 /** `subject`'s own value for `key`: a number or a string it can write, else an error naming the key. */
 const ownValueOf = (subject: object, key: string): Option.Option<number | string> => {
   const value = (subject as Readonly<Record<string, unknown>>)[key]
   if (Bool.or(Predicate.isNumber(value), Predicate.isString(value))) {
-    if (Bool.not(isWritable(subject, key))) {
+    if (!isWritable(subject, key)) {
       throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" can't be written (it's read-only, or a getter with no setter), so Wardic can't animate it. Give a key it can write.`)
     }
     return Option.some(value as number | string)
