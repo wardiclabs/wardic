@@ -92,7 +92,10 @@ const GATE = 1.01
  * (485 and 426 B): one Batch member's failure its own, its run reporting it and going on, and a call finished
  * before its `onComplete` runs (ADR-0069 and ADR-0061, *Amendment (#977)*), core's 1.2 KB of it minified. The
  * page's Batch apps grew alike (457–541 B), within the 1% gate; `f-slim`, which has no Batch, by 58 B, inside its
- * budget.
+ * budget. #979's group C raised `f-slim`'s, `t2-stage`'s and `t2-features`' to 197.7, 245.4 and 253.1 by what it
+ * measured, 0.1 each (79, 161 and 176 B): a function Segment's callback, and its cancel, that throws reported,
+ * and each Subject's `delay` worked out, a mixed call's Batch parts run, before any plain Subject takes a key
+ * (ADR-0061, *Amendment (#979, group C)*); the apps with no Imperative track not at all.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -113,7 +116,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.5, "s2-slim": 118.3, "f-slim": 197.6, "t2-stage": 245.3, "t2-features": 253 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.5, "s2-slim": 118.3, "f-slim": 197.7, "t2-stage": 245.4, "t2-features": 253.1 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

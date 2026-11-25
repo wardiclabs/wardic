@@ -29,6 +29,9 @@
 //   Batch's effect apply, untracked, where Solid reported the read (STRICT_READ_UNTRACKED).
 // - CV12 (#977): an element with no inline style (a foreign namespace's) is refused as a member, naming it,
 //   before it's entered, so the Batch's runs go on: its other member still animates.
+// - CV13 (#979): a call through members' elements and plain ones whose `delay(i, n)` throws, a later plain
+//   one's or a member's, takes nothing, as does a Batch call's: an earlier call on the first plain one runs on
+//   and lands, and the scope is left waiting on none of them.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
@@ -193,11 +196,13 @@ describe("createBatch on Solid 2 (#665)", () => {
     const plain: Array<HTMLDivElement> = []
     let grid!: ReturnType<typeof createBatch>
     let animate!: WardicAnimate
+    let scoped!: WardicAnimationScope
     const indices = Array.from({ length: count }, (_, i) => i)
     const Scene = (): JSX.Element => {
       grid = createBatch({ count, initial: false, animate: () => ({ x: x() }) })
       const [scope, made] = createAnimate()
       animate = made
+      scoped = scope
       return (
         <div ref={scope}>
           <For each={indices}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
@@ -210,7 +215,7 @@ describe("createBatch on Solid 2 (#665)", () => {
         <Scene />
       </WardicProvider>
     ))
-    return { grid: () => grid, animate: () => animate, members, plain }
+    return { grid: () => grid, animate: () => animate, scope: () => scoped, members, plain }
   }
 
   it("CV5: animate(memberEl) moves its Batch keys as animate(grid.at(i)), the rest as a plain element's call; the Batch goes on from there", async () => {
@@ -395,5 +400,38 @@ describe("createBatch on Solid 2 (#665)", () => {
     // Before #977, it was entered, and its write ended each of the Batch's runs: the other never moved.
     const xs = await xsOver(60, [member])
     expect(xs[0].at(-1)).toBe(30)
+  })
+
+  it("CV13: a call through members' and plain elements whose delay(i, n) throws takes nothing, a plain one's or a member's: an earlier call runs on, and the scope isn't left waiting (#979)", async () => {
+    const both = mountBoth(2)
+    await raf()
+    const animate = both.animate()
+    // Its first read is never pending: read before any call, as CV4's.
+    expect(both.scope().settled()).toBeUndefined()
+    const throwing = (when: (i: number, n: number) => boolean) => (i: number, n: number): number => {
+      if (when(i, n)) throw new Error("its delay threw")
+      return 0
+    }
+    const refusals = [
+      // The plain elements at indices 0 and 2, a member's between: the later plain one's delay throws.
+      { shape: "a later plain element's", target: 60, refuse: () => animate([both.plain[0], both.members[0], both.plain[1]], { x: 10 }, { ...TWEEN, delay: throwing((i) => i === 2) }) },
+      // The Batch calls the delay with its movers' count, one: the member's throws, at its first play.
+      { shape: "a member's", target: 0, refuse: () => animate([both.plain[0], both.members[0], both.plain[1]], { x: 10 }, { ...TWEEN, delay: throwing((_, n) => n === 1) }) },
+      // A call of the Batch alone, the same.
+      { shape: "a Batch call's", target: 60, refuse: () => animate(both.grid(), { x: 10 }, { ...TWEEN, delay: throwing((_, n) => n > 0) }) },
+    ]
+    for (const { shape, target, refuse } of refusals) {
+      const earlier = animate(both.plain[0], { x: target }, TWEEN)
+      await raf()
+      await raf()
+      // Before #979, the first plain element's track took x from the earlier call before a delay threw.
+      expect(refuse, shape).toThrow(/its delay threw/)
+      const xs = await xsOver(40, [both.plain[0]])
+      expect.soft(xs[0].at(-1), shape).toBe(target)
+      expect.soft(earlier.state, shape).toBe("finished")
+    }
+    await raf()
+    // A refused call ended, as its scope heard: nothing left playing.
+    expect(isPending(() => both.scope().settled())).toBe(false)
   })
 })
