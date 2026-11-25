@@ -5,7 +5,7 @@
  */
 import * as WardicThree from "@wardic/three/WardicThree"
 import { describe, expect, it } from "@effect/vitest"
-import { reportsDuring } from "./reports.ts"
+import { reportsDuring } from "../../object/test/reports.ts"
 import * as THREE from "three"
 
 const FRAME = 1000 / 60

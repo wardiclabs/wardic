@@ -248,9 +248,9 @@ A throw on any of them came out of the step. The Frame loop ended the run with i
 **Decided (grilled 2026-11-25, Q1–Q12 each A):**
 1. **Core's step catches, once for every Environment** (Q1): a `try` per member write at each write site (`stepPlain`, `stepRuled`, `stepRuledDriven`, `startedPartway`, `draw`), ADR-0074 decision 5's form. Only the catch's report is shared (`writeFailed`), as FlushGate's `failedAt` is. The writers are unchanged.
 2. **A failing member is driven on while it moves** (Q2): its keys step each frame and it's written again each frame, landing with the others (ADR-0074 decision 4). At rest it isn't retried until a change moves it, so a member frozen for good asks for no frames.
-3. **Reported once per Batch, per path** (Q3): writes, starts, `flush` and `onFrame`, naming the member's slot (`member`), and cleared by a step in which that path didn't throw. A `draw` between steps isn't a step. A landing's callback is reported each time, since each is told once.
+3. **Reported once per Batch, per path** (Q3): writes (`wardic.batch: a member's write failed`), starts (`a member's start failed`), `flush` (a step's or a `draw`'s) and `onFrame`, naming the member's slot (`member`), and cleared by a step in which that path didn't throw. A `draw` between steps isn't a step. A landing's callback is reported each time, since each is told once: `a member's landing failed`, or `a change's landing failed`.
    - Rejected: per member, ADR-0074's literal "per Subject". An `InstancedMesh` of 10,000 would log 10,000 lines a frame, and a member's flag can't live in `flags`, whose exact-byte compares are the step's fast path.
-4. **Reported on the run's own services** (Q7): `Batch.run` reads its fiber's context once as it starts (`Effect.contextWith`), and each report is `Effect.runForkWith(services)(Report.failure(…))`, the Environment's Logger and ErrorReporters. Before a first run (a `draw` at arrival, `play`'s idle tells) it's an empty `Context`, Effect's defaults. No new option, so a patch.
+4. **Reported on the run's own services** (Q7): `Batch.run` reads its fiber's context once as it starts (`Effect.contextWith`), and each report is `Effect.runForkWith(services)(Report.failure(…))`, the Environment's Logger and ErrorReporters. They're kept for a `draw` or a `play` between runs, and a second `run` while one runs swaps nothing. Before a first run (a `draw` at arrival, `play`'s idle tells) it's an empty `Context`, Effect's defaults. No new option, so a patch.
    - Rejected: an unstable hook each binding passes (four bindings to wire), or a public `Options.onDefect` (new API, a minor).
 5. **Landings** (Q8): a `try` per member where members are told (`tellMembers`, `tellIdle`), and per change in the step's landing loop (`for…of` over its changes). Wardic's own state already comes first: `finish` before `onLanded`, `told` before `tell`, so each `try` only keeps one callback from skipping the rest.
 6. **Starts** (Q9): `startedPartway` catches a `startAt` that throws, and its member starts from its start, `NaN`'s path. The DOM's Handoff keeps each member's read its own: a failed read's `startAt` throws that member's defect for core to report, and every other member keeps its time. A failed member plays its change from its start, the jump a Handoff avoids, for that member only.
@@ -268,13 +268,13 @@ A throw on any of them came out of the step. The Frame loop ended the run with i
   | Chromium 147 | +0.0% | +3.3% (0.15 → 0.16 ms, the timer's step) | +0.0% | −1.5% |
 
 - **`bench:solid --base main`:** every Batch row (mount, retarget, bytes, hover and press, reorder) within its spread on both bindings. Its first run flagged Solid 1's layout `list frame`, +5.3% [+0.0% – +5.4%], a page with no Batch on it, while Solid 2's read +0.0%. A rerun of Solid 1 passed (+3.8% [−3.8% – +6.6%]).
-- **Size:** the Batch apps +417 to +501 B gzip, core's code 1.2 KB of it minified (the `try`s, the report path). `t2-stage`'s and `t2-features`' budgets were raised by that, to 245.3 and 252.9.
+- **Size:** the Batch apps +457 to +541 B gzip, core's code 1.2 KB of it minified (the `try`s, the report path). `t2-stage`'s and `t2-features`' budgets were raised by that, to 245.3 and 253.0. `f-slim`, with no Batch, +58 B for the call's end.
 
 **Tests** (Q11): each failed on `main` first.
 - **Core** (`batch.test.ts`):
   - **B32:** a member's write throwing in the plain list and in the ruled list, and through a `draw`. The other member is written every frame and both land. It's reported once, naming the slot, and again after a clean step, through the run's Logger and an installed ErrorReporter.
   - **B33:** two members' starts throwing in one step, reported once, and again at a later change's. Each starts from its start, and a third member's write throws as its start draws it.
-  - **B34:** an idle member's tell at `play`, a member's landing and a change's `onLanded` throwing. The others are told and every change lands. A `flush` and an `onFrame` are reported once until they return.
+  - **B34:** an idle member's tell at `play`, a member's landing and a change's `onLanded` throwing. The others are told and every change lands. A `flush`, a step's or a `draw`'s, and an `onFrame` are reported once until they return.
 - **Object** (`object-batch.test.ts`):
   - **OB16:** a member frozen mid-run; the others move every frame and land, and the call ends.
   - **OB17:** a Batch call's throwing `onComplete`. The call is `"finished"`, its `await` resolves, and a later call on the Batch lands.
@@ -284,4 +284,11 @@ A throw on any of them came out of the step. The Frame loop ended the run with i
   - **CV12:** a foreign namespace's element refused at arrival, the other member animating.
   - **BH10:** one member's Handoff read throwing. The others are taken over at their CSS time, frame for frame, and it plays from its start.
   - **BH11:** one member's release throwing; the others are let go.
-- **Mutations:** 30 of 30 caught, each run alone: each `try` dropped, each flag never set or never cleared, the member's name, the run's services, the step's reset, each report, the DOM's check, the Handoff's keep and rethrow.
+- **Mutations:** 31 of 31 caught, each run alone: each `try` dropped (a step's `flush` and a `draw`'s among them), each flag never set or never cleared, the member's name, the run's services, the step's reset, each report, the DOM's check, the Handoff's keep and rethrow.
+- **The review** (standards and spec) found:
+  - a `draw`'s `flush` uncaught;
+  - one landing message for a member's tell and a change's, where the grill named the first `a member's landing failed`;
+  - a second `run` while one ran swapping the services it reports on;
+  - a JSDoc left on the wrong function, and the report helper copied.
+
+  All are fixed: object's `test/reports.ts` serves three's tests too; Solid's keeps its own, since its test typecheck's `rootDir` is its package. `bench:core` was measured before the review; its changes are off the per-member path.

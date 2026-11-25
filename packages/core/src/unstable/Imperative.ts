@@ -1019,7 +1019,7 @@ export interface WardicSequenceOptions {
  * to `watch`, each track run. Finished at once with none.
  */
 const started = (
-  env: AnimateEnv,
+  runtime: AnimateEnv["runtime"],
   watch: AnimationWatch,
   count: number,
   onComplete: (() => void) | undefined,
@@ -1029,7 +1029,7 @@ const started = (
   const head = Playback.make()
   let settledOne: (landed: boolean) => void = constVoid
   const tracks = tracksOf(head, (landedOne) => settledOne(landedOne))
-  const made = controlsOf(tracks, head, watch, onComplete, env.runtime)
+  const made = controlsOf(tracks, head, watch, onComplete, runtime)
   settledOne = made.settledOne
   watch.started(made.controls)
   Arr.forEach(tracks, (track) => track.run())
@@ -1057,7 +1057,7 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
     const batch = ports.batches.entryOf(first)
     if (Predicate.isNotUndefined(batch)) {
       const members = batch.binding.namedOf(batch)
-      return started(env, watch, 1, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
+      return started(env.runtime, watch, 1, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
         batchTrackOf(env, batch.binding, second as Readonly<Record<string, unknown>>, members, third, head, settled),
       ])
     }
@@ -1067,7 +1067,7 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
     // No member's Subject among them: each Subject's track, building no parts (bench:solid --batch's
     // per-element page, a call per element: 8.2 -> 8.5 ms at 1,000 with the parts built for every call; #665).
     if (Bool.not(ports.batches.hasMembers(subjects))) {
-      return started(env, watch, subjects.length, onComplete, (head, settled) => {
+      return started(env.runtime, watch, subjects.length, onComplete, (head, settled) => {
         // One Subject: readied, then its track, which takes its keys once they're all read.
         if (subjects.length === 1) return [trackOf(env, readiedOf(env, ports.subjects, subjects[0], target), transitionFor(third, 0, 1), head, settled)]
         // Every Subject readied before any track takes a key (#973).
@@ -1077,7 +1077,7 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
     }
     // A Batch's members' Subjects as one call over them, with its keys; the rest of each Subject's on its own (#665, Q14, Q35).
     const parts = ports.batches.callPartsOf(subjects, target)
-    return started(env, watch, parts.members.length + parts.subjects.length, onComplete, (head, settled) => {
+    return started(env.runtime, watch, parts.members.length + parts.subjects.length, onComplete, (head, settled) => {
       // A Batch's track takes nothing until it runs; every other Subject readied before any track is built (#973).
       const readied = Arr.map(parts.subjects, (part) => readiedOf(env, ports.subjects, part.subject, part.target as Config.WardicVariant))
       return [
@@ -1299,7 +1299,7 @@ const sequenceOf = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: u
   const compiled = Arr.fromIterable(Sequence.compile(stepsOf(ports, sequence, scope, defaults), whole))
   // Each Batch's members as one track, their other keys their Subjects' (#665, Q40).
   const parts = ports.batches.sequencePartsOf<S | Callback>(compiled)
-  return started(env, watch, compiled.length, UndefinedOr.map(options, (given) => given.onComplete), (head, settled) => {
+  return started(env.runtime, watch, compiled.length, UndefinedOr.map(options, (given) => given.onComplete), (head, settled) => {
     // Every Segment's Subject readied before any track takes a key, a later one's refusal taking nothing (#973).
     const readied = Arr.map(parts.others, ([subject, animation]) => segmentReadiedOf(env, ports.subjects, subject, animation))
     return [

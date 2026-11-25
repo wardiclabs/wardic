@@ -71,7 +71,7 @@
 //   at a later change's; the others start where theirs say, a write as one is drawn there its member's alone.
 // - B34 (#977): a landing's callback, the writer's flush or onFrame that throws is reported, and the run goes
 //   on: each other member is told, each change lands; a member a change doesn't move is told at its play.
-//   `flush` and `onFrame` are reported once until they return.
+//   `flush`, a step's or a draw's, and `onFrame` are reported once until they return.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -1044,15 +1044,19 @@ describe("a Batch (#665)", () => {
       yield* Fiber.join(run)
       expect(told).toEqual(["idle", "a", "b"])
       expect(landed, "each change landed").toBe(2)
+      // A draw's flush, after the run's last returned: reported again, and the draw doesn't throw.
+      throwsAt.add(flushes + 1)
+      Batch.draw(batch)
       for (let n = 0; n < 3; n++) yield* Effect.yieldNow
       expect(logged).toEqual([
-        { message: "wardic.batch: a landing failed", member: idle },
+        { message: "wardic.batch: a member's landing failed", member: idle },
         { message: "wardic.batch: its writer's flush failed", member: undefined },
         { message: "wardic.batch: an onFrame failed", member: undefined },
         { message: "wardic.batch: its writer's flush failed", member: undefined },
         { message: "wardic.batch: an onFrame failed", member: undefined },
-        { message: "wardic.batch: a landing failed", member: a },
-        { message: "wardic.batch: a landing failed", member: undefined },
+        { message: "wardic.batch: a member's landing failed", member: a },
+        { message: "wardic.batch: a change's landing failed", member: undefined },
+        { message: "wardic.batch: its writer's flush failed", member: undefined },
       ])
     }),
   )

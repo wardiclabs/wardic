@@ -49,7 +49,10 @@ beforeAll(async () => {
 const F = 1 / 60
 const UNDRAWN: Batch.Writer<null> = { writes: () => true, forKeys: () => () => undefined }
 
-/** What Wardic reports while `run` runs (#977): each failure's message, from Effect's default logger. */
+/**
+ * What Wardic reports while `run` runs (#977): each failure's message, from Effect's default logger. Object's
+ * `test/reports.ts`, which this package's test typecheck can't reach (its `rootDir` is the package).
+ */
 const reportsDuring = async (run: () => Promise<unknown>): Promise<ReadonlyArray<string>> => {
   const said: Array<string> = []
   const keep = { log: console.log, error: console.error }

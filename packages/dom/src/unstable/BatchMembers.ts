@@ -873,10 +873,11 @@ export const markLayoutElement = (element: Element): void => {
   LAYOUT_ELEMENTS.add(element)
 }
 
-/** The error for a layout node on a Batch member's element. */
-const styleless = (element: Element): string =>
+/** The error for a member's element with no inline style: one of a foreign namespace. */
+const stylelessMember = (element: Element): string =>
   `a member's element (${elementName(element)}) has no inline style for the Batch to draw its \`transform\` and \`opacity\` on: give it an HTML, SVG or MathML element`
 
+/** The error for a layout node on a Batch member's element. */
 const layoutOnMember = (element: Element): string =>
   `a member's element (${elementName(element)}) has \`layout\` or \`layoutId\`: the Batch draws its transform, under which the projection measures it. Give its Wardic element no layout, or leave it out of the Batch`
 
@@ -2660,7 +2661,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     if (drawnByAnother(el)) return fail(`an element (${elementName(el)}) is a member of two Batches: one Batch draws an element's \`transform\` and \`opacity\``)
     if (LAYOUT_ELEMENTS.has(el)) return fail(layoutOnMember(el))
     // Its inline style is what the Batch draws: one with none is refused before it's entered (#977, Q6).
-    if (Predicate.isUndefined((el as Partial<ElementCSSInlineStyle>).style)) return fail(styleless(el))
+    if (Predicate.isUndefined((el as Partial<ElementCSSInlineStyle>).style)) return fail(stylelessMember(el))
     const was = elementOf[i]
     if (Predicate.isNotUndefined(was)) forget(was, i)
     elementOf[i] = el
