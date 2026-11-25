@@ -14,8 +14,10 @@ import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import { AtomRegistry } from "effect/reactivity"
 import * as ManagedRuntime from "effect/ManagedRuntime"
+import * as References from "effect/References"
 import * as Stream from "effect/Stream"
 import { beforeEach, describe, expect, it } from "vitest"
 import { fireFrame, frames, HEARD, HEARD_DOM, NO_BATCH, resetFrames, sinkOf, stillLoop, withFrames } from "./gate-harness.ts"
@@ -432,6 +434,140 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
     await t.runtime.runPromise(Fiber.interrupt(fiber))
     gate.dispose()
     await t.runtime.dispose()
+  })
+})
+
+/**
+ * A gate on hand-fired frames whose runtime keeps each Error log's message and the gate id it's annotated
+ * with (#969), and lets the reports it forks run (`settle`).
+ */
+const logging = () => {
+  const logged: Array<{ readonly message: string; readonly id: unknown }> = []
+  const logger = Logger.make(({ message, fiber }) => {
+    const parts = message as ReadonlyArray<unknown>
+    logged.push({ message: String(parts[0]), id: fiber.getRef(References.CurrentLogAnnotations).id })
+  })
+  const runtime = ManagedRuntime.make(withFrames(Layer.mergeAll(HEARD, stillLoop, Logger.layer([logger]))))
+  const settle = (): Promise<void> => runtime.runPromise(Effect.yieldNow)
+  return { runtime, logged, settle }
+}
+
+describe("makeFlushGate — one element's failure is its own (#969)", () => {
+  it("G8: an element whose commit throws is reported once until it commits again, and the elements after it still commit", async () => {
+    const { runtime, logged, settle } = logging()
+    try {
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const applied: Array<string> = []
+      let failing = true
+      // `bad` first: before #969, its throw ended the flush, and `good` went unwritten every frame.
+      gate.register(
+        "bad",
+        sinkOf((p) => {
+          if (failing) throw new Error("bad's commit threw")
+          applied.push(`bad ${p.x}`)
+        }),
+      )
+      gate.register("good", sinkOf((p) => void applied.push(`good ${p.x}`)))
+      for (let n = 1; n <= 3; n++) {
+        gate.write("bad", { x: n })
+        gate.write("good", { x: n })
+        fireFrame()
+      }
+      await settle()
+      expect(applied).toEqual(["good 1", "good 2", "good 3"])
+      expect(logged).toEqual([{ message: "wardic.gate: a commit failed", id: "bad" }])
+      // It commits again, then throws again: a second report.
+      failing = false
+      gate.write("bad", { x: 4 })
+      fireFrame()
+      failing = true
+      gate.write("bad", { x: 5 })
+      gate.write("good", { x: 5 })
+      fireFrame()
+      await settle()
+      expect(applied).toEqual(["good 1", "good 2", "good 3", "bad 4", "good 5"])
+      expect(logged).toEqual([
+        { message: "wardic.gate: a commit failed", id: "bad" },
+        { message: "wardic.gate: a commit failed", id: "bad" },
+      ])
+      gate.dispose()
+    } finally {
+      void runtime.dispose()
+    }
+  })
+
+  it("G9: a throwing beforeFirstCommit, onHeld, own-value read or Timeline sync is its element's, as is a commit in a Measure pass: it commits nothing that frame, the element after it commits, each is reported by its step, and it commits once its step stops throwing", async () => {
+    let throwing = true
+    let calls = 0
+    const step = (): void => {
+      calls++
+      if (throwing) throw new Error("its step threw")
+    }
+    const heardBy = (applied: Array<string>) => (p: Renderer.Patch): void => void applied.push(`bad ${p.x}`)
+    // An element whose own value its gate can't read while `throwing`: the DOM's edge reads its `style`.
+    const unreadable = (applied: Array<string>) => ({
+      heard: heardBy(applied),
+      get style(): CSSStyleDeclaration {
+        step()
+        return { getPropertyValue: () => "" } as unknown as CSSStyleDeclaration
+      },
+    })
+    // `calls`: how often its step ran over both frames. A Starting-style switch that threw is kept and runs
+    // again; an onHeld runs only when the keys held change, which they didn't.
+    const cases: ReadonlyArray<{ readonly step: string; readonly bad: (applied: Array<string>) => CoreFlushGate.FlushSink; readonly calls: number; readonly timeline?: true; readonly ending?: true; readonly pass?: true }> = [
+      { step: "a beforeFirstCommit", bad: (applied) => sinkOf(heardBy(applied), { beforeFirstCommit: step }), calls: 2 },
+      { step: "an onHeld", bad: (applied) => sinkOf(heardBy(applied), { onHeld: step }), calls: 1 },
+      { step: "a commit", bad: (applied) => ({ target: unreadable(applied) }), calls: 2 },
+      { step: "a Timeline sync", bad: (applied) => sinkOf(heardBy(applied)), calls: 2, timeline: true },
+      // One it let go of, whose cancel throws at the flush that draws the key without it.
+      { step: "a Timeline sync", bad: (applied) => sinkOf(heardBy(applied)), calls: 1, ending: true },
+      { step: "a commit", bad: (applied) => sinkOf((p) => {
+        step()
+        heardBy(applied)(p)
+      }), calls: 2, pass: true },
+      // And a Measure pass's read of its own value.
+      { step: "a commit", bad: (applied) => ({ target: unreadable(applied) }), calls: 2, pass: true },
+    ]
+    for (const { step: named, bad, calls: ran, timeline, ending, pass } of cases) {
+      const { runtime, logged, settle } = logging()
+      try {
+        throwing = true
+        calls = 0
+        const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+        const applied: Array<string> = []
+        gate.register("bad", bad(applied))
+        gate.register("good", sinkOf((p) => void applied.push(`good ${p.x}`)))
+        if (timeline) gate.timeline("bad", "x", { sync: step, cancel: () => undefined })
+        if (ending) {
+          gate.timeline("bad", "x", { sync: () => undefined, cancel: step })
+          gate.timeline("bad", "x", undefined)
+        }
+        const frame = (x: number): void => {
+          const writes = (): void => {
+            gate.write("bad", { x })
+            gate.write("good", { x })
+          }
+          // A Measure pass's own flush: before #969, its throw left the pass.
+          if (pass) return gate.flushPass(writes)
+          writes()
+          fireFrame()
+        }
+        frame(1)
+        await settle()
+        expect(applied, named).toEqual(["good 1"])
+        expect(logged, named).toEqual([{ message: `wardic.gate: ${named} failed`, id: "bad" }])
+        // Its step stops throwing: it commits at the next frame, with no further report.
+        throwing = false
+        frame(2)
+        await settle()
+        expect(applied, named).toEqual(["good 1", "bad 2", "good 2"])
+        expect(logged, named).toHaveLength(1)
+        expect(calls, named).toBe(ran)
+        gate.dispose()
+      } finally {
+        void runtime.dispose()
+      }
+    }
   })
 })
 
