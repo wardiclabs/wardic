@@ -183,7 +183,7 @@ Object.freeze(stuck) // after its leg started, so #968's check at the start can'
   - its Timeline values;
   - the binding's `onHeld`.
 - **The Measure pass's flush** (`flushPass`) had no `try` of its own, so a throw there escaped into the projection pass.
-- **Not the gate's:** a Batch member. The issue listed one that's frozen, but a Batch draws its members through its own writer (`ObjectBatch`'s), not the gate. A frozen member there stops the Batch's other members, and the call never finishes, with nothing logged: a follow-up's.
+- **Not the gate's:** a Batch member. The issue listed one that's frozen, but a Batch draws its members through its own writer (`ObjectBatch`'s), not the gate. A frozen member there stops the Batch's other members, and the call never finishes, with nothing logged: #977.
 
 **Motion** (`.reference/motion` at `16c6122`, read, not run): `createRenderStep`'s `process` runs `thisFrame.forEach(triggerCallback)` with no `try`. A throw in one element's render skips the step's later callbacks, and its `isProcessing = false`, so its later frames return early too.
 
@@ -261,7 +261,7 @@ One was caught only after a test was added: the Measure pass's `prepare` `try` d
 - **Stranded elements:** an element whose `beforeFirstCommit` threw was marked clean, so it never committed if that was its last write. Nothing failed was tried without a write of its own.
 - **Steps never run again:** a failed `onHeld` was never told again, a restore that threw was never tried again, and a throwing cancel stopped the cancels after it.
 - **A regression:** a hook that registered its own id lost the new entry's switch.
-- **Fixed as built above,** with G10 and G11. The changeset was rewritten for a reader of the release notes, the flags renamed, `failedAt`'s step typed, and the Batch case taken out, to a follow-up.
+- **Fixed as built above,** with G10 and G11. The changeset was rewritten for a reader of the release notes, the flags renamed, `failedAt`'s step typed, and the Batch case taken out, to #977.
 
 **Measured,** on the quiet bench host:
 - **The loop's form** (`.tmp/969/loops.ts`: the commit loop over 1000 elements of three keys, nothing throwing):
