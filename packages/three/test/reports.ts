@@ -12,5 +12,5 @@ export const reportsDuring = async (run: () => void | Promise<void>): Promise<Re
   } finally {
     console.log = log
   }
-  return said.flatMap((line) => line.match(/wardic\.\w+: [a-z' ]+failed/g) ?? [])
+  return said.flatMap((line) => line.match(/wardic\.\w+: [\w' ]*?failed/g) ?? [])
 }

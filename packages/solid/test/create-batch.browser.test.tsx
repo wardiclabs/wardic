@@ -27,6 +27,8 @@
 // - CV11: under a `WardicConfig` whose `transition` comes from a signal, a member draws what a `w.div`
 //   draws through each change, the config's change applying to the next: read at each change, in the
 //   Batch's effect apply, untracked, where Solid reported the read (STRICT_READ_UNTRACKED).
+// - CV12 (#977): an element with no inline style (a foreign namespace's) is refused as a member, naming it,
+//   before it's entered, so the Batch's runs go on: its other member still animates.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
@@ -369,5 +371,29 @@ describe("createBatch on Solid 2 (#665)", () => {
     const tweened = await xsOver(40, [ward, member])
     expectSame(tweened[1], tweened[0])
     expect(tweened[1].at(-1)).toBe(30)
+  })
+
+  it("CV12: an element with no inline style is refused as a member, naming it, before it's entered: the other member still animates (#977)", async () => {
+    const [target, setTarget] = createSignal(0)
+    let grid!: ReturnType<typeof createBatch>
+    let member!: HTMLDivElement
+    const Scene = (): JSX.Element => {
+      grid = createBatch({ count: 2, initial: false, animate: () => ({ x: target() }), transition: SPRING })
+      return <div style={BOX} {...grid.at(1, { ref: (el) => (member = el as HTMLDivElement) })} />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await raf()
+    // A foreign namespace's element has no `style`. Given outside a render, as create-batch-drivers' CVD4.
+    const foreign = document.createElementNS("https://example.com/wardic", "marker")
+    // Typed as one, as a ref given at runtime may be: what the Batch checks is the element itself.
+    expect(() => grid.at(0).ref(foreign as unknown as HTMLElement)).toThrow(/a member's element \(marker\) has no inline style/)
+    setTarget(30)
+    // Before #977, it was entered, and its write ended each of the Batch's runs: the other never moved.
+    const xs = await xsOver(60, [member])
+    expect(xs[0].at(-1)).toBe(30)
   })
 })
