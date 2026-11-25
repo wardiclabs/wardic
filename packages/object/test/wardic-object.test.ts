@@ -8,6 +8,7 @@
  */
 import * as WardicObject from "@wardic/object/WardicObject"
 import { describe, expect, it } from "@effect/vitest"
+import { reportsDuring } from "./reports.ts"
 
 const FRAME = 1000 / 60
 
@@ -796,5 +797,40 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
       console.log = log
       wardic.dispose()
     }
+  })
+
+  it("WO29: a call whose onComplete throws still ends finished, reported at each landing, and play() plays it again (#977)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const target = { x: 0 }
+    // What it is as its onComplete runs: finished already, as Motion's.
+    const seen: Array<string> = []
+    const reports = await reportsDuring(async () => {
+      const call = wardic.animate(target, { x: 1 }, {
+        type: "tween",
+        duration: 0.1,
+        ease: "linear",
+        onComplete: () => {
+          seen.push(call.state)
+          throw new Error("its onComplete threw")
+        },
+      })
+      await tick()
+      pump(wardic, 12, () => undefined, clock)
+      await tick()
+      // Before #977, its throw skipped the call's end: "running" for good, and play() did nothing.
+      expect(call.state).toBe("finished")
+      await call
+      call.play()
+      expect(call.state).toBe("running")
+      await tick()
+      const replayed = pump(wardic, 12, () => target.x, clock)
+      await tick()
+      expect(replayed[0]).toBeLessThan(0.5)
+      expect(call.state).toBe("finished")
+    })
+    expect(reports).toEqual(["wardic.animate: an onComplete failed", "wardic.animate: an onComplete failed"])
+    expect(seen).toEqual(["finished", "finished"])
+    wardic.dispose()
   })
 })

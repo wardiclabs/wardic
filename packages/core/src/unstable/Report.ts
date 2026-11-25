@@ -3,7 +3,8 @@
  * `ErrorReporter`s. Core's engine doesn't report: the Frame loop hands each run's failure to its
  * caller, and a Tier 2 caller may recover. A binding boundary that ends a fiber nobody observes calls
  * this, so a failure there reaches the console and an app's reporters instead of stopping its feature
- * with nothing said.
+ * with nothing said. So does what outlives one Subject's failure, so the others go on: the Flush gate's
+ * flush, a Batch's run, on the services it runs with.
  *
  * An app installs its reporters on the Environment it hands the provider,
  * `ErrorReporter.layer([…])` merged into `env`; Wardic ships none. With none installed, a report

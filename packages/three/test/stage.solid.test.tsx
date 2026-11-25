@@ -24,7 +24,7 @@ import { createFrameEffect, createHover, ward, WardicStage } from "@wardic/solid
 import { createSceneObject, createStage, TestStage } from "@wardic/three/solid"
 import * as WardicThree from "@wardic/three/WardicThree"
 import { inertStage, lateInput } from "../src/solid/stage.ts"
-import { reportsDuring } from "./reports.ts"
+import { reportsDuring } from "../../object/test/reports.ts"
 import type { JSX } from "@solidjs/web"
 import { children, createRenderEffect, createRoot, createSignal, Errored, flush } from "solid-js"
 import { BoxGeometry, Color, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from "three"

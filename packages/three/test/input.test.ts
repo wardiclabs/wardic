@@ -6,7 +6,7 @@
 import * as TestStage from "@wardic/three/TestStage"
 import * as ThreeInput from "@wardic/three/ThreeInput"
 import * as WardicThree from "@wardic/three/WardicThree"
-import { reportsDuring } from "./reports.ts"
+import { reportsDuring } from "../../object/test/reports.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as THREE from "three"
 

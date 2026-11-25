@@ -4,6 +4,7 @@
  */
 import * as WardicObject from "@wardic/object/WardicObject"
 import { describe, expect, it } from "@effect/vitest"
+import { reportsDuring } from "./reports.ts"
 
 const FRAME = 1000 / 60
 const LINEAR = { type: "tween", duration: 0.1, ease: "linear" } as const
@@ -266,5 +267,82 @@ describe("ObjectBatch: many objects as one run", () => {
     await skip
     expect(skip.state).toBe("finished")
     skipping.dispose()
+  })
+
+  it("OB16: a member frozen mid-run is reported once, and the others move every frame and land: the call ends (#977)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const dots = sprites(3)
+    const swarm = wardic.batch(dots)
+    let call: ReturnType<typeof wardic.animate> | undefined
+    const reports = await reportsDuring(async () => {
+      call = wardic.animate(swarm, { x: 6 }, LINEAR)
+      await tick()
+      pump(wardic, 2, clock)
+      Object.freeze(dots[0])
+      const frozenAt = dots[0]!.x
+      const drawn: Array<number> = []
+      for (let i = 0; i < 12; i++) {
+        pump(wardic, 1, clock)
+        drawn.push(dots[1]!.x)
+      }
+      // Before #977, the frozen member's throw ended the run: the others stayed where they were.
+      expect(new Set(drawn).size, drawn.join(" ")).toBeGreaterThan(3)
+      expect(dots.map((dot) => dot.x)).toEqual([frozenAt, 6, 6])
+      expect(call.state).toBe("finished")
+      await call
+    })
+    expect(reports).toEqual(["wardic.batch: a member's write failed"])
+    wardic.dispose()
+  })
+
+  it("OB17: a Batch call whose onComplete throws still ends finished: its await resolves, it's reported, and a later call on the Batch lands (#977)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const dots = sprites(2)
+    const swarm = wardic.batch(dots)
+    const reports = await reportsDuring(async () => {
+      const call = wardic.animate(swarm, {
+        x: 6,
+      }, {
+        ...LINEAR,
+        onComplete: () => {
+          throw new Error("its onComplete threw")
+        },
+      })
+      await tick()
+      pump(wardic, 12, clock)
+      // Before #977, its throw ended the Batch's run, and the call stayed "running".
+      expect(call.state).toBe("finished")
+      await call
+      const next = wardic.animate(swarm, { x: 0 }, LINEAR)
+      await tick()
+      pump(wardic, 12, clock)
+      expect(next.state).toBe("finished")
+      expect(dots.map((dot) => dot.x)).toEqual([0, 0])
+    })
+    expect(reports).toEqual(["wardic.animate: an onComplete failed"])
+    wardic.dispose()
+  })
+
+  it("OB18: a Batch call that moves no member lands at once, and its onComplete's throw doesn't come out of animate: it's reported (#977)", async () => {
+    const wardic = WardicObject.make()
+    const swarm = wardic.batch(sprites(2))
+    const reports = await reportsDuring(async () => {
+      let call: ReturnType<typeof wardic.animate> | undefined
+      // Every member is at 0 already.
+      expect(() => {
+        call = wardic.animate(swarm, { x: 0 }, {
+          ...LINEAR,
+          onComplete: () => {
+            throw new Error("its onComplete threw")
+          },
+        })
+      }).not.toThrow()
+      await tick()
+      expect(call!.state).toBe("finished")
+    })
+    expect(reports).toEqual(["wardic.animate: an onComplete failed"])
+    wardic.dispose()
   })
 })

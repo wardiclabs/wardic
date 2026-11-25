@@ -55,6 +55,8 @@ export const runServerRendered = async (
     readonly played?: boolean
     /** Whether the markup goes inside an open shadow root, which holds the head's styles too (#724). */
     readonly shadow?: boolean
+    /** Called with the watched elements just before `hydrate()`, their CSS animations running (#977). */
+    readonly beforeHydrate?: (watched: ReadonlyArray<Element>) => void
   },
 ): Promise<Run> => {
   const renderId = `${name}-${runs++}`
@@ -105,6 +107,7 @@ export const runServerRendered = async (
       freshHydration()
       // Each watched element's CSS animation's start, noted just before the Handoff takes them over (#524).
       noteStarts(page, watched, startOf)
+      options.beforeHydrate?.(watched)
       hydratedAt = document.timeline.currentTime as number
       dispose = hydrate(code, host, { renderId })
       hydrated = true

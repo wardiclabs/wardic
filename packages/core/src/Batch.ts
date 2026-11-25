@@ -18,10 +18,11 @@
 // a member's keys at `slot * stride + k` (#663's shape); stepped by `Spring.matrixFor`'s exact step
 // (#370), the probe's loop (`.tmp/564-canvas/perf/group.ts` on `probe/564-canvas`).
 import * as Arr from "effect/Array"
+import * as Cause from "effect/Cause"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
-import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
@@ -35,6 +36,7 @@ import type * as Playback from "./Playback.ts"
 import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 import * as UnitScale from "./UnitScale.ts"
+import * as Report from "./unstable/Report.ts"
 import { dual } from "./internal/dual.ts"
 import { tickOf, writableOf } from "./internal/playhead.ts"
 import { resolveKeyframes } from "./internal/keyframes.ts"
@@ -271,6 +273,20 @@ interface State<S> {
   running: number
   /** How many runs it has had: the next one's number. */
   runs: number
+  /** What its failures are reported on: its last run's services, an empty Context before its first. */
+  services: Context.Context<never>
+  /** Whether a member's write threw in this step. */
+  writeThrewInStep: boolean
+  /** Whether a member's write throw is reported, with no step since that wrote every member clean. */
+  writeReported: boolean
+  /** Whether a member's start partway threw in this step. */
+  startThrewInStep: boolean
+  /** Whether a member's start throw is reported, with no step since that started every member clean. */
+  startReported: boolean
+  /** Whether its writer's `flush` throw is reported, with no `flush` since that returned. */
+  flushReported: boolean
+  /** Whether its `onFrame` throw is reported, with no `onFrame` since that returned. */
+  onFrameReported: boolean
 }
 
 const Proto = {
@@ -474,6 +490,13 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     frame: 0,
     running: 0,
     runs: 0,
+    services: Context.empty(),
+    writeThrewInStep: false,
+    writeReported: false,
+    startThrewInStep: false,
+    startReported: false,
+    flushReported: false,
+    onFrameReported: false,
   }
   // The Batch's own transitions, pinned: the first entries, rule 0 the first key's.
   state.ownRules = rulesOf(state, options.transition, unnamedKey(state))
@@ -798,6 +821,48 @@ export const retarget: {
   return setOff
 })
 
+/**
+ * `defect`, a failure on the Batch's path named by `message`, logged and handed to the ErrorReporters of
+ * what it runs on, annotated with its member's slot where it's one member's.
+ */
+// #977 (ADR-0074): one member's failure is its own. Its failure path, off the per-frame one.
+const report = <S>(state: State<S>, message: string, defect: unknown, slot?: number): void => {
+  const failure = Report.failure(message, Cause.die(defect))
+  if (Predicate.isUndefined(slot)) {
+    Effect.runForkWith(state.services)(failure)
+    return
+  }
+  Effect.runForkWith(state.services)(Effect.annotateLogs(failure, { member: slot }))
+}
+
+/** A member's write that threw: reported once, until a step writes every member clean. */
+const writeFailed = <S>(state: State<S>, slot: number, defect: unknown): void => {
+  state.writeThrewInStep = true
+  if (state.writeReported) return
+  state.writeReported = true
+  report(state, "wardic.batch: a member's write failed", defect, slot)
+}
+
+/** A member's start partway that threw: reported once, until a step starts every member clean. */
+const startFailed = <S>(state: State<S>, slot: number, defect: unknown): void => {
+  state.startThrewInStep = true
+  if (state.startReported) return
+  state.startReported = true
+  report(state, "wardic.batch: a member's start failed", defect, slot)
+}
+
+/** The writer's `flush`, a step's or a draw's: a throw reported once, until one returns. */
+const flushed = <S>(state: State<S>): void => {
+  try {
+    state.flush()
+    if (state.flushReported) state.flushReported = false
+  } catch (defect) {
+    if (state.flushReported) return
+    state.flushReported = true
+    report(state, "wardic.batch: its writer's flush failed", defect)
+  }
+}
+
 /** Whether any member moves: one `step` would move. */
 export const isMoving = <S>(self: Batch<S>): boolean => {
   const state = stateOf(self)
@@ -809,6 +874,11 @@ export const isMoving = <S>(self: Batch<S>): boolean => {
  * outside a step set (an `enter`, a `replace`, a start from a given value, a play, seek, stop or cancel):
  * whether nothing moves now. One a delay or a paused Playhead holds still isn't written. The run on the
  * Frame loop calls it each tick.
+ *
+ * One member's failure is its own: a write or a start partway that throws is reported once, until a step
+ * runs every member's clean, and its member steps on with the others. A landing's callback that throws is
+ * reported each time, the other members told and the other changes landed; the writer's `flush` and
+ * `onFrame` once until they return. Each is reported on what the Batch last ran on.
  */
 // Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), then the two moving
 // lists. Each steps a key by `springValues`' exact step, or `Machine.tween`'s, its spring's matrix
@@ -817,12 +887,35 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
   const state = stateOf(self)
   const clamped = Math.min(dt, Machine.MAX_DT)
   state.frame = state.frame + 1
+  // Whether a member's write or start throws in this step: a `draw`'s between steps isn't one (#977).
+  state.writeThrewInStep = false
+  state.startThrewInStep = false
   if (state.startList.length > 0) startPass(state, clamped)
   if (state.plainCount > 0) stepPlain(state, clamped)
   if (state.ruledCount > 0) stepRuled(state, clamped)
-  if (state.animations.size > 0) Iter.forEach(state.animations, checkLanding)
-  state.flush()
-  state.onFrame()
+  // Each change's landing its own: a callback that throws leaves the others to land (#977).
+  if (state.animations.size > 0) {
+    for (const animation of state.animations) {
+      try {
+        checkLanding(animation)
+      } catch (defect) {
+        report(state, "wardic.batch: a change's landing failed", defect)
+      }
+    }
+  }
+  flushed(state)
+  try {
+    state.onFrame()
+    if (state.onFrameReported) state.onFrameReported = false
+  } catch (defect) {
+    if (!state.onFrameReported) {
+      state.onFrameReported = true
+      report(state, "wardic.batch: an onFrame failed", defect)
+    }
+  }
+  // A path that stepped clean is reported again at its next throw (#977).
+  if (!state.writeThrewInStep) state.writeReported = false
+  if (!state.startThrewInStep) state.startReported = false
   // Counted after `onFrame`: a change it makes keeps the run going.
   if (state.plainCount + state.ruledCount > 0) return false
   // A driven change playing, paused at rest, still holds its entries.
@@ -843,9 +936,13 @@ export const draw = <S>(self: Batch<S>): void => {
   for (let slot = 0; slot < state.used; slot++) {
     if ((flags[slot] & LIVE) === 0) continue
     flags[slot] = flags[slot] & ~DUE
-    write(subjects[slot] as S, positions, slot * stride)
+    try {
+      write(subjects[slot] as S, positions, slot * stride)
+    } catch (defect) {
+      writeFailed(state, slot, defect)
+    }
   }
-  state.flush()
+  flushed(state)
 }
 
 /**
@@ -936,7 +1033,13 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
       elapsed[at] = time
     }
     // One a delay holds still isn't written: an unchanged write is a style write all the same.
-    if (moved) write(subjects[slot] as S, positions, base)
+    if (moved) {
+      try {
+        write(subjects[slot] as S, positions, base)
+      } catch (defect) {
+        writeFailed(state, slot, defect)
+      }
+    }
     // At rest: still its member's, in neither list.
     if (still) {
       flags[slot] = LIVE
@@ -1066,7 +1169,13 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
       positions[at] = position
       velocities[at] = speed
     }
-    if (moved) write(subjects[slot] as S, positions, base)
+    if (moved) {
+      try {
+        write(subjects[slot] as S, positions, base)
+      } catch (defect) {
+        writeFailed(state, slot, defect)
+      }
+    }
     // At rest: still its member's, in neither list (a member is in one at most).
     if (still) {
       flags[slot] = LIVE
@@ -1167,7 +1276,13 @@ const stepRuledDriven = <S>(state: State<S>): void => {
       positions[at] = position
       velocities[at] = speed
     }
-    if (moved) write(subjects[slot] as S, positions, base)
+    if (moved) {
+      try {
+        write(subjects[slot] as S, positions, base)
+      } catch (defect) {
+        writeFailed(state, slot, defect)
+      }
+    }
     // At rest: still its member's, in neither list (a member is in one at most).
     if (still) {
       flags[slot] = LIVE
@@ -1418,7 +1533,13 @@ const startedPartway = <S>(state: State<S>, slot: number, dt: number): boolean =
   const { stride, elapsed, rules, positions, velocities, targets, originVelocities, startAts } = state
   const startAt = UndefinedOr.getOrThrow(startAts[slot])
   startAts[slot] = undefined
-  const time = startAt(slot)
+  // A start that throws is its member's: it starts from its start, as `NaN` gives (#977).
+  let time = Number.NaN
+  try {
+    time = startAt(slot)
+  } catch (defect) {
+    startFailed(state, slot, defect)
+  }
   const base = slot * stride
   const started = !Number.isNaN(time)
   for (let k = 0; k < stride; k++) {
@@ -1439,7 +1560,11 @@ const startedPartway = <S>(state: State<S>, slot: number, dt: number): boolean =
   }
   if (started) {
     state.flags[slot] = state.flags[slot] & ~DUE
-    state.write(state.subjects[slot] as S, positions, base)
+    try {
+      state.write(state.subjects[slot] as S, positions, base)
+    } catch (defect) {
+      writeFailed(state, slot, defect)
+    }
   }
   return started
 }
@@ -1527,7 +1652,14 @@ const tellIdle = <S>(animation: AnimationState<S>): void => {
   animation.idleTold = true
   const tell = animation.options.onMemberLanded
   if (Predicate.isUndefined(tell)) return
-  Arr.forEach(animation.idle, (slot) => tell(slot))
+  // Each member's own: a landing that throws leaves the others told (#977).
+  Arr.forEach(animation.idle, (slot) => {
+    try {
+      tell(slot)
+    } catch (defect) {
+      report(animation.state, "wardic.batch: a member's landing failed", defect, slot)
+    }
+  })
 }
 
 /**
@@ -1552,7 +1684,12 @@ const tellMembers = <S>(animation: AnimationState<S>, tell: (slot: number) => vo
     }
     if (!kept || !atRest) continue
     told[r] = 1
-    tell(slotAt(state, ats[firsts[r]]))
+    const slot = slotAt(state, ats[firsts[r]])
+    try {
+      tell(slot)
+    } catch (defect) {
+      report(state, "wardic.batch: a member's landing failed", defect, slot)
+    }
   }
 }
 
@@ -2182,7 +2319,8 @@ const machineOf = <S>(self: Batch<S>, id: number): Machine.Machine<Frame.Frame<n
 /**
  * Runs `self` on the Frame loop while any member moves, from the next tick: each tick steps every
  * moving member and writes it. It succeeds once nothing moves. While one runs, another does nothing,
- * so a binding calls it after each change.
+ * so a binding calls it after each change. A member's failure is reported on the services it runs with,
+ * the Environment's Logger and ErrorReporters, and the run goes on.
  *
  * @example
  * Batch.retarget(grid, slots, targetOf)
@@ -2190,9 +2328,12 @@ const machineOf = <S>(self: Batch<S>, id: number): Machine.Machine<Frame.Frame<n
  */
 // One run, not a fiber per member (ADR-0069, decision 10). Its span is `wardic.batch`.
 export const run = <S>(self: Batch<S>): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
-  Effect.suspend(() => {
+  Effect.contextWith((services: Context.Context<never>) => {
     const state = stateOf(self)
     if (state.running !== 0) return Effect.void
+    // Its failures are reported on what it runs on, the Environment's Logger and ErrorReporters, kept
+    // for a draw or a play between runs; a second run while one runs swaps nothing (#977).
+    state.services = services
     if (state.plainCount + state.ruledCount === 0) return Effect.void
     const id = state.runs + 1
     state.runs = id

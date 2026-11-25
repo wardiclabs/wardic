@@ -19,6 +19,9 @@
 //   animation, which goes on through hydration, and moves its member from its start.
 // - BH9 (#724): hydrated in a shadow root that holds its rules, BH1's member and Wardic element are each
 //   taken over from a read of that root: the element's at mount, the Batch's at its first step.
+// - BH10 (#977): a Handoff whose read of one member throws takes the others over at their CSS time; that one
+//   plays its change from its start, and the read is reported once.
+// - BH11 (#977): one member's release that throws leaves the others let go of their CSS animations, reported.
 import * as Batch from "@wardic/core/Batch"
 import * as Bool from "effect/Boolean"
 import * as Rec from "effect/Record"
@@ -45,6 +48,27 @@ beforeAll(async () => {
 
 const F = 1 / 60
 const UNDRAWN: Batch.Writer<null> = { writes: () => true, forKeys: () => () => undefined }
+
+/**
+ * What Wardic reports while `run` runs (#977): each failure's message, from Effect's default logger. Object's
+ * `test/reports.ts`, which this package's test typecheck can't reach (its `rootDir` is the package).
+ */
+const reportsDuring = async (run: () => Promise<unknown>): Promise<ReadonlyArray<string>> => {
+  const said: Array<string> = []
+  const keep = { log: console.log, error: console.error }
+  const hear = (...args: Array<unknown>): void => void said.push(args.map(String).join(" "))
+  console.log = hear
+  console.error = hear
+  try {
+    await run()
+  } finally {
+    Object.assign(console, keep)
+  }
+  return said.flatMap((line) => line.match(/wardic\.\w+: [\w' ]*?failed/g) ?? [])
+}
+
+/** The watched element `k`, of `watched`. */
+const watchedAs = (watched: ReadonlyArray<Element>, k: string): HTMLElement => watched.find((el) => (el as HTMLElement).dataset.k === k) as HTMLElement
 
 /** A member's own Batch `seconds` into its change, its delay counted: started there, as the Handoff starts it. */
 const memberAt = (
@@ -214,5 +238,58 @@ describe("a Batch's members' Appear animations, server render to hydration (#706
     expect(comparedAlike(r), "frames compared").toBeGreaterThan(40)
     expect(handedOff(r, "member")).toBe(true)
     expect(handedOff(r, "element")).toBe(true)
+  }, 30_000)
+
+  it("BH10: a Handoff whose read of one member throws takes the others over at their CSS time; that one plays from its start, reported once (#977)", async () => {
+    let r!: Run
+    const reports = await reportsDuring(async () => {
+      r = await run("B2", B2, {
+        hydrateAfter: 300,
+        forMs: 1300,
+        beforeHydrate: (watched) => {
+          const animation = watchedAs(watched, "t1").getAnimations()[0]!
+          Object.defineProperty(animation, "currentTime", {
+            configurable: true,
+            get: () => {
+              throw new Error("t1's read threw")
+            },
+          })
+        },
+      })
+    })
+    // Before #977, the read's throw ended the Batch's run at its first step: no member moved again.
+    for (const i of [0, 2]) {
+      expect(followsMachine(r, `t${i}`, (seconds) => tileAt(i, seconds)), `t${i}: frames after hydration`).toBeGreaterThan(5)
+      expect(handedOff(r, `t${i}`)).toBe(true)
+    }
+    // Let go too, and played from its start: at its target by the end.
+    expect(handedOff(r, "t1")).toBe(true)
+    const last = r.frames[r.frames.length - 1]!.drawn.t1!
+    expect(Math.abs(last.x - (B2_TARGETS[1] as number))).toBeLessThanOrEqual(TOL.px)
+    expect(reports).toEqual(["wardic.batch: a member's start failed"])
+  }, 30_000)
+
+  it("BH11: one member's release that throws leaves the others let go of their CSS animations, reported once (#977)", async () => {
+    let r!: Run
+    const reports = await reportsDuring(async () => {
+      r = await run("B2", B2, {
+        hydrateAfter: 300,
+        forMs: 1300,
+        beforeHydrate: (watched) => {
+          Object.defineProperty(watchedAs(watched, "t1").style, "removeProperty", {
+            configurable: true,
+            value: () => {
+              throw new Error("t1's release threw")
+            },
+          })
+        },
+      })
+    })
+    // Before #977, t1's throw skipped the later members' releases: t2 kept its CSS animation.
+    for (const i of [0, 2]) {
+      expect(followsMachine(r, `t${i}`, (seconds) => tileAt(i, seconds)), `t${i}: frames after hydration`).toBeGreaterThan(5)
+      expect(handedOff(r, `t${i}`)).toBe(true)
+    }
+    expect(reports).toEqual(["wardic.batch: a member's Appear release failed"])
   }, 30_000)
 })

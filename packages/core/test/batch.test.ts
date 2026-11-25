@@ -64,6 +64,14 @@
 //   it waits out a delay, and not again until it moves.
 // - B31: a change paused on its Playhead writes nothing while it holds; a seek while paused is written at
 //   the next step, and so is a stop, which rests it where it is.
+// - B32 (#977): a member's write that throws is that member's: reported once, naming its slot, until a step
+//   writes it, through the run's own Logger and ErrorReporters; the others are written each frame, and all land.
+//   In the plain list and the ruled list, and through a `draw`.
+// - B33 (#977): a member's start partway that throws starts it from its start, reported once a step, and again
+//   at a later change's; the others start where theirs say, a write as one is drawn there its member's alone.
+// - B34 (#977): a landing's callback, the writer's flush or onFrame that throws is reported, and the run goes
+//   on: each other member is told, each change lands; a member a change doesn't move is told at its play.
+//   `flush`, a step's or a draw's, and `onFrame` are reported once until they return.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -72,9 +80,12 @@ import * as Playback from "@wardic/core/Playback"
 import * as Stagger from "@wardic/core/Stagger"
 import { it as effect } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as ErrorReporter from "effect/ErrorReporter"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as PubSub from "effect/PubSub"
+import * as References from "effect/References"
 import * as Stream from "effect/Stream"
 import { describe, expect, expectTypeOf, it } from "vitest"
 
@@ -86,6 +97,34 @@ const pushable = Effect.fnUntraced(function* () {
   const clock = Layer.succeed(Clock.Clock, { ticks: Stream.fromPubSub(pubsub), tick: () => Effect.void, now: () => 0, frameAt: () => Number.NaN })
   return { loop: FrameLoop.layer.pipe(Layer.provideMerge(clock)), advance: () => PubSub.publish(pubsub, F) }
 })
+
+/**
+ * A Logger and an ErrorReporter, as an app installs them on its runtime: each Error log's message with the
+ * member it's annotated with, and each reported error's message (#977).
+ */
+const heard = () => {
+  const logged: Array<{ readonly message: string; readonly member: unknown }> = []
+  const reports: Array<string> = []
+  const logger = Logger.make(({ message, fiber }) => {
+    const parts = message as ReadonlyArray<unknown>
+    logged.push({ message: String(parts[0]), member: fiber.getRef(References.CurrentLogAnnotations).member })
+  })
+  const layer = Layer.merge(Logger.layer([logger]), ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))]))
+  return { logged, reports, layer }
+}
+
+/** A writer that throws for `failing`'s subjects while it holds them, else records each write as `subject x`. */
+const throwing = (failing: Set<string>) => {
+  const written: Array<string> = []
+  const writer: Batch.Writer<string> = {
+    writes: () => true,
+    forKeys: () => (subject, positions, base) => {
+      if (failing.has(subject)) throw new Error(`${subject}'s write threw`)
+      written.push(`${subject} ${positions[base]}`)
+    },
+  }
+  return { writer, written }
+}
 
 /** A writer that draws nothing: what each frame wrote, per subject, as a copy of its values. */
 const recording = <S,>() => {
@@ -866,4 +905,159 @@ describe("a Batch (#665)", () => {
     expect(writes.at(-1)?.values.x).toBe(stopped)
     expect(Batch.isMoving(batch)).toBe(false)
   })
+
+  effect.effect("B32: a member's write that throws is reported once until a step writes it, and the others are written each frame and land (#977)", () =>
+    Effect.gen(function* () {
+      // The Batch's own spring moves its members in the plain list; a tween, in the ruled list.
+      const transitions = [{ type: "spring", stiffness: 210, damping: 20 }, { type: "tween", duration: 0.1, ease: "linear" }] as const
+      for (const transition of transitions) {
+        const { loop, advance } = yield* pushable()
+        const { logged, reports, layer } = heard()
+        const context = yield* Layer.build(Layer.merge(loop, layer))
+        const failing = new Set(["a"])
+        const { writer, written } = throwing(failing)
+        const bs = (): number => written.filter((line) => line.startsWith("b")).length
+        const batch = Batch.make({ keys: ["x"], writer, transition })
+        const a = Batch.enter(batch, "a", { x: 0 })
+        const b = Batch.enter(batch, "b", { x: 0 })
+        Batch.retarget(batch, [a, b], () => 6)
+        const run = yield* Effect.forkChild(Effect.provide(Batch.run(batch), context), { startImmediately: true })
+        // Before #977, a's first throw ended the run: b stayed where it was, and nothing was logged.
+        for (let n = 0; n < 3; n++) yield* advance()
+        expect(bs(), transition.type).toBe(3)
+        // A draw of every member, between steps: its throw is a's alone too.
+        Batch.draw(batch)
+        expect(bs()).toBe(4)
+        // Written in a step: the next throw is reported again.
+        failing.clear()
+        yield* advance()
+        failing.add("a")
+        let frames = 4
+        for (; frames < 600 && Batch.isMoving(batch); frames++) yield* advance()
+        // At rest, the run ends: every member landed, a's last write failed.
+        yield* Fiber.join(run)
+        expect([Batch.get(batch, a, "x"), Batch.get(batch, b, "x")]).toEqual([6, 6])
+        expect(bs()).toBe(frames + 1)
+        expect(written.filter((line) => line.startsWith("a"))).toHaveLength(1)
+        for (let n = 0; n < 3; n++) yield* Effect.yieldNow
+        expect(logged, transition.type).toEqual([
+          { message: "wardic.batch: a member's write failed", member: a },
+          { message: "wardic.batch: a member's write failed", member: a },
+        ])
+        expect(reports).toEqual(["a's write threw", "a's write threw"])
+      }
+    }),
+  )
+
+  effect.effect("B33: a member's start partway that throws starts it from its start, reported once, and the others start where theirs say (#977)", () =>
+    Effect.gen(function* () {
+      const { loop, advance } = yield* pushable()
+      const { logged, layer } = heard()
+      const context = yield* Layer.build(Layer.merge(loop, layer))
+      // c's write throws as its start draws it.
+      const { writer } = throwing(new Set(["c"]))
+      const batch = Batch.make({ keys: ["x"], writer, transition: { type: "tween", duration: 0.5, ease: "linear" } })
+      const [a, b, c, d] = ["a", "b", "c", "d"].map((name) => Batch.enter(batch, name, { x: 0 }))
+      const throwsFor = new Set([a, d])
+      const startAt = (slot: number): number => {
+        if (throwsFor.has(slot)) throw new Error(`${["a", "b", "c", "d"][slot]}'s start threw`)
+        return 0.25
+      }
+      Batch.retarget(batch, [a, b, c, d], () => 100, { startAt })
+      const run = yield* Effect.forkChild(Effect.provide(Batch.run(batch), context), { startImmediately: true })
+      // Before #977, a's throw ended the run in its start pass: no other member started.
+      yield* advance()
+      expect([Batch.get(batch, b, "x"), Batch.get(batch, c, "x")]).toEqual([50, 50])
+      expect(Batch.get(batch, a, "x"), "a step from its start").toBeCloseTo((100 * F) / 0.5, 9)
+      expect(Batch.get(batch, d, "x")).toBeCloseTo((100 * F) / 0.5, 9)
+      for (let n = 0; n < 60 && Batch.isMoving(batch); n++) yield* advance()
+      yield* Fiber.join(run)
+      expect([a, b, c, d].map((slot) => Batch.get(batch, slot, "x"))).toEqual([100, 100, 100, 100])
+      // A later change's start that throws, after steps that started clean, is reported again.
+      Batch.retarget(batch, [a], () => 0, { startAt })
+      const again = yield* Effect.forkChild(Effect.provide(Batch.run(batch), context), { startImmediately: true })
+      for (let n = 0; n < 60 && Batch.isMoving(batch); n++) yield* advance()
+      yield* Fiber.join(again)
+      for (let n = 0; n < 3; n++) yield* Effect.yieldNow
+      expect(logged).toEqual([
+        { message: "wardic.batch: a member's start failed", member: a },
+        { message: "wardic.batch: a member's write failed", member: c },
+        { message: "wardic.batch: a member's start failed", member: a },
+      ])
+    }),
+  )
+
+  effect.effect("B34: a landing's callback, the writer's flush or onFrame that throws is reported, and the run goes on: each other member is told, each change lands (#977)", () =>
+    Effect.gen(function* () {
+      const { loop, advance } = yield* pushable()
+      const { logged, layer } = heard()
+      const context = yield* Layer.build(Layer.merge(loop, layer))
+      const tween = { type: "tween", duration: 0.1, ease: "linear" } as const
+      // Each throws at its first, second and fourth call: reported at the first, and again at the fourth.
+      const throwsAt = new Set([1, 2, 4])
+      let flushes = 0
+      let frames = 0
+      const writer: Batch.Writer<string> = {
+        writes: () => true,
+        forKeys: () => () => undefined,
+        flush: () => {
+          flushes++
+          if (throwsAt.has(flushes)) throw new Error("the flush threw")
+        },
+      }
+      const batch = Batch.make({
+        keys: ["x"],
+        writer,
+        transition: tween,
+        onFrame: () => {
+          frames++
+          if (throwsAt.has(frames)) throw new Error("onFrame threw")
+        },
+      })
+      const names = ["a", "b", "idle", "c"]
+      // `idle` is at its target already: its change doesn't move it.
+      const starts: Readonly<Record<string, number>> = { a: 0, b: 0, idle: 100, c: 0 }
+      const [a, b, idle, c] = names.map((name) => Batch.enter(batch, name, { x: starts[name] }))
+      // A run with nothing to move: the Batch reports on its services from here.
+      yield* Effect.provide(Batch.run(batch), context)
+      const told: Array<string> = []
+      let landed = 0
+      const first = Batch.animate(batch, [a, b, idle], () => 100, {
+        transition: tween,
+        head: Playback.make(),
+        onLanded: () => {
+          landed++
+          throw new Error("its onLanded threw")
+        },
+        onMemberLanded: (slot) => {
+          told.push(names[slot])
+          if (slot !== b) throw new Error(`${names[slot]}'s landing threw`)
+        },
+      })
+      const second = Batch.animate(batch, [c], () => 100, { transition: tween, head: Playback.make(), onLanded: () => void landed++ })
+      // The member it doesn't move is told at its play: before #977, its throw came out of play.
+      Batch.play(first)
+      Batch.play(second)
+      expect(told).toEqual(["idle"])
+      const run = yield* Effect.forkChild(Effect.provide(Batch.run(batch), context), { startImmediately: true })
+      for (let n = 0; n < 60 && Batch.isMoving(batch); n++) yield* advance()
+      yield* Fiber.join(run)
+      expect(told).toEqual(["idle", "a", "b"])
+      expect(landed, "each change landed").toBe(2)
+      // A draw's flush, after the run's last returned: reported again, and the draw doesn't throw.
+      throwsAt.add(flushes + 1)
+      Batch.draw(batch)
+      for (let n = 0; n < 3; n++) yield* Effect.yieldNow
+      expect(logged).toEqual([
+        { message: "wardic.batch: a member's landing failed", member: idle },
+        { message: "wardic.batch: its writer's flush failed", member: undefined },
+        { message: "wardic.batch: an onFrame failed", member: undefined },
+        { message: "wardic.batch: its writer's flush failed", member: undefined },
+        { message: "wardic.batch: an onFrame failed", member: undefined },
+        { message: "wardic.batch: a member's landing failed", member: a },
+        { message: "wardic.batch: a change's landing failed", member: undefined },
+        { message: "wardic.batch: its writer's flush failed", member: undefined },
+      ])
+    }),
+  )
 })

@@ -5,6 +5,7 @@
  */
 import * as WardicThree from "@wardic/three/WardicThree"
 import { describe, expect, it } from "@effect/vitest"
+import { reportsDuring } from "../../object/test/reports.ts"
 import * as THREE from "three"
 
 const FRAME = 1000 / 60
@@ -231,5 +232,25 @@ describe("ThreeInstances: an InstancedMesh's instances as one Batch", () => {
     pump(moving, 1, clock)
     expect(spin.velocity(0, "rotateY")).toBeGreaterThan(0)
     moving.dispose()
+  })
+
+  it("TI10: an instance's write that throws, its mesh's instanceColor taken away mid-run, is reported once, and every instance's transforms move and land (#977)", async () => {
+    const wardic = WardicThree.make()
+    const clock = { time: 0 }
+    const mesh = instanced(3)
+    const swarm = wardic.batch(mesh, { keys: ["color", "y"] })
+    const reports = await reportsDuring(async () => {
+      const call = wardic.animate(swarm, { y: 6, color: "#ff0000" }, LINEAR)
+      await tick()
+      pump(wardic, 2, clock)
+      ;(mesh as { instanceColor: THREE.InstancedBufferAttribute | null }).instanceColor = null
+      pump(wardic, 12, clock)
+      // Before #977, the first instance's throw ended the run: no instance moved again.
+      for (let i = 0; i < 3; i++) expect(elementsAt(mesh, i)[13], `instance ${i}'s y`).toBeCloseTo(6, 9)
+      expect(call.state).toBe("finished")
+      await call
+    })
+    expect(reports).toEqual(["wardic.batch: a member's write failed"])
+    wardic.dispose()
   })
 })
