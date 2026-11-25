@@ -1,8 +1,9 @@
 /**
  * A plain object's values for Wardic: where each key it animates starts (the property's own value), and
  * the ports core reads an Environment's values through, with no style, no layout to measure and no
- * variables. A key the object doesn't have, or whose value is neither a number nor a string, is an
- * error naming it: Wardic writes no property the object didn't have.
+ * variables. A key the object doesn't have, whose value is neither a number nor a string, or that it
+ * can't write (read-only, or a getter with no setter) is an error naming it: Wardic writes no property
+ * the object didn't have.
  *
  * @example
  * import * as ObjectValues from "@wardic/object/ObjectValues"
@@ -33,10 +34,30 @@ const nameOf = (subject: object): string =>
     Option.match({ onNone: () => "the object", onSome: (name) => `a ${name}` }),
   )
 
-/** `subject`'s own value for `key`: a number or a string, else an error naming the key. */
+/** `holder`'s descriptor for `key`: its own, else the nearest one up its prototypes; none where none has it. */
+const descriptorOf = (holder: object, key: string): Option.Option<PropertyDescriptor> =>
+  Option.orElse(Option.fromUndefinedOr(Object.getOwnPropertyDescriptor(holder, key)), () =>
+    Option.flatMap(Option.fromNullishOr(Object.getPrototypeOf(holder) as object | null), (above) => descriptorOf(above, key)),
+  )
+
+/** Whether Wardic can write `holder`'s `key`: a writable property, or a getter with a setter, its own or inherited. */
+// #968: else each frame's write throws, in strict mode, and the flush stops at it (#969). @wardic/three's
+// ThreeValues has its own, over each holder its lookup finds.
+const isWritable = (holder: object, key: string): boolean =>
+  Option.match(descriptorOf(holder, key), {
+    onNone: () => true,
+    onSome: (descriptor) => Bool.or(descriptor.writable === true, Predicate.isNotUndefined(descriptor.set)),
+  })
+
+/** `subject`'s own value for `key`: a number or a string it can write, else an error naming the key. */
 const ownValueOf = (subject: object, key: string): Option.Option<number | string> => {
   const value = (subject as Readonly<Record<string, unknown>>)[key]
-  if (Bool.or(Predicate.isNumber(value), Predicate.isString(value))) return Option.some(value as number | string)
+  if (Bool.or(Predicate.isNumber(value), Predicate.isString(value))) {
+    if (Bool.not(isWritable(subject, key))) {
+      throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" can't be written (it's read-only, or a getter with no setter), so Wardic can't animate it. Give a key it can write.`)
+    }
+    return Option.some(value as number | string)
+  }
   if (Predicate.isUndefined(value)) {
     throw new Error(`wardic.animate: ${nameOf(subject)} has no "${key}" to animate. Give a key it has, a number or a string; Wardic adds no property to an object.`)
   }
