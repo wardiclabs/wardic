@@ -504,4 +504,14 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
 | 100 objects, two keys | 635.9 → 620.5 µs (−2.1%, 5 of 12) | 666.9 → 664.4 µs (−0.2%, 4 of 12) |
 
 - **Time:** within the runs' spread on both engines.
+- **The DOM** (asked after the review, on the same quiet host):
+  - **`bench:solid --base main`** passed on both bindings, its control +0.4%. The ward's paths moved −1.6% to +1.0%: mount, the Retargets, unmount, allocation, retained memory, and the layout scenes. None of its timed tasks calls `createAnimate`.
+  - **A DOM `createAnimate` call:** `?kind=batch-animate`, 1000 calls, one per element, paired against `main` over 11 reps (a copy of `run.ts` whose `--batch-frames` ran that page). Its control was +0.7%.
+
+    | `batch-animate`, warm | `main` | this | change |
+    |---|---|---|---|
+    | the calls (the change task) | 8.300 ms | 8.445 ms | +0.4% [+0.1% – +3.0%] |
+    | the frames | 1.705 ms | 1.695 ms | −0.3% [−1.7% – +2.5%] |
+
+    About 35 ns a call, out of 8.3 µs, under the +5% gate. Its p25 above 0 says it's likely real: each Subject's `Readied` and the call that makes it.
 - **Bytes** (`bun run size`): gzip grows 211 B in `f-slim`, 216 in `t2-stage` and 196 in `t2-features`, with core 0.5 KB more minified in each. Their budgets were raised by what this measured, 0.2 each, to 197.3, 244.5 and 252.2. Solid's slim apps are as they were.
