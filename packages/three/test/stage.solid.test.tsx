@@ -15,9 +15,13 @@
 //   scene from a signal, as the scene lab's dial turns from its drag samples (#885's PR 6).
 // - CS10: a ward whose key can't be written is an error naming it, as a key it lacks is, and a ward after
 //   it still moves (#968).
+// - CS11: an imperative call refused at the call takes nothing from a ward (#973).
+// - CS12: the Stage's end lands each exit in flight, one whose landing throws reported, and the rest of its
+//   end still runs (#979).
+// - CS13: a render that throws is reported once until one draws, and the loop goes on (#979).
 import * as InputSource from "@wardic/core/InputSource"
 import { createFrameEffect, createHover, ward, WardicStage } from "@wardic/solid"
-import { createStage, TestStage } from "@wardic/three/solid"
+import { createSceneObject, createStage, TestStage } from "@wardic/three/solid"
 import * as WardicThree from "@wardic/three/WardicThree"
 import { inertStage, lateInput } from "../src/solid/stage.ts"
 import type { JSX } from "@solidjs/web"
@@ -44,9 +48,19 @@ afterEach(() => {
 /** A task: what a run starts in, after the flush that started it. */
 const later = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
-/** A renderer standing in for three's: a canvas that hears nothing, its loop the test's to run, its renders counted. */
-const standIn = () => {
-  const canvas = Object.assign(new EventTarget(), { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }), remove: () => undefined, parentElement: null })
+/**
+ * A renderer standing in for three's: a canvas that hears nothing, its loop the test's to run, its renders
+ * counted. `drawing` runs as each render does, as three calls an object's `onBeforeRender`.
+ */
+const standIn = (drawing: () => void = () => undefined) => {
+  let removed = 0
+  const canvas = Object.assign(new EventTarget(), {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    remove: () => {
+      removed++
+    },
+    parentElement: null,
+  })
   let loop: ((time: number) => void) | null = null
   let renders = 0
   let time = 0
@@ -57,6 +71,7 @@ const standIn = () => {
       loop = callback
     },
     render: () => {
+      drawing()
       renders++
     },
   }
@@ -64,6 +79,7 @@ const standIn = () => {
     renderer,
     renders: () => renders,
     running: () => loop !== null,
+    removed: () => removed,
     /** `n` frames of the loop, Solid's updates applied before each, a task waited first for a run to start. */
     frames: async (n: number): Promise<void> => {
       flush()
@@ -76,6 +92,20 @@ const standIn = () => {
       flush()
     },
   }
+}
+
+/** What Wardic reports while `run` runs: each failure's message, as its log line names it. */
+const reportsDuring = async (run: () => void | Promise<void>): Promise<ReadonlyArray<string>> => {
+  const said: Array<string> = []
+  const log = console.log
+  console.log = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
+  try {
+    await run()
+    await later()
+  } finally {
+    console.log = log
+  }
+  return said.flatMap((line) => line.match(/wardic\.\w+: [a-z' ]+failed/g) ?? [])
 }
 
 const sceneOf = () => {
@@ -354,5 +384,79 @@ describe("@wardic/three/solid's Stage (#885's PR 1)", () => {
     expect(() => stage.animate(mesh, { x: 1, id: 5 } as never)).toThrow(/a Mesh's "id" can't be written/)
     for (; time < 1200; time += 16) made.frame(time)
     expect(mesh.position.x).toBeCloseTo(3, 5)
+  })
+
+  it("CS12: the Stage's end lands each exit in flight, one whose landing throws reported, and its cleanup still runs: the loop, the canvas, the runtime (#979)", async () => {
+    const { scene, camera } = sceneOf()
+    const stand = standIn()
+    const first = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial())
+    const second = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial())
+    const other = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial())
+    scene.add(other)
+    first.addEventListener("removed", () => {
+      throw new Error("its removed listener broke")
+    })
+    const slow = { type: "tween", duration: 5, ease: "linear" } as const
+    const Card = (props: { readonly mesh: Mesh }) => createSceneObject(props.mesh, { animate: { x: 1 }, exit: { x: 0 }, transition: slow }).held
+    const [firstShown, setFirstShown] = createSignal(true)
+    const [secondShown, setSecondShown] = createSignal(true)
+    let stage!: ReturnType<typeof createStage>
+    const dispose = mountTree(() => {
+      stage = createStage({ renderer: stand.renderer, scene, camera })
+      return (
+        <WardicStage value={stage}>
+          {firstShown() && <Card mesh={first} />}
+          {secondShown() && <Card mesh={second} />}
+        </WardicStage>
+      )
+    })
+    await stand.frames(2)
+    // The first to leave is the first the Stage's end lands.
+    setFirstShown(false)
+    await stand.frames(2)
+    setSecondShown(false)
+    await stand.frames(2)
+    expect([first.parent, second.parent], "exiting").toEqual([scene, scene])
+    const moving = stage.wardic!.animate(other, { x: 8 }, slow)
+    await stand.frames(2)
+    expect(moving.state).toBe("running")
+    // Before #979, the first landing's throw ended the cleanup there.
+    const reports = await reportsDuring(dispose)
+    expect(second.parent).toBeNull()
+    expect(stand.running()).toBe(false)
+    expect(stand.removed()).toBe(1)
+    expect(moving.state, "the runtime disposed").not.toBe("running")
+    expect(reports).toEqual(["wardic.stage: an exit's landing failed"])
+  })
+
+  it("CS13: a render that throws, an object's onBeforeRender, is reported once until one draws, and the loop goes on: a ward still moves (#979)", async () => {
+    const { scene, camera, mesh } = sceneOf()
+    const broken = { on: true }
+    mesh.onBeforeRender = () => {
+      if (broken.on) throw new Error("its onBeforeRender broke")
+    }
+    const stand = standIn(() => scene.traverse((object) => object.onBeforeRender(undefined as never, scene, camera, undefined as never, undefined as never, undefined as never)))
+    const Crate = () => ward(mesh, { initial: { x: 0 }, animate: { x: 2 }, transition: LINEAR }).held
+    mountTree(() => {
+      const stage = createStage({ renderer: stand.renderer, scene, camera })
+      return (
+        <WardicStage value={stage}>
+          <Crate />
+        </WardicStage>
+      )
+    })
+    const reports = await reportsDuring(async () => {
+      // Before #979, each frame's render threw out of the loop.
+      await stand.frames(20)
+      expect(mesh.position.x).toBeCloseTo(2, 5)
+      expect(stand.renders()).toBe(0)
+      broken.on = false
+      await stand.frames(2)
+      expect(stand.renders()).toBe(2)
+      // Broken again once a render drew: reported again.
+      broken.on = true
+      await stand.frames(3)
+    })
+    expect(reports).toEqual(["wardic.stage: a render failed", "wardic.stage: a render failed"])
   })
 })
