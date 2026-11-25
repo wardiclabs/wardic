@@ -16,6 +16,6 @@ wardic.animate(Object.freeze({ x: 0 }), { x: 1 })
   - an inherited property where the object can't take one of its own (frozen, sealed, or kept from extending).
 
   The property can be the object's own or inherited. A getter with a setter, and a sealed object's own key, animate as any key.
-- **When:** at the call for `animate` and a sequence, a later Segment's included. For a ward, when its leg starts, as for a key it lacks.
+- **When:** at the call for `animate` and a sequence, a later Segment's included. For a ward, when its leg starts, as for a key it lacks. A Transition end's keys aren't checked at the call yet, absent or unwritable (#970).
 - **`@wardic/three`** checks every place a key is written: a mesh, its material, a uniform, a transform's vector. A frozen uniform or a frozen `position` is refused too.
 - **The types** leave out the keys that can never be written: a typed array's `length`, `byteLength`, `byteOffset` and `BYTES_PER_ELEMENT`, and a scene object's or a material's `id`. `readonly` isn't read as unwritable otherwise, since a `Readonly<…>` object is writable. A Batch of meshes loses `id` as well. A plain object's own `id` and `length` stay keys.
