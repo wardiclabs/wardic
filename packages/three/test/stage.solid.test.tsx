@@ -13,13 +13,15 @@
 // - CS8: an accessor Subject's colour is split on the Subject it gives, read untracked: no Solid diagnostic.
 // - CS9: demand draws the frame a Frame effect applies in, with nothing moving: an app's own write to the
 //   scene from a signal, as the scene lab's dial turns from its drag samples (#885's PR 6).
+// - CS10: a ward whose key can't be written is an error naming it, as a key it lacks is, and a ward after
+//   it still moves (#968).
 import * as InputSource from "@wardic/core/InputSource"
 import { createFrameEffect, createHover, ward, WardicStage } from "@wardic/solid"
 import { createStage, TestStage } from "@wardic/three/solid"
 import * as WardicThree from "@wardic/three/WardicThree"
 import { inertStage, lateInput } from "../src/solid/stage.ts"
 import type { JSX } from "@solidjs/web"
-import { children, createRenderEffect, createRoot, createSignal, flush } from "solid-js"
+import { children, createRenderEffect, createRoot, createSignal, Errored, flush } from "solid-js"
 import { BoxGeometry, Color, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from "three"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -290,5 +292,41 @@ describe("@wardic/three/solid's Stage (#885's PR 1)", () => {
       console.error = error
     }
     expect(said).toEqual([])
+  })
+
+  it("CS10: a ward whose key can't be written is an error naming it, as a key it lacks is, and a ward after it still moves (#968)", async () => {
+    const { mesh } = sceneOf()
+    const other = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial())
+    const made = WardicThree.make()
+    const said: Array<string> = []
+    const log = console.log
+    console.log = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
+    let caught = ""
+    try {
+      // The mesh's `id` first: before #968, its write threw each frame and the flush stopped there.
+      const Stuck = () => ward(mesh, { animate: { id: 5 } as never, transition: LINEAR }).held
+      const Crate = () => ward(other, { animate: { x: 3 }, transition: LINEAR }).held
+      mountTree(() => (
+        <WardicStage value={createStage({ wardic: made })}>
+          <Errored
+            fallback={(err) => {
+              caught = String((err() as Error).message)
+              return null
+            }}
+          >
+            <Stuck />
+          </Errored>
+          <Crate />
+        </WardicStage>
+      ))
+      flush()
+      await later()
+      for (let t = 16; t < 600; t += 16) made.frame(t)
+    } finally {
+      console.log = log
+    }
+    expect(caught).toMatch(/a Mesh's "id" can't be written/)
+    expect(other.position.x).toBeCloseTo(3, 5)
+    expect(said.filter((line) => line.includes("a flush failed"))).toEqual([])
   })
 })

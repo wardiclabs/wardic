@@ -150,6 +150,17 @@ const typed = (wardic: WardicObject.WardicObject): void => {
   wardic.animate(buffer, { lenght: 1 })
   // @ts-expect-error: a number index has no named key.
   wardic.animate(slots, { a: 1 })
+  // A typed array's own numbers aren't keys: it can't write them (#968).
+  // @ts-expect-error: its length.
+  wardic.animate(buffer, { length: 5 })
+  // @ts-expect-error: its byteLength.
+  wardic.animate(buffer, { byteLength: 5 })
+  // @ts-expect-error: its byteOffset.
+  wardic.animate(buffer, { byteOffset: 5 })
+  // @ts-expect-error: its BYTES_PER_ELEMENT.
+  wardic.animate(buffer, { BYTES_PER_ELEMENT: 8 })
+  // A plain object's own `length` and `id` are keys as any.
+  wardic.animate({ length: 0, id: 0 }, { length: 1, id: 1 })
   // A name that only reads as a number (`"01"`, `"1e3"`) stays a name, as it was.
   const pads = { "01": 0, "1e3": 0 }
   wardic.animate(pads, { "01": 1, "1e3": 1 })

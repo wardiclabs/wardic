@@ -174,6 +174,38 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     wardic.dispose()
   })
 
+  it("WT18: a key three can't write is an error naming it, at the call: a mesh's id, a material's, a frozen uniform's, any other object's frozen key (#968)", () => {
+    const wardic = WardicThree.make()
+    const cube = box("crate")
+    const unwritable = /can't be written \(it's read-only, or a getter with no setter\), so Wardic can't animate it/
+    expect(() => wardic.animate(cube, { id: 5 } as never)).toThrow(/"crate"'s "id" can't be written/)
+    expect(() => wardic.animate(cube.material, { id: 5 } as never)).toThrow(unwritable)
+    const shader = new THREE.ShaderMaterial({ uniforms: { uProgress: Object.freeze({ value: 0 }) } })
+    expect(() => wardic.animate(shader, { uProgress: 1 })).toThrow(/"uProgress" can't be written/)
+    const frozen: { readonly x: number } = Object.freeze({ x: 0 })
+    expect(() => wardic.animate(frozen, { x: 1 })).toThrow(/the object's "x" can't be written/)
+    // An inherited getter with no setter, as a class's; one with a setter is written as any key.
+    class Gauge {
+      get level() {
+        return 0
+      }
+    }
+    class Dial {
+      #turn = 0
+      get turn() {
+        return this.#turn
+      }
+      set turn(turn: number) {
+        this.#turn = turn
+      }
+    }
+    expect(() => wardic.animate(new Gauge(), { level: 1 })).toThrow(/the object's "level" can't be written/)
+    expect(() => wardic.animate(new Dial(), { turn: 1 })).not.toThrow()
+    // A key it can write beside them still animates: the mesh's material's own.
+    expect(() => wardic.animate(cube, { opacity: 0.5 })).not.toThrow()
+    wardic.dispose()
+  })
+
   it("WT12: reduced motion snaps the transforms and a camera's fov, and fades the rest", async () => {
     const wardic = WardicThree.make({ reducedMotion: "always" })
     const cube = box()
