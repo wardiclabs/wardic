@@ -679,5 +679,64 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(sprite).toEqual({ a: 2, b: 0 })
     wardic.dispose()
   })
+
+  it("WO25: a Transition end's key the object lacks, or one it can't write, is an error at the call naming it, and nothing of the call animates (#970)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const sprite = { x: 0, z: 0 }
+    expect(() => wardic.animate(sprite as { x: number; y: number; z: number }, { x: 1, transitionEnd: { y: 2, z: 3 } })).toThrow(/the object has no "y" to animate/)
+    const pinned = Object.defineProperty({ x: 0, z: 0 }, "y", { value: 0, enumerable: true }) as { x: number; y: number; z: number }
+    expect(() => wardic.animate(pinned, { x: 1, transitionEnd: { y: 2, z: 3 } })).toThrow(/the object's "y" can't be written/)
+    // A list's later object's, and an end with no key to animate.
+    const first = { x: 0, y: 0 }
+    expect(() => wardic.animate([first, Object.freeze({ x: 0, y: 0 })], { x: 1, transitionEnd: { y: 2 } })).toThrow(/the object's "y" can't be written/)
+    const bare: { readonly v: number } = Object.freeze({ v: 0 })
+    expect(() => wardic.animate(bare, { transitionEnd: { v: 5 } })).toThrow(/the object's "v" can't be written/)
+    await tick()
+    expect(wardic.wantsFrame()).toBe(false)
+    pump(wardic, 12, () => undefined, clock)
+    expect(sprite).toEqual({ x: 0, z: 0 })
+    expect(pinned).toEqual({ x: 0, y: 0, z: 0 })
+    expect(first).toEqual({ x: 0, y: 0 })
+    wardic.dispose()
+  })
+
+  it("WO26: a Transition end's key it can no longer set when the call lands is reported once, and the call lands with the rest of its end set (#970)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const said: Array<string> = []
+    const log = console.log
+    console.log = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
+    try {
+      // Made read-only after the call, before it lands.
+      const sprite = { x: 0, y: 0, z: 0 }
+      const call = wardic.animate(sprite, { x: 1, transitionEnd: { y: 2, z: 3 } }, { type: "tween", duration: 0.1, ease: "linear" })
+      Object.defineProperty(sprite, "y", { writable: false })
+      await tick()
+      pump(wardic, 12, () => undefined, clock)
+      expect(call.state).toBe("finished")
+      await call
+      expect(sprite).toEqual({ x: 1, y: 0, z: 3 })
+      // Deleted after the call: the same.
+      const ghost: { x: number; y?: number; z: number } = { x: 0, y: 0, z: 0 }
+      const gone = wardic.animate(ghost, { x: 1, transitionEnd: { y: 2, z: 3 } }, { type: "tween", duration: 0.1, ease: "linear" })
+      delete ghost.y
+      await tick()
+      pump(wardic, 12, () => undefined, clock)
+      expect(gone.state).toBe("finished")
+      await gone
+      expect(ghost).toEqual({ x: 1, z: 3 })
+      // Each reported once, with the object's own error, and nothing else said.
+      const told = said.filter((line) => line.includes("wardic."))
+      expect(told, said.join("\n")).toHaveLength(2)
+      expect(told[0]).toContain(`wardic.animate: a Transition end's "y" couldn't be set, the rest of it set and the animation landed`)
+      expect(told[0]).toContain(`the object's "y" can't be written`)
+      expect(told[1]).toContain(`wardic.animate: a Transition end's "y" couldn't be set`)
+      expect(told[1]).toContain(`the object has no "y" to animate`)
+    } finally {
+      console.log = log
+      wardic.dispose()
+    }
+  })
 })
 

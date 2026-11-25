@@ -385,3 +385,52 @@ One finding was declined: an explicit `{ duration: undefined }` in the options w
   - The two runs before each failed one sub-millisecond item, a different one each time, on paths this doesn't touch: Solid 2's `restRetarget` (+5.5%, then +1.3%), then Solid 2's layout `page frame` (+7.9%, then −1.5% and +5.8%).
 - **Bytes** (`bun run size`): core grows 0.4–0.7 KB minified in the apps that ship the Imperative track, and 0.1 in the Batch apps. Three budgets were raised by what this measured, as #896's was: `f-slim` to 197.0, `t2-stage` to 243.9, `t2-features` to 251.5.
   - The review's first fix put a hook in `Spine.ts`'s `giveUp` and its carry. That spine ships in Solid's slim apps, and `s2-slim` read 118.0 against its 118.0. The hook moved to the Imperative track's leg ending (`supersededAt`), where only an app with an Imperative animation pays for it, and Solid's slim apps are as they were.
+
+## Amendment (#970, 2026-11-25): a Transition end's keys are read at the call
+
+**What happened.** Found while building #968. A Transition end's key the Subject lacks or can't write failed only at the landing, and then the call never finished.
+- **Why:** #896's `writeEnds` takes each end key through `takeKey`, which reads its Own value, and an Environment's read throws for such a key (`@wardic/object`'s and `@wardic/three`'s own-value reads). The throw left the `afterFlush` that sets the end, reported as `wardic.gate: an afterFlush call failed`, so the landing it queues was never queued.
+- **So:** the end's keys after the failing one weren't set, `await` never resolved, and `state` stayed `"running"`.
+- **Not affected:** a ward's Transition end, which Spine's `resolvedOf` merges into the values its Retarget reads, so a key it can't take is refused as its leg starts. Nor Segments, which take no Transition end.
+
+**Motion** (`.reference/motion` at `16c6122`): `animateValues` sets a Transition end once its animations' promises resolve, in a `frame.update` callback (`motion-dom/src/animation/animate/effects.ts`). Its call has finished by then. An end key its effect can't read fails inside that callback, at an `invariant` ("can't be read from the animated subject") that only development builds throw. Nothing checks the end at the call.
+
+**Decided (grilled 2026-11-25, Q1–Q6 each A):**
+1. **The end's keys are read at the call** (Q1), each as `takeKey` reads a key it animates, before the call takes any key. A key the Subject lacks or can't write is the Environment's error, thrown at the call and naming it, and none of the call starts. The DOM's read, cached once per key, happens then instead of at the landing, as a ward's does.
+2. **A key that can't be set by the landing doesn't hold the call** (Q2). That's one made read-only or deleted after the call. The key is reported at that landing and left as it is, the rest of the end is set, and the call lands. A replay that lands again reports it again.
+   - Rejected: B, failing the call. An Imperative call's hooks have no failure (`failed` is `constVoid`), and its controls no rejection.
+3. **Every Environment, through core** (Q3). Not wards, already right; not Segments; not #969, the flush stopping at one bad write.
+4. **Tests and cost** (Q4): object's and three's run-time seams, the DOM's Transition end browser tests unchanged, three mutations, and an object call with a two-key end timed against `main`.
+5. **The report** (Q5): `Report.failure("wardic.animate: a Transition end's \"y\" couldn't be set, the rest of it set and the animation landed", cause)`, once per key a landing can't set, with the Environment's error as the cause.
+6. **A patch** for core, object and three (Q6), with the hovers of core's `animate` and of object's and three's `transitionEnd` saying so. No glossary change.
+
+**Built** (`packages/core/src/unstable/Imperative.ts`):
+- **`readOwn`**, `takeKey`'s Own value read as a function: a statement, where the key has no `initial` value.
+- **`imperativeTrackOf`** reads each of `target.transitionEnd`'s keys through it before its loop over the target's keys, so a throw leaves the Subject's keys untaken.
+  - **A list's earlier Subjects** have had their tracks built by then, and their keys taken from whatever drew them. A later Subject's throw leaves those animations ended, as a later Subject's bad target key has since #968: #973.
+- **`settableOrReported`**, a guard in `writeEnds` beside `endFree`, reads the key again at the landing, in a `try`. A key it can't read is reported and left out of what's taken, recorded (`overwritten`) and set.
+  - The landing then reads each end key twice, once here and once in `takeKey`. That's simpler than a take loop of its own for the end, and costs one read a key.
+  - **Not guarded:** `putBack`. A key frozen after the landing, then a cancel, fails in the flush, which stops there: #969's.
+
+**Tests:**
+- `packages/object/test/wardic-object.test.ts`:
+  - **WO25:** an absent end key, a read-only one, a list's later frozen object's, and a frozen object's with nothing else to animate, each an error at the call. Nothing moves, and no frame is wanted.
+  - **WO26:** a key made read-only after the call, then one deleted. Each call lands (`"finished"`, `await` resolves), its other end key set. Each failing key is reported once, with the object's error.
+- `packages/three/test/wardic-three.test.ts`, **WT19:** a mesh's absent end key, its `id`, and a frozen uniform with nothing else to animate, each an error at the call. Nothing moves, and an end three can set ends as ever.
+- **On `main`,** WO25 and WT19 failed ("expected [Function] to throw"), and WO26's call stayed `"running"`.
+- **The DOM:** `create-animate` and `transition-end` (Solid 2) and `create-animate`, `create-animate-sequence` and `transition-end` (Solid 1) pass unchanged.
+
+**Mutation-checked** (`.tmp/970/mutate.py`): four single-point mutations, each run alone, all caught. The call-time read dropped (WO25, WT19). The landing guard dropped, the guard reporting every key, and a failing key kept (each WO26).
+
+**Reviewed** (two-axis review, standards and spec): the guard renamed for its report, `readOwn`'s comment naming the landing, the changeset's example typed, and the decisions above completed. A list's earlier Subjects (above) went to #973; the put back is #969's.
+
+**Measured** (`.tmp/970/bench.ts`, `drive.sh`): twelve paired processes on the quiet bench host, `main`'s `Imperative.ts` against this one, alternating which goes first.
+
+| an object's call, and its stop | Bun | Node |
+|---|---|---|
+| a two-key Transition end | 5.82 → 5.97 µs (+132 ns, 8 of 12 slower) | 6.65 → 6.82 µs (+115 ns, 11 of 12) |
+| no Transition end | 5.67 → 5.53 µs (−79 ns, 2 of 12) | 6.52 → 6.69 µs (+93 ns, 9 of 12) |
+
+- **The call with an end** pays two own-value reads, about 0.1 µs, against 6 µs.
+- **A call with none** is within the run's spread on both engines.
+- **Bytes** (`bun run size`): gzip grows 88 B in `f-slim`, 125 in `t2-stage` and 65 in `t2-features`, the apps that ship the Imperative track, core 0.2 KB more minified in each. Their budgets were raised by what this measured, to 197.1, 244.3 and 252.0. Solid's slim apps are as they were.

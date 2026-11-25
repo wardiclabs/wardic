@@ -218,6 +218,25 @@ describe("WardicThree: a scene's objects by Motion's keys", () => {
     wardic.dispose()
   })
 
+  it("WT19: a Transition end's key a mesh lacks, or its id, is an error at the call naming it, and nothing of the call moves (#970)", async () => {
+    const wardic = WardicThree.make()
+    const cube = box("crate")
+    expect(() => wardic.animate(cube, { x: 2, transitionEnd: { glow: 1, opacity: 0.5 } } as never, LINEAR)).toThrow(/"crate" has no "glow" to animate/)
+    expect(() => wardic.animate(cube, { x: 2, transitionEnd: { id: 5 } } as never, LINEAR)).toThrow(/"crate"'s "id" can't be written/)
+    // A material's frozen uniform, with nothing else to animate.
+    const shader = new THREE.ShaderMaterial({ uniforms: { uProgress: Object.freeze({ value: 0 }) } })
+    expect(() => wardic.animate(shader, { transitionEnd: { uProgress: 1 } })).toThrow(/"uProgress" can't be written/)
+    await tick()
+    pump(wardic, 12)
+    expect(cube.position.x).toBe(0)
+    expect(cube.material.opacity).toBe(1)
+    // A key it can set ends as ever.
+    await Promise.all([wardic.animate(cube, { x: 2, transitionEnd: { opacity: 0.5 } }, LINEAR), tick().then(() => pump(wardic, 12))])
+    expect(cube.position.x).toBe(2)
+    expect(cube.material.opacity).toBe(0.5)
+    wardic.dispose()
+  })
+
   it("WT12: reduced motion snaps the transforms and a camera's fov, and fades the rest", async () => {
     const wardic = WardicThree.make({ reducedMotion: "always" })
     const cube = box()

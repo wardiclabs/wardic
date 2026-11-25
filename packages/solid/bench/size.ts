@@ -75,7 +75,10 @@ const GATE = 1.01
  * minified; Solid's slim apps, whose spine it doesn't touch, as they were. #968 raised `t2-stage`'s and
  * `t2-features`' to 244.2 and 251.9 by what it measured, 0.3 and 0.4: a key Wardic can't write refused as its
  * leg starts, `@wardic/three`'s 0.7 KB of it minified and `@wardic/object`'s 0.5; the Slim apps, which
- * don't reach either, as they were. `@wardic/three/solid`'s
+ * don't reach either, as they were. #970 raised `f-slim`'s, `t2-stage`'s and `t2-features`' to 197.1, 244.3
+ * and 252.0 by what it measured, 0.1 each (88, 125 and 65 B): a Transition end's keys read at the call, and
+ * one that can't be set by the landing reported (ADR-0061, *Amendment (#970)*), core's 0.2 KB of it minified;
+ * Solid's slim apps, which ship no Imperative track, as they were. `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
  * #885's PR 2 raised it to 298.9 by what it measured: a Scene object's code is a side only `createSceneObject`
@@ -95,7 +98,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 197.0, "t2-stage": 244.2, "t2-features": 251.9 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 118.0, "f-slim": 197.1, "t2-stage": 244.3, "t2-features": 252.0 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
