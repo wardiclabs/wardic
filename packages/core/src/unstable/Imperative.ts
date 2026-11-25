@@ -991,7 +991,8 @@ export type WardicSegmentTarget = Omit<Config.WardicTargetValues, "transition">
 /**
  * A function Segment, `[callback, value?, options?]`: its callback is given a value each frame, from 0
  * to 1 unless it gives its own stops, for what isn't a Subject's own value. Motion's, in place of its
- * motion value Segments.
+ * motion value Segments. A callback that throws is reported, once until it returns, and given the next
+ * frame's value all the same: its Segment, and its sequence, land as their stops do.
  */
 export type WardicFunctionSegment =
   | readonly [callback: (value: number) => void]
@@ -1045,8 +1046,9 @@ const started = (
  * types its own overloads over it.
  *
  * A key a target or its Transition end names that a Subject can't take (its Environment's own value
- * read throws: a key it lacks, say) is an error at the call, naming it. The call then takes nothing from
- * any of its Subjects: an animation it would have taken a key from runs on.
+ * read throws: a key it lacks, say) is an error at the call, naming it, and so is a `delay` function that
+ * throws. The call then takes nothing from any of its Subjects: an animation it would have taken a key
+ * from runs on.
  * A Transition end's key a Subject can no longer set when it lands is reported, left as it is, and the
  * rest of its end set: the call lands.
  */
@@ -1070,19 +1072,22 @@ export const make = <S extends object>(env: AnimateEnv, ports: Ports<S>, scope: 
       return started(env.runtime, watch, subjects.length, onComplete, (head, settled) => {
         // One Subject: readied, then its track, which takes its keys once they're all read.
         if (subjects.length === 1) return [trackOf(env, readiedOf(env, ports.subjects, subjects[0], target), transitionFor(third, 0, 1), head, settled)]
-        // Every Subject readied before any track takes a key (#973).
+        // Every Subject readied, and its transition worked out (a `delay(i, n)` called), before any track takes a key (#973; #979, row 20).
         const readied = Arr.map(subjects, (subject) => readiedOf(env, ports.subjects, subject, target))
-        return Arr.map(readied, (each, index) => trackOf(env, each, transitionFor(third, index, subjects.length), head, settled))
+        const transitions = Arr.map(subjects, (_, index) => transitionFor(third, index, subjects.length))
+        return Arr.map(readied, (each, index) => trackOf(env, each, transitions[index], head, settled))
       })
     }
     // A Batch's members' Subjects as one call over them, with its keys; the rest of each Subject's on its own (#665, Q14, Q35).
     const parts = ports.batches.callPartsOf(subjects, target)
     return started(env.runtime, watch, parts.members.length + parts.subjects.length, onComplete, (head, settled) => {
-      // A Batch's track takes nothing until it runs; every other Subject readied before any track is built (#973).
+      // A Batch's track takes nothing until it runs; every other Subject readied, and its transition worked
+      // out, before any track is built (#973; #979, row 20).
       const readied = Arr.map(parts.subjects, (part) => readiedOf(env, ports.subjects, part.subject, part.target as Config.WardicVariant))
+      const transitions = Arr.map(parts.subjects, (part) => transitionFor(third, part.index, subjects.length))
       return [
         ...Arr.map(parts.members, (part) => batchTrackOf(env, part.binding, part.target, part.members, third, head, settled)),
-        ...Arr.map(parts.subjects, (part, i) => trackOf(env, UndefinedOr.getOrThrow(readied[i]), transitionFor(third, part.index, subjects.length), head, settled)),
+        ...Arr.map(parts.subjects, (_, i) => trackOf(env, UndefinedOr.getOrThrow(readied[i]), transitions[i], head, settled)),
       ]
     })
   }
@@ -1237,7 +1242,9 @@ export const segmentAnimates = <S extends object>(ports: Ports<S>, segment: unkn
 /**
  * A function Segment's value animated (#433): its stops, a first `null` 0, through the
  * Interpolators on its tween over the sequence, each frame told to its callback. Cancelled, the
- * callback hears its first stop again, as Motion's motion value is set back.
+ * callback hears its first stop again, as Motion's motion value is set back. A callback that throws is
+ * reported, once a run of throws, and told the next frame's value all the same; one that throws on a
+ * cancel, each time, the call's cancel going on.
  */
 const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequence.Animation, head: Playback.Playhead, settled: (landed: boolean) => void): Spine.ImperativeTrack => {
   const stops = RetargetLegs.filledStops(UndefinedOr.getOrThrow(animation.keyframes[VALUE]), 0)
@@ -1248,6 +1255,8 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
     onFalse: () => Machine.keyframesValues({ [VALUE]: stops }, options),
   })
   let fiber: Fiber.Fiber<unknown> | undefined
+  // Its callback threw, reported, and hasn't returned since (#979, row 18).
+  let failing = false
   const end = (): void => {
     if (Predicate.isUndefined(fiber)) return
     const running = fiber
@@ -1266,7 +1275,16 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
       machine.pipe(
         Effect.map(Playback.drive(head)),
         Effect.flatMap(Machine.run((frame) => {
-          callback.call(UndefinedOr.getOrThrow(frame.value[VALUE]))
+          // Its callback's throw is its own: told again next frame, its Segment landing as its stops do (ADR-0074).
+          try {
+            callback.call(UndefinedOr.getOrThrow(frame.value[VALUE]))
+            if (failing) failing = false
+          } catch (defect) {
+            if (!failing) {
+              failing = true
+              env.runtime.runFork(Report.failure("wardic.animate: a function Segment failed", Cause.die(defect)))
+            }
+          }
           return undefined
         })),
         Effect.onExit(landed),
@@ -1278,7 +1296,12 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
     stop: end,
     cancel: () => {
       end()
-      callback.call(UndefinedOr.getOrThrow(stops[0]))
+      // Told its first stop once its run has ended: a throw there is reported, and the call's cancel goes on (#979, row 19).
+      try {
+        callback.call(UndefinedOr.getOrThrow(stops[0]))
+      } catch (defect) {
+        env.runtime.runFork(Report.failure("wardic.animate: a function Segment's cancel failed", Cause.die(defect)))
+      }
     },
     duration: () => Machine.durationOf(env.runtime.runSync(machine)),
   }
