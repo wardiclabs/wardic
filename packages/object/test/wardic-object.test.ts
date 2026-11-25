@@ -766,5 +766,35 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     }
     wardic.dispose()
   })
-})
 
+  it("WO28: an object frozen mid-run is reported once, and an animation of another object after it still runs and lands (#969)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const said: Array<string> = []
+    const log = console.log
+    console.log = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
+    try {
+      const run = { type: "tween", duration: 0.1, ease: "linear" } as const
+      // Its call first, so the gate commits it first: before #969, its throw ended each frame's flush.
+      const stuck = { x: 0 }
+      const plain = { x: 0 }
+      wardic.animate(stuck, { x: 1 }, run)
+      const moving = wardic.animate(plain, { x: 1 }, run)
+      await tick()
+      pump(wardic, 1, () => undefined, clock)
+      Object.freeze(stuck)
+      const drawn = pump(wardic, 12, () => plain.x, clock)
+      // It moves each frame: on main it stayed at its first frame's value.
+      expect(new Set(drawn).size, drawn.join(" ")).toBeGreaterThan(3)
+      await moving
+      expect(plain.x).toBe(1)
+      const told = said.filter((line) => line.includes("wardic."))
+      expect(told, said.join("\n")).toHaveLength(1)
+      expect(told[0]).toContain("wardic.gate: a commit failed")
+      expect(told[0]).toContain("Cannot assign to read only property")
+    } finally {
+      console.log = log
+      wardic.dispose()
+    }
+  })
+})

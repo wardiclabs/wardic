@@ -165,3 +165,116 @@ Decision 3's "The Measure pass" bullet held a pass after the tick to the origin,
 
 A run `run` adds in the Frame loop's Late window takes its Late step in the microtask that ends it, and every `afterTick` hook runs again after it, with the tick's dt (ADR-0027, *Amendment (#680)*). A `runLast` run, the projection's coordinator, takes none. So the gate's `flushTicked` flushes what the round wrote, and withdraws the frame those writes requested: a Late step paints in its frame, as the tick's own steps do. Decision 3's "a write outside a tick keeps the gate's source request" still holds for every other write.
 
+## Amendment (#969, 2026-11-25): one element's failure in the flush is its own
+
+**What happened.** Found building #968. The flush's one `try` (decision 3's "Failures") caught a throw and went on to the next frame, not to the next element. So the first element whose commit threw ended the frame's commits for every element after it, other animations' among them:
+
+```ts
+wardic.animate(stuck, { x: 1 })
+wardic.animate(plain, { x: 1 })
+Object.freeze(stuck) // after its leg started, so #968's check at the start can't see it
+// before: plain.x stayed where it was, and "wardic.gate: a flush failed" was logged every frame
+```
+
+- **What still throws after #968:** a setter that throws, an object frozen mid-run, any Environment's own failure.
+- **Every per-element step could do it,** not only the commit:
+  - the binding's `beforeFirstCommit`;
+  - `prepare`, which reads the element's own value before Wardic first writes a key and restores a key it drops;
+  - its Timeline values;
+  - the binding's `onHeld`.
+- **The Measure pass's flush** (`flushPass`) had no `try` of its own, so a throw there escaped into the projection pass.
+- **Not the gate's:** a Batch member. The issue listed one that's frozen, but a Batch draws its members through its own writer (`ObjectBatch`'s), not the gate. A frozen member there stops the Batch's other members, and the call never finishes, with nothing logged: #977.
+
+**Motion** (`.reference/motion` at `16c6122`, read, not run): `createRenderStep`'s `process` runs `thisFrame.forEach(triggerCallback)` with no `try`. A throw in one element's render skips the step's later callbacks, and its `isProcessing = false`, so its later frames return early too.
+
+**Decided (grilled 2026-11-25, Q1–Q10 each A; Q5 asked again once measured):**
+1. **Per element, in core** (Q1). A throw ends that element's work this frame, and every other element still prepares and commits.
+   - Rejected: per key, which would be each Environment's renderer, on the per-frame path.
+   - Rejected: per flush, as before.
+2. **The failing element's animation runs on** (Q2). The gate tries it again at its next flush, so it recovers by itself, or lands when its legs do.
+   - Rejected: stopping it, which needs a channel from the gate back to every Environment's spine.
+3. **Reported once, until it commits again** (Q3): `wardic.gate: <step> failed`, annotated with the element's gate id, the Environment's error as its cause. It's the rule the gate's `onCommit` already followed (`tellCommitted`).
+   - Rejected: once a frame, as before; once ever.
+4. **Every per-element step is the element's** (Q4): its `beforeFirstCommit`, `prepare`, Timeline values, `onHeld` and commit, each named in the report (`a beforeFirstCommit`, `a Timeline sync`, `an onHeld`, `a commit`, which `prepare`'s failures report as).
+   - A throw skips the element's later steps that frame, so a failed `prepare` commits nothing.
+   - The outer `try` stays for anything that isn't one element's, still `a flush failed`.
+   - Rejected: the commit alone.
+5. **A `try` per element, in each loop** (Q5, asked again once measured). Q5 first chose a loop that resumes after a throw, one `try` a flush, to keep the common frame's path. The microbench below found the `try`'s place costs nothing, so the simpler form was chosen.
+6. **A patch** (Q6), with this amendment, FlushGate's module doc and the glossary's **Flush gate** saying so.
+7. **No shared helper taking the step** (Q7): each loop writes its own `try` around a direct call. Only the catch's reporting is shared (`failedAt`), a failure's path. A shared helper measured +20% on Bun.
+8. **Tests and mutations** (Q8) at the gate's seam and object's.
+9. **Cost and bytes** (Q9) by `bench:core --base main` and `bun run size`.
+10. **The Measure pass's flush too** (Q10): one rule for every flush the gate runs.
+
+**Built** (`packages/core/src/unstable/FlushGate.ts`):
+- **On the entry:**
+  - its `id`, what its failure is reported with;
+  - `stepFailing`: set at its first failure and reported then, cleared by its next commit (`commitPrepared`). `tellCommitted`'s own flag is now `onCommitFailing`, so each says which it's about;
+  - `heldUntold`: its `onHeld` threw, so its next flush tells it again.
+- **`failedAt(entry, step, defect)`**, `step` one of a `Step` union:
+  - clears the entry's patch, so `commitPrepared` skips it;
+  - keeps it dirty, so the gate's next flush tries it again;
+  - drops it from `committedSince`, so its `onCommit` hears nothing of a frame it didn't commit in;
+  - reports the first of a run.
+- **Tried again at the next flush, which it doesn't ask for.** A Subject frozen for good would otherwise keep the host's frames running. A later write, its own or another element's, brings that flush.
+- **A `try` per element** in each per-element loop:
+  - the frame's and the Measure pass's `prepare` loops;
+  - `runFirstCommits`;
+  - `syncTimelines`' sync, and each cancel of a value let go of, on its own;
+  - `tellHeld`;
+  - `commitAll`'s commits.
+- **A `beforeFirstCommit` that throws** stays in `firstCommits`, and the frame's `prepare` loop skips an element still there, so nothing of it commits before its Starting style is switched. It's deleted only once it returns, and only while its id is still that entry's: a hook that registers the id again leaves the new entry's switch to come.
+- **A restore is committed before its keys are let go of,** so one that throws is tried again.
+
+**Tests:**
+- `packages/dom/test/gate.node.test.ts`, the gate's seam:
+  - **G8:** two elements, the first's commit throwing every frame. The second commits every frame, and the first is reported once. Once it commits and throws again, it's reported again.
+  - **G9:** each step that can throw, the element after it still committing:
+    - a `beforeFirstCommit`, an `onHeld`, an own-value read, a Timeline sync, a let-go Timeline's cancel;
+    - a commit and an own-value read in a Measure pass.
+
+    In each case the failing element commits nothing, the report names its step, and it commits once the step stops throwing, with no second report. A step's calls are counted: a failed `beforeFirstCommit` runs again, and a failed `onHeld` is told again.
+  - **G10:** a failure at the element's last write, tried again at the next flush brought by another element's write: its commit, its Starting-style switch, a restore of a key it let go of.
+  - **G11:** three edges:
+    - a hook that registers its id again leaves the new entry's switch to come;
+    - a let-go Timeline whose cancel throws stops none of the others;
+    - a commit that fails after a Measure pass's tells its `onCommit` nothing.
+  - **G7** is unchanged.
+- `packages/object/test/wardic-object.test.ts`, **WO28:** an object frozen mid-run, called first, and a plain object after it. The plain one moves every frame and lands, and the log has one `a commit failed`. On `main` it stayed at its first frame's 0.17.
+- **On `main`,** G8, G9 and WO28 failed. G9, G10 and G11 failed on the first build too, before the review.
+
+**Mutation-checked** (`.tmp/969/mutate.py`): eighteen single-point mutations, each run alone, all caught:
+- each `try` dropped: the commit's, the frame's and the Measure pass's `prepare`, `beforeFirstCommit`'s, `onHeld`'s, the Timeline sync's;
+- a let-go Timeline's cancels back under one `try`;
+- a failed `beforeFirstCommit` not kept, or still committing;
+- the re-registration guard dropped;
+- an `onHeld` not told again, or not queued;
+- a restore's keys let go of before its commit;
+- the flag never set, or never cleared;
+- a failed step still committing;
+- not tried again at the next flush;
+- `onCommit` told of a failed frame.
+
+One was caught only after a test was added: the Measure pass's `prepare` `try` dropped. G9's pass case had thrown in the commit, and now one throws in the own-value read too.
+
+**Reviewed** (two-axis review, standards and spec). The first build left recovery short of decision 2:
+- **Stranded elements:** an element whose `beforeFirstCommit` threw was marked clean, so it never committed if that was its last write. Nothing failed was tried without a write of its own.
+- **Steps never run again:** a failed `onHeld` was never told again, a restore that threw was never tried again, and a throwing cancel stopped the cancels after it.
+- **A regression:** a hook that registered its own id lost the new entry's switch.
+- **Fixed as built above,** with G10 and G11. The changeset was rewritten for a reader of the release notes, the flags renamed, `failedAt`'s step typed, and the Batch case taken out, to #977.
+
+**Measured,** on the quiet bench host:
+- **The loop's form** (`.tmp/969/loops.ts`: the commit loop over 1000 elements of three keys, nothing throwing):
+
+  | form, each its own function, its call direct | Bun | Node |
+  |---|---|---|
+  | one `try` around the flush (`main`) | 6.63 ns/element | 16.68 ns/element |
+  | a loop that resumes after a throw, with the flag | −1.1% | +0.3% |
+  | a `try` per element, with the flag | −0.0% | +0.5% |
+  | a `try` inside the commit, with the flag | +0.3% | +0.4% |
+
+  Run twice, the same. Built through a shared factory, its call to the step not inlined, the same loops measured +20% on Bun and +8% on Node: decision 7.
+- **`bench:core --base main`** passed on Bun, Node and Chromium on the final build, at the first try.
+  - The noise controls were −0.3%, −2.5% and −1.5%, and every workload was within ±3.5% of `main`, the Batch workloads within ±3.2%.
+  - **On the first build, before the review:** Bun's first run was too noisy (control −3.1%), and its rerun's control was +0.8%. Chromium's `springBlend/loop` read +6.2% [+0.0% – +11.4%], passing on its p25. Rerun alone at 21 reps, it read +0.0% [−9.6% – +2.1%].
+- **Bytes** (`bun run size`): about 0.7 KB minified in every app, since every app has the gate, 0.2 of it the review's fixes: gzip +236 B in `s1-slim`, 247 in `s2-slim`, 249 in `f-slim`, 218 in `t2-stage` and 248 in `t2-features`. Their budgets were raised by what this measured, to 95.5, 118.3, 197.6, 244.7 and 252.4.
