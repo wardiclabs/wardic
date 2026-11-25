@@ -245,3 +245,46 @@ export const write = (subject: Holder, key: string, value: unknown): void => {
     if (key === "opacity" && holder.isMaterial === true) ruleOpacity(holder, value)
   }
 }
+
+/** The nearest descriptor for `prop` up `holder`'s prototypes, past its own; none where none has it. */
+const inheritedOf = (holder: object, prop: string): PropertyDescriptor | undefined => {
+  const above = Object.getPrototypeOf(holder) as object | null
+  if (Predicate.isNull(above)) return undefined
+  const found = Object.getOwnPropertyDescriptor(above, prop)
+  if (Predicate.isNotUndefined(found)) return found
+  return inheritedOf(above, prop)
+}
+
+/**
+ * Whether Wardic can write `holder`'s `prop`: a writable property of its own, or a getter with a setter,
+ * its own or inherited; or an inherited writable property, where the holder can take one of its own (it
+ * isn't frozen, sealed or kept from extending).
+ */
+// #968: as @wardic/object's ObjectValues has its own, for a plain object's key. Per key at a leg's start,
+// the hot path (effect-first.md): statements.
+const isWritable = (holder: object, prop: string): boolean => {
+  const own = Object.getOwnPropertyDescriptor(holder, prop)
+  if (Predicate.isNotUndefined(own)) return own.writable === true || Predicate.isNotUndefined(own.set)
+  const inherited = inheritedOf(holder, prop)
+  if (Predicate.isUndefined(inherited)) return true
+  if (Predicate.isNotUndefined(inherited.set)) return true
+  return inherited.writable === true && Object.isExtensible(holder)
+}
+
+/**
+ * Whether Wardic can write `key` on `subject`, at each holder `write` writes it to: a scene object's
+ * transform at its vector's axis (a frozen `position` refuses it), any other key where it's found.
+ */
+// #968: three makes a scene object's and a material's `id` read-only; a frozen uniform or vector is the app's.
+export const canWrite = (subject: Holder, key: string): boolean => {
+  if (isTransformKey(key) && isObject3D(subject)) {
+    const [vector, axis] = TRANSFORM_READS[key]
+    return isWritable(subject[vector] as Holder, axis)
+  }
+  const place = placeOf(subject, key)
+  if (Predicate.isUndefined(place)) return true
+  const holders = place.holders
+  const props = place.props
+  for (let i = 0; i < holders.length; i++) if (!isWritable(holders[i], props[i])) return false
+  return true
+}

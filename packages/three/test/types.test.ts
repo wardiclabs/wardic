@@ -212,6 +212,20 @@ const typed = (wardic: WardicThree.WardicThree): void => {
   wardic.animate(morphs, { 0: 1, transitionEnd: { 0: "x" } })
   // @ts-expect-error: a number index has no named key.
   wardic.animate(steps, { name: "intro" })
+
+  // A scene object's or a material's `id` isn't a key: three makes it read-only (#968).
+  // @ts-expect-error: a mesh's.
+  wardic.animate(cube, { id: 5 })
+  // @ts-expect-error: a material's.
+  wardic.animate(cube.material, { id: 5 })
+  // @ts-expect-error: nor in a transition.
+  wardic.animate(cube, { x: 1 }, { id: { duration: 0.2 } })
+  // @ts-expect-error: nor a Batch's: its keys are its members'.
+  wardic.animate(wardic.batch([cube, cube.clone()]), { id: 5 })
+  // Any other object's `id` is its own, as any key; and a typed array's length is no key here either.
+  wardic.animate({ id: 0 }, { id: 1 })
+  // @ts-expect-error: a typed array's length.
+  wardic.animate(morphs, { length: 2 })
 }
 
 it("TY1: the typed calls compile", () => {

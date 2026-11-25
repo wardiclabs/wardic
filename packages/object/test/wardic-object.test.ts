@@ -126,7 +126,7 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     wardic.dispose()
   })
 
-  it("WO7: a key the object lacks, one that isn't a number or a string, and a subject that isn't an object are errors naming them", () => {
+  it("WO7: a key the object lacks, one that isn't a number or a string, one it can't write, and a subject that isn't an object are errors naming them", () => {
     const wardic = WardicObject.make()
     class Sprite {
       x = 0
@@ -135,6 +135,50 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(() => wardic.animate({ x: 0 } as { x: number; y: number }, { y: 1 })).toThrow(/the object has no "y" to animate/)
     expect(() => wardic.animate(new Sprite() as unknown as { tint: number }, { tint: 0 })).toThrow(/a Sprite's "tint" is object, which can't be animated/)
     expect(() => wardic.animate(42 as unknown as object, {})).toThrow(/42 isn't an object to animate/)
+    // A key it can't write (#968): read-only, or a getter with no setter, its own or inherited.
+    const unwritable = /"(\w+)" can't be written \(it's read-only, or a getter with no setter\), so Wardic can't animate it/
+    const frozen: { readonly x: number } = Object.freeze({ x: 0 })
+    expect(() => wardic.animate(frozen, { x: 1 })).toThrow(/the object's "x" can't be written/)
+    expect(() => wardic.animate(Object.defineProperty({}, "x", { value: 0, enumerable: true }) as { x: number }, { x: 1 })).toThrow(unwritable)
+    expect(() => wardic.animate(new Float32Array(3) as unknown as { length: number }, { length: 5 })).toThrow(/a Float32Array's "length" can't be written/)
+    expect(() => wardic.animate(new Float32Array(3) as unknown as { BYTES_PER_ELEMENT: number }, { BYTES_PER_ELEMENT: 8 })).toThrow(/"BYTES_PER_ELEMENT" can't be written/)
+    class Gauge {
+      get level() {
+        return 0
+      }
+    }
+    expect(() => wardic.animate(new Gauge(), { level: 1 })).toThrow(/a Gauge's "level" can't be written/)
+    // An inherited writable one where the object takes no property of its own: frozen, sealed or not extensible.
+    expect(() => wardic.animate(Object.freeze(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(/the object's "y" can't be written/)
+    expect(() => wardic.animate(Object.seal(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(unwritable)
+    expect(() => wardic.animate(Object.preventExtensions(Object.create({ y: 0 }) as { y: number }), { y: 1 })).toThrow(unwritable)
+    // A later Segment's, at the call too.
+    expect(() => wardic.animate([[{ y: 0 }, { y: 1 }], [Object.freeze({ x: 0 }), { x: 1 }]])).toThrow(/the object's "x" can't be written/)
+    wardic.dispose()
+  })
+
+  it("WO24: a getter with a setter, a sealed object's key and an inherited writable one animate, as any key (#968)", async () => {
+    const wardic = WardicObject.make()
+    class Dial {
+      #turn = 0
+      get turn() {
+        return this.#turn
+      }
+      set turn(turn: number) {
+        this.#turn = turn
+      }
+    }
+    const dial = new Dial()
+    const sealed = Object.seal({ x: 0 })
+    const inherited = Object.create({ y: 0 }) as { y: number }
+    let held = 0
+    const own = Object.defineProperty({}, "level", { get: () => held, set: (level: number) => void (held = level), enumerable: true }) as { level: number }
+    const short = { type: "tween", duration: 0.1, ease: "linear" } as const
+    const calls = [wardic.animate(dial, { turn: 1 }, short), wardic.animate(sealed, { x: 1 }, short), wardic.animate(inherited, { y: 1 }, short), wardic.animate(own, { level: 1 }, short)]
+    await tick()
+    pump(wardic, 10, () => undefined)
+    await Promise.all(calls)
+    expect([dial.turn, sealed.x, inherited.y, held]).toEqual([1, 1, 1, 1])
     wardic.dispose()
   })
 

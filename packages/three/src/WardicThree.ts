@@ -58,8 +58,9 @@ import * as ThreeValues from "./ThreeValues.ts"
 // ADR-0069 decision 4.
 export type TransformKey = "x" | "y" | "z" | "rotateX" | "rotateY" | "rotateZ" | "scale" | "scaleX" | "scaleY" | "scaleZ"
 
-/** `T`'s keys that hold a number. */
-type NumberKey<T> = { readonly [K in keyof T]-?: T[K] extends number ? K : never }[keyof T] & string
+/** `T`'s keys that hold a number, but its `id`, which three makes read-only. */
+// #968: three defines a scene object's and a material's `id` read-only, so its write threw each frame.
+type SceneNumberKey<T> = Exclude<{ readonly [K in keyof T]-?: T[K] extends number ? K : never }[keyof T] & string, "id">
 
 /** The axes of a three vector, by its flag: `X`, `Y`, and `Z` and `W` where it has them. */
 type AxesOf<V> = V extends { readonly isVector4: true } ? "X" | "Y" | "Z" | "W" : V extends { readonly isVector3: true } ? "X" | "Y" | "Z" : V extends { readonly isVector2: true } ? "X" | "Y" : never
@@ -93,7 +94,7 @@ type UniformColourKey<U> = [U] extends [ReadonlyArray<unknown>] ? never : { read
 type UniformsOf<M> = M extends { readonly uniforms: infer U } ? U : never
 
 /** The number keys of `M`, a material: its numbers, its vectors' axes, its colours' channels, and its uniforms'. */
-type MaterialKey<M> = NumberKey<M> | VectorKey<M> | ChannelKey<ColourKeyOf<M>> | UniformKey<UniformsOf<M>>
+type MaterialKey<M> = SceneNumberKey<M> | VectorKey<M> | ChannelKey<ColourKeyOf<M>> | UniformKey<UniformsOf<M>>
 
 /** The colour keys of `M`, a material: its `Color`s and its uniforms'. */
 type MaterialColourKey<M> = ColourKeyOf<M> | UniformColourKey<UniformsOf<M>>
@@ -101,8 +102,8 @@ type MaterialColourKey<M> = ColourKeyOf<M> | UniformColourKey<UniformsOf<M>>
 /** The material a mesh's `material` gives it: each of an array of them. */
 type MaterialOf<T> = T extends { readonly material: infer M } ? (M extends ReadonlyArray<infer E> ? E : M) : never
 
-/** The number keys of a three Subject `T`: a scene object's transforms, numbers and vectors' axes, and its material's; a material's own. */
-export type SceneKey<T> = T extends { readonly isObject3D: true } ? TransformKey | NumberKey<T> | VectorKey<T> | MaterialKey<MaterialOf<T>> : T extends { readonly isMaterial: unknown } ? MaterialKey<T> : never
+/** The number keys of a three Subject `T`: a scene object's transforms, numbers and vectors' axes, and its material's; a material's own. Not their `id`, which three makes read-only. */
+export type SceneKey<T> = T extends { readonly isObject3D: true } ? TransformKey | SceneNumberKey<T> | VectorKey<T> | MaterialKey<MaterialOf<T>> : T extends { readonly isMaterial: unknown } ? MaterialKey<T> : never
 
 /** The colour keys of a three Subject `T`: its material's `Color`s for a scene object, a material's own, a uniforms object's. */
 export type ColourKey<T> = T extends { readonly isObject3D: true } ? ColourKeyOf<T> | MaterialColourKey<MaterialOf<T>> : T extends { readonly isMaterial: unknown } ? MaterialColourKey<T> : UniformColourKey<T>

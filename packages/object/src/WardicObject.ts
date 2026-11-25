@@ -71,7 +71,9 @@ import * as PumpedFrames from "./PumpedFrames.ts"
 /**
  * A key of `T` Wardic animates, by name: one whose value is a number or a string. An optional one among
  * them: `animate` throws if the object lacks it when called. A numeric key by its name too, as `"0"`, a
- * number index's as `` `${number}` ``: a typed array's elements. An array has none: a list is many Subjects.
+ * number index's as `` `${number}` ``: a typed array's elements, not its own numbers (`length`,
+ * `byteLength`, `byteOffset`, `BYTES_PER_ELEMENT`), which it can't write. An array has none: a list is
+ * many Subjects.
  */
 // #963: over an array, the mapped keys come out as `string`, so an inline sequence, read as a list of
 // arrays, looked like Subjects of any name, its options unchecked. `[T]`, not `T`: a union of Subjects
@@ -80,7 +82,12 @@ import * as PumpedFrames from "./PumpedFrames.ts"
 // A number key by its name, so the keys stay strings, as the run time reads them.
 export type AnimatableKey<T> = [T] extends [ReadonlyArray<unknown>]
   ? never
-  : { readonly [K in keyof T]-?: [Defined<T[K]>] extends [never] ? never : Defined<T[K]> extends number | string ? KeyName<K> : never }[keyof T]
+  : Exclude<{ readonly [K in keyof T]-?: [Defined<T[K]>] extends [never] ? never : Defined<T[K]> extends number | string ? KeyName<K> : never }[keyof T], TypedArrayOwnKey<T>>
+
+/** A typed array's own numbers, which it can't write: on `T`, or on any of a list's. */
+// #968: their writes threw each frame. Only these: `readonly` says nothing at run time, a Readonly<…>
+// being writable. Distributed, so a list with a typed array in it leaves them out too.
+type TypedArrayOwnKey<T> = T extends ArrayBufferView ? "length" | "byteLength" | "byteOffset" | "BYTES_PER_ELEMENT" : never
 
 /** A key's value with its `undefined` left out: an optional key's, as the object holds it. */
 type Defined<V> = Exclude<V, undefined>

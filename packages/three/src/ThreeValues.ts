@@ -1,8 +1,9 @@
 /**
  * A three.js Subject's values for Wardic: where each key it animates starts, found where the writer
  * writes it (a scene object's transforms, its own number, its material's, a uniform's, a TSL uniform
- * node's, a vector's axis), and the scene's Positional keys. A key found nowhere, or whose value isn't
- * a number or a string, is an error naming it: Wardic adds no property to a scene.
+ * node's, a vector's axis), and the scene's Positional keys. A key found nowhere, whose value isn't a
+ * number or a string, or that can't be written where it's found (a scene object's `id`, a frozen
+ * uniform's) is an error naming it: Wardic adds no property to a scene.
  *
  * @example
  * import * as ThreeValues from "@wardic/three/ThreeValues"
@@ -44,10 +45,15 @@ const isColorKey = (subject: object, key: string): boolean => isColorAt(subject,
  */
 export const read: (subject: object, key: string) => unknown = Lookup.read
 
-/** `subject`'s own value for `key`, a number or a string, else an error naming the key. */
+/** `subject`'s own value for `key`, a number or a string it can write, else an error naming the key. */
 const ownValueOf = (subject: object, key: string): Option.Option<number | string> => {
   const value = Lookup.read(subject, key)
-  if (Predicate.isNumber(value) || Predicate.isString(value)) return Option.some(value)
+  if (Predicate.isNumber(value) || Predicate.isString(value)) {
+    if (!Lookup.canWrite(subject as Holder, key)) {
+      throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" can't be written (it's read-only, or a getter with no setter), so Wardic can't animate it. Give a key it can write.`)
+    }
+    return Option.some(value)
+  }
   if (isColorKey(subject, key)) {
     throw new Error(`wardic.animate: ${nameOf(subject)}'s "${key}" is a Color, which Wardic reads as a colour at the call: give it a colour, animate(mesh, { ${key}: "#ff8800" }), or its channels in linear light, ${key}R, ${key}G and ${key}B.`)
   }
