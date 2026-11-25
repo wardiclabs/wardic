@@ -687,9 +687,10 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(() => wardic.animate(sprite as { x: number; y: number; z: number }, { x: 1, transitionEnd: { y: 2, z: 3 } })).toThrow(/the object has no "y" to animate/)
     const pinned = Object.defineProperty({ x: 0, z: 0 }, "y", { value: 0, enumerable: true }) as { x: number; y: number; z: number }
     expect(() => wardic.animate(pinned, { x: 1, transitionEnd: { y: 2, z: 3 } })).toThrow(/the object's "y" can't be written/)
-    // A list's later object's, and an end with no key to animate.
+    // A list's later object's, its `x` writable, and an end with no key to animate.
     const first = { x: 0, y: 0 }
-    expect(() => wardic.animate([first, Object.freeze({ x: 0, y: 0 })], { x: 1, transitionEnd: { y: 2 } })).toThrow(/the object's "y" can't be written/)
+    const later = Object.defineProperty({ x: 0 }, "y", { value: 0, enumerable: true }) as { x: number; y: number }
+    expect(() => wardic.animate([first, later], { x: 1, transitionEnd: { y: 2 } })).toThrow(/the object's "y" can't be written/)
     const bare: { readonly v: number } = Object.freeze({ v: 0 })
     expect(() => wardic.animate(bare, { transitionEnd: { v: 5 } })).toThrow(/the object's "v" can't be written/)
     await tick()
@@ -737,6 +738,34 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
       console.log = log
       wardic.dispose()
     }
+  })
+
+  it("WO27: a call refused at the call takes nothing: an earlier call runs on and lands after the same Subject's later key, a list's later Subject, its end key or a sequence's later Segment is refused (#973)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const run = { type: "tween", duration: 0.5, ease: "linear" } as const
+    const frozen = (): { readonly x: number; readonly y: number } => Object.freeze({ x: 0, y: 0 })
+    // Its `y` read-only, its `x` not: a call taking `x` first, then refused at `y`.
+    const pinned = (): { x: number; y: number } => Object.defineProperty({ x: 0 }, "y", { value: 0, enumerable: true }) as { x: number; y: number }
+    const refusals: ReadonlyArray<{ readonly shape: string; readonly first: { x: number; y: number }; readonly refuse: (first: { x: number; y: number }) => unknown }> = [
+      { shape: "the same Subject's later key", first: pinned(), refuse: (first) => wardic.animate(first, { x: 1, y: 1 }) },
+      { shape: "a list's later Subject", first: { x: 0, y: 0 }, refuse: (first) => wardic.animate([first, frozen()], { x: 1 }) },
+      { shape: "a list's later Subject's end key", first: { x: 0, y: 0 }, refuse: (first) => wardic.animate([first, pinned()], { x: 1, transitionEnd: { y: 2 } }) },
+      { shape: "a sequence's later Segment's Subject", first: { x: 0, y: 0 }, refuse: (first) => wardic.animate([[first, { x: 1 }], [frozen(), { x: 1 }]]) },
+    ]
+    for (const { shape, first, refuse } of refusals) {
+      const earlier = wardic.animate(first, { x: 10 }, run)
+      await tick()
+      pump(wardic, 5, () => undefined, clock)
+      expect(() => refuse(first), shape).toThrow(/can't be written/)
+      await tick()
+      pump(wardic, 40, () => undefined, clock)
+      // Each shape on its own: a failure doesn't hide the next.
+      expect.soft(earlier.state, shape).toBe("finished")
+      expect.soft(first.x, shape).toBe(10)
+      if (earlier.state === "finished") await earlier
+    }
+    wardic.dispose()
   })
 })
 
