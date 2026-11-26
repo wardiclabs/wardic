@@ -41,7 +41,8 @@ import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as ServerInterpolators from "@wardic/dom/unstable/ServerInterpolators"
 import { followAtom } from "./bridge.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
-import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { FUNCTION_FAILED, keptComputeOf, MIXER_FAILED, transformFailedOn } from "./kept-transform.ts"
+import { useProvidedRuntime, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
 const readOnServer = <A,>(source: LiveStyle.LiveSource<A>): A => LiveStyle.readLive(source, LiveStyle.serverRegistryOf, untrack) as A
@@ -84,6 +85,8 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
  * two stops blends their outputs, numbers, units and colours alike. `input` is as long as `output`,
  * ascending or descending; outside it the ends hold, unless `clamp: false`. `ease` eases each stretch,
  * one for all or one each, and a `mixer`, `(from, to) => (t) => value`, blends outputs of any type. A signal read inside `fn` is tracked too: its change maps again.
+ * A function or a `mixer` that throws keeps the value it gave last, and is logged once until it returns;
+ * one that throws for its first value throws to whatever reads it first.
  * Through ranges from a `createScroll` value, the browser draws it with the scroll where it can.
  * Motion's `useTransform`.
  *
@@ -121,17 +124,45 @@ export function createTransform(
     onFalse: () => interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options) as (a: unknown) => unknown,
   })
   if (isServer) return () => fn(readOnServer(source))
+  // An app's function, or a `mixer` in its ranges, that throws: its last value kept, reported at the first
+  // throw of a run of them, again after a clean call; its first value's throw is its first reader's (#979).
+  const runtime = useProvidedRuntime()
+  const message = Bool.match(Predicate.isFunction(fnOrInput), { onTrue: () => FUNCTION_FAILED, onFalse: () => MIXER_FAILED })
   const atom = LiveStyle.atomOf(source)
   // A plain accessor: mapped in a memo, as Solid maps it.
-  if (Predicate.isUndefined(atom)) return createMemo(() => fn((source as Accessor<unknown>)()), CLIENT_ONLY)
+  if (Predicate.isUndefined(atom)) return createMemo(keptComputeOf(source as Accessor<unknown>, fn, runtime, message), CLIENT_ONLY)
   // On an Atom: derived on it, so it's set where its source is. What `fn` reads of Solid besides its
   // source is tracked here, and a change of it re-derives the Atom.
   const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
-  const derived = Atom.make((get) => untrack(() => fn(get(atom))))
+  let last: unknown
+  let kept = false
+  let failing = false
+  // The try is in the read the registry calls, around a direct call (#979).
+  const derived = Atom.make((get) =>
+    untrack(() => {
+      const v = get(atom)
+      try {
+        last = fn(v)
+        kept = true
+        if (failing) failing = false
+      } catch (defect) {
+        if (!kept) throw defect
+        if (!failing) transformFailedOn(runtime, message, defect)
+        failing = true
+      }
+      return last
+    }))
   // A change of what `fn` reads of Solid derives it again: the registry's own refresh, where a counter
-  // Atom it read was bumped (#618, L2).
+  // Atom it read was bumped (#618, L2). A throw here is the Atom's to report, as it derives again.
   createEffect(
-    () => fn(registry.get(atom)),
+    () => {
+      const v = registry.get(atom)
+      try {
+        return fn(v)
+      } catch {
+        return undefined
+      }
+    },
     () => {
       registry.refresh(derived)
     },
