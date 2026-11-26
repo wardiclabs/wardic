@@ -42,7 +42,8 @@ describe("a variant resolver that throws (#979, group F)", () => {
 
   it("VT2: variantFailuresOf keeps the last good resolution while a resolver throws, reports once, and again after a clean one", () => {
     const reports: Array<VariantTarget.VariantFailure> = []
-    const keep = Spine.variantFailuresOf((failure) => void reports.push(failure)).kept
+    const failures = Spine.variantFailuresOf((failure) => void reports.push(failure))
+    const keep = (next: Spine.Resolution): Spine.Resolution => Spine.keptOf(failures, next)
     let broken = false
     const variants = {
       shown: () => {
@@ -116,8 +117,8 @@ describe("a variant resolver that throws (#979, group F)", () => {
     } as unknown as Config.WardicVariants
     const config = { initial: "hidden", animate: "shown", variants } as Config.SpineConfig
     const start = Spine.startOf(config, undefined, false, (f) => f())
-    failures.started(start)
-    failures.kept(Spine.resolutionOf(config, undefined, start.initialLink, NONE, Spine.snapshotOf(start)))
+    Spine.reportStart(failures, start)
+    Spine.keptOf(failures, Spine.resolutionOf(config, undefined, start.initialLink, NONE, Spine.snapshotOf(start)))
     expect(reports).toEqual([{ defect: broke, name: "shown" }])
   })
 
@@ -139,28 +140,28 @@ describe("a variant resolver that throws (#979, group F)", () => {
     // One only orchestration sees: reported once, until orchestration resolves it; the element's own
     // clean resolutions of it don't re-arm it.
     const alone = fresh()
-    alone.orchestrated("open", open())
-    alone.kept(opened())
-    alone.orchestrated("open", open())
+    Spine.orchestrationOf(alone)("open", open())
+    Spine.keptOf(alone, opened())
+    Spine.orchestrationOf(alone)("open", open())
     expect(reports, "alone, once").toEqual(["open"])
-    alone.orchestrated("open", Option.none())
-    alone.orchestrated("open", open())
+    Spine.orchestrationOf(alone)("open", Option.none())
+    Spine.orchestrationOf(alone)("open", open())
     expect(reports, "again once it resolved").toEqual(["open", "open"])
     // One setup saw (it resolves as orchestration does): not reported again by orchestration after the
     // element's first clean resolution.
     reports.length = 0
     const setup = fresh()
-    setup.started({ failure: open() } as Spine.Start)
-    setup.kept(opened())
-    setup.orchestrated("open", open())
+    Spine.reportStart(setup, { failure: open() } as Spine.Start)
+    Spine.keptOf(setup, opened())
+    Spine.orchestrationOf(setup)("open", open())
     expect(reports, "setup's, once").toEqual(["open"])
     // One the element's resolutions and orchestration both see: once. Another name's: reported too.
     reports.length = 0
     const both = fresh()
     broken = true
-    both.kept(resolve())
-    both.orchestrated("shown", Option.some({ defect: broke, name: "shown" }))
-    both.orchestrated("open", open())
+    Spine.keptOf(both, resolve())
+    Spine.orchestrationOf(both)("shown", Option.some({ defect: broke, name: "shown" }))
+    Spine.orchestrationOf(both)("open", open())
     expect(reports).toEqual(["shown", "open"])
   })
 })

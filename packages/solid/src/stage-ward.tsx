@@ -436,7 +436,7 @@ const wardOn = (
     // A variant that throws is this Subject's alone (#979): its failures, which its spine keeps and its
     // orchestration reports to, once.
     const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
-    const node = createVariantNode(cfg, initialConfig, follower, undefined, variantFailures.orchestrated)
+    const node = createVariantNode(cfg, initialConfig, follower, undefined, variantFailures)
     UndefinedOr.map(follower, (f) => {
       if (Bool.not(Predicate.isFunction(given))) f.early(given as object)
     })
@@ -458,7 +458,7 @@ const wardOn = (
     const start = Spine.startOf(initialConfig, node.inherited, false, untrack)
     // A variant whose resolver throws is this Subject's alone: reported once until it resolves, keeping
     // its last target (#979; ADR-0074).
-    variantFailures.started(start)
+    Spine.reportStart(variantFailures, start)
     const snapshot = Spine.snapshotOf(start)
     const reuse = Spine.makeReuse()
     // Where its Subject starts: the ward's start, or a fresh one for the next Subject an accessor gives.
@@ -466,7 +466,7 @@ const wardOn = (
     let begun = start
     const beginFresh = (): void => {
       begun = Spine.startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
-      variantFailures.started(begun)
+      Spine.reportStart(variantFailures, begun)
       if (scene) return
       snapshot.values = { ...begun.initialValues }
       snapshot.velocities = {}
@@ -499,7 +499,7 @@ const wardOn = (
       () => {
         const g = gestures()
         // `dragging` stays off: a scene's drag holds its keys as the Stage's `animate` does (#433), `z` among them.
-        return variantFailures.kept(Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined))
+        return Spine.keptOf(variantFailures, Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined))
       },
       { equals: sameTarget, transparent: true },
     )

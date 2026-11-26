@@ -478,7 +478,7 @@ export function runSpine(opts: RunSpineOptions): void {
   // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
   // keeping its last target, and nothing thrown into Solid's update, which would freeze every element in
   // it (#979; ADR-0074).
-  variantFailures.started(start)
+  Spine.reportStart(variantFailures, start)
   const snapshot = Spine.snapshotOf(start)
   const reuse = Spine.makeReuse()
   // Where an element starts (#414): the ward's start, or, for one that comes after the last left the
@@ -488,7 +488,7 @@ export function runSpine(opts: RunSpineOptions): void {
     if (Predicate.isUndefined(entersFresh)) return start
     if (Bool.not(entersFresh(element))) return start
     const fresh = Spine.startOf(untrack(cfg), parent, false, untrack)
-    variantFailures.started(fresh)
+    Spine.reportStart(variantFailures, fresh)
     snapshot.values = { ...fresh.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
@@ -871,7 +871,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // change, a recognizer's flip or the drag's recomputes it, and only one that resolves a new
       // target drives a Retarget. A `transition`, a callback or an option alone tells nothing, as
       // Motion's doesn't.
-      const target = createMemo((): Spine.Resolution => variantFailures.kept(Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange())), undefined, { equals: Spine.sameResolution })
+      const target = createMemo((): Spine.Resolution => Spine.keptOf(variantFailures, Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange())), undefined, { equals: Spine.sameResolution })
       // A colour only the `colors` Feature reads, on a Slim element without it (#511, decision 7): said
       // once per provider, in development only, and not while a lazy load is on its way.
       if (DEV && internal.complete !== true) warnUnreadColors(useFeatureRegistry(), features, () => target().resolved)
@@ -1033,7 +1033,7 @@ export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConf
   // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
   // orchestration reports to, once.
   const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
-  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures.orchestrated)
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures)
 
   // The Renderer's PURE project (ADR-0003: synchronous, no engine), read once by the provider (#618, M1).
   const { project } = useWardicRenderer()

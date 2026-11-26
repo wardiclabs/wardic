@@ -104,24 +104,25 @@ type Definition = Config.WardicVariant | Config.WardicVariantResolver | string |
 const velocitiesOf = (state: VariantState): Readonly<Record<string, number>> =>
   UndefinedOr.match(state.velocitiesNow, { onUndefined: () => state.velocities, onDefined: (now) => now(state) })
 
-/** A resolver's throw, handed on in place of a definition: what the target it resolves carries. */
+/** A resolver's throw, handed on in place of a definition: the one value, its throw in {@link thrown}. */
 // #979 (ADR-0074): every resolver runs in `calledOf`, so its throw is caught once, for every binding.
-interface Failed {
-  readonly [FAILED]: unknown
-}
-const FAILED: unique symbol = Symbol.for("@wardic/core/VariantTarget/failed")
+// One value, told apart by identity: every target passes the check, and a property check (`in`, a
+// symbol a values map never has) cost a resolution 4–5% in Maglev (bench:solid's mount).
+const FAILED: { readonly failed: true } = { failed: true }
+type Failed = typeof FAILED
 
-/** Whether `definition` is a resolver's throw. */
-const isFailed = (definition: unknown): definition is Failed => Predicate.hasProperty(definition, FAILED)
+/** What the resolver behind the last {@link FAILED} threw: set by `calledOf` and read by `resolveOne` at once, with no app code between. */
+let thrown: unknown = undefined
 
-/** A resolver called with what it reads, as Motion calls it, its throw handed on as a {@link Failed}; anything else as it is. */
+/** A resolver called with what it reads, as Motion calls it, its throw handed on as {@link FAILED}; anything else as it is. */
 // #979, Q4: a bare `try`, measured within 2% of the call alone; `Result.try` cost 21–35% more a call.
 const calledOf = (definition: Definition | Failed, custom: unknown, state: VariantState): Definition | Failed => {
   if (Predicate.isFunction(definition)) {
     try {
       return definition(custom, { ...state.values }, { ...velocitiesOf(state) })
     } catch (defect) {
-      return { [FAILED]: defect }
+      thrown = defect
+      return FAILED
     }
   }
   return definition
@@ -212,7 +213,11 @@ export const NO_TARGET: Target = { values: {}, transition: undefined, transition
 const resolveOne = (entry: Config.WardicVariant | string | undefined, variants: Config.WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
   const definition = calledOf(namedOf(calledOf(namedOf(entry, variants), custom, state), variants), custom, state)
   // A resolver that threw resolves to nothing, carrying what it threw and the name it was reached by (#979).
-  if (isFailed(definition)) return { ...NO_TARGET, failure: Option.some({ defect: definition[FAILED], name: nameOfEntry(entry) }) }
+  if (definition === FAILED) {
+    const defect = thrown
+    thrown = undefined
+    return { ...NO_TARGET, failure: Option.some({ defect, name: nameOfEntry(entry) }) }
+  }
   if (Bool.or(Predicate.isUndefined(definition), Bool.or(Predicate.isString(definition), Predicate.isFunction(definition)))) {
     return NO_TARGET
   }
@@ -270,13 +275,16 @@ export interface StartingVariants {
   readonly failure: Option.Option<VariantFailure>
 }
 
+/** No variants: one value, as most elements have none (#979, bench:solid's mount). */
+const NO_STARTING_VARIANTS: StartingVariants = { variants: undefined, failure: Option.none() }
+
 /**
  * `variants` with each entry resolved to its values, a dynamic one with `custom` and no values yet
  * (#277): what dom's Starting style reads, which takes values maps only. As they are when none is a
  * function. A resolver that throws gives its entry no values, and its throw is the failure.
  */
 export const startingVariantsOf = (variants: object | undefined, custom: unknown): StartingVariants => {
-  if (Predicate.isUndefined(variants)) return { variants: undefined, failure: Option.none() }
+  if (Predicate.isUndefined(variants)) return NO_STARTING_VARIANTS
   const entries = variants as Config.WardicVariants
   if (Bool.not(Arr.some(Rec.values(entries), Predicate.isFunction))) return { variants, failure: Option.none() }
   // Once an element's setup (#979): each entry resolved, a throwing resolver's left with no values.

@@ -14,6 +14,7 @@ import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, u
 import type * as AnimationControls from "@wardic/core/unstable/AnimationControls"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
+import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 
 /** An element's place in variant orchestration, on the client. */
@@ -70,8 +71,10 @@ const ownOrchestration = (
   parent: VariantTree.WardicVariantContextValue | undefined,
   inherited: VariantTree.WardicVariantContextValue | undefined,
   change: Accessor<AnimationControls.ControlsChange | undefined>,
-  orchestrated: VariantTarget.Orchestrated | undefined,
+  failures: Spine.VariantFailures | undefined,
 ): OwnOrchestration => {
+  // What it resolves, told to its element's failures (#979): made here, as only an element that orchestrates has one.
+  const orchestrated = UndefinedOr.map(failures, Spine.orchestrationOf)
   const config = untrack(cfg)
   // Children in mount order (a Set keeps insertion order); the effect below snapshots that
   // order at each trigger. Kept with a count of the unsettled ones rather than a signal of the
@@ -269,7 +272,7 @@ export const createVariantNode = (
   cfg: Accessor<VariantTree.VariantConfig>,
   parent: VariantTree.WardicVariantContextValue | undefined,
   controls?: Accessor<AnimationControls.ControlsChange | undefined>,
-  orchestrated?: VariantTarget.Orchestrated,
+  failures?: Spine.VariantFailures,
 ): VariantNode => {
   const config = untrack(cfg)
   const inherited = VariantTree.inheritedContext(config, parent)
@@ -280,7 +283,7 @@ export const createVariantNode = (
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)
   const own = Bool.match(VariantTree.hasOwnVariants(config), {
     onFalse: constUndefined,
-    onTrue: () => ownOrchestration(cfg, parent, inherited, change, orchestrated),
+    onTrue: () => ownOrchestration(cfg, parent, inherited, change, failures),
   })
   // The spine reports on every frame (the per-frame path, docs/agents/effect-first.md): both
   // reports are resolved here, once, so a frame makes two plain calls and allocates nothing.

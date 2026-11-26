@@ -471,7 +471,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
   // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
   // orchestration reports to, once.
   const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
-  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures.orchestrated)
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures)
   const group = first.group as ItemGroup<unknown>
   // The keyboard reorder's tab stop and instructions (ADR-0037), on the element itself: the app's
   // own `tabindex` wins, and its `aria-describedby` ids are kept.

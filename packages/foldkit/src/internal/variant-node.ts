@@ -12,6 +12,7 @@
  */
 import * as AnimationControls from "@wardic/core/unstable/AnimationControls"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as Arr from "effect/Array"
@@ -46,7 +47,7 @@ export interface VariantNode {
    * Where what its orchestration resolves is told, a variant that throws among it: its element's
    * failures, handed over by its Mount, as the node is made at the first ask, maybe before it.
    */
-  readonly reportsTo: (orchestrated: VariantTarget.Orchestrated) => void
+  readonly reportsTo: (failures: Spine.VariantFailures) => void
   /** Its registration with the ancestor it joined, given up: at its element's release. */
   readonly dispose: () => void
   /**
@@ -79,7 +80,7 @@ interface OwnOrchestration {
   readonly canStartFor: (name: string) => boolean
   readonly settledFor: (names: ReadonlyArray<string>, done: boolean) => void
   readonly bindGestures: (states: () => VariantTree.GestureStates) => void
-  readonly reportsTo: (orchestrated: VariantTarget.Orchestrated) => void
+  readonly reportsTo: (failures: Spine.VariantFailures) => void
 }
 
 /** No gesture on: what an element hands down before its Mount binds its gestures. */
@@ -283,8 +284,8 @@ const ownOrchestration = (
     bindGestures: (states) => {
       MutableRef.set(ownStates, states)
     },
-    reportsTo: (to) => {
-      reportTo = to
+    reportsTo: (failures) => {
+      reportTo = Spine.orchestrationOf(failures)
     },
   }
 }

@@ -317,7 +317,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // of throws until it resolves, the element keeping its last target, and nothing thrown into the
     // render, which would crash the app (#979; ADR-0074). Each render's Starting style resolves it silently.
     const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(provider.runtime))
-    variantFailures.started(start)
+    Spine.reportStart(variantFailures, start)
     const snapshot = Spine.snapshotOf(start)
     // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.
     const templateAtMount = config.transformTemplate
@@ -388,7 +388,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       keysTaken: () => Predicate.isNotUndefined(MutableRef.get(item)),
     })
     node.bindGestures(gestures.states)
-    node.reportsTo(variantFailures.orchestrated)
+    node.reportsTo(variantFailures)
     // A Reorder item (decision 28): joined to the group above it, which decides its drag's axis and hears
     // its samples; its keyboard lift turns `WhileDrag` on. Joined now, or as a load brings the Features (Q15).
     const item = MutableRef.make(reorderItemOf(provider, element, id, () => config, dispatch, gestures.lift))
@@ -541,7 +541,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // re-resolves it with the entries on now.
     let last: Spine.Resolution | undefined
     const retarget = (): void => {
-      const next = variantFailures.kept(Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, node.change()))
+      const next = Spine.keptOf(variantFailures, Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, node.change()))
       if (Predicate.isNotUndefined(last) && Spine.sameResolution(last, next)) return
       last = next
       spine.retarget(next)
