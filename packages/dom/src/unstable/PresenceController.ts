@@ -830,7 +830,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   /**
    * A child's exit ended: with the last, `exiting` turns off, a completion is told, and the children
-   * `mode="wait"` held go on the page (#277), as Motion renders them after its `onExitComplete`.
+   * `mode="wait"` held go on the page (#277), as Motion renders them after its `onExitComplete`. A
+   * release that throws (a held child's start, on a binding that starts it at once) is reported, and the
+   * presence goes on.
    */
   const leaveEnds = (el: Element, completed: boolean): void => {
     if (Bool.not(leaving.delete(el))) return
@@ -841,7 +843,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     })
     // `propagate` (#277's PR 5c): the last child that left lets the parent's child go.
     allLeft()
-    if (held.length > 0) UndefinedOr.map(options.release, (release) => release())
+    if (held.length === 0) return
+    // Its own: a throw here came out of the exit's fiber unlogged, and on Solid 1 out of the release (#983).
+    try {
+      UndefinedOr.map(options.release, (release) => release())
+    } catch (defect) {
+      runtime.runFork(Report.failure(`wardic.presence: mode="wait"'s release failed`, Cause.die(defect)))
+    }
   }
 
   // What `leaveAll` calls once none is left (#277's PR 5c), and where its children last were.
@@ -1759,9 +1767,10 @@ export const propagateTo = (parent: PresenceContextValue | undefined, propagate:
     holds: true,
     leave: (_custom, release) => {
       leaving = true
+      // Its own teardown first, then the parent's child let go, whose chain can reach the app's code (#983).
       presence.leaveAll(() => {
-        release()
         tear()
+        release()
       })
     },
     gone: () => {
