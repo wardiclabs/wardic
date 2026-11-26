@@ -12,12 +12,17 @@
 // - PG8: two levels: the innermost child's exit holds both.
 // - PG9: an inner child with no exit leaves at once, and doesn't hold the outer child.
 // - PG10: an inner presence whose children have all gone already doesn't hold the outer child.
+// - PG11 (#983): the inner presence's last child leaving lets its parent, under `mode="wait"`, put a held
+//   child on the page whose start throws: reported, and the inner presence still torn down.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid/v1"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
+import * as Layer from "effect/Layer"
+import * as References from "effect/References"
 
 afterEach(cleanup)
 
@@ -259,5 +264,50 @@ describe('AnimatePresence propagate on Solid 1 (#277)', () => {
     setOpen(false)
     await until(() => !o.isConnected, 2000)
     expect(o.isConnected, "gone after its own exit").toBe(false)
+  })
+
+  it("PG11: an inner presence whose done releases its parent's held child, whose start throws: reported once, and the inner presence torn down (#983)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    // The held child's variant: fine at its setup, then broken while it's held.
+    let broken = false
+    const armed = {
+      hidden: { opacity: 0 },
+      shown: () => {
+        if (broken) throw new Error("its variant broke")
+        return { opacity: 1 }
+      },
+    }
+    const [tab, setTab] = createSignal("a")
+    // At Debug, so the inner presence's teardown is heard.
+    const env = Layer.mergeAll(envWith({ logs, reports }), Layer.succeed(References.MinimumLogLevel, "Debug"))
+    const { container } = render(() => (
+      <WardicProvider env={env}>
+        <AnimatePresence mode="wait">
+          <Show when={tab() === "a"}>
+            <wardic.section data-k="a" exit={{ opacity: 0.5 }} transition={SHORT}>
+              <AnimatePresence propagate>
+                <wardic.div data-k="inner" exit={{ opacity: 0 }} transition={LONG} />
+              </AnimatePresence>
+            </wardic.section>
+          </Show>
+          <Show when={tab() === "b"}>
+            <wardic.p data-k="b" variants={armed} initial="hidden" animate="shown" />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    await frames(3)
+    // The inner child's exit outlasts the outer one's own, so the inner presence's done is the parent's last.
+    setTab("b")
+    broken = true
+    await until(() => container.querySelector('[data-k="a"]') === null, 3000)
+    await frames(3)
+    // Before #983, the held child's throw came out of the inner presence's done before its teardown.
+    const failed = errorsNamed(logs, 'wardic.presence: mode="wait"\'s release failed')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("its variant broke")
+    expect(reports).toEqual(["its variant broke"])
+    expect(logs.filter((log) => log.message === "wardic.presence: teardown"), "the inner presence torn down").toHaveLength(1)
   })
 })
