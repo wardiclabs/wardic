@@ -153,6 +153,8 @@ interface Output {
   readonly atom: Atom.Writable<unknown>
   last: unknown
   readonly unmount: () => void
+  /** Whether its sets are throwing back a dependent's failure: reported at the first, again after a clean set. */
+  failing: boolean
 }
 
 /** What the gate calls of a key's Timeline value (#240): its sync with the values drawn, and its cancel. */
@@ -521,6 +523,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
    * written in the same frame, and commits with it. An unchanged one skips the registry. Plain
    * calls: a write is the per-frame path.
    */
+  // #979, group D (ADR-0074): an output's dependent that throws (an app's Atom over a ward's `read(key)`)
+  // is its own. The registry has set the output and told its other listeners before the throw comes back,
+  // so the write goes on, the element's other outputs with it: before, it came out of the ward's own leg.
   const setOutputs = (entry: Entry): void => {
     const outputs = entry.outputs
     if (Predicate.isUndefined(outputs)) return
@@ -528,7 +533,21 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       const value = entry.values[key]
       if (value === output.last) continue
       output.last = value
+      setOutput(entry.id, key, output, value)
+    }
+  }
+
+  /**
+   * `output` set to `value`, its dependent's throw its own. The try is here, out of `setOutputs`' loop over
+   * the Map: in its body, it measured +5–8% on Node's write.
+   */
+  const setOutput = (id: string, key: string, output: Output, value: unknown): void => {
+    try {
       registry.set(output.atom, value)
+      if (output.failing) output.failing = false
+    } catch (defect) {
+      if (!output.failing) runtime.runFork(Effect.annotateLogs(Report.failure("wardic.gate: an output failed", Cause.die(defect)), { id, key }))
+      output.failing = true
     }
   }
 
@@ -675,7 +694,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     // Made `undefined` and mounted until its element unregisters, not kept alive: a kept-alive
     // Atom's node never leaves the registry, and one left behind reads `undefined` afresh.
     const atom = Atom.make<unknown>(undefined)
-    const output: Output = { atom, last: undefined, unmount: registry.mount(atom) }
+    const output: Output = { atom, last: undefined, unmount: registry.mount(atom), failing: false }
     outputs.set(key, output)
     const value = committedValueOf(id, key)
     if (Predicate.isNotUndefined(value)) {

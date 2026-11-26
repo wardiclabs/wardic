@@ -20,6 +20,7 @@
 // (#443). Tier 2 (ADR-0008): Effect-typed, for bindings, which wrap them.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
@@ -40,6 +41,7 @@ import * as Machine from "./Machine.ts"
 import * as ScrollSource from "./ScrollSource.ts"
 import * as Supersede from "./Supersede.ts"
 import { dual } from "./internal/dual.ts"
+import * as Report from "./unstable/Report.ts"
 
 /** A blend between two outputs, as Motion's `MixerFactory`: made once per stretch, then read at each progress through it, 0 to 1. */
 // #440.
@@ -164,7 +166,8 @@ const interpolateWith: <O>(
 
 /**
  * `source` mapped through ranges, as `interpolate` maps a number: an Atom that follows `source`, mapped
- * afresh at each change.
+ * afresh at each change. A `mixer` that throws keeps the value it gave last, and is logged once until it
+ * returns; one that throws for its first value throws to whatever reads it then.
  *
  * @example
  * const scale = yield* LiveValue.transform(scrollY, [0, 300], [1, 0.8])
@@ -173,7 +176,28 @@ export const transform: {
   <O extends number | string>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
   <O>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: MixedTransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
 } = <O>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: TransformOptions<O> = {}) =>
-  Effect.map(interpolateWith(input, output, options), (map) => transformedFrom(Atom.make((get) => map(get(source))), source, input, output, options))
+  Effect.zipWith(interpolateWith(input, output, options), Effect.context<never>(), (map, context) => {
+    // An app's `mixer` that throws: its last value kept, reported at the first throw of a run of them, again
+    // after a clean one; with none yet to keep, its first value's throw is its reader's (#979). The try is in
+    // the read itself, around a direct call: a helper called from it measured a few points a change on Bun.
+    let last: O | undefined
+    let kept = false
+    let failing = false
+    const read = (get: Atom.AtomContext): O => {
+      const v = get(source)
+      try {
+        last = map(v)
+        kept = true
+        if (failing) failing = false
+      } catch (defect) {
+        if (!kept) throw defect
+        if (!failing) failedOn(context, MIXER_FAILED, defect)
+        failing = true
+      }
+      return last as O
+    }
+    return transformedFrom(Atom.make(read), source, input, output, options)
+  })
 
 /** `v`'s stretch, as Motion's: the first that ends above it, else the last. Read on each change of the source. */
 const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, v: number): Stretch<O> =>
@@ -377,6 +401,24 @@ const velocityOfFrame = (frame: Frame.Frame<number>): number => {
   return velocity
 }
 
+/**
+ * `defect`, a Live value's failure named by `message`, logged and handed to the ErrorReporters of what it
+ * was built with. Its failure path, off the per-frame one.
+ */
+// #979, group D (ADR-0074): a run goes on past an Atom over it, or under it, that throws.
+const failedOn = (context: Context.Context<never>, message: string, defect: unknown): void => {
+  Effect.runForkWith(context)(Report.failure(message, Cause.die(defect)))
+}
+
+/** A run's dependent that threw at its write: an app's Atom over its value, say. */
+const DEPENDENT_FAILED = "wardic.liveValue: its dependent failed"
+
+/** A run's source that threw as it was read: an app's Atom under it, say. */
+const SOURCE_FAILED = "wardic.liveValue: its source failed"
+
+/** A transform's ranges that threw: an app's `mixer`. */
+const MIXER_FAILED = "wardic.transform: its mixer failed"
+
 const FOLLOW_SPAN: Machine.Span = { name: "wardic.follow", attributes: {} }
 
 /**
@@ -395,6 +437,9 @@ const FOLLOW_SPAN: Machine.Span = { name: "wardic.follow", attributes: {} }
  * is a `jump`; with `skipAnimations`, or while `skipped()` says so, every change is. Its run and its
  * subscription end with the Scope.
  *
+ * A source that throws as it's read is followed to where it was last read, and an Atom over it that throws
+ * doesn't stop it: each is logged once until it reads, or is written, cleanly.
+ *
  * @example
  * const eased = yield* LiveValue.follow(target, { type: "tween", duration: 0.4, ease: "easeOut" })
  */
@@ -408,6 +453,7 @@ export const follow: (
 ) => Effect.Effect<Followed, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
   function* (source: Atom.Atom<number>, options: FollowOptions = {}, skipped: () => boolean = constFalse) {
     const registry = yield* AtomRegistry.AtomRegistry
+    const context = yield* Effect.context<never>()
     const { skipInitialAnimation, skipAnimations, ...transition } = options
     const plan = planOf(transition as FollowTransition)
     const skips = Bool.match(skipAnimations === true, { onTrue: () => constTrue, onFalse: () => skipped })
@@ -423,7 +469,22 @@ export const follow: (
     let changed = false
     // Whether the source's next change is a jump: its first, with `skipInitialAnimation`.
     let skipping = skipInitialAnimation === true
-    const target = (): number => registry.get(source)
+    // A source that throws (an app's Atom under it): a run steering toward it keeps its last read,
+    // reported at the first throw of a run of them, again after a clean read (#979).
+    let lastTarget = registry.get(out)
+    let sourceFailing = false
+    const target = (): number => {
+      try {
+        lastTarget = registry.get(source)
+        if (sourceFailing) sourceFailing = false
+      } catch (defect) {
+        if (!sourceFailing) failedOn(context, SOURCE_FAILED, defect)
+        sourceFailing = true
+      }
+      return lastTarget
+    }
+    // Whether its writes are throwing back a dependent's failure, reported as the source's are.
+    let failing = false
     /** One run: the plan's, from where `out` is, started again from where it's reached at the step after a change. */
     const machine = Machine.make({
       settles: false,
@@ -464,7 +525,15 @@ export const follow: (
         machine.pipe(
           Machine.run(
             (frame) => {
-              registry.set(out, frame.value)
+              // Per frame, a try around the direct call: the registry has set it and told its other
+              // listeners before a dependent's throw comes back (an app's Atom over it), so the run goes on.
+              try {
+                registry.set(out, frame.value)
+                if (failing) failing = false
+              } catch (defect) {
+                if (!failing) failedOn(context, DEPENDENT_FAILED, defect)
+                failing = true
+              }
               velocity = velocityOfFrame(frame)
               // At rest on the source: end the run; the next change starts another.
               if (frame.done) {
@@ -681,7 +750,8 @@ const numberMachine = (name: string, settles: boolean, start: () => (dt: number)
  * How fast `source` is changing, in its units a second, as Motion's `useVelocity`: 0 to begin with, and
  * from each change on, each frame's change over the frame's time, until a frame finds no change, sets 0
  * and stops. Nothing runs while the source rests. A velocity is a value too: `velocity(velocity(x))` is
- * acceleration. Its run ends with the Scope.
+ * acceleration. Its run ends with the Scope. A source that throws as it's read reads as still, and an Atom
+ * over it that throws doesn't stop it: each is logged once until it reads, or is written, cleanly.
  *
  * @example
  * const speed = yield* LiveValue.velocity(scrollY)
@@ -696,11 +766,25 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
     const out = Atom.make(0)
     const unmount = registry.mount(out)
     const run = yield* FiberHandle.makeRuntime<FrameLoop.FrameLoop, never, unknown>()
-    // The source at the end of the tick before: where each tick's change is read from.
+    const context = yield* Effect.context<never>()
+    // A source that throws (an app's Atom under it) reads as still, its last read kept, reported at the
+    // first throw of a run of them, again after a clean read; its writes as follow's are (#979).
+    // Each read's try is written where it reads, around a direct call: a reader called from both measured
+    // +16% on Bun's velocity frame. A flag is cleared only when it's set: a check on the clean path.
+    let sourceFailing = false
+    let failing = false
+    // The source at the end of the tick before: where each tick's change is read from. A read that throws
+    // keeps it.
     let previous = registry.get(source)
     const loop = yield* FrameLoop.FrameLoop
     yield* loop.afterTick(() => {
-      previous = registry.get(source)
+      try {
+        previous = registry.get(source)
+        if (sourceFailing) sourceFailing = false
+      } catch (defect) {
+        if (!sourceFailing) failedOn(context, SOURCE_FAILED, defect)
+        sourceFailing = true
+      }
       return undefined
     })
     // A jump of the source isn't motion: the change is read from where it jumped to.
@@ -715,11 +799,26 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
       const step = Math.min(dt, Machine.MAX_DT)
       // A tick in no time (never from the Clock) reads as still.
       if (step === 0) return { value: 0, done: true }
-      const v = (registry.get(source) - previous) / step
+      // A read that throws reads as still: where the tick before left it.
+      let now = previous
+      try {
+        now = registry.get(source)
+        if (sourceFailing) sourceFailing = false
+      } catch (defect) {
+        if (!sourceFailing) failedOn(context, SOURCE_FAILED, defect)
+        sourceFailing = true
+      }
+      const v = (now - previous) / step
       return { value: v, done: v === 0 }
     }).pipe(
       Machine.run((frame) => {
-        registry.set(out, frame.value)
+        try {
+          registry.set(out, frame.value)
+          if (failing) failing = false
+        } catch (defect) {
+          if (!failing) failedOn(context, DEPENDENT_FAILED, defect)
+          failing = true
+        }
         if (frame.done) running = false
         return undefined
       }, { supersede: token }),
@@ -742,7 +841,8 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
 
 /**
  * Milliseconds since it started, as Motion's `useTime`: wall time, minutes the app spent hidden included. It
- * keeps the Clock ticking every frame while it runs; its run ends with the Scope.
+ * keeps the Clock ticking every frame while it runs; its run ends with the Scope. An Atom over it that
+ * throws doesn't stop it: that's logged once until it's written cleanly.
  *
  * @example
  * const rotate = yield* LiveValue.transform(yield* LiveValue.time(), [0, 4000], [0, 360], { clamp: false })
@@ -754,6 +854,9 @@ export const time: () => Effect.Effect<Atom.Atom<number>, never, FrameLoop.Frame
     const out = Atom.make(0)
     const unmount = registry.mount(out)
     const run = yield* FiberHandle.makeRuntime<FrameLoop.FrameLoop, never, unknown>()
+    // Past a dependent that throws, it goes on counting, reported as follow's writes are (#979).
+    const context = yield* Effect.context<never>()
+    let failing = false
     const token = Supersede.make()
     const elapsed = numberMachine("wardic.time", false, () => {
       let ms = 0
@@ -765,7 +868,13 @@ export const time: () => Effect.Effect<Atom.Atom<number>, never, FrameLoop.Frame
     run(
       elapsed.pipe(
         Machine.run((frame) => {
-          registry.set(out, frame.value)
+          try {
+            registry.set(out, frame.value)
+            if (failing) failing = false
+          } catch (defect) {
+            if (!failing) failedOn(context, DEPENDENT_FAILED, defect)
+            failing = true
+          }
           return undefined
         }, { supersede: token }),
       ),
