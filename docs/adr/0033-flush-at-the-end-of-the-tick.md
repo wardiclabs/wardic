@@ -278,3 +278,10 @@ One was caught only after a test was added: the Measure pass's `prepare` `try` d
   - The noise controls were −0.3%, −2.5% and −1.5%, and every workload was within ±3.5% of `main`, the Batch workloads within ±3.2%.
   - **On the first build, before the review:** Bun's first run was too noisy (control −3.1%), and its rerun's control was +0.8%. Chromium's `springBlend/loop` read +6.2% [+0.0% – +11.4%], passing on its p25. Rerun alone at 21 reps, it read +0.0% [−9.6% – +2.1%].
 - **Bytes** (`bun run size`): about 0.7 KB minified in every app, since every app has the gate, 0.2 of it the review's fixes: gzip +236 B in `s1-slim`, 247 in `s2-slim`, 249 in `f-slim`, 218 in `t2-stage` and 248 in `t2-features`. Their budgets were raised by what this measured, to 95.5, 118.3, 197.6, 244.7 and 252.4.
+
+## Amendment (#979, group D, 2026-11-26): an output's failure is its own
+
+ADR-0074's rule for the gate's live outputs (`valueOf`, a ward's `read(key)`), found by #979's group D (its row 41). The registry sets an output and tells its other listeners, then throws a dependent's failure back out of `set`: an app's Atom over a ward's `read("x")`, say. It came out of the gate's write, called from the ward's own leg, so the ward's animation ended mid-flight, reported once a Retarget as `wardic.spine: a leg failed`.
+
+- **A `try` per output,** around its direct `registry.set`, in `setOutput`, the function `setOutputs`' loop calls for each output that changed. Written in the loop's body, over the element's outputs Map, it measured +5–8% on Node's write; here, nothing measurable (ADR-0043, *Amendment (#979, group D)*). The write goes on, the element's other outputs with it. A dependent that throws is reported once until a clean set, `wardic.gate: an output failed`, annotated with the element's `id` and the `key`.
+- **Pinned by** GV8 (`packages/dom/test/gate.node.test.ts`). Its cost and the rest of group D are in ADR-0043, *Amendment (#979, group D)*.

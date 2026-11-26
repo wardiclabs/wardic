@@ -409,3 +409,77 @@ A **Timeline value** is a Live value derived from a container's scroll by ranges
 
   The gate's column is *Note (#240)*'s measure again, the progress bar's then.
 - **Size** (`bun run size`, gzip, against `main`): `s1-scroll` and `s2-scroll`, new apps whose values follow a scroll, 103.8 → 107.4 KB (+3.5%) and 125.4 → 129.0 KB (+2.9%): `timeline.ts`, which only they ship. The Slim element's apps +0.5 KB each (+0.6% and +0.5%), PR 1's gate and PR 2's spine (+0.2 KB of it); every other app under the 1% gate.
+
+## Amendment (#979, group D, 2026-11-26): a Live value's failure is its own
+
+ADR-0074's rule (one Subject's failure is its own) for Live values: its row 32, and two rows its probe found (#979's 40 and 41). ADR-0027 and ADR-0033 each carry a short amendment for their own row, pointing here.
+
+**What happened** (probed on `main` at 0e8b5768, in Chromium, in every binding):
+1. **A run's dependent** (row 32): a `createTransform` whose function throws, over a follow, a spring, a velocity or time. Effect's registry tells every listener, then throws the first failure back out of `registry.set`, here the run's write. The run died, nobody watching it, its `running` left set: the value frozen for good, its other consumers with it, nothing logged. Only `jump()` brought it back.
+2. **A run's source:** a spring reads its source every step, a velocity at each step. Over a source that throws, either died the same way. A Wardic transform over an app's own Atom threw out of the app's own `set`.
+3. **The Frame loop's hooks** (row 40): a velocity's `afterTick` hook reads its source at every tick, at rest too. The loop called its hooks with no `try`, so one failing source failed the tick: every run on the loop ended, an unrelated ward's leg was reported as `wardic.spine: a leg failed`, and an unrelated follow froze.
+4. **The Flush gate's outputs** (row 41): a throwing dependent of a ward's `read(key)` came out of the gate's write, into the ward's own leg. Its animation ended mid-flight, reported once a Retarget.
+5. **Solid 1:** its function form is a memo, and its throw broke Solid 1's synchronous update. The rest of the update was dropped (an element painted 17.7 where its accessor said 23.2), and what read the failed memo lost its subscription for good.
+6. **Already following the rule:** the DOM's carried `style` keeps its last value; Foldkit's `w.OnUpdate` values are reported once a run by the gate's `onCommit`; Solid 2's memo form logs Solid's own error once and recovers. Foldkit has no transform helper: its apps use `LiveValue.transform`, or an `Atom.map` of their own.
+
+**Decided (grilled 2026-11-26, Q1–Q10):**
+1. **Every Wardic transform keeps its last value** (Q1): Solid 2's Atom form, the effect that derives it again as its function's Solid reads change, and its memo form; Solid 1's memos; core's `LiveValue.transform`, whose `mixer` is the app's. A function that throws keeps the value it gave last, reported once a run of throws (ADR-0074 rule 3). Its Atom never fails, so nothing over it or under it sees a throw: 1, 2, 4 and 5 at their source, for Wardic's own transforms.
+2. **Its first value** (Q5): with no value yet to keep, its throw is its first reader's. That's `createTransform`'s call where the call reads it (Solid 1's memo, Solid 2's Atom form), a refusal that takes nothing (ADR-0074's scope); Solid 2's memo form, which Solid computes and holds an error of, at its first read; in core, the transform's first reader.
+3. **The loop's hooks** (Q2, row 40): a `try` per hook, at the tick's end and in a Late round, as each run's step has (ADR-0027, *Amendment (#979, group D)*).
+4. **The runs and the gate** (Q3): follow (a spring is one), velocity and time catch their per-frame write and their source reads, and the gate catches each output's set (ADR-0033, *Amendment (#979, group D)*). So an Atom Wardic doesn't wrap, an app's `Atom.map`, can't freeze them: a run's bookkeeping goes on past its write, a spring steers toward its source's last read, and a velocity over a source it can't read reads as still. An app's own Atom still throws out of the app's own `set`: that's Effect's registry, and the app's own code.
+5. **The messages** (Q6), each once a run of throws, cleared by the next clean call:
+
+   | Where | Message |
+   |---|---|
+   | a transform's function (Solid 2's forms, Solid 1's) | `wardic.transform: its function failed` |
+   | a transform's `mixer` (core, so every binding's ranges form; Solid's memo form too) | `wardic.transform: its mixer failed` |
+   | a run's write | `wardic.liveValue: its dependent failed` |
+   | a run's source read | `wardic.liveValue: its source failed` |
+   | the gate's output, annotated with its `id` and `key` | `wardic.gate: an output failed` |
+   | a Frame loop hook | `wardic.frameLoop: an afterTick hook failed` |
+
+6. **Where each is reported** (Q7): Solid's transforms on the provider's runtime, or on Effect's own outside a provider (Solid 1's function form over a signal needs none, as its docs say); core's on the Effect context each value is built with, captured once and used only at a failure (`Effect.runForkWith`), so Foldkit's report through its provider; the gate on its runtime; the loop on the context it was built with.
+7. **Cost** (Q8): see below.
+8. **Found, not here:** a velocity over a follow reads 0 on every frame, nothing throwing (#991).
+
+**Cost.** `bench:core` and `bench:solid` don't run Live values, so a paired microbench (`.tmp/979d/bench/`) times them: core's source on `main` against the branch's, both bundled into one file, nothing throwing. Each scenario's units are 1,000 values, or 100 hooks, over 20 frames. Medians of 21 alternating reps, with a control that times `main` against a second copy of it, on the quiet bench host. The final run (branch, then control):
+
+| scenario | Bun 1.3.13 | control | Node 22.22 | control | Node, Maglev | control |
+|---|---|---|---|---|---|---|
+| a follow, a transform over it | +10.1% | +6.4% | −5.7% | −0.7% | +3.0% | +5.0% |
+| a spring, steering every step | −6.6% | +0.5% | −15.2% | −6.5% | +0.9% | +2.4% |
+| a velocity and its hook | +1.4% | −8.6% | −0.4% | −17.7% | +2.2% | −1.1% |
+| a tick's hooks | +0.0% | +2.4% | +1.7% | −0.5% | +3.4% | +0.5% |
+| the gate's write, an output followed | −11.3% | +4.0% | −3.7% | −0.7% | +1.9% | +1.2% |
+| a ranges transform's change | −6.0% | −3.3% | +21.8% | +1.3% | −1.3% | +0.4% |
+| a function transform's change | −5.6% | +3.3% | −7.0% | +0.1% | +0.3% | +0.4% |
+
+- **Within noise:** every scenario reads within its control's spread in Bun and Node, which swing ±10–25% on identical code here. Node's ranges transform, +21.8% in this run, read −4.4% to −8.9% in four reruns, against controls of +0.6% to −25%. In Node capped at Maglev, V8's middle tier and the tightest (±2%), so do all but one: the velocity's +2.2% read +4.9% and +1.4% in two reruns, against +4.9% and +0.1%.
+- **The one cost, accepted:** a tick's hooks, +3.4% [3.0, 3.8] against +0.5% in Maglev, about 2 ns a hook a tick, and nothing measurable in Node's top tier or Bun. A page has two or three hooks. A function holding the hook's `try` read +6–10%, and one `try` around a loop that goes on at the next hook read no clearer, so the hook keeps a `try` of its own, as each step has; the owner kept it.
+- **What the first build cost, and why each `try` is written where it is:** a reader and a writer shared by the runs, closures called each frame with the `try` inside, read +8 points on Bun's follow and +16 on its velocity; a wrapper around a transform's function, a few points a change; the gate's `try` inside its loop over an element's outputs Map, +5–8% on Node's write. So each run's `try` is written into its own write and read, the transforms' into the read Solid or the registry calls, and the gate's in a function of its own that its loop calls. Every flag is cleared only when it's set, a check on the clean path.
+
+**Tests** (Q9), each failing on `main` first:
+- **Core** (`packages/test/test/live-value.test.ts`, `TestClock`):
+  - LF1: a follow whose dependent throws keeps following and lands, its other listener hearing every frame, reported once a run of throws;
+  - LF2: a spring over a source that throws holds its last read and goes on once the source recovers;
+  - LF3 (row 40): a velocity over a failing source reads as still, and an unrelated follow lands;
+  - LF4: time whose dependent throws keeps counting;
+  - LF5: `transform` with a throwing `mixer` keeps its last value, its first value's throw its reader's;
+  - LF6: a velocity whose dependent throws rests at 0.
+- **The Frame loop** (`frame-loop.test.ts`): a throwing hook leaves the tick's other hooks and every run going, reported once a run (row 40); TK3 and LW8 now pin the window's close after it.
+- **The gate** (`gate.node.test.ts`): GV8, an output whose dependent throws leaves every write committing and its other output set (row 41).
+- **Solid 2** (`live-values.browser.test.tsx`):
+  - LV18: the function form over a follow keeps its last value, and the follow and its other consumer go on;
+  - LV19: the memo form: Wardic's report, none of Solid's;
+  - LV20: over a ward's `read("x")`, the ward lands;
+  - LV21: its own Solid reads changing while it throws.
+- **Solid 1** (`v1/live-values.browser.test.tsx`): LF19, the rest of the update paints.
+- **Foldkit** (`values.browser.test.ts`): `LiveValue.transform` with a throwing `mixer`, through `Wardic.provide`.
+- **Mutations:** 23 of 23 caught, each run alone (`.tmp/979d/mutate.py`):
+  - each `try` dropped: a run's write and source read, a hook's in a tick and a Late round, an output's, a transform's;
+  - each report dropped, or made at every throw, or never cleared;
+  - a spring's last read lost, and a transform's first throw kept as a value.
+  - **Missed first:** velocity's hook without its `try`, as the loop's own `try` caught it there, reported on a context the test's Logger hadn't reached. The core tests now build the loop with it.
+  - **Two each at one seam:** the transform's once by LF5, as Foldkit's test throws once; an output's `try` by GV8, as Solid 2's transform catches its own throw before the gate sees one.
+
+**Size** (`bun run size`): every app grows, within the 1% gate, since every app has the loop and the gate: `s1-slim` +170 B gzipped, `s2-slim` +117, `f-slim` +343, `t2-stage` +141, `t2-features` +213, and the scroll apps the most, about +600. The five budgets were raised by what was measured, to 96.2, 119.0, 198.6, 246.2 and 253.8.

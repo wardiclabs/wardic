@@ -793,3 +793,11 @@ The loop gains `hint(frameTime)` (ADR-0071, decision 32; the hint ADR-0018's *Am
 `FrameLoop.Sink<F>` is `(frame: F, dt: number) => undefined`. The loop hands each sink the dt it just stepped the run by, in seconds: the tick's for a tick's step and for a Late step, and 0 for a last-lane run's step again in the window. The spine's Blend legs divide their change by it (ADR-0005, *Amendment (#865)*), as a presence's exit already divided by its step's. A one-argument sink still compiles, and a sink that wraps another passes it on (`PresenceController`'s exit runs). Decision 8's guard holds as before: a sink still returns `undefined`.
 
 **Tests:** `packages/core/test/frame-loop.test.ts`, SD1–SD2.
+
+## Amendment (#979, group D, 2026-11-26): a hook's failure is its own
+
+ADR-0074's rule (one Subject's failure is its own), for the loop's `afterTick` hooks, found by #979's group D (its row 40). The loop called its hooks in a plain loop, at a tick's end and in a Late round. One that threw failed the tick: every run on the loop ended with the defect, and the hooks after it were skipped. A velocity's hook reads its source at every tick, at rest too, so one Live value over a failing Atom stopped every animation on the page (ADR-0043, *Amendment (#979, group D)*).
+
+- **A `try` per hook, in both loops,** around its direct call, as each run's step has. A hook that throws is reported once until a call returns, `wardic.frameLoop: an afterTick hook failed`, on the context the loop was built with. The tick's other hooks and runs go on, and its window closes as any tick's does.
+- **What it reverses:** *Amendment (#673)*'s "a hook that throws fails its tick before the flag is cleared". TK3 now pins that the window closes after a hook throws, the tick ending as any, and LW8 that a Late round's throwing hook leaves every run going. The test before them, "a hook that throws fails the tick", now pins the hook's own failure: the other hooks run, every run goes on, and it's reported once a run of throws.
+- **Its cost** is ADR-0043's amendment's: a tick's hooks, 100 of them, measured with the rest of group D's sites.
