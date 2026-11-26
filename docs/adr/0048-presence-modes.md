@@ -909,3 +909,36 @@ Under `mode="popLayout"`, an `<svg>` root ran its exit where it was (*Amendment 
 
   And `v2/presence-svg.browser.test.tsx` PSV5 (flipped as PS6), PSV9 (PS9), PSV10 (the right anchor of PS10), PSV11 (PS12 and PS14 together). Against the old source, PS6, PS9–PS15, PS18, PSV5 and PSV9–PSV11 fail.
 - **Mutation-checked** (`.tmp/744/mutate.py`, run alone): 13 single-point mutations, all caught: `<svg>` roots not popped, an inner `<svg>` popped (PS17's input), no size check, its own transform kept, no scale, the filler in the body, the filler taking the page's rules, the filler left behind, the right-to-left flip dropped, the bottom measured as the top, the right without its margin, rounded offsets, and no keep-seen for an `<svg>` root.
+
+## Amendment (#983, 2026-11-26): a held child's release that throws is reported
+
+**What happened.** ADR-0074's audit, group F, row 38, found while scoping #977. Once a presence's last leaver has left, `leaveEnds` (`PresenceController.ts`) runs two hand-offs, neither caught:
+- `allLeft()`, `propagate`'s `done`, which lets the parent's child go;
+- `mode="wait"`'s `options.release()`, which puts the held children on the page.
+
+A plain exit reaches `leaveEnds` from its fiber's `Effect.ensuring`, after the `tapCause` that reports an exit's failure. So a throw there became the fiber's own defect, and nothing watches that fiber, so nothing was logged.
+
+**Probed** in each binding, since #983 was filed from reading the code:
+- **Solid 1 only:** its `release()` sets a signal outside a batch, which runs the held children's starts at once. A held element whose function variant throws at its start (its result depending on state that changed while it was held) threw out of `release()`, unlogged. Only an app's `<ErrorBoundary>` saw it.
+  - Solid 1 then dropped the rest of that update, so every held element stayed at its `initial`.
+  - Under `propagate`, the throw came out of `done` before `tear()`, so the inner presence was never torn down.
+  - A Batch member's keyed exit took the same throw through #984's landing `try`.
+- **Solid 2 and Foldkit can't throw here:** Solid 2's `release()` is a batched set, its held start running at Solid's next flush on the target resolved at setup. Foldkit's queues a microtask.
+- **#983's own test was the wrong shape.** A held child's component has already run, off the page, before the release, so its render can't throw then.
+
+**Decided** (#983's grill, Q1–Q8):
+1. **This hand-off alone** (Q1). The source on Solid 1 is a variant resolver that throws, row 31, and its fix (catching where every binding resolves a target) is group F's next. Until then the held elements still freeze on Solid 1, but the failure is reported.
+2. **The release in a `try`** (Q2, Q3): reported each time, since it runs once a set of exits, as `wardic.presence: mode="wait"'s release failed`, on the presence's runtime.
+3. **`propagate`'s `done` tears its own presence down first** (Q2), then lets the parent's child go, by ADR-0074's ordering amendment.
+4. **No `try` around `allLeft()`** (Q5). The parent's own release `try` catches the throw an app can make, so a throw past it could only be a bug in Wardic's own code, and no test could make it.
+
+**Built:** `leaveEnds` and `propagateTo` in `packages/dom/src/unstable/PresenceController.ts`.
+
+**Tests** (Q6), on Solid 1, each failing on `main` first:
+- **WT12** (`v1/presence-wait.browser.test.tsx`): a `mode="wait"` switch whose held child's variant is broken while it's held. It's reported once with its cause, nothing reaches window `error` or `unhandledrejection`, and the next switch exits and enters.
+- **PG11** (`v1/presence-propagate.browser.test.tsx`): an inner `<AnimatePresence propagate>` whose `done` releases its parent's held child, the inner exit outlasting the outer one's own. It's reported once, and the inner presence's teardown is logged.
+- **Mutations:** the `try` dropped and the report dropped, both caught. The teardown's new place before the parent's `release()` is not caught: the parent's own `try` returns normally, so `tear()` runs in either place. It's kept for a throw past that `try`, which only a bug in Wardic's own code could make.
+
+**Cost** (Q7): `leaveEnds` runs once a set of exits, not per frame, so no bench. `bun run size`: the presence apps +0.1 KB minified, with no gzip change past rounding, and every budget held.
+
+**Found, not here:** #987. On Solid 2, under `mode="wait"`, a leaver with no `exit` makes `release()` set its signal inside the effect that reads it, which trips `EFFECT_WRITES_OWN_SOURCE`.
