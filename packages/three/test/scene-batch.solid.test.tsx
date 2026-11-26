@@ -12,12 +12,16 @@
 // - BT8: a member's hover, through the scene's raycast: its `whileHover`, and `hoverStart` with `{ i, item, element }`.
 // - BT9: `next("settled")` tells how many set off; with no Stage that makes Batches, an error naming one.
 // - BT10: Batches are a Stage's feature: a Stage without `stageBatches` makes none, an error naming it.
+// - BT11 (#981): a member's `removed` listener throwing as it leaves: with no exit, the others leaving with it
+//   still go; with an exit, it goes and is disposed; reported once each time.
+import * as Arr from "effect/Array"
 import { createBatch, type StageBatch, stagger, WardicStage } from "@wardic/solid"
 import { stageBatches, TestStage } from "@wardic/three/solid"
 import type { JSX } from "@solidjs/web"
 import { children, createRenderEffect, createRoot, createSignal, Errored, flush } from "solid-js"
 import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, Vector3 } from "three"
 import { afterEach, describe, expect, it } from "vitest"
+import { reportsDuring } from "../../object/test/reports.ts"
 
 const disposers: Array<() => void> = []
 const mountTree = (tree: () => JSX.Element): (() => void) =>
@@ -347,5 +351,72 @@ describe("createBatch in a scene (#885's PR 5)", () => {
       </WardicStage>
     ))
     expect(String(thrown)).toMatch(/features: \[stageBatches\]/)
+  })
+
+  it("BT11: a member's removed listener throwing as it leaves: the others still go, it's disposed, reported once (#981)", async () => {
+    const throwing = (mesh: Mesh): Mesh => {
+      mesh.addEventListener("removed", () => {
+        throw new Error("a cache's listener broke")
+      })
+      return mesh
+    }
+
+    // With no exit: the three go at once, in one change.
+    const plain = stageOf()
+    const made = new Map<string, Mesh>()
+    const [list, setList] = createSignal<ReadonlyArray<Item>>([{ id: "a" }, { id: "b" }, { id: "c" }])
+    batchOn(plain.stage, () =>
+      createBatch({
+        each: list,
+        key: "id",
+        object: (item: Item) => {
+          const mesh = meshOf()
+          if (item.id === "a") throwing(mesh)
+          made.set(item.id, mesh)
+          return mesh
+        },
+        animate: () => ({ x: 1 }),
+      }),
+    )
+    await plain.frames(2)
+    const plainReports = await reportsDuring(async () => {
+      setList([])
+      flush()
+    })
+    expect(Arr.map(["a", "b", "c"], (id) => made.get(id)!.parent), "every one left").toEqual([null, null, null])
+    expect(plainReports).toEqual(["wardic.stage: a Subject's leave failed"])
+
+    // With an exit: it goes as its exit lands, and is disposed.
+    const { scene, stage, frames } = stageOf()
+    const exiting = new Map<string, Mesh>()
+    const disposed: Array<string> = []
+    const [items, setItems] = createSignal<ReadonlyArray<Item>>([{ id: "a" }, { id: "b" }])
+    batchOn(stage, () =>
+      createBatch({
+        each: items,
+        key: "id",
+        object: (item: Item) => {
+          const mesh = meshOf()
+          if (item.id === "a") throwing(mesh)
+          mesh.geometry.addEventListener("dispose", () => void disposed.push(item.id))
+          exiting.set(item.id, mesh)
+          return mesh
+        },
+        animate: (_item: Item, i: number) => ({ x: i, scale: 1 }),
+        exit: { scale: 0 },
+        dispose: true,
+        transition: LINEAR,
+      }),
+    )
+    await frames(20)
+    const reports = await reportsDuring(async () => {
+      setItems([])
+      await frames(4)
+      expect(exiting.get("a")!.parent, "in the scene while its exit plays").toBe(scene)
+      await frames(20)
+    })
+    expect(Arr.map(["a", "b"], (id) => exiting.get(id)!.parent), "both left").toEqual([null, null])
+    expect(disposed.sort(), "both disposed").toEqual(["a", "b"])
+    expect(reports).toEqual(["wardic.stage: a Subject's leave failed"])
   })
 })

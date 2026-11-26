@@ -22,10 +22,12 @@ import * as Playback from "@wardic/core/Playback"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as BatchCalls from "@wardic/core/unstable/BatchCalls"
 import type * as Config from "@wardic/core/unstable/Config"
+import * as Report from "@wardic/core/unstable/Report"
 import * as Spine from "@wardic/core/unstable/Spine"
 import type { StageBatchBinding, StageBatchHooks, StageBatchMemberInfo, StageBatchValues, StageCountBatchConfig, StageKeyedBatchConfig, StageWardEnvironment } from "@wardic/solid"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -35,6 +37,7 @@ import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Object3D } from "three"
+import { leaveScene } from "../internal/leave-scene.ts"
 import * as ThreeColours from "../ThreeColours.ts"
 import * as ThreeInstances from "../ThreeInstances.ts"
 import * as ThreeRenderer from "../ThreeRenderer.ts"
@@ -74,16 +77,6 @@ interface Targets {
 const fail = (message: string): never => {
   throw new Error(`createBatch: ${message}`)
 }
-
-/** `object`'s geometries and materials, and its descendants', disposed. */
-const disposeTree = (object: Object3D): void =>
-  object.traverse((node) => {
-    const parts = node as unknown as { readonly geometry?: { readonly dispose?: () => void }; readonly material?: unknown }
-    UndefinedOr.map(parts.geometry, (geometry) => UndefinedOr.map(geometry.dispose, (dispose) => dispose.call(geometry)))
-    Arr.forEach(Arr.ensure(parts.material), (material) => {
-      if (Predicate.hasProperty(material, "dispose") && Predicate.isFunction(material.dispose)) material.dispose()
-    })
-  })
 
 /** `target` without its `transition`: its values, and the transition it runs on. */
 const valuesAndTransition = (target: StageBatchValues): readonly [StageBatchValues, Config.WardicTransition | undefined] => {
@@ -301,9 +294,12 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
       UndefinedOr.map(batch, (running) => Batch.draw(running))
       return
     }
-    const object = member.subject as Object3D
-    object.removeFromParent()
-    if (byKey.dispose === true) disposeTree(object)
+    // An app's listener that throws as it leaves: reported, and it has left all the same (#981).
+    try {
+      leaveScene(member.subject as Object3D, byKey.dispose === true)
+    } catch (defect) {
+      runtime.runFork(Report.failure("wardic.stage: a Subject's leave failed", Cause.die(defect)))
+    }
   }
 
   /** Keyed members leaving: each plays its exit, one driven change of them all, and goes as its own lands. */

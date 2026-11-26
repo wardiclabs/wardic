@@ -200,7 +200,10 @@ export type StageKeyedBatchConfig<T> = StageBatchMembers<[item: T, i: number]> &
   readonly whileTap?: StageBatchTarget | ((item: T, i: number) => StageBatchValues) | undefined
   readonly transition?: BatchMembers.WardicBatchTransition | undefined
   readonly parent?: object | undefined
-  /** Dispose each object's geometries and materials, and its descendants', once it has left. */
+  /**
+   * Dispose each object's geometries and materials, and its descendants', once it has left. A `dispose` or
+   * `removed` listener of the app's that throws is reported, and every part is still disposed.
+   */
   readonly dispose?: boolean | undefined
   readonly keys?: ReadonlyArray<string> | undefined
 }
