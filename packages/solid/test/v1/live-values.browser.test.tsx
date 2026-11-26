@@ -24,6 +24,8 @@
 // - LF18: `skipInitialAnimation`: the source's first change lands at once; the changes after it spring.
 // - LF19 (#979, group D): a transform whose function throws keeps its last value, reported once a run of
 //   throws; the rest of the update it ran in paints, and it maps again once it returns.
+// - LF20 (#979, row 42): a ward whose owner is disposed while an Atom over its `atom("x")` throws on
+//   `undefined`: nothing comes out of the app's update, and the rest of the disposal runs.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Layer from "effect/Layer"
@@ -31,7 +33,7 @@ import * as Logger from "effect/Logger"
 import { createFollowValue, createSpring, createTransform, createVelocity, createWard, type SpringAccessor, useWardicRuntime, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/v1"
 import * as Bool from "effect/Boolean"
 import { Atom, AtomRegistry } from "effect/reactivity"
-import { type Accessor, createSignal } from "solid-js"
+import { type Accessor, createSignal, onCleanup, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { BOX, hover, leave, opacityOf, recorder, translateXOf, valuesIn } from "./base-values-harness.ts"
 import { afterPaint, until } from "../browser-helpers.ts"
@@ -529,5 +531,46 @@ describe("a transform's failure is its own (#979, group D; ADR-0074)", () => {
     expect(doubled(), "mapped again").toBe(100)
     expect(translateXOf(good)).toBe(51)
     expect(errorsNamed(logs, "wardic.transform: its function failed")).toHaveLength(1)
+  })
+})
+
+describe("a ward's output's failure is its own (#979, row 42; ADR-0074)", () => {
+  it("LF20: a ward whose owner is disposed while an Atom over its atom('x') throws on undefined: nothing comes out of the app's update, and the rest of the disposal runs; reported once", async () => {
+    const logs: Array<Logged> = []
+    const cleaned: Array<string> = []
+    let registry!: AtomRegistry.AtomRegistry
+    let card!: ReturnType<typeof createWard>
+    const [shown, setShown] = createSignal(true)
+    const Sibling = (props: { readonly name: string }) => {
+      onCleanup(() => void cleaned.push(props.name))
+      return null
+    }
+    const Card = () => {
+      registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
+      card = createWard({ animate: { x: 50 }, transition: { duration: 0 } })
+      return <div {...card({ style: BOX })} />
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <Show when={shown()}>
+          <Sibling name="before" />
+          <Card />
+          <Sibling name="after" />
+        </Show>
+      </WardicProvider>
+    ))
+    await settle()
+    // An app's own Atom over the ward's `atom("x")` that can't take `undefined`, held past the ward's owner.
+    const stop = registry.subscribe(Atom.make((get) => (get(card.atom("x")) as number).toFixed(1)), () => {})
+    try {
+      // Before #979's row 42, its throw came out of the gate's unregister, through Solid 1's disposal, out of
+      // this set: the disposal stopped there, and the earlier sibling's cleanup never ran.
+      expect(() => setShown(false)).not.toThrow()
+      await settle()
+      expect(cleaned, "every cleanup ran").toEqual(["after", "before"])
+      expect(errorsNamed(logs, "wardic.gate: an output failed")).toHaveLength(1)
+    } finally {
+      stop()
+    }
   })
 })
