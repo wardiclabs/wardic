@@ -57,6 +57,7 @@ import type * as WardConfig from "./WardConfig.ts"
 import type * as CorePresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
+import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 
 // #672 (PR5-Q3): the DOM's presence types, core's protocol over Element, here with the DOM's presence:
@@ -743,6 +744,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * the wrong one — is diagnosable. The per-frame commit stays silent.
    */
   const debug = Report.debugOf(runtime, "wardic.presence")
+  const exitFailed = Spine.exitVariantFailedOn(runtime)
 
   // The registry of live child records, keyed by their DOM element. Filled by
   // register() (called from the child's spine on mount), drained as children
@@ -1080,6 +1082,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const joinersOf = (provider: PresenceRecord): ReadonlyArray<PresenceRecord> => Arr.filter(parts, (part) => joinsTo.get(part) === provider)
     const nodeOf = (node: PresenceRecord, inherited: WardConfig.WardicVariantLabels | undefined): ExitNode => {
       const exit = node.exitOf(custom, inherited)
+      // An exit whose resolver threw has no values: it leaves without it, reported each time (#979).
+      UndefinedOr.map(exit.failure, (failure) => Option.map(failure, exitFailed))
       return { rec: node, exit, kids: Arr.map(joinersOf(node), (kid) => nodeOf(kid, exit.name)) }
     }
     // The child's own tree, if it's a Wardic element, and each element inside it that joins nothing
