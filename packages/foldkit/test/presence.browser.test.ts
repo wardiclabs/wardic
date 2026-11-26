@@ -14,7 +14,7 @@ import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { arc, Features } from "@wardic/foldkit"
 import { until } from "../../solid/test/browser-helpers.ts"
-import { boxOf, embed, type Embedded, frames } from "./harness.ts"
+import { boxOf, embed, type Embedded, frames, logged, saidTimes } from "./harness.ts"
 
 const Model = Schema.Struct({ items: Schema.Array(Schema.String), exited: Schema.Number })
 type Model = typeof Model.Type
@@ -301,5 +301,78 @@ describe("w.Presence({ propagate: true })", () => {
     await until(() => item() !== null && opacityOf(item()) < 1 && opacityOf(item()) > 0, 2000, "q's items exit")
     expect(held.container.querySelector("#panel-q")).not.toBeNull()
     await until(() => held.container.querySelector("#panel-q") === null, 2000, "q goes once its items have")
+  })
+})
+
+describe("a variant's resolver that throws, on Foldkit (#979, group F)", () => {
+  /** A resolver that resolves to `opacity: 0` until it's broken, then throws: one reading what changed. */
+  const breakable = () => {
+    let broken = false
+    return {
+      resolver: () => {
+        if (broken) throw new Error("its variant broke")
+        return { opacity: 0 }
+      },
+      break: () => {
+        broken = true
+      },
+    }
+  }
+
+  it("FV1: one that throws as its element is set up no longer crashes the app: reported once, however often it renders", async () => {
+    const lines = await logged(async () => {
+      const held = embed<Model, Message, ReadonlyArray<string>>({
+        Model,
+        Set: Schema.Array(Schema.String),
+        init: { items: ["a"], exited: 0 },
+        update,
+        // Every render's Starting style resolves each of its variants: before #979, this one's throw crashed the app.
+        view: (model, h) => {
+          const w = wardic.html(h)
+          const broken = (): never => {
+            throw new Error("its variant broke")
+          }
+          return h.div([], [w.div([h.Id("box"), w.Variants({ shown: { opacity: 1 }, gone: broken as never }), w.Initial({ opacity: 0 }), w.Animate("shown")], [model.items.join("")])])
+        },
+        toMessage: (items) => Message.Items({ items }),
+      })
+      app = held
+      await until(() => held.container.querySelector("#box") !== null, 2000, "the app renders")
+      held.send(["a", "b"])
+      held.send(["a", "b", "c"])
+      await until(() => held.container.querySelector("#box")?.textContent === "abc", 2000, "it renders again")
+      await until(() => opacityOf(held.container.querySelector<HTMLElement>("#box")) === 1, 2000, "it animates in")
+    })
+    expect(saidTimes(lines, "wardic.ward: a variant failed")).toBe(1)
+  })
+
+  it("FV2: the first of two leavers whose exit variant throws leaves without it, reported; the other exits", async () => {
+    const gone = breakable()
+    const lines = await logged(async () => {
+      const held = embed<Model, Message, ReadonlyArray<string>>({
+        Model,
+        Set: Schema.Array(Schema.String),
+        init: { items: ["a", "b"], exited: 0 },
+        update,
+        view: (model, h) => {
+          const w = wardic.html(h)
+          const exitOf = (key: string) => Bool.match(key === "a", { onTrue: () => [w.Variants({ gone: gone.resolver as never }), w.Exit("gone")], onFalse: () => [w.Exit({ opacity: 0 })] })
+          return h.div([], [
+            w.ul([h.Id("list"), w.Presence({})], Arr.map(model.items, (key) =>
+              w.keyed("li")(key, [h.Id(`item-${key}`), w.Initial({ opacity: 1 }), ...exitOf(key), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ height: "20px" })], [key]))),
+          ])
+        },
+        toMessage: (items) => Message.Items({ items }),
+      })
+      app = held
+      await until(() => orderOf(held) === "ab", 2000, "both render")
+      gone.break()
+      // Before #979, the throw went uncaught: a and b stayed on the page for good.
+      held.send([])
+      await until(() => itemOf(held, "a") === null, 2000, "a leaves at once")
+      expect(itemOf(held, "b"), "b exiting").not.toBeNull()
+      await until(() => itemOf(held, "b") === null, 2000, "b leaves once its exit ends")
+    })
+    expect(saidTimes(lines, "wardic.presence: an exit variant failed")).toBe(1)
   })
 })

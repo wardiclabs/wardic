@@ -935,4 +935,23 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     await earlier
     wardic.dispose()
   })
+
+  it("WO33: a resolver given as a call's target that throws is still an error at the call, and takes nothing (#979)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const ball = { x: 0 }
+    const earlier = wardic.animate(ball, { x: 10 }, { type: "tween", duration: 0.5, ease: "linear" })
+    await tick()
+    pump(wardic, 5, () => undefined, clock)
+    const resolver = (): never => {
+      throw new Error("its target broke")
+    }
+    // A resolver's throw is caught where every resolver runs (#979): at a call it's thrown again, a refusal.
+    expect(() => wardic.animate(ball, resolver as never)).toThrow(/its target broke/)
+    await tick()
+    pump(wardic, 40, () => undefined, clock)
+    expect(earlier.state).toBe("finished")
+    expect(ball.x).toBe(10)
+    wardic.dispose()
+  })
 })

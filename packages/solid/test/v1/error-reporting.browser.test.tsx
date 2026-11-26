@@ -12,7 +12,7 @@ import * as References from "effect/References"
 import { createEffect, createSignal, ErrorBoundary, onCleanup, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { runWatch } from "../../src/v1/provider.tsx"
-import { BROKEN, envWith, errorsNamed, type Logged } from "../report-env.ts"
+import { BROKEN, breakableVariants, envWith, errorsNamed, type Logged } from "../report-env.ts"
 import { opacityOf, raf, retryGesture, until } from "../browser-helpers.ts"
 
 /**
@@ -105,6 +105,99 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("blend broke")
     expect(reports).toEqual(["blend broke"])
+  })
+
+  it("a variant's resolver that throws at a change (#979): its element keeps its last target, the one beside it moves, reported once; it moves once it resolves", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const breakable = breakableVariants("bright")
+    const half = { opacity: 0.5 }
+    const [state, setState] = createSignal("half")
+    const FAST = { type: "tween", duration: 0.1 } as const
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div data-k="a" variants={{ ...breakable.variants, half }} initial="hidden" animate={state()} transition={FAST} />
+        <wardic.div data-k="b" variants={{ hidden: { opacity: 0 }, half, bright: { opacity: 1 } }} initial="hidden" animate={state()} transition={FAST} />
+      </WardicProvider>
+    ))
+    const a = container.querySelector<HTMLElement>('[data-k="a"]')!
+    const b = container.querySelector<HTMLElement>('[data-k="b"]')!
+    await until(() => opacityOf(a) === 0.5 && opacityOf(b) === 0.5)
+    breakable.break()
+    // Before #979, the throw came out of this set, and Solid 1 dropped the update: neither moved again.
+    setState("bright")
+    await until(() => opacityOf(b) === 1)
+    await raf()
+    // Its last target, not its Base (opacity 0), as a resolution to nothing would give.
+    expect(opacityOf(a), "a kept its last target").toBe(0.5)
+    breakable.heal()
+    setState("half")
+    await raf()
+    setState("bright")
+    await until(() => opacityOf(a) === 1)
+    const failed = errorsNamed(logs, "wardic.ward: a variant failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("its variant broke")
+    expect(reports).toEqual(["its variant broke"])
+  })
+
+  it("a whileHover resolver that throws (#979): reported once, and the element still moves at its next change", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const breakable = breakableVariants("lift")
+    const [state, setState] = createSignal("hidden")
+    const variants = { ...breakable.variants, shown: { opacity: 1 } }
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div data-k="a" variants={variants} initial="hidden" animate={state()} whileHover="lift" transition={{ type: "tween", duration: 0.1 }} />
+      </WardicProvider>
+    ))
+    const a = container.querySelector<HTMLElement>('[data-k="a"]')!
+    await raf()
+    breakable.break()
+    a.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
+    await raf()
+    a.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, bubbles: true }))
+    await raf()
+    // Before #979, Solid 1's update dropped at the hover's throw left the element frozen.
+    setState("shown")
+    await until(() => opacityOf(a) === 1)
+    expect(errorsNamed(logs, "wardic.ward: a variant failed")).toHaveLength(1)
+    expect(reports).toEqual(["its variant broke"])
+  })
+
+  it("an exit variant's resolver that throws (#979): it leaves without its exit, reported, and the leaver beside it exits; onExitComplete told", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const breakable = breakableVariants("gone")
+    let completes = 0
+    const [shown, setShown] = createSignal(true)
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <AnimatePresence onExitComplete={() => completes++}>
+          <Show when={shown()}>
+            <wardic.div data-k="a" variants={breakable.variants} exit="gone" />
+            <wardic.div data-k="b" exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.3 }} />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    await raf()
+    const b = container.querySelector<HTMLElement>('[data-k="b"]')!
+    breakable.break()
+    // Before #979, the throw came out of this set: a stayed for good, and b went with no exit.
+    setShown(false)
+    await raf()
+    await raf()
+    expect(container.querySelector('[data-k="a"]'), "a left at once").toBeNull()
+    expect(b.isConnected, "b exiting").toBe(true)
+    await until(() => !b.isConnected, 2000)
+    // Told: as for a leaver with no exit beside one exiting, which tells it as each leaves (not #979's).
+    await until(() => completes > 0, 2000)
+    const failed = errorsNamed(logs, "wardic.presence: an exit variant failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("its variant broke")
+    expect(reports).toEqual(["its variant broke"])
   })
 
   it("presence's onExitComplete (#257): one that throws is logged at Error with its cause, reported once, and the presence goes on", async () => {

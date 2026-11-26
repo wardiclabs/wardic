@@ -14,12 +14,15 @@
 //   new one (#277; it was ended at once).
 // - P10 (#277): a `<For>`'s items: one removed from the middle exits in its place, a second removed
 //   while it exits too, each then gone, in order.
+// - P11 (#979): two children leaving, the first's exit variant a resolver that throws: it leaves without
+//   its exit, reported, the other's exit runs, and the presence goes on (before, Solid 2's reactivity halted).
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, ward, wardic, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
+import { breakableVariants, envWith, errorsNamed, type Logged } from "./report-env.ts"
 import { mount } from "./mount.tsx"
 
 const opacityOf = (el: Element | null | undefined): number => Number((el as HTMLElement).style.opacity)
@@ -306,5 +309,42 @@ describe("AnimatePresence on Solid 2: twins handed back (#181)", () => {
     expect(wrap.isConnected, "gone with the presence").toBe(false)
     await settle()
     expect(apart(rectOf(m.thumb), { l: 20, t: 300, r: 80, b: 340 }), "the thumbnail landed, px").toBeLessThan(0.5)
+  })
+
+  it("P11: the first of two leavers whose exit variant throws leaves without it, reported; the other exits, and the presence goes on (#979)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const breakable = breakableVariants("gone")
+    const [visible, setVisible] = createSignal(true)
+    const [next, setNext] = createSignal(false)
+    const { host } = mount(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <AnimatePresence>
+          <Show when={visible()}>
+            <wardic.div data-k="a" variants={breakable.variants} exit="gone" />
+            <wardic.div data-k="b" exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.3 }} />
+          </Show>
+          <Show when={next()}>
+            <wardic.div data-k="c" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: "tween", duration: 0.1 }} />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    await raf()
+    const b = host.querySelector<HTMLElement>('[data-k="b"]')!
+    breakable.break()
+    // Before #979, the throw came out of this flush as REACTIVITY_HALTED: a stayed, b went with no exit.
+    flushed(setVisible)(false)
+    await raf()
+    expect(host.querySelector('[data-k="a"]'), "a left at once").toBeNull()
+    expect(b.isConnected, "b exiting").toBe(true)
+    await until(() => !b.isConnected, 2000)
+    // The presence goes on: a child after them enters.
+    flushed(setNext)(true)
+    await until(() => opacityOf(host.querySelector('[data-k="c"]')) >= 0.99, 2000)
+    const failed = errorsNamed(logs, "wardic.presence: an exit variant failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("its variant broke")
+    expect(reports).toEqual(["its variant broke"])
   })
 })

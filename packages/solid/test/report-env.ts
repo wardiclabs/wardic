@@ -78,14 +78,15 @@ export const errorsNamed = (logs: ReadonlyArray<Logged>, message: string): Reado
   logsNamed(logs, message).filter((log) => log.level === "ERROR")
 
 /**
- * Variants whose `shown` resolves to `opacity: 1` until `break()` is called, then throws: a variant
- * reading what changed since it last resolved (#983).
+ * Variants with `hidden` and a resolver, `shown` unless named, that resolves to `opacity: 1` until
+ * `break()` is called, then throws until `heal()`: a variant reading what changed since it last resolved
+ * (#983, #979).
  */
-export const breakableVariants = () => {
+export const breakableVariants = (name = "shown") => {
   let broken = false
-  const variants = {
+  const variants: Readonly<Record<string, { readonly opacity: number } | (() => { readonly opacity: number })>> = {
     hidden: { opacity: 0 },
-    shown: () => {
+    [name]: () => {
       if (broken) throw new Error("its variant broke")
       return { opacity: 1 }
     },
@@ -94,6 +95,9 @@ export const breakableVariants = () => {
     variants,
     break: () => {
       broken = true
+    },
+    heal: () => {
+      broken = false
     },
   }
 }

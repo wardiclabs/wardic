@@ -13,12 +13,15 @@
 // - SO10: its `exit` a variant name; an exit's own transition.
 // - SO11: `ward(mesh, { exit })` is an error naming `createSceneObject`; no three.js Stage above it is one too.
 // - SO12: an object given again while it's still exiting stays: its exit stops, and it returns from where it is.
+// - SO13 (#979): the first of two Scene objects leaving whose exit variant throws leaves without it, reported;
+//   the other exits, and both leave the scene.
 import { ward, WardicStage } from "@wardic/solid"
 import { createSceneObject, type SceneObject, TestStage } from "@wardic/three/solid"
 import type { JSX } from "@solidjs/web"
 import { children, createMemo, createRenderEffect, createRoot, createSignal, flush, Loading } from "solid-js"
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from "three"
 import { afterEach, describe, expect, it } from "vitest"
+import { reportsDuring } from "../../object/test/reports.ts"
 
 /** What a renderer does with the tree: read it inside a root, tracked (*Amendment (#881)*, item 3). */
 const disposers: Array<() => void> = []
@@ -390,5 +393,40 @@ describe("createSceneObject (#885's PR 2)", () => {
     expect(String(wardError)).toMatch(/createSceneObject/)
     expect(String(stageError)).toMatch(/no three\.js Stage above it/)
     void ward
+  })
+
+  it("SO13: the first of two leaving whose exit variant throws leaves without it, reported; the other exits, and both leave (#979)", async () => {
+    const { scene, stage, frames } = stageOf()
+    const first = meshOf()
+    const second = meshOf()
+    let broken = false
+    const variants = {
+      gone: () => {
+        if (broken) throw new Error("its variant broke")
+        return { x: 0 }
+      },
+    }
+    const slow = { type: "tween", duration: 0.5, ease: "linear" } as const
+    const First = () => createSceneObject(first, { animate: { x: 1 }, variants: variants as never, exit: "gone", transition: slow }).held
+    const Second = () => createSceneObject(second, { animate: { x: 1 }, exit: { x: 0 }, transition: slow }).held
+    const [shown, setShown] = createSignal(true)
+    mountTree(() => (
+      <WardicStage value={stage}>
+        {shown() && <First />}
+        {shown() && <Second />}
+      </WardicStage>
+    ))
+    const reports = await reportsDuring(async () => {
+      await frames(2)
+      broken = true
+      // Before #979, its throw came out of this flush, and the first stayed in the scene for good.
+      setShown(false)
+      await frames(2)
+      expect(first.parent, "the first left at once").toBeNull()
+      expect(second.parent, "the second exiting").toBe(scene)
+      await frames(40)
+      expect(second.parent, "the second left once its exit landed").toBeNull()
+    })
+    expect(reports).toEqual(["wardic.presence: an exit variant failed"])
   })
 })
