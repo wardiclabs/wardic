@@ -112,6 +112,8 @@ const FAILED: { readonly failed: true } = { failed: true }
 type Failed = typeof FAILED
 
 /** What the resolver behind the last {@link FAILED} threw: set by `calledOf` and read by `resolveOne` at once, with no app code between. */
+// Module state (#979, bench:solid's mount): one throw at a time, handed from `calledOf` to `resolveOne` in one
+// synchronous step and cleared there, so `FAILED` stays one value told apart by identity.
 let thrown: unknown = undefined
 
 /** A resolver called with what it reads, as Motion calls it, its throw handed on as {@link FAILED}; anything else as it is. */

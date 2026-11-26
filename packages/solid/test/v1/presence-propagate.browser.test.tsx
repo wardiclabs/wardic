@@ -13,7 +13,8 @@
 // - PG9: an inner child with no exit leaves at once, and doesn't hold the outer child.
 // - PG10: an inner presence whose children have all gone already doesn't hold the outer child.
 // - PG11 (#983): the inner presence's last child leaving lets its parent, under `mode="wait"`, put a held
-//   child on the page whose start throws: reported, and the inner presence still torn down.
+//   child on the page whose start throws: reported, and the inner presence still torn down. Since #979's
+//   group F, the throw is caught where its variant resolves, and reported as the variant's, once.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid/v1"
@@ -297,9 +298,11 @@ describe('AnimatePresence propagate on Solid 1 (#277)', () => {
     await until(() => container.querySelector('[data-k="a"]') === null, 3000)
     await frames(3)
     // Before #983, the held child's throw came out of the inner presence's done before its teardown.
-    const failed = errorsNamed(logs, 'wardic.presence: mode="wait"\'s release failed')
+    // Since #979's group F, its variant's throw is caught where it resolves: the release never throws.
+    const failed = errorsNamed(logs, "wardic.ward: a variant failed")
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("its variant broke")
+    expect(errorsNamed(logs, 'wardic.presence: mode="wait"\'s release failed'), "the release goes on").toHaveLength(0)
     expect(reports).toEqual(["its variant broke"])
     expect(logsNamed(logs, "wardic.presence: teardown"), "the inner presence torn down").toHaveLength(1)
   })
