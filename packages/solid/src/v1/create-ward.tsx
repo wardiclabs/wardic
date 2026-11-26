@@ -266,6 +266,8 @@ export interface RunSpineOptions {
   readonly valueReads?: ElementSetup.ElementValueReads | undefined
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
+  /** Its element's dynamic variants that throw (#979): made with its variant node, which reports to them too. */
+  readonly variantFailures: Spine.VariantFailures
   /** The provider-owned flush gate (ADR-0006). */
   readonly gate: FlushGate.Shape
   /** SSR/hydration-stable gate id for this element's entry. */
@@ -433,7 +435,7 @@ const valueReadsIn = (given: ElementSetup.ElementValueReads | undefined): Elemen
 }
 
 export function runSpine(opts: RunSpineOptions): void {
-  const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
+  const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag, variantFailures } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
   const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal) })
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
@@ -476,7 +478,6 @@ export function runSpine(opts: RunSpineOptions): void {
   // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
   // keeping its last target, and nothing thrown into Solid's update, which would freeze every element in
   // it (#979; ADR-0074).
-  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
   variantFailures.started(start)
   const snapshot = Spine.snapshotOf(start)
   const reuse = Spine.makeReuse()
@@ -1029,7 +1030,10 @@ export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConf
   // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
   // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
   // `when`). Read at hook-call time (component body owner), for this instance's lifetime.
-  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
+  // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
+  // orchestration reports to, once.
+  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures.orchestrated)
 
   // The Renderer's PURE project (ADR-0003: synchronous, no engine), read once by the provider (#618, M1).
   const { project } = useWardicRenderer()
@@ -1108,6 +1112,7 @@ export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConf
   runSpine({
     valueReads,
     runtime,
+    variantFailures,
     gate,
     id,
     el,

@@ -106,6 +106,7 @@ import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as Spine from "@wardic/core/unstable/Spine"
+import type * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
@@ -824,6 +825,7 @@ const nodeFor = (
   config: WardConfigValues,
   parent: VariantTree.WardicVariantContextValue | undefined,
   change: Accessor<AnimationControls.ControlsChange | undefined> | undefined,
+  orchestrated: VariantTarget.Orchestrated,
 ): VariantNode => {
   if (Predicate.isNotUndefined(share)) {
     const node = share.node
@@ -831,7 +833,7 @@ const nodeFor = (
       if (share.carries) return node
     }
   }
-  return createVariantNode(cfg, config, parent, change)
+  return createVariantNode(cfg, config, parent, change, orchestrated)
 }
 
 /** A ward's **Animation controls** (#433): the controls, its view with each change as its entry, and the change in effect. */
@@ -1006,7 +1008,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its place in variant orchestration (ADR-0007, #50): where it's made, its given parent's (#349),
   // or its given ward's.
   const parent = variantParentOf(internal)
-  const node = nodeFor(share, cfg, initialConfig, parent, UndefinedOr.map(controls, (c) => c.change))
+  // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
+  // orchestration reports to, once.
+  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  const node = nodeFor(share, cfg, initialConfig, parent, UndefinedOr.map(controls, (c) => c.change), variantFailures.orchestrated)
 
   // The nearest <AnimatePresence> (ADR-0007), or none.
   const presence = usePresenceContext()
@@ -1020,7 +1025,6 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const start = Spine.startOf(initialConfig, node.inherited, presenceBlocks, untrack)
   // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
   // keeping its last target (#979; ADR-0074).
-  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
   variantFailures.started(start)
   // Read once by the provider (#618, M1).
   const { project } = useWardicRenderer()

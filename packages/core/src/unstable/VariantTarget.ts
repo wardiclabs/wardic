@@ -284,20 +284,29 @@ export const startingVariantsOf = (variants: object | undefined, custom: unknown
   return { variants: Rec.map(targets, valuesOfTarget), failure: Option.firstSomeOf(Arr.map(Rec.values(targets), failureOfTarget)) }
 }
 
+/** What orchestration's resolution of a variant name, `entry`, came to: its failure, or none once it resolves. */
+export type Orchestrated = (entry: Config.WardicVariantLabels, failure: Option.Option<VariantFailure>) => void
+
 /**
  * The own transition of an element's target now (#277): its `animate` map's, else the variant it
  * names or inherits (`name`), resolved with `custom` and no values. What its orchestration reads.
+ * `orchestrated` is told what a name's resolution came to: a resolver that throws gives no own
+ * transition.
  */
 export const ownTransitionOf = (
   animate: object | Config.WardicVariantLabels | undefined,
   name: Config.WardicVariantLabels | undefined,
   variants: object | undefined,
   custom: unknown,
+  orchestrated?: Orchestrated,
 ): Config.WardicVariantTransition | undefined => {
   const byName = variants as Config.WardicVariants | undefined
   if (Bool.and(Predicate.isNotUndefined(animate), Bool.not(isLabels(animate)))) {
     return resolveTarget(animate as Config.WardicVariant, byName, custom, NO_VARIANT_STATE).transition
   }
   if (Predicate.isUndefined(name)) return undefined
-  return resolveTarget(name, byName, custom, NO_VARIANT_STATE).transition
+  const target = resolveTarget(name, byName, custom, NO_VARIANT_STATE)
+  // #979 (Q6): a throw here is reported through the element's own once, its resolution's apart.
+  if (Predicate.isNotUndefined(orchestrated)) orchestrated(name, target.failure)
+  return target.transition
 }

@@ -433,7 +433,10 @@ const wardOn = (
       onUndefined: (): GraphParent | undefined => undefined,
       onDefined: (on) => Bool.match(VariantTree.isVariantChild(initialConfig), { onTrue: (): GraphParent | undefined => new GraphParent(on, joinsUnder), onFalse: constUndefined }),
     })
-    const node = createVariantNode(cfg, initialConfig, follower)
+    // A variant that throws is this Subject's alone (#979): its failures, which its spine keeps and its
+    // orchestration reports to, once.
+    const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+    const node = createVariantNode(cfg, initialConfig, follower, undefined, variantFailures.orchestrated)
     UndefinedOr.map(follower, (f) => {
       if (Bool.not(Predicate.isFunction(given))) f.early(given as object)
     })
@@ -455,7 +458,6 @@ const wardOn = (
     const start = Spine.startOf(initialConfig, node.inherited, false, untrack)
     // A variant whose resolver throws is this Subject's alone: reported once until it resolves, keeping
     // its last target (#979; ADR-0074).
-    const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
     variantFailures.started(start)
     const snapshot = Spine.snapshotOf(start)
     const reuse = Spine.makeReuse()

@@ -175,6 +175,45 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(reports.sort()).toEqual(["its exit broke", "its variant broke"])
   })
 
+  it("a variant's resolver that throws only as its orchestration reads it (#979): reported once, and it and its Variant child animate", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    let broken = false
+    // Its orchestration resolves it with no values, its own resolution with the element's: broken after
+    // setup, it throws for the orchestration only.
+    const parent = {
+      closed: { opacity: 0 },
+      open: (_: unknown, current: Readonly<Record<string, number | string>>) => {
+        if (broken && Object.keys(current).length === 0) throw new Error("its orchestration broke")
+        return { opacity: 1, transition: { type: "tween", duration: 0.1, staggerChildren: 0.05 } }
+      },
+    }
+    const child = { closed: { opacity: 0 }, open: { opacity: 1, transition: { type: "tween", duration: 0.1 } } } as const
+    const [state, setState] = createSignal("closed")
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div data-k="parent" variants={parent as never} initial="closed" animate={state()}>
+          <wardic.div data-k="child" variants={child} />
+        </wardic.div>
+      </WardicProvider>
+    ))
+    const p = container.querySelector<HTMLElement>('[data-k="parent"]')!
+    const c = container.querySelector<HTMLElement>('[data-k="child"]')!
+    await raf()
+    broken = true
+    setState("open")
+    await until(() => opacityOf(p) === 1 && opacityOf(c) === 1)
+    setState("closed")
+    await until(() => opacityOf(c) === 0)
+    setState("open")
+    await until(() => opacityOf(c) === 1)
+    // Before #979's review, orchestration's throw went unreported.
+    const failed = errorsNamed(logs, "wardic.ward: a variant failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("its orchestration broke")
+    expect(failed[0]!.annotations).toMatchObject({ variant: "open" })
+  })
+
   it("a whileHover resolver that throws (#979): reported once, and the element still moves at its next change", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []

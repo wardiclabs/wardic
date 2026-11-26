@@ -388,6 +388,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       keysTaken: () => Predicate.isNotUndefined(MutableRef.get(item)),
     })
     node.bindGestures(gestures.states)
+    node.reportsTo(variantFailures.orchestrated)
     // A Reorder item (decision 28): joined to the group above it, which decides its drag's axis and hears
     // its samples; its keyboard lift turns `WhileDrag` on. Joined now, or as a load brings the Features (Q15).
     const item = MutableRef.make(reorderItemOf(provider, element, id, () => config, dispatch, gestures.lift))

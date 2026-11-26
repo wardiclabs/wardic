@@ -1640,41 +1640,80 @@ const firstFailureOf = Arr.findFirst<OverrideEntry, VariantTarget.VariantFailure
 export const failureOf = (resolution: Resolution): Option.Option<VariantTarget.VariantFailure> => firstFailureOf(resolution.layers)
 
 /**
- * An element's dynamic variants that throw: its resolutions kept while one does, and each failure
- * reported once until a resolution comes back clean. Made once an element by its binding, `report` on
+ * An element's dynamic variants that throw: its resolutions kept while one does, and each variant's
+ * failure reported once, until it resolves again. Made once an element by its binding, `report` on
  * its runtime.
  */
 export interface VariantFailures {
   /** `next`, else, while it carries a failure, the last good resolution: the element keeps its target. */
   readonly kept: (next: Resolution) => Resolution
-  /** A start's failure, setup's or a re-entry's fresh start's: reported as a resolution's is, so the first resolution's same throw isn't reported again. */
+  /** A start's failure, setup's or a re-entry's fresh start's: setup resolves as orchestration does, so it stands for both until each resolves the variant again. */
   readonly started: (start: Start) => void
+  /** What its orchestration's resolution of a name came to: its failure, or none once it resolves. */
+  readonly orchestrated: VariantTarget.Orchestrated
 }
 
-// #979 (ADR-0074): a resolver's throw is that element's alone; it recovers at the next clean resolution.
+/** Where a variant's failure was seen, until each resolves it again: its element's resolutions, and its orchestration. */
+const RESOLVING = 1
+const ORCHESTRATING = 2
+
+// #979 (ADR-0074; Q6 and its review): a resolver's throw is its element's alone. Each variant, by name,
+// is reported as it starts failing and fails until every place that saw it fail resolves it again, so
+// a throw its resolutions and its orchestration both see is reported once. Setup resolves with no
+// values, as orchestration does, so a setup failure counts for both: a resolver that throws only with
+// no values isn't reported again at the first change its orchestration reads.
 export const variantFailuresOf = (report: (failure: VariantTarget.VariantFailure) => void): VariantFailures => {
   let last: Resolution | undefined
-  let failing = false
-  const failed = (failure: VariantTarget.VariantFailure): void => {
-    if (failing) return
-    failing = true
-    report(failure)
+  // Each failing variant's places, made at the first failure: most elements never have one.
+  let failing: Map<string, number> | undefined
+  const failedAt = (failure: VariantTarget.VariantFailure, at: number): void => {
+    const name = UndefinedOr.match(failure.name, { onDefined: identity, onUndefined: () => "" })
+    if (Predicate.isUndefined(failing)) failing = new Map()
+    const before = failing.get(name)
+    if (Predicate.isUndefined(before)) {
+      failing.set(name, at)
+      report(failure)
+      return
+    }
+    failing.set(name, before | at)
+  }
+  const resolvedAt = (name: string | undefined, at: number): void => {
+    if (Predicate.isUndefined(failing) || Predicate.isUndefined(name)) return
+    const before = failing.get(name)
+    if (Predicate.isUndefined(before)) return
+    const after = before & ~at
+    if (after === 0) {
+      failing.delete(name)
+      return
+    }
+    failing.set(name, after)
   }
   return {
+    // Per Retarget, per element (#460, compose once): statements; nothing done while nothing fails.
     kept: (next) => {
       const failure = failureOf(next)
-      if (Option.isNone(failure)) {
-        failing = false
-        last = next
-        return next
+      if (Option.isSome(failure)) {
+        failedAt(failure.value, RESOLVING)
+        // The first one has no last good one: its failed entry resolved to nothing.
+        if (Predicate.isUndefined(last)) return next
+        return last
       }
-      failed(failure.value)
-      // The first one has no last good one: its failed entry resolved to nothing.
-      if (Predicate.isUndefined(last)) return next
-      return last
+      last = next
+      if (Predicate.isNotUndefined(failing) && failing.size > 0) {
+        Arr.forEach(next.layers, (layer) => resolvedAt(layer.name, RESOLVING))
+      }
+      return next
     },
     started: (start) => {
-      if (Option.isSome(start.failure)) failed(start.failure.value)
+      if (Option.isSome(start.failure)) failedAt(start.failure.value, RESOLVING | ORCHESTRATING)
+    },
+    orchestrated: (entry, failure) => {
+      if (Option.isSome(failure)) {
+        failedAt(failure.value, ORCHESTRATING)
+        return
+      }
+      if (Predicate.isUndefined(failing) || failing.size === 0) return
+      Arr.forEach(Arr.ensure(entry), (name) => resolvedAt(name, ORCHESTRATING))
     },
   }
 }
