@@ -75,7 +75,7 @@ const spansOf = (given: boolean | undefined): Layer.Layer<never> => Bool.match(g
  * The Clock and the Frame loop over a fresh frame source, on a counting `setTimeout(0)` scheduler. With
  * `metrics`, each run is given `FrameLoop.layerMetrics`, as an app gives it beside its Environment (#518).
  */
-const makeHarness = async (options?: { readonly clock?: ClockShape; readonly metrics?: boolean; readonly spans?: boolean }) => {
+const makeHarness = async (options?: { readonly clock?: ClockShape; readonly metrics?: boolean; readonly spans?: boolean; readonly logger?: Logger.Logger<unknown, void> }) => {
   const frames = makeFrames()
   let dispatches = 0
   const scheduler = new MixedScheduler("async", (task) => {
@@ -93,8 +93,14 @@ const makeHarness = async (options?: { readonly clock?: ClockShape; readonly met
       ),
       { scheduler },
     ))
+  // What the loop reports goes to `logger`, where a test gives one (#979).
+  const logged = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => {
+    if (Predicate.isUndefined(options?.logger)) return effect
+    return Effect.provide(effect, Logger.layer([options.logger]))
+  }
   const loop: internal.Shape = await Effect.runPromise(
     internal.make().pipe(
+      logged,
       Effect.provideService(Clock.Clock, clock),
       Effect.provideService(Tracer.Tracer, tracer),
       // Wardic's spans, the app's to give (#746): given unless a test asks for none.
@@ -741,23 +747,36 @@ describe("the Frame loop: afterTick (ADR-0033)", () => {
     expect(exit !== undefined && Exit.isSuccess(exit)).toBe(true)
   })
 
-  it("a hook that throws fails the tick: every run on the loop fails with the defect", async () => {
-    const h = await makeHarness()
+  it("a hook that throws is its own: the tick's other hooks run, every run goes on, reported once until it returns (#979, row 40)", async () => {
+    const reports: Array<string> = []
+    const h = await makeHarness({ logger: Logger.make(({ message }) => void reports.push(String((message as ReadonlyArray<unknown>)[0]))) })
     let throws = true
+    const events: Array<string> = []
     addHook(h, () => {
-      if (throws) {
-        throws = false
-        throw new Error("hook threw")
-      }
+      if (throws) throw new Error("hook threw")
+      events.push("first")
+      return undefined
+    })
+    addHook(h, () => {
+      events.push("second")
       return undefined
     })
     const runs = [h.start(counting(Infinity)), h.start(counting(Infinity))]
     await endOfTask()
+    // Before #979, the throw failed the tick: every run on the loop failed with it, the later hooks skipped.
     h.frames.fire(1000)
+    h.frames.fire(1016)
+    throws = false
+    h.frames.fire(1032)
+    throws = true
+    h.frames.fire(1048)
+    await endOfTask()
     for (const run of runs) {
-      const exit = run.fiber.pollUnsafe()
-      expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      expect(run.fiber.pollUnsafe(), "still running").toBeUndefined()
+      expect(run.received).toHaveLength(4)
     }
+    expect(events).toEqual(["second", "second", "first", "second", "second"])
+    expect(reports).toEqual(["wardic.frameLoop: an afterTick hook failed", "wardic.frameLoop: an afterTick hook failed"])
   })
 })
 
@@ -821,7 +840,7 @@ describe("the Frame loop: inLateWindow() and a hook's dt (ADR-0027 *Amendments (
     expect(dts[2]).toBeCloseTo(0.03, 9)
   })
 
-  it("TK3: a hook that throws ends its tick and closes the window: inLateWindow() is false after it, also through the next burst's gaps", async () => {
+  it("TK3: a hook that throws closes the window as its tick ends: inLateWindow() is false after it, also through the next burst's gaps", async () => {
     const h = await makeHarness()
     let throws = true
     addHook(h, () => {
@@ -833,7 +852,9 @@ describe("the Frame loop: inLateWindow() and a hook's dt (ADR-0027 *Amendments (
     })
     h.start(counting(Infinity))
     await endOfTask()
-    h.frames.fire(1000) // the hook throws mid-tick: the burst fails
+    // The hook throws mid-tick: since #979 it's reported and the tick ends as any, its window at its microtask.
+    h.frames.fire(1000)
+    await endOfTask()
     expect(h.loop.inLateWindow()).toBe(false)
     const seen: Array<string> = []
     h.start(reading(h, 2, seen))
@@ -1000,7 +1021,7 @@ describe("the Frame loop: the Late window (ADR-0027 *Amendment (#680)*)", () => 
     expect(seen).toEqual(["microtask true", "task false"])
   })
 
-  it("LW8: a hook that throws in a Late round ends every run with the defect and closes the window; the next run gets a fresh burst", async () => {
+  it("LW8: a hook that throws in a Late round leaves every run going and closes the window; a run started after steps and lands", async () => {
     const h = await makeHarness()
     let throwNext = false
     addHook(h, () => {
@@ -1018,11 +1039,8 @@ describe("the Frame loop: the Late window (ADR-0027 *Amendment (#680)*)", () => 
     })
     await endOfTask()
     await frame(h, 1000)
-    for (const run of [first, late!]) {
-      const exit = run.fiber.pollUnsafe()
-      expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
-      expect(Cause.pretty((exit as Exit.Failure<unknown, unknown>).cause)).toContain("late hook threw")
-    }
+    // Before #979, the throw ended every run with the defect; now it's reported, and they go on.
+    for (const run of [first, late!]) expect(run.fiber.pollUnsafe(), "still running").toBeUndefined()
     expect(h.loop.inLateWindow()).toBe(false)
     const fresh = h.start(counting(2))
     await endOfTask()

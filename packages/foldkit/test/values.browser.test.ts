@@ -1,6 +1,7 @@
 // Values and Effects (#791, PR 3): the held frame's cure (a Retarget from a patch paints its first step
 // in the patch's frame, P20), `Wardic.animate` and `Wardic.provide` from Commands, Live values in
-// `w.Style`, `w.Text`, `w.OnUpdate` and `w.TransformTemplate`.
+// `w.Style`, `w.Text`, `w.OnUpdate` and `w.TransformTemplate`. And #979's group D: core's
+// `LiveValue.transform` whose `mixer` throws, through `Wardic.provide`, keeps its last value, reported once.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -15,6 +16,7 @@ import { Features, LiveValue } from "@wardic/foldkit"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { paintedReads, until } from "../../solid/test/browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../../solid/test/report-env.ts"
 import { boxOf, embed, type Embedded, frames } from "./harness.ts"
 
 const Model = Schema.Struct({ x: Schema.Number })
@@ -392,5 +394,58 @@ describe("Live values", () => {
     held.send(100)
     await until(() => labelEl.textContent === "100", 3000, "the text follows the element's values")
     await until(() => box.style.transform === "translateX(100px) rotate(10deg)", 2000, "the template shapes the landed transform")
+  })
+})
+
+describe("a transform's failure is its own (#979, group D; ADR-0074)", () => {
+  it("LiveValue.transform through Wardic.provide: a mixer that throws keeps its last value, reported once, and it maps again", async () => {
+    const logs: Array<Logged> = []
+    const reporting = Wardic.make({ env: envWith({ logs, reports: [] }) })
+    const source = Atom.make(0)
+    let broken = false
+    const mixer = (a: number, b: number) => (t: number): number => {
+      if (broken) throw new Error("its mixer broke")
+      return a + (b - a) * t
+    }
+    const Model = Schema.Struct({ seen: Schema.Array(Schema.Number) })
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Go: {}, Seen: { values: Schema.Array(Schema.Number) } })
+    type Message = typeof Message.Type
+    const Map = Command.define("Map", {
+      messages: [Message.Seen],
+      execute: Effect.scoped(
+        Wardic.provide(
+          Effect.gen(function* () {
+            const registry = yield* AtomRegistry.AtomRegistry
+            const out = yield* LiveValue.transform(source, [0, 100], [0, 1], { mixer })
+            registry.subscribe(out, () => undefined)
+            const values: Array<number> = []
+            registry.set(source, 50)
+            values.push(registry.get(out))
+            broken = true
+            // Before #979, the mixer's throw came out of this set, and the Command's fiber died with it.
+            registry.set(source, 75)
+            values.push(registry.get(out))
+            broken = false
+            registry.set(source, 100)
+            values.push(registry.get(out))
+            return Message.Seen({ values })
+          }),
+        ),
+      ),
+    })
+    const held = embed<Model, Message, boolean, Wardic.Wardic>({
+      Model,
+      Set: Schema.Boolean,
+      init: { seen: [] },
+      update: (model, message) => Message.match(message, { Go: () => ({ model, commands: [Map()] }), Seen: ({ values }) => ({ model: { seen: values } }) }),
+      view: (model, h) => h.div([h.Id("root")], [h.span([h.Id("seen")], [model.seen.join(",")])]),
+      toMessage: () => Message.Go(),
+      resources: reporting.resources,
+    })
+    app = held
+    held.send(true)
+    await until(() => held.container.querySelector("#seen")?.textContent === "0.5,0.5,1", 3000, "kept, then mapped again")
+    await until(() => errorsNamed(logs, "wardic.transform: its mixer failed").length === 1, 2000, "reported once")
   })
 })

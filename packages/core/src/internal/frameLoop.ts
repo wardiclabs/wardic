@@ -80,6 +80,7 @@ import type * as Frame from "../Frame.ts"
 import * as Supersede from "../Supersede.ts"
 import type * as FrameLoop from "../FrameLoop.ts"
 import type * as Machine from "../Machine.ts"
+import * as Report from "../unstable/Report.ts"
 import { none, SpansGiven, traced } from "./tracing.ts"
 
 // @wardic/core compiles against ES2022 alone, which does not declare `performance` (see
@@ -156,6 +157,8 @@ export interface Shape {
 /** One hook on the loop's ticks, one object per `afterTick`, so removing it removes only that one. */
 interface Hook {
   readonly hook: (dt: number) => undefined
+  /** Whether its calls are throwing: reported at the first, again once one has returned. */
+  failing: boolean
 }
 
 /** One run on the loop. */
@@ -304,6 +307,10 @@ export const make = Effect.fnUntraced(
     const clock = yield* Clock.Clock
     // The burst runs here, under the Layer's build context, never in a caller's.
     const buildContext = yield* Effect.context<Clock.Clock | Scope.Scope>()
+    /** A hook's throw, reported on what the loop was built with: its failure path. */
+    const hookFailed = (defect: unknown): void => {
+      Effect.runForkWith(buildContext)(Report.failure("wardic.frameLoop: an afterTick hook failed", Cause.die(defect)))
+    }
     // The burst's fiber (#746: what a `FiberHandle` held, in a field, so an app ships no FiberHandle): a
     // new burst's replaces it, interrupting it, and the loop's Scope interrupts it and lets it go. Once
     // that Scope has closed, the loop takes no run (`entered`), as the handle's closed state had it.
@@ -379,7 +386,7 @@ export const make = Effect.fnUntraced(
     }
     // The loop's own hook, the first: the counts reach the counters at the end of every tick, and
     // `tick`, the per-frame path, is as it was (#542).
-    hooks = [{ hook: countEnds }]
+    hooks = [{ hook: countEnds, failing: false }]
 
     // Per frame (ADR-0025): plain calls only, in the one `Stream.map` call per tick (ADR-0027,
     // decision 8); counted loops, statement `if`s, a `try` per entry (it costs nothing measurable).
@@ -459,8 +466,19 @@ export const make = Effect.fnUntraced(
       }
       // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
       // `tickMs`, which stays the cost of the steps alone.
+      // Each hook's own (#979, ADR-0074): one that throws is reported once until a call returns, and the
+      // others run. A try per hook, around its direct call, its flag cleared only when it's set.
       const ended = hooks
-      for (let i = 0; i < ended.length; i++) ended[i].hook(dt)
+      for (let i = 0; i < ended.length; i++) {
+        const added = ended[i]
+        try {
+          added.hook(dt)
+          if (added.failing) added.failing = false
+        } catch (defect) {
+          if (!added.failing) hookFailed(defect)
+          added.failing = true
+        }
+      }
       // The window stays open to the end of this frame's microtasks, which take the Late steps (#680).
       if (!windowQueued) {
         windowQueued = true
@@ -525,7 +543,17 @@ export const make = Effect.fnUntraced(
       }
       dropFirst(lateFirst, firstCount)
       const again = hooks
-      for (let i = 0; i < again.length; i++) again[i].hook(windowDt)
+      // As the tick's (#979).
+      for (let i = 0; i < again.length; i++) {
+        const added = again[i]
+        try {
+          added.hook(windowDt)
+          if (added.failing) added.failing = false
+        } catch (defect) {
+          if (!added.failing) hookFailed(defect)
+          added.failing = true
+        }
+      }
     }
 
     /**
@@ -579,7 +607,7 @@ export const make = Effect.fnUntraced(
     }
 
     const afterTick = (hook: (dt: number) => undefined): Effect.Effect<void, never, Scope.Scope> => {
-      const added: Hook = { hook }
+      const added: Hook = { hook, failing: false }
       return Effect.acquireRelease(
         Effect.sync(() => {
           hooks = Arr.append(hooks, added)

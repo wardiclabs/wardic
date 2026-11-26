@@ -15,7 +15,7 @@ import * as ErrorReporter from "effect/ErrorReporter"
 import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
-import { AtomRegistry } from "effect/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Predicate from "effect/Predicate"
 import * as References from "effect/References"
@@ -443,10 +443,11 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
  * with (#969), and lets the reports it forks run (`settle`).
  */
 const logging = () => {
-  const logged: Array<{ readonly message: string; readonly id: unknown }> = []
+  const logged: Array<{ readonly message: string; readonly id: unknown; readonly key?: unknown }> = []
   const logger = Logger.make(({ message, fiber }) => {
     const parts = message as ReadonlyArray<unknown>
-    logged.push({ message: String(parts[0]), id: fiber.getRef(References.CurrentLogAnnotations).id })
+    const annotations = fiber.getRef(References.CurrentLogAnnotations)
+    logged.push({ message: String(parts[0]), id: annotations.id, key: annotations.key })
   })
   const runtime = ManagedRuntime.make(withFrames(Layer.mergeAll(HEARD, stillLoop, Logger.layer([logger]))))
   const settle = (): Promise<void> => runtime.runPromise(Effect.yieldNow)
@@ -1098,6 +1099,44 @@ describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
     fireFrame()
     expect(received).toEqual({ x: 4 })
     end()
+  })
+  it("GV8: an output whose dependent throws leaves its write going: it commits, its other key's output too; reported once a key until a clean set (#979, row 41)", async () => {
+    const { runtime, logged, settle } = logging()
+    try {
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+      const committed: Array<unknown> = []
+      gate.register("a", sinkOf((p) => void committed.push(p.x)))
+      let broken = true
+      const x = gate.valueOf("a", "x")
+      // An app's own Atom over the ward's `read("x")`, throwing while it's broken.
+      const derived = Atom.make((get) => {
+        const v = get(x)
+        if (broken && Predicate.isNotUndefined(v)) throw new Error("its transform broke")
+        return v
+      })
+      registry.subscribe(derived, () => undefined)
+      const opacity: Array<unknown> = []
+      registry.subscribe(gate.valueOf("a", "opacity"), (v) => void opacity.push(v))
+      // Before #979, the dependent's throw came out of the write: in a ward, out of its own leg, ending it.
+      for (let n = 1; n <= 3; n++) {
+        gate.write("a", { x: n, opacity: n / 10 })
+        fireFrame()
+      }
+      broken = false
+      gate.write("a", { x: 4, opacity: 0.4 })
+      fireFrame()
+      broken = true
+      gate.write("a", { x: 5, opacity: 0.5 })
+      fireFrame()
+      await settle()
+      expect(committed, "every write committed").toEqual([1, 2, 3, 4, 5])
+      expect(opacity, "its other output set").toEqual([0.1, 0.2, 0.3, 0.4, 0.5])
+      const failed = { message: "wardic.gate: an output failed", id: "a", key: "x" }
+      expect(logged).toEqual([failed, failed])
+    } finally {
+      await runtime.dispose()
+    }
   })
 })
 

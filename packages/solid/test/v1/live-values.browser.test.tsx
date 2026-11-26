@@ -22,11 +22,13 @@
 //   same task: set at once, resting there until the source changes, then springing from there, and a
 //   `createVelocity` of it reads no motion across it.
 // - LF18: `skipInitialAnimation`: the source's first change lands at once; the changes after it spring.
+// - LF19 (#979, group D): a transform whose function throws keeps its last value, reported once a run of
+//   throws; the rest of the update it ran in paints, and it maps again once it returns.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
-import { createSpring, createTransform, createVelocity, createWard, type SpringAccessor, useWardicRuntime, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/v1"
+import { createFollowValue, createSpring, createTransform, createVelocity, createWard, type SpringAccessor, useWardicRuntime, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/v1"
 import * as Bool from "effect/Boolean"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { type Accessor, createSignal } from "solid-js"
@@ -34,6 +36,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { BOX, hover, leave, opacityOf, recorder, translateXOf, valuesIn } from "./base-values-harness.ts"
 import { afterPaint, until } from "../browser-helpers.ts"
 import { resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 // The per-frame movers still running, stopped after each test however it ends.
 const movers = new Set<() => void>()
@@ -486,5 +489,45 @@ describe("Live values in style (#130, ADR-0043)", () => {
     await settle()
     seen = frames.stop().map((f) => f.v)
     expect(seen.filter((v) => v > 101 && v < 299).length, "the next change springs").toBeGreaterThan(5)
+  })
+})
+
+describe("a transform's failure is its own (#979, group D; ADR-0074)", () => {
+  it("LF19: a transform whose function throws keeps its last value, reported once; the rest of its update paints, and it maps again", async () => {
+    const logs: Array<Logged> = []
+    let broken = false
+    let followed!: Accessor<number>
+    let doubled!: Accessor<number>
+    let good!: HTMLElement
+    const [to, setTo] = createSignal(0)
+    const Box = () => {
+      followed = createFollowValue(to, { type: "tween", duration: 0.3, ease: "linear" })
+      doubled = createTransform(followed, (v: number) => {
+        if (broken && v > 20) throw new Error("its function broke")
+        return v * 2
+      })
+      const plusOne = createTransform(followed, (v: number) => v + 1)
+      return <wardic.div ref={(n: HTMLElement) => (good = n)} style={{ ...BOX, x: plusOne }} />
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <Box />
+      </WardicProvider>
+    ))
+    await settle()
+    broken = true
+    setTo(100)
+    // Before #979, the throw broke Solid 1's update, the rest of it dropped, and the follow's run ended for good.
+    await until(() => followed() === 100, 3000, "the follow landed")
+    await settle()
+    expect(translateXOf(good), "the rest of its update painted").toBe(101)
+    expect(doubled(), "its last value, from at most 20").toBeLessThanOrEqual(40)
+    broken = false
+    setTo(50)
+    await until(() => followed() === 50, 3000, "the follow landed again")
+    await settle()
+    expect(doubled(), "mapped again").toBe(100)
+    expect(translateXOf(good)).toBe(51)
+    expect(errorsNamed(logs, "wardic.transform: its function failed")).toHaveLength(1)
   })
 })

@@ -34,7 +34,8 @@ import { eachFrameOf } from "../animation-frame.ts"
 import { fromAtom } from "./bridge.tsx"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
-import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { FUNCTION_FAILED, keptComputeOf, MIXER_FAILED } from "../kept-transform.ts"
+import { useProvidedRuntime, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "../runtime.ts"
 import { isServer } from "./server.ts"
 import * as ServerInterpolators from "@wardic/dom/unstable/ServerInterpolators"
@@ -58,6 +59,8 @@ const atomAccessorOf = <A,>(atom: Atom.Atom<A>): Accessor<A> => {
  * two stops blends their outputs, numbers, units and colours alike. `input` is as long as `output`,
  * ascending or descending; outside it the ends hold, unless `clamp: false`. `ease` eases each stretch,
  * one for all or one each, and a `mixer`, `(from, to) => (t) => value`, blends outputs of any type. The function form needs no `WardicProvider` when its source is a signal.
+ * A function or a `mixer` that throws keeps the value it gave last, and is logged once until it returns;
+ * one that throws for its first value throws to whatever reads it first.
  * Through ranges from a `createScroll` value, the browser draws it with the scroll where it can.
  * Motion's `useTransform`.
  *
@@ -82,9 +85,12 @@ export function createTransform(
   output?: ReadonlyArray<unknown>,
   options?: LiveValue.TransformOptions<unknown>,
 ): Accessor<unknown> {
+  // An app's function, or a `mixer` in its ranges, that throws: its last value kept, reported, and Solid's
+  // update it runs in goes on (#979).
   if (Predicate.isFunction(fnOrInput)) {
     const read = accessorOf(source)
-    return createMemo(() => fnOrInput(read()))
+    if (isServer) return createMemo(() => fnOrInput(read()))
+    return createMemo(keptComputeOf(read, fnOrInput, useProvidedRuntime(), FUNCTION_FAILED))
   }
   // On an Atom, its own or the one it carries: derived on it by core, so it's set where its source is,
   // and one from a scroll is described for a Timeline value (#240).
@@ -94,7 +100,8 @@ export function createTransform(
   }
   const read = accessorOf(source)
   const map = interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options)
-  return createMemo(() => map(read() as number))
+  if (isServer) return createMemo(() => map(read() as number))
+  return createMemo(keptComputeOf(read as Accessor<number>, map, useProvidedRuntime(), MIXER_FAILED))
 }
 
 /**

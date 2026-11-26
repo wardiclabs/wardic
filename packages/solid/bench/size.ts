@@ -103,6 +103,10 @@ const GATE = 1.01
  * *Amendment (#979, group F)*), core's 1.4–1.6 KB of it minified in every app with a ward, the bindings'
  * 0.1–0.2 and Effect's 0.1; every other such app grew alike (552–753 B), within the 1% gate, and the Batch
  * apps not at all.
+ * #979's group D raised all five, to 96.2, 119.0, 198.6, 246.2 and 253.8, by what it measured, 0.1–0.3 each
+ * (170, 117, 343, 141 and 213 B): a Live value's failure its own, its run going on past an Atom over it or under it that throws,
+ * a Frame loop hook's and a gate output's each caught (ADR-0043, *Amendment (#979, group D)*), core's 0.4–0.9
+ * KB of it minified in every app, since every app has the loop and the gate.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -123,7 +127,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.1, "s2-slim": 118.9, "f-slim": 198.3, "t2-stage": 246.1, "t2-features": 253.6 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.2, "s2-slim": 119.0, "f-slim": 198.6, "t2-stage": 246.2, "t2-features": 253.8 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

@@ -366,6 +366,11 @@ export function useWardicRuntime(): WardicRuntime {
   return fromContext(contextValue(), "useWardicRuntime", (value) => value.runtime)
 }
 
+/** The nearest provider's runtime, or none outside one: where a transform's failure is reported (#979). */
+export function useProvidedRuntime(): WardicRuntime | undefined {
+  return UndefinedOr.map(contextValue(), (value) => value.runtime)
+}
+
 /**
  * The nearest `WardicProvider`'s flush gate: what a binding registers its elements with, and writes
  * their values into, committed once a frame. For building an element of your own on Wardic's
