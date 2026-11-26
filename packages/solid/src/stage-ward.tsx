@@ -34,7 +34,7 @@ import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import type * as Cause from "effect/Cause"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import { constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -80,7 +80,10 @@ export interface StageWardEnvironment extends Imperative.AnimateEnv {
 export interface StageMembership {
   /** Its Subject joins the scene: the ward can start, its `initial` written for the next frame drawn. */
   readonly join: (subject: object) => void
-  /** Its Subject leaves the scene: its exit has landed, or it had none. */
+  /**
+   * Its Subject leaves the scene: its exit has landed, or it had none. A throw here (an app's listener) is
+   * reported by the ward, and the leave goes on: `exitComplete` is told.
+   */
   readonly leave: (subject: object) => void
   /** The parent its Subject will join, before it has: where a Variant child looks for the ward it follows, at its setup. */
   readonly parentOf?: ((subject: object) => object | undefined) | undefined
@@ -330,7 +333,12 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
       inFlight.delete(m.subject)
       untracked()
       m.dispose()
-      membership.leave(m.subject)
+      // The app's listeners run as it leaves: one that throws is reported, and it has left all the same (#981).
+      try {
+        membership.leave(m.subject)
+      } catch (defect) {
+        parts.runtime.runFork(Report.failure("wardic.stage: a Subject's leave failed", Cause.die(defect)))
+      }
       exits.tell("exitComplete", () => ({ element: m.subject }))
       leaving--
       endExits()
