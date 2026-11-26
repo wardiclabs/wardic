@@ -25,11 +25,11 @@
 // #885's PR 2 (ADR-0073, *Amendment (#885)*, Q5 and Q6).
 import { isServer } from "@solidjs/web"
 import { type SceneWard, stageSceneObject, type StageMembership, type StageSubjectOf, type StageWardConfig, WardicStage } from "@wardic/solid"
-import * as Arr from "effect/Array"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, omit, useContext } from "solid-js"
 import type { Object3D } from "three"
+import { leaveScene } from "../internal/leave-scene.ts"
 import { inertWardOn, SCENE, type SceneOf, type SceneStage } from "./stage.ts"
 
 /** The keys of a ward a Scene object takes, with its `exit`. */
@@ -57,7 +57,10 @@ type SceneMotion = Pick<
 export interface SceneObjectConfig extends SceneMotion {
   /** The object it joins: else the parent it has, else the Stage's scene. */
   readonly parent?: Object3D | undefined
-  /** Dispose its geometries and materials, and its descendants', once it has left. Off: they're the app's. */
+  /**
+   * Dispose its geometries and materials, and its descendants', once it has left. Off: they're the app's.
+   * A `dispose` or `removed` listener of the app's that throws is reported, and every part is still disposed.
+   */
   readonly dispose?: boolean | undefined
 }
 
@@ -70,19 +73,6 @@ const NO_STAGE = "createSceneObject(object, config): no three.js Stage above it.
 /** Nowhere to join. */
 const NO_PARENT =
   "createSceneObject(object, config): the object has no parent, and the Stage adopts a runtime with no scene of its own. Give it one: `createSceneObject(object, { parent: group, … })`."
-
-/** `value`'s `dispose()`, when it has one: a geometry's, a material's. */
-const disposeOf = (value: unknown): void => {
-  if (Predicate.hasProperty(value, "dispose") && Predicate.isFunction(value.dispose)) value.dispose()
-}
-
-/** `object`'s geometries and materials, and its descendants', disposed. */
-const disposeTree = (object: Object3D): void =>
-  object.traverse((node) => {
-    const parts = node as unknown as { readonly geometry?: unknown; readonly material?: unknown }
-    disposeOf(parts.geometry)
-    Arr.forEach(Arr.ensure(parts.material), disposeOf)
-  })
 
 /** The parent `object` joins: the one given, else the one it has, else the Stage's scene. */
 const joiningParentOf = (object: Object3D, given: Object3D | undefined, scene: Object3D | undefined): Object3D => {
@@ -127,11 +117,8 @@ export const createSceneObject = <G extends Object3D | Accessor<Object3D | undef
       const parent = joiningParentOf(joining, config.parent, scene.scene)
       if (joining.parent !== parent) parent.add(joining)
     },
-    leave: (subject) => {
-      const leaving = subject as Object3D
-      leaving.removeFromParent()
-      if (config.dispose === true) disposeTree(leaving)
-    },
+    // An app's listener that throws as it leaves: the ward reports it (#981).
+    leave: (subject) => leaveScene(subject as Object3D, config.dispose === true),
     // Where a Variant child looks for the ward it follows, at its setup (decision 17).
     parentOf: (subject) => joiningParentOf(subject as Object3D, config.parent, scene.scene),
     exiting: (land) => {
