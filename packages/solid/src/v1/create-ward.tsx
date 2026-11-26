@@ -476,9 +476,8 @@ export function runSpine(opts: RunSpineOptions): void {
   // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
   // keeping its last target, and nothing thrown into Solid's update, which would freeze every element in
   // it (#979; ADR-0074).
-  const variantFailed = Spine.variantFailedOn(runtime)
-  const kept = Spine.keptResolutions(variantFailed)
-  Spine.reportStart(start, variantFailed)
+  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  variantFailures.started(start)
   const snapshot = Spine.snapshotOf(start)
   const reuse = Spine.makeReuse()
   // Where an element starts (#414): the ward's start, or, for one that comes after the last left the
@@ -488,7 +487,7 @@ export function runSpine(opts: RunSpineOptions): void {
     if (Predicate.isUndefined(entersFresh)) return start
     if (Bool.not(entersFresh(element))) return start
     const fresh = Spine.startOf(untrack(cfg), parent, false, untrack)
-    Spine.reportStart(fresh, variantFailed)
+    variantFailures.started(fresh)
     snapshot.values = { ...fresh.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
@@ -871,7 +870,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // change, a recognizer's flip or the drag's recomputes it, and only one that resolves a new
       // target drives a Retarget. A `transition`, a callback or an option alone tells nothing, as
       // Motion's doesn't.
-      const target = createMemo((): Spine.Resolution => kept(Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange())), undefined, { equals: Spine.sameResolution })
+      const target = createMemo((): Spine.Resolution => variantFailures.kept(Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange())), undefined, { equals: Spine.sameResolution })
       // A colour only the `colors` Feature reads, on a Slim element without it (#511, decision 7): said
       // once per provider, in development only, and not while a lazy load is on its way.
       if (DEV && internal.complete !== true) warnUnreadColors(useFeatureRegistry(), features, () => target().resolved)
@@ -1206,12 +1205,13 @@ const serverWard = (config: WardConfig.WardConfig | Accessor<WardConfig.WardConf
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = VariantTree.serverVariantNode(c, useVariantContext())
   const layoutNode = Spine.isLayoutNode(c)
-  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
-  const dragDefaults = DragDefaults.dragDefaultsOf(c, internal)
+  // Its start, resolved once: the seed and the Appear animation's initial values read it. A variant that
+  // throws leaves its values out of the markup, logged on the server (#979).
   const starting = VariantTree.startingOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack)
-  // A variant that throws leaves its values out of the markup, logged on the server (#979).
-  Option.map(starting.failure, (failure) => Spine.variantFailedOnServer(failure.defect, failure.name))
+  if (Option.isSome(starting.failure)) Spine.variantFailedOnServer(starting.failure.value)
   const initialValues = starting.values
+  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(initialValues, layoutNode, c.transformTemplate))
+  const dragDefaults = DragDefaults.dragDefaultsOf(c, internal)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
   const appear = serverAppearOf(c, internal.tag, initialValues, node, VariantTree.startsQuiet(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack))

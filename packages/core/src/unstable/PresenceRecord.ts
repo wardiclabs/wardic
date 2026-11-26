@@ -94,8 +94,8 @@ export interface PresenceExit {
   readonly groups?: ReadonlyArray<ExitGroup> | undefined
   /** Its Keyframes (#429): each such key's stops, its value in `values` their last. Left out with none. */
   readonly keyframes?: Readonly<Record<string, Stops.Stops>> | undefined
-  /** Its exit's resolver that threw, and its variant's name (#979): it has none of that exit's values. Left out, or none, when it returned. */
-  readonly failure?: Option.Option<VariantTarget.VariantFailure> | undefined
+  /** Its exit's resolver that threw, and its variant's name (#979): it has none of that exit's values. None when it returned. */
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
 }
 
 /** One name of a list's exit (#297): its keys, and the transition they and its orchestration run on. */

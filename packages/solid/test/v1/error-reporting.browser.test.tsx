@@ -138,7 +138,41 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     const failed = errorsNamed(logs, "wardic.ward: a variant failed")
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("its variant broke")
+    expect(failed[0]!.annotations, "the variant named").toMatchObject({ variant: "bright" })
     expect(reports).toEqual(["its variant broke"])
+  })
+
+  it("a variant's resolver that throws from its setup (#979): reported once for each element, which starts without it, and the one beside them animates", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const broken = {
+      hidden: { opacity: 0 },
+      shown: (): { opacity: number } => {
+        throw new Error("its variant broke")
+      },
+    }
+    // Its exit's resolver throws at setup only (the Starting style resolves every variant), so setup alone reports it.
+    const exitBroken = {
+      shown: { opacity: 1 },
+      gone: (): { opacity: number } => {
+        throw new Error("its exit broke")
+      },
+    }
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div data-k="a" variants={broken} initial="hidden" animate="shown" transition={{ type: "tween", duration: 0.1 }} />
+        <wardic.div data-k="c" variants={exitBroken} animate="shown" exit="gone" />
+        <wardic.div data-k="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: "tween", duration: 0.1 }} />
+      </WardicProvider>
+    ))
+    const a = container.querySelector<HTMLElement>('[data-k="a"]')!
+    const b = container.querySelector<HTMLElement>('[data-k="b"]')!
+    // Before #979, the throw came out of render(). Its setup and its first resolution throw alike: one report.
+    await until(() => opacityOf(b) === 1)
+    expect(opacityOf(a), "a at its initial").toBe(0)
+    const failed = errorsNamed(logs, "wardic.ward: a variant failed")
+    expect(failed.map((line) => line.annotations["variant"]).sort()).toEqual(["gone", "shown"])
+    expect(reports.sort()).toEqual(["its exit broke", "its variant broke"])
   })
 
   it("a whileHover resolver that throws (#979): reported once, and the element still moves at its next change", async () => {
@@ -197,6 +231,7 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     const failed = errorsNamed(logs, "wardic.presence: an exit variant failed")
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("its variant broke")
+    expect(failed[0]!.annotations).toMatchObject({ variant: "gone" })
     expect(reports).toEqual(["its variant broke"])
   })
 

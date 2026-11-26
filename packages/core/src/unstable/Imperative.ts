@@ -611,9 +611,9 @@ interface Readied<S extends object> {
 // refusal, its Subject's or a later Subject's, ended the animations that drew the keys taken before it.
 const readiedOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, variant: Config.WardicVariant): Readied<S> => {
   const target = VariantTarget.resolveTarget(variant, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
-  // A resolver given as the target that throws is an error at the call, as a key it can't take is: the
-  // call takes nothing (#979; ADR-0074 keeps a refusal at the call a throw).
-  if (Option.isSome(target.failure)) throw target.failure.value
+  // A function given as the target (past the types) that throws is an error at the call, as a key it
+  // can't take is: the call takes nothing (#979; ADR-0074 keeps a refusal at the call a throw).
+  if (Option.isSome(target.failure)) throw target.failure.value.defect
   const own = wardicElements.get(subject)
   if (Predicate.isNotUndefined(own)) return readOwnValues({ subject, target, host: own.host(), plain: undefined })
   const plain = plainOf(env, subjects, subject)

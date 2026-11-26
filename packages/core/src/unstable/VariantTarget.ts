@@ -49,10 +49,10 @@ export interface Target {
    */
   readonly keyframes: Keyframes | undefined
   /**
-   * What a resolver it called threw (#979): it resolved to nothing in its place. None when every resolver
-   * it called returned.
+   * A resolver it called that threw, and its variant's name (#979): it resolved to nothing in its place.
+   * None when every resolver it called returned.
    */
-  readonly failure: Option.Option<unknown>
+  readonly failure: Option.Option<VariantFailure>
 }
 
 /** A target's **Keyframes** (#429): each such key's stops. */
@@ -156,7 +156,20 @@ export const resolveTargets = (entry: Entry, variants: Config.WardicVariants | u
     return Arr.map(entry as ReadonlyArray<string>, (name): NamedTarget => ({ ...resolveOne(name, variants, custom, state), name }))
   }
   const one = entry as Config.WardicVariant | string | undefined
-  return [{ ...resolveOne(one, variants, custom, state), name: Bool.match(Predicate.isString(one), { onTrue: () => one as string, onFalse: () => undefined }) }]
+  return [{ ...resolveOne(one, variants, custom, state), name: nameOfEntry(one) }]
+}
+
+/** An entry's name: the entry itself, when it's one. */
+// Per Retarget, per element (#460, compose once): statements.
+const nameOfEntry = (entry: Config.WardicVariant | string | undefined): string | undefined => {
+  if (Predicate.isString(entry)) return entry
+  return undefined
+}
+
+/** The first of two failures: what a merge keeps. */
+const firstFailure = (before: Option.Option<VariantFailure>, after: Option.Option<VariantFailure>): Option.Option<VariantFailure> => {
+  if (Option.isSome(before)) return before
+  return after
 }
 
 /**
@@ -178,7 +191,7 @@ export const mergedOf = (targets: ReadonlyArray<Target>): Target =>
       onDefined: (own) => UndefinedOr.match(merged.transitionEnd, { onUndefined: () => own, onDefined: (before) => ({ ...before, ...own }) }),
     }),
     // The first name's whose resolver threw (#979).
-    failure: Option.orElse(merged.failure, () => target.failure),
+    failure: firstFailure(merged.failure, target.failure),
   }))
 
 /**
@@ -198,8 +211,8 @@ export const NO_TARGET: Target = { values: {}, transition: undefined, transition
 /** One name or values map resolved ({@link resolveTarget}). */
 const resolveOne = (entry: Config.WardicVariant | string | undefined, variants: Config.WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
   const definition = calledOf(namedOf(calledOf(namedOf(entry, variants), custom, state), variants), custom, state)
-  // A resolver that threw resolves to nothing, carrying what it threw (#979).
-  if (isFailed(definition)) return { ...NO_TARGET, failure: Option.some(definition[FAILED]) }
+  // A resolver that threw resolves to nothing, carrying what it threw and the name it was reached by (#979).
+  if (isFailed(definition)) return { ...NO_TARGET, failure: Option.some({ defect: definition[FAILED], name: nameOfEntry(entry) }) }
   if (Bool.or(Predicate.isUndefined(definition), Bool.or(Predicate.isString(definition), Predicate.isFunction(definition)))) {
     return NO_TARGET
   }
@@ -241,6 +254,10 @@ export const transitionOfTarget = (own: Config.WardicVariantTransition | undefin
   return rest as Config.WardicTransition
 }
 
+/** A target's values, and its failure: what {@link startingVariantsOf} reads of each. */
+const valuesOfTarget = (target: Target): Values.Values => target.values
+const failureOfTarget = (target: Target): Option.Option<VariantFailure> => target.failure
+
 /** A variant's resolver that threw (#979): what it threw, and the variant's name where it has one. */
 export interface VariantFailure {
   readonly defect: unknown
@@ -264,8 +281,7 @@ export const startingVariantsOf = (variants: object | undefined, custom: unknown
   if (Bool.not(Arr.some(Rec.values(entries), Predicate.isFunction))) return { variants, failure: Option.none() }
   // Once an element's setup (#979): each entry resolved, a throwing resolver's left with no values.
   const targets = Rec.map(entries, (_, name) => resolveTarget(name, entries, custom, NO_VARIANT_STATE))
-  const failures = Arr.map(Rec.toEntries(targets), ([name, target]) => Option.map(target.failure, (defect): VariantFailure => ({ defect, name })))
-  return { variants: Rec.map(targets, (target) => target.values), failure: Option.firstSomeOf(failures) }
+  return { variants: Rec.map(targets, valuesOfTarget), failure: Option.firstSomeOf(Arr.map(Rec.values(targets), failureOfTarget)) }
 }
 
 /**

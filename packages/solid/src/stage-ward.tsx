@@ -307,14 +307,11 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
       if (Predicate.isUndefined(exit)) return undefined
       const exitConfig = { animate: exit, variants: values.variants, custom: values.custom, transition: values.transition } as Config.SpineConfig
       const resolution = Spine.resolutionOf(exitConfig, parts.inherited, parts.start.initialLink, NOTHING_ACTIVE, m.snapshot)
+      const failure = Spine.failureOf(resolution)
+      if (Option.isNone(failure)) return resolution
       // An exit whose resolver throws: reported each time, and it leaves without it (#979).
-      return Option.match(Spine.failureOf(resolution), {
-        onNone: () => resolution,
-        onSome: (failure) => {
-          exitFailed(failure)
-          return undefined
-        },
-      })
+      exitFailed(failure.value)
+      return undefined
     })
 
   /**
@@ -458,9 +455,8 @@ const wardOn = (
     const start = Spine.startOf(initialConfig, node.inherited, false, untrack)
     // A variant whose resolver throws is this Subject's alone: reported once until it resolves, keeping
     // its last target (#979; ADR-0074).
-    const variantFailed = Spine.variantFailedOn(runtime)
-    const kept = Spine.keptResolutions(variantFailed)
-    Spine.reportStart(start, variantFailed)
+    const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+    variantFailures.started(start)
     const snapshot = Spine.snapshotOf(start)
     const reuse = Spine.makeReuse()
     // Where its Subject starts: the ward's start, or a fresh one for the next Subject an accessor gives.
@@ -468,7 +464,7 @@ const wardOn = (
     let begun = start
     const beginFresh = (): void => {
       begun = Spine.startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
-      Spine.reportStart(begun, variantFailed)
+      variantFailures.started(begun)
       if (scene) return
       snapshot.values = { ...begun.initialValues }
       snapshot.velocities = {}
@@ -501,7 +497,7 @@ const wardOn = (
       () => {
         const g = gestures()
         // `dragging` stays off: a scene's drag holds its keys as the Stage's `animate` does (#433), `z` among them.
-        return kept(Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined))
+        return variantFailures.kept(Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined))
       },
       { equals: sameTarget, transparent: true },
     )

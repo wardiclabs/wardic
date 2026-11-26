@@ -29,7 +29,7 @@ import * as Stops from "./Stops.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, identity } from "effect/Function"
-import * as Option from "effect/Option"
+import type * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as AnimationControls from "./AnimationControls.ts"
@@ -529,12 +529,10 @@ export const startingOf = (
   })
   // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
   // renders it, and a hydration finds it.
-  if (Predicate.isUndefined(first) || first === false) return { values, failure: starting.failure }
-  const target = VariantTarget.resolveTarget(first as VariantTarget.Entry, config.variants as Config.WardicVariants | undefined, config.custom, VariantTarget.NO_VARIANT_STATE)
-  const failure = Option.orElse(starting.failure, () =>
-    Option.map(target.failure, (defect): VariantTarget.VariantFailure => ({ defect, name: Bool.match(Predicate.isString(first), { onTrue: () => first as string, onFalse: () => undefined }) })),
-  )
-  const end = target.transitionEnd
+  // Its failure is setup's: `startingVariantsOf` resolved every variant, `first`'s among them (#979).
+  const failure = starting.failure
+  if (Predicate.isUndefined(first) || first === false) return { values, failure }
+  const end = VariantTarget.resolveTarget(first as VariantTarget.Entry, config.variants as Config.WardicVariants | undefined, config.custom, VariantTarget.NO_VARIANT_STATE).transitionEnd
   if (Predicate.isUndefined(end)) return { values, failure }
   return { values: { ...values, ...end }, failure }
 }

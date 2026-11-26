@@ -369,7 +369,8 @@ describe("a variant's resolver that throws, on Foldkit (#979, group F)", () => {
       gone.break()
       // Before #979, the throw went uncaught: a and b stayed on the page for good.
       held.send([])
-      await until(() => itemOf(held, "a") === null, 2000, "a leaves at once")
+      await frames(2)
+      expect(itemOf(held, "a"), "a left at once").toBeNull()
       expect(itemOf(held, "b"), "b exiting").not.toBeNull()
       await until(() => itemOf(held, "b") === null, 2000, "b leaves once its exit ends")
     })

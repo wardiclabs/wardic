@@ -1020,9 +1020,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const start = Spine.startOf(initialConfig, node.inherited, presenceBlocks, untrack)
   // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
   // keeping its last target (#979; ADR-0074).
-  const variantFailed = Spine.variantFailedOn(runtime)
-  const kept = Spine.keptResolutions(variantFailed)
-  Spine.reportStart(start, variantFailed)
+  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  variantFailures.started(start)
   // Read once by the provider (#618, M1).
   const { project } = useWardicRenderer()
 
@@ -1078,7 +1077,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // The config now, a plain copy read untracked, as setup reads it: this runs in the mount effect.
     const now = WARD_VIEW.setupOf(view).config
     begun = Spine.startOf(now, node.inherited, false, untrack)
-    Spine.reportStart(begun, variantFailed)
+    variantFailures.started(begun)
     snapshot.values = { ...begun.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
@@ -1160,7 +1159,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const target = createMemo<Spine.Resolution>(
     () => {
       const g = gestures()
-      return kept(Spine.resolutionOf(
+      return variantFailures.kept(Spine.resolutionOf(
         cfg(),
         node.inherited,
         start.initialLink,
@@ -2059,7 +2058,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   const node = VariantTree.serverVariantNode(c, parent)
   const serverStart = Spine.startOf(c, node.inherited, presenceBlocks, untrack)
   // A variant that throws leaves its values out of the markup, logged on the server (#979).
-  Spine.reportStart(serverStart, Spine.variantFailedOnServer)
+  if (Option.isSome(serverStart.failure)) Spine.variantFailedOnServer(serverStart.failure.value)
   const initialValues = serverStart.initialValues
   const layoutNode = Spine.isLayoutNode(c)
   const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(initialValues, layoutNode, c.transformTemplate))

@@ -1083,7 +1083,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const nodeOf = (node: PresenceRecord, inherited: WardConfig.WardicVariantLabels | undefined): ExitNode => {
       const exit = node.exitOf(custom, inherited)
       // An exit whose resolver threw has no values: it leaves without it, reported each time (#979).
-      UndefinedOr.map(exit.failure, (failure) => Option.map(failure, exitFailed))
+      if (Option.isSome(exit.failure)) exitFailed(exit.failure.value)
       return { rec: node, exit, kids: Arr.map(joinersOf(node), (kid) => nodeOf(kid, exit.name)) }
     }
     // The child's own tree, if it's a Wardic element, and each element inside it that joins nothing

@@ -24,6 +24,7 @@ export interface Logged {
   readonly level: string
   readonly message: string
   readonly cause: string | undefined
+  readonly annotations: Readonly<Record<string, unknown>>
 }
 
 /** A colour whose blend throws past progress 0: a step that throws, in a leg or an exit. */
@@ -62,7 +63,7 @@ export const envWith = (options: { readonly logs: Array<Logged>; readonly report
     environment,
     Logger.layer([
       Logger.map(Logger.formatStructured, (s) => {
-        options.logs.push({ level: s.level, message: String(s.message), cause: s.cause })
+        options.logs.push({ level: s.level, message: String(s.message), cause: s.cause, annotations: s.annotations })
       }),
     ]),
     ErrorReporter.layer([ErrorReporter.make(({ error }) => void options.reports.push(error.message))]),
