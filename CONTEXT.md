@@ -220,6 +220,10 @@ _Avoid_: unit (bare), scale (a transform key), rest scale.
 A Wardic element with `variants` that names none of its variant props (`initial`, `animate`, the five `while*` gestures, `exit`), and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a name on any variant prop): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
 _Avoid_: registered child, orchestrated child.
 
+**Dynamic variant**:
+A variant given as a function rather than values (Motion's `TargetResolver`): called each time it's resolved, with the element's `custom` (an exit's, its presence's), its values now and their velocities, and returning a target or another variant's name. One that throws is its element's alone (ADR-0074, #979): the element keeps the target it had until a resolution goes through, leaves without that exit (a list's whole exit), and starts without that variant's values. Each is reported (an exit each time it's tried, the rest once until the variant resolves again, its children's orchestration's among them), and every other element goes on.
+_Avoid_: resolver variant, function variant, variant function.
+
 ### Interaction
 
 **Recognizer**:

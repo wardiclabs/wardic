@@ -95,7 +95,14 @@ const GATE = 1.01
  * budget. #979's group C raised `f-slim`'s, `t2-stage`'s and `t2-features`' to 197.7, 245.4 and 253.1 by what it
  * measured, 0.1 each (79, 161 and 176 B): a function Segment's callback, and its cancel, that throws reported,
  * and each Subject's `delay` worked out, a mixed call's Batch parts run, before any plain Subject takes a key
- * (ADR-0061, *Amendment (#979, group C)*); the apps with no Imperative track not at all.
+ * (ADR-0061, *Amendment (#979, group C)*); the apps with no Imperative track not at all. #979's group F
+ * raised `s1-slim`'s, `s2-slim`'s, `f-slim`'s, `t2-stage`'s and `t2-features`' to 96.1, 118.9, 198.3, 246.1
+ * and 253.6 by what it measured, 0.5–0.7 each (628, 637, 587, 619 and 472 B; `t2-stage`'s 0.7, as 619 B took
+ * it 2 B past 246.0): a dynamic variant that throws
+ * its element's alone, its last target kept, reported once by name, and an exit left without (ADR-0007,
+ * *Amendment (#979, group F)*), core's 1.4–1.6 KB of it minified in every app with a ward, the bindings'
+ * 0.1–0.2 and Effect's 0.1; every other such app grew alike (552–753 B), within the 1% gate, and the Batch
+ * apps not at all.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -116,7 +123,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.5, "s2-slim": 118.3, "f-slim": 197.7, "t2-stage": 245.4, "t2-features": 253.1 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.1, "s2-slim": 118.9, "f-slim": 198.3, "t2-stage": 246.1, "t2-features": 253.6 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
