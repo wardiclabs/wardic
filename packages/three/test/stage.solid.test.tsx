@@ -413,7 +413,8 @@ describe("@wardic/three/solid's Stage (#885's PR 1)", () => {
     expect(stand.running()).toBe(false)
     expect(stand.removed()).toBe(1)
     expect(moving.state, "the runtime disposed").not.toBe("running")
-    expect(reports).toEqual(["wardic.stage: an exit's landing failed"])
+    // Since #981, a throwing leave is reported where the Scene object lands, its landing ending all the same.
+    expect(reports).toEqual(["wardic.stage: a Subject's leave failed"])
   })
 
   it("CS13: a render that throws, an object's onBeforeRender, is reported once until one draws, and the loop goes on: a ward still moves (#979)", async () => {

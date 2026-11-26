@@ -15,13 +15,18 @@
 // - SO12: an object given again while it's still exiting stays: its exit stops, and it returns from where it is.
 // - SO13 (#979): the first of two Scene objects leaving whose exit variant throws leaves without it, reported;
 //   the other exits, and both leave the scene.
+// - SO14 (#981): with no exit, its `removed` listener throwing as its owner ends: it has left, `exitComplete`
+//   told, reported, and the rest of its owner's end goes on.
+// - SO15 (#981): so, as its exit lands by itself. SO16: so, as the Stage's end lands it.
+// - SO17 (#981): `dispose: true`, its `removed` listener and a geometry's `dispose` listener throwing: every
+//   part is disposed, the first throw reported.
 import { ward, WardicStage } from "@wardic/solid"
 import { createSceneObject, type SceneObject, TestStage } from "@wardic/three/solid"
 import type { JSX } from "@solidjs/web"
 import { children, createMemo, createRenderEffect, createRoot, createSignal, flush, Loading } from "solid-js"
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene } from "three"
 import { afterEach, describe, expect, it } from "vitest"
-import { reportsDuring } from "../../object/test/reports.ts"
+import { reportsDuring, reportsIn, saidDuring } from "../../object/test/reports.ts"
 
 /** What a renderer does with the tree: read it inside a root, tracked (*Amendment (#881)*, item 3). */
 const disposers: Array<() => void> = []
@@ -44,7 +49,23 @@ const later = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 
 
 const LINEAR = { type: "tween", duration: 0.2, ease: "linear" } as const
 
+/** Where `promise` is, read later: pending until it settles. */
+const stateOf = (promise: Promise<unknown>): (() => "pending" | "resolved" | "rejected") => {
+  let state: "pending" | "resolved" | "rejected" = "pending"
+  promise.then(
+    () => void (state = "resolved"),
+    () => void (state = "rejected"),
+  )
+  return () => state
+}
+
 const meshOf = () => new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial())
+
+/** `mesh` with an app's `removed` listener that throws (#981). */
+const breaksOnRemoved = (mesh: Mesh): void =>
+  mesh.addEventListener("removed", () => {
+    throw new Error("a cache's listener broke")
+  })
 
 const stageOf = () => {
   const scene = new Scene()
@@ -428,5 +449,110 @@ describe("createSceneObject (#885's PR 2)", () => {
       expect(second.parent, "the second left once its exit landed").toBeNull()
     })
     expect(reports).toEqual(["wardic.presence: an exit variant failed"])
+  })
+
+  it("SO14: with no exit, its removed listener throwing as its owner ends: it has left, told, reported, its owner ends (#981)", async () => {
+    const { stage, frames } = stageOf()
+    const mesh = meshOf()
+    breaksOnRemoved(mesh)
+    let card!: SceneObject
+    const Card = () => {
+      card = createSceneObject(mesh, { animate: { x: 1 }, transition: LINEAR })
+      return card.held
+    }
+    const [shown, setShown] = createSignal(true)
+    mountTree(() => <WardicStage value={stage}>{shown() && <Card />}</WardicStage>)
+    await frames(2)
+    const completed = stateOf(card.next("exitComplete"))
+    const reports = await reportsDuring(async () => {
+      setShown(false)
+      flush()
+    })
+    expect(mesh.parent).toBeNull()
+    expect(completed(), "exitComplete told").toBe("resolved")
+    const asked = stateOf(card.next("exitStart"))
+    await later()
+    expect(asked(), "its owner's end went on: its exit waits end").toBe("rejected")
+    expect(reports).toEqual(["wardic.stage: a Subject's leave failed"])
+  })
+
+  it("SO15: its exit landing by itself, its removed listener throwing: it has left, told, reported once (#981)", async () => {
+    const { scene, stage, frames } = stageOf()
+    const mesh = meshOf()
+    breaksOnRemoved(mesh)
+    let card!: SceneObject
+    const Card = () => {
+      card = createSceneObject(mesh, { animate: { x: 1 }, exit: { x: 0 }, transition: LINEAR })
+      return card.held
+    }
+    const [shown, setShown] = createSignal(true)
+    mountTree(() => <WardicStage value={stage}>{shown() && <Card />}</WardicStage>)
+    await frames(20)
+    const completed = stateOf(card.next("exitComplete"))
+    const reports = await reportsDuring(async () => {
+      setShown(false)
+      await frames(2)
+      expect(mesh.parent, "exiting").toBe(scene)
+      // Before #981, its landing's throw was the gate's afterFlush failure, and exitComplete never came.
+      await frames(20)
+    })
+    expect(mesh.parent).toBeNull()
+    expect(completed(), "exitComplete told").toBe("resolved")
+    const asked = stateOf(card.next("exitStart"))
+    await later()
+    expect(asked(), "its last exit landed: its exit waits end").toBe("rejected")
+    expect(reports).toEqual(["wardic.stage: a Subject's leave failed"])
+  })
+
+  it("SO16: the Stage's end landing its exit, its removed listener throwing: it has left, told, reported once (#981)", async () => {
+    const { scene, stage, frames } = stageOf()
+    const mesh = meshOf()
+    breaksOnRemoved(mesh)
+    let card!: SceneObject
+    const Card = () => {
+      card = createSceneObject(mesh, { animate: { x: 1 }, exit: { x: 0 }, transition: { type: "tween", duration: 5, ease: "linear" } })
+      return card.held
+    }
+    const [shown, setShown] = createSignal(true)
+    mountTree(() => <WardicStage value={stage}>{shown() && <Card />}</WardicStage>)
+    await frames(2)
+    setShown(false)
+    await frames(2)
+    expect(mesh.parent, "exiting").toBe(scene)
+    const completed = stateOf(card.next("exitComplete"))
+    const reports = await reportsDuring(() => stage.dispose())
+    expect(mesh.parent).toBeNull()
+    expect(completed(), "exitComplete told").toBe("resolved")
+    expect(reports).toEqual(["wardic.stage: a Subject's leave failed"])
+  })
+
+  it("SO17: dispose: true, its removed listener and one geometry's dispose listener throwing: every part disposed, reported once (#981)", async () => {
+    const { stage, frames } = stageOf()
+    const mesh = meshOf()
+    const child = meshOf()
+    mesh.add(child)
+    const disposed: Array<string> = []
+    const watch = (name: string, target: { addEventListener: (type: "dispose", listener: () => void) => void }) => target.addEventListener("dispose", () => void disposed.push(name))
+    watch("geometry", mesh.geometry)
+    watch("material", mesh.material)
+    watch("child geometry", child.geometry)
+    watch("child material", child.material)
+    breaksOnRemoved(mesh)
+    mesh.geometry.addEventListener("dispose", () => {
+      throw new Error("a pool's listener broke")
+    })
+    const Card = () => createSceneObject(mesh, { animate: { x: 1 }, dispose: true, transition: LINEAR }).held
+    const [shown, setShown] = createSignal(true)
+    mountTree(() => <WardicStage value={stage}>{shown() && <Card />}</WardicStage>)
+    await frames(2)
+    const said = await saidDuring(async () => {
+      setShown(false)
+      flush()
+    })
+    expect(mesh.parent).toBeNull()
+    expect(disposed.sort(), "the throws skip no part").toEqual(["child geometry", "child material", "geometry", "material"])
+    expect(reportsIn(said), "once").toEqual(["wardic.stage: a Subject's leave failed"])
+    expect(said.join("\n"), "the first throw's").toContain("a cache's listener broke")
+    expect(said.join("\n")).not.toContain("a pool's listener broke")
   })
 })
