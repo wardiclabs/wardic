@@ -17,3 +17,4 @@ const label = createTransform(followed, (x) => formatter.format(x)) // a formatt
 - **A Live value's run** (a follow or spring, a velocity, time) goes on past an Atom over it that throws, and past a source that throws as it's read: a spring steers toward its source's last read, and a velocity reads as still. Each is logged once until it's clean.
 - **The Frame loop:** a hook at the end of a tick that throws no longer ends every run on the loop. A velocity over a failing source did.
 - **A ward's `read(key)`:** an Atom over it that throws no longer ends the ward's own animation.
+- **A ward's `atom(key)`:** an Atom over it that can't take `undefined`, held past the ward's owner, no longer throws out of that owner's disposal. Its throw is logged once, `wardic.gate: an output failed`, and every output still ends. Before, it came out of the app's own update, and on Solid 1 the cleanups left in that disposal were skipped.
