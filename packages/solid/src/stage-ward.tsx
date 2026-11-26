@@ -435,7 +435,7 @@ const wardOn = (
     })
     // A variant that throws is this Subject's alone (#979): its failures, which its spine keeps and its
     // orchestration reports to, once.
-    const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+    const variantFailures = Spine.variantFailuresOf(runtime)
     const node = createVariantNode(cfg, initialConfig, follower, undefined, variantFailures)
     UndefinedOr.map(follower, (f) => {
       if (Bool.not(Predicate.isFunction(given))) f.early(given as object)

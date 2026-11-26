@@ -316,7 +316,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // A variant whose resolver throws is this element's alone: reported once at its mount and once a run
     // of throws until it resolves, the element keeping its last target, and nothing thrown into the
     // render, which would crash the app (#979; ADR-0074). Each render's Starting style resolves it silently.
-    const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(provider.runtime))
+    const variantFailures = Spine.variantFailuresOf(provider.runtime)
     Spine.reportStart(variantFailures, start)
     const snapshot = Spine.snapshotOf(start)
     // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.

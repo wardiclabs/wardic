@@ -56,7 +56,7 @@ export const runDirective = (el: HTMLElement, value: Accessor<WardConfig.WardCon
   const runtime = useWardicRuntime()
   // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
   // orchestration reports to, once.
-  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  const variantFailures = Spine.variantFailuresOf(runtime)
   const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures)
   // Under a presence, its element is told to it (#286): its `key`, and whether it's a twin.
   const presence = usePresenceContext()

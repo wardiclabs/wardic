@@ -1009,7 +1009,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const parent = variantParentOf(internal)
   // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
   // orchestration reports to, once.
-  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  const variantFailures = Spine.variantFailuresOf(runtime)
   const node = nodeFor(share, cfg, initialConfig, parent, UndefinedOr.map(controls, (c) => c.change), variantFailures)
 
   // The nearest <AnimatePresence> (ADR-0007), or none.

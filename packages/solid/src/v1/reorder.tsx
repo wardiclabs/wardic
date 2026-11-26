@@ -470,7 +470,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
   const runtime = useWardicRuntime()
   // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
   // orchestration reports to, once.
-  const variantFailures = Spine.variantFailuresOf(Spine.variantFailedOn(runtime))
+  const variantFailures = Spine.variantFailuresOf(runtime)
   const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures)
   const group = first.group as ItemGroup<unknown>
   // The keyboard reorder's tab stop and instructions (ADR-0037), on the element itself: the app's

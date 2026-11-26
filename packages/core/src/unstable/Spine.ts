@@ -1624,26 +1624,15 @@ const failedOn =
     runtime.runFork(Effect.annotateLogs(Report.failure(message, Cause.die(failure.defect)), { variant: failure.name }))
   }
 
-/** An element's report on a runtime, made once a runtime: each element on it shares it. */
-const elementReport = failedOn("wardic.ward: a variant failed")
-const elementReports = new WeakMap<object, (failure: VariantTarget.VariantFailure) => void>()
-
-/** How an element's variant that throws is reported, on `runtime`: what a binding hands {@link variantFailuresOf}. One a runtime. */
-// #979 (bench:solid's mount): made once a runtime, not once an element.
-export const variantFailedOn = (runtime: Pick<WardicServices.Runner<never>, "runFork">): ((failure: VariantTarget.VariantFailure) => void) => {
-  const known = elementReports.get(runtime)
-  if (Predicate.isNotUndefined(known)) return known
-  const made = elementReport(runtime)
-  elementReports.set(runtime, made)
-  return made
-}
+/** How an element's variant that throws is reported, on its runtime. */
+const variantFailedOn = failedOn("wardic.ward: a variant failed")
 
 /** How an exit whose resolver throws is reported, on `runtime`, each time an element leaves: its element leaves without it (#979). */
 export const exitVariantFailedOn: (runtime: Pick<WardicServices.Runner<never>, "runFork">) => (failure: VariantTarget.VariantFailure) => void = failedOn(
   "wardic.presence: an exit variant failed",
 )
 
-/** {@link variantFailedOn} Effect's default runtime: a server render's, which holds no app reporters (#979). */
+/** An element's variant failure reported on Effect's default runtime: a server render's, which holds no app reporters (#979). */
 export const variantFailedOnServer: (failure: VariantTarget.VariantFailure) => void = /*#__PURE__*/ variantFailedOn({ runFork: (effect) => Effect.runFork(effect) })
 
 /** The first of a list of entries' failures: built once, as it's asked per Retarget (#460, compose once). */
@@ -1663,12 +1652,15 @@ export interface VariantFailures {
   last: Resolution | undefined
   /** Each failing variant, by name, and where it was seen; made at the first failure: most elements never have one. */
   failing: Map<string, number> | undefined
-  readonly report: (failure: VariantTarget.VariantFailure) => void
+  /** The runtime its failures are reported on, at Error. */
+  readonly runtime: Pick<WardicServices.Runner<never>, "runFork">
 }
 
-/** An element's {@link VariantFailures}, none failing yet. */
-// #979 (bench:solid's mount): one plain object an element, read by the functions below, not closures.
-export const variantFailuresOf = (report: (failure: VariantTarget.VariantFailure) => void): VariantFailures => ({ last: undefined, failing: undefined, report })
+/** An element's {@link VariantFailures}, none failing yet, reported on `runtime`. */
+// #979 (bench:solid's mount): one plain object an element, read by the functions below, not closures, and
+// holding its runtime: its report is made only at a failure. A report made once a runtime and found in a
+// WeakMap cost Solid 1's mount 6% (the lookup, an element).
+export const variantFailuresOf = (runtime: Pick<WardicServices.Runner<never>, "runFork">): VariantFailures => ({ last: undefined, failing: undefined, runtime })
 
 /** Where a variant's failure was seen, until each resolves it again: its element's resolutions, and its orchestration. */
 const RESOLVING = 1
@@ -1685,7 +1677,7 @@ const failedAt = (failures: VariantFailures, failure: VariantTarget.VariantFailu
   const before = failures.failing.get(name)
   if (Predicate.isUndefined(before)) {
     failures.failing.set(name, at)
-    failures.report(failure)
+    variantFailedOn(failures.runtime)(failure)
     return
   }
   failures.failing.set(name, before | at)
