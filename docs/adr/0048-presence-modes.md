@@ -912,7 +912,7 @@ Under `mode="popLayout"`, an `<svg>` root ran its exit where it was (*Amendment 
 
 ## Amendment (#983, 2026-11-26): a held child's release that throws is reported
 
-**What happened.** ADR-0074's audit, group F, row 38, found while scoping #977. Once a presence's last leaver has left, `leaveEnds` (`PresenceController.ts`) runs two hand-offs, neither caught:
+**What happened.** #979's row 38, put in its group F: found while scoping #977, after ADR-0074's audit (rows 1–36) was written. Once a presence's last leaver has left, `leaveEnds` (`PresenceController.ts`) runs two hand-offs, neither caught:
 - `allLeft()`, `propagate`'s `done`, which lets the parent's child go;
 - `mode="wait"`'s `options.release()`, which puts the held children on the page.
 
@@ -937,8 +937,11 @@ A plain exit reaches `leaveEnds` from its fiber's `Effect.ensuring`, after the `
 **Tests** (Q6), on Solid 1, each failing on `main` first:
 - **WT12** (`v1/presence-wait.browser.test.tsx`): a `mode="wait"` switch whose held child's variant is broken while it's held. It's reported once with its cause, nothing reaches window `error` or `unhandledrejection`, and the next switch exits and enters.
 - **PG11** (`v1/presence-propagate.browser.test.tsx`): an inner `<AnimatePresence propagate>` whose `done` releases its parent's held child, the inner exit outlasting the outer one's own. It's reported once, and the inner presence's teardown is logged.
-- **Mutations:** the `try` dropped and the report dropped, both caught. The teardown's new place before the parent's `release()` is not caught: the parent's own `try` returns normally, so `tear()` runs in either place. It's kept for a throw past that `try`, which only a bug in Wardic's own code could make.
+- **Mutations:** the `try` dropped and the report dropped, both caught.
+- **The review** (standards and spec) found this amendment's row given as ADR-0074's, the two tests' fixture and check written twice (now `report-env.ts`' `breakableVariants` and `logsNamed`), and WT12 not checking the held child had gone. All are fixed. The teardown's new place before the parent's `release()` is not caught: the parent's own `try` returns normally, so `tear()` runs in either place. It's kept for a throw past that `try`, which only a bug in Wardic's own code could make.
 
-**Cost** (Q7): `leaveEnds` runs once a set of exits, not per frame, so no bench. `bun run size`: the presence apps +0.1 KB minified, with no gzip change past rounding, and every budget held.
+**Cost** (Q7): `leaveEnds` runs once a set of exits, not per frame, so no bench. `bun run size`: the presence apps +0.1 KB minified, with no gzip change past rounding, and every budget held. The whole browser tier passed, as did the Node suite.
+
+**What else changes:** a Batch member's keyed exit under `mode="wait"` that throws this way is now reported as the release's failure, not as #984's `wardic.batch: a member's landing failed`, since the release's `try` catches it first. No test pins that. The `try` reports any throw from the update Solid 1 runs inside the release, not only a held child's start.
 
 **Found, not here:** #987. On Solid 2, under `mode="wait"`, a leaver with no `exit` makes `release()` set its signal inside the effect that reads it, which trips `EFFECT_WRITES_OWN_SOURCE`.

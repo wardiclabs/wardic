@@ -27,7 +27,7 @@ import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX, onMount, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
-import { envWith, errorsNamed, type Logged } from "../report-env.ts"
+import { breakableVariants, envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -316,16 +316,9 @@ describe('AnimatePresence mode="wait" on Solid 1 (#277)', () => {
     window.addEventListener("error", heard)
     window.addEventListener("unhandledrejection", heard)
     // b's variant reads, at its start, what changed while it was held: fine at its setup, then broken.
-    let broken = false
-    const armed = {
-      hidden: { opacity: 0 },
-      shown: () => {
-        if (broken) throw new Error("its variant broke")
-        return { opacity: 1 }
-      },
-    }
+    const breakable = breakableVariants()
     const plain = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
-    const variantsOf = { a: plain, b: armed, c: plain } as const
+    const variantsOf = { a: plain, b: breakable.variants, c: plain } as const
     const [tab, setTab] = createSignal<keyof typeof variantsOf>("a")
     const { container } = render(() => (
       <WardicProvider env={envWith({ logs, reports })}>
@@ -345,13 +338,14 @@ describe('AnimatePresence mode="wait" on Solid 1 (#277)', () => {
       await until(() => opacityOf(node("a")!) >= 0.99, 2000)
       // Set up off the page as the switch runs (WT2), then broken while it's held.
       setTab("b")
-      broken = true
+      breakable.break()
       // Before #983, b's start threw out of the release, into the exit's fiber, and nothing was logged.
       await until(() => node("a") === null && node("b") !== null, 2000)
       await frames(3)
       // The presence goes on: b leaves, and c enters once it has.
       setTab("c")
       await until(() => node("c") !== null && opacityOf(node("c")!) >= 0.99, 2000)
+      expect(node("b"), "b removed").toBeNull()
     } finally {
       window.removeEventListener("error", heard)
       window.removeEventListener("unhandledrejection", heard)

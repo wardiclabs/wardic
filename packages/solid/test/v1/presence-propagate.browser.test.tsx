@@ -17,12 +17,12 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid/v1"
+import * as Layer from "effect/Layer"
+import * as References from "effect/References"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
-import { envWith, errorsNamed, type Logged } from "../report-env.ts"
-import * as Layer from "effect/Layer"
-import * as References from "effect/References"
+import { breakableVariants, envWith, errorsNamed, type Logged, logsNamed } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -270,14 +270,7 @@ describe('AnimatePresence propagate on Solid 1 (#277)', () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
     // The held child's variant: fine at its setup, then broken while it's held.
-    let broken = false
-    const armed = {
-      hidden: { opacity: 0 },
-      shown: () => {
-        if (broken) throw new Error("its variant broke")
-        return { opacity: 1 }
-      },
-    }
+    const breakable = breakableVariants()
     const [tab, setTab] = createSignal("a")
     // At Debug, so the inner presence's teardown is heard.
     const env = Layer.mergeAll(envWith({ logs, reports }), Layer.succeed(References.MinimumLogLevel, "Debug"))
@@ -292,7 +285,7 @@ describe('AnimatePresence propagate on Solid 1 (#277)', () => {
             </wardic.section>
           </Show>
           <Show when={tab() === "b"}>
-            <wardic.p data-k="b" variants={armed} initial="hidden" animate="shown" />
+            <wardic.p data-k="b" variants={breakable.variants} initial="hidden" animate="shown" />
           </Show>
         </AnimatePresence>
       </WardicProvider>
@@ -300,7 +293,7 @@ describe('AnimatePresence propagate on Solid 1 (#277)', () => {
     await frames(3)
     // The inner child's exit outlasts the outer one's own, so the inner presence's done is the parent's last.
     setTab("b")
-    broken = true
+    breakable.break()
     await until(() => container.querySelector('[data-k="a"]') === null, 3000)
     await frames(3)
     // Before #983, the held child's throw came out of the inner presence's done before its teardown.
@@ -308,6 +301,6 @@ describe('AnimatePresence propagate on Solid 1 (#277)', () => {
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("its variant broke")
     expect(reports).toEqual(["its variant broke"])
-    expect(logs.filter((log) => log.message === "wardic.presence: teardown"), "the inner presence torn down").toHaveLength(1)
+    expect(logsNamed(logs, "wardic.presence: teardown"), "the inner presence torn down").toHaveLength(1)
   })
 })
