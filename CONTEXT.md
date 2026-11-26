@@ -529,7 +529,7 @@ A **Subject** a scene holds for its owner: it joins its parent when it enters, a
 _Avoid_: entity, presence child (the DOM's), node.
 
 **Presence**:
-The parent-driven exit before removal (ADR-0007; Motion's `AnimatePresence`): a parent that keeps each child dropping out of its children on the page, at its place in Motion's order, while the child's exit plays, and removes it once every exit inside it has landed. Its mode says what the others do meanwhile: an entering child beside the leaver at once (`sync`), the leaver popped out of the flow where it was (`popLayout`), or the entering child held off the page until the last leaver is gone (`wait`). On Solid it's `<AnimatePresence>`; on Foldkit, `w.Presence` on the parent (ADR-0071, decision 29).
+The parent-driven exit before removal (ADR-0007; Motion's `AnimatePresence`): a parent that keeps each child dropping out of its children on the page, at its place in Motion's order, while the child's exit plays, and removes it once every exit inside it has landed. Its mode says what the others do meanwhile: an entering child beside the leaver at once (`sync`), the leaver popped out of the flow where it was (`popLayout`), or the entering child held off the page until the last leaver is gone (`wait`). On Solid it's `<AnimatePresence>`; on Foldkit, `w.Presence` on the parent (ADR-0071, decision 29). Its `mode="wait"` release that throws (a held child's start) is reported, and the presence goes on (#983).
 _Avoid_: exit group, transition group (solid-transition-group's), presence component (it's the concept; the component is one binding's).
 
 **Presence child**:

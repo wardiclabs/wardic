@@ -70,6 +70,30 @@ export const envWith = (options: { readonly logs: Array<Logged>; readonly report
   )
 }
 
+/** The logs named `message`, at any level. */
+export const logsNamed = (logs: ReadonlyArray<Logged>, message: string): ReadonlyArray<Logged> => logs.filter((log) => log.message === message)
+
 /** The Error logs named `message`. */
 export const errorsNamed = (logs: ReadonlyArray<Logged>, message: string): ReadonlyArray<Logged> =>
-  logs.filter((log) => log.level === "ERROR" && log.message === message)
+  logsNamed(logs, message).filter((log) => log.level === "ERROR")
+
+/**
+ * Variants whose `shown` resolves to `opacity: 1` until `break()` is called, then throws: a variant
+ * reading what changed since it last resolved (#983).
+ */
+export const breakableVariants = () => {
+  let broken = false
+  const variants = {
+    hidden: { opacity: 0 },
+    shown: () => {
+      if (broken) throw new Error("its variant broke")
+      return { opacity: 1 }
+    },
+  }
+  return {
+    variants,
+    break: () => {
+      broken = true
+    },
+  }
+}

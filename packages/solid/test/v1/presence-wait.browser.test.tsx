@@ -18,6 +18,8 @@
 // - WT10: `mode` changed to `sync` mid-wait: the held child goes on at once.
 // - WT11: a `layoutId` twin in the held child enters in its place, with no handover: its leaver's
 //   record ended with the task it left in (ADR-0010), before the twin goes on.
+// - WT12 (#983): a held child whose start throws (its variant broken by what changed while it was held) is
+//   reported, nothing escapes its release, and the presence goes on: the next switch exits and enters.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, type PresenceMode, wardic, WardicProvider } from "@wardic/solid/v1"
@@ -25,6 +27,7 @@ import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX, onMount, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { breakableVariants, envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -303,5 +306,54 @@ describe('AnimatePresence mode="wait" on Solid 1 (#277)', () => {
       await raf()
     }
     expect(lefts, "in its place from the first frame").toEqual([300, 300, 300, 300, 300, 300])
+  })
+
+  it("WT12: a held child whose start throws is reported, nothing escapes its release, and the presence goes on (#983)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const escaped: Array<string> = []
+    const heard = (event: Event): void => void escaped.push(event.type)
+    window.addEventListener("error", heard)
+    window.addEventListener("unhandledrejection", heard)
+    // b's variant reads, at its start, what changed while it was held: fine at its setup, then broken.
+    const breakable = breakableVariants()
+    const plain = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
+    const variantsOf = { a: plain, b: breakable.variants, c: plain } as const
+    const [tab, setTab] = createSignal<keyof typeof variantsOf>("a")
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <AnimatePresence mode="wait">
+          <Show when={tab()} keyed>
+            {(t) => (
+              <wardic.p data-tab={t} variants={variantsOf[t]} initial="hidden" animate="shown" exit={{ opacity: 0 }} transition={EXIT}>
+                {t}
+              </wardic.p>
+            )}
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    const node = (t: string): HTMLElement | null => container.querySelector<HTMLElement>(`[data-tab="${t}"]`)
+    try {
+      await until(() => opacityOf(node("a")!) >= 0.99, 2000)
+      // Set up off the page as the switch runs (WT2), then broken while it's held.
+      setTab("b")
+      breakable.break()
+      // Before #983, b's start threw out of the release, into the exit's fiber, and nothing was logged.
+      await until(() => node("a") === null && node("b") !== null, 2000)
+      await frames(3)
+      // The presence goes on: b leaves, and c enters once it has.
+      setTab("c")
+      await until(() => node("c") !== null && opacityOf(node("c")!) >= 0.99, 2000)
+      expect(node("b"), "b removed").toBeNull()
+    } finally {
+      window.removeEventListener("error", heard)
+      window.removeEventListener("unhandledrejection", heard)
+    }
+    const failed = errorsNamed(logs, 'wardic.presence: mode="wait"\'s release failed')
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("its variant broke")
+    expect(reports).toEqual(["its variant broke"])
+    expect(escaped).toEqual([])
   })
 })
