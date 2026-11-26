@@ -29,6 +29,7 @@ import * as Stops from "./Stops.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, identity } from "effect/Function"
+import type * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as AnimationControls from "./AnimationControls.ts"
@@ -480,6 +481,12 @@ export const startsQuiet = (
   return VariantTarget.sameLabels(initial as Config.WardicVariantLabels, animateOf(config, inherited, untrack) as Config.WardicVariantLabels)
 }
 
+/** What an element starts from, and the first of its variants whose resolver threw (#979). */
+export interface Starting {
+  readonly values: Values.Values
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
+}
+
 /**
  * The values an element starts from, its Starting style's input (ADR-0003): its `initial` (own, else
  * inherited, #50), or, when it {@link startsAtAnimate}, its `animate` (own, else inherited), as
@@ -490,6 +497,32 @@ export const startingValuesOf = (
   inherited: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
   untrack: Reactivity.Reactivity["untrack"],
+): Values.Values => startingValuesFrom(config, inherited, presenceBlocks, untrack, VariantTarget.startingVariantsOf(config.variants, config.custom).variants)
+
+/**
+ * {@link startingValuesOf}, with what a resolver among the element's variants threw: its entry gives no
+ * values, and the element starts at the rest (#979).
+ */
+export const startingOf = (
+  config: VariantConfig,
+  inherited: WardicVariantContextValue | undefined,
+  presenceBlocks: boolean,
+  untrack: Reactivity.Reactivity["untrack"],
+): Starting => {
+  const variants = VariantTarget.startingVariantsOf(config.variants, config.custom)
+  return { values: startingValuesFrom(config, inherited, presenceBlocks, untrack, variants.variants), failure: variants.failure }
+}
+
+/**
+ * {@link startingValuesOf} from its variants already resolved to values (`VariantTarget.startingVariantsOf`):
+ * what an element's start reads, which reads their failure too.
+ */
+export const startingValuesFrom = (
+  config: VariantConfig,
+  inherited: WardicVariantContextValue | undefined,
+  presenceBlocks: boolean,
+  untrack: Reactivity.Reactivity["untrack"],
+  variants: object | undefined,
 ): Values.Values => {
   const atAnimate = startsAtAnimate(config, inherited, presenceBlocks)
   const animate = animateOf(config, inherited, untrack)
@@ -502,11 +535,11 @@ export const startingValuesOf = (
     from = false
     first = animate
   }
+  // Dynamic variants resolved first (#277): `@wardic/dom`'s Starting style reads values maps only.
   const values = Stops.resolveInitial({
     initial: from,
     animate,
-    // Dynamic variants resolved first (#277): `@wardic/dom`'s Starting style reads values maps only.
-    variants: VariantTarget.startingVariantsOf(config.variants, config.custom) as Readonly<Record<string, object | undefined>> | undefined,
+    variants: variants as Readonly<Record<string, object | undefined>> | undefined,
   })
   // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
   // renders it, and a hydration finds it.

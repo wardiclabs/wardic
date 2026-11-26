@@ -24,6 +24,7 @@ export interface Logged {
   readonly level: string
   readonly message: string
   readonly cause: string | undefined
+  readonly annotations: Readonly<Record<string, unknown>>
 }
 
 /** A colour whose blend throws past progress 0: a step that throws, in a leg or an exit. */
@@ -62,7 +63,7 @@ export const envWith = (options: { readonly logs: Array<Logged>; readonly report
     environment,
     Logger.layer([
       Logger.map(Logger.formatStructured, (s) => {
-        options.logs.push({ level: s.level, message: String(s.message), cause: s.cause })
+        options.logs.push({ level: s.level, message: String(s.message), cause: s.cause, annotations: s.annotations })
       }),
     ]),
     ErrorReporter.layer([ErrorReporter.make(({ error }) => void options.reports.push(error.message))]),
@@ -78,14 +79,15 @@ export const errorsNamed = (logs: ReadonlyArray<Logged>, message: string): Reado
   logsNamed(logs, message).filter((log) => log.level === "ERROR")
 
 /**
- * Variants whose `shown` resolves to `opacity: 1` until `break()` is called, then throws: a variant
- * reading what changed since it last resolved (#983).
+ * Variants with `hidden` and a resolver, `shown` unless named, that resolves to `opacity: 1` until
+ * `break()` is called, then throws until `heal()`: a variant reading what changed since it last resolved
+ * (#983, #979).
  */
-export const breakableVariants = () => {
+export const breakableVariants = (name = "shown") => {
   let broken = false
-  const variants = {
+  const variants: Readonly<Record<string, { readonly opacity: number } | (() => { readonly opacity: number })>> = {
     hidden: { opacity: 0 },
-    shown: () => {
+    [name]: () => {
       if (broken) throw new Error("its variant broke")
       return { opacity: 1 }
     },
@@ -94,6 +96,9 @@ export const breakableVariants = () => {
     variants,
     break: () => {
       broken = true
+    },
+    heal: () => {
+      broken = false
     },
   }
 }

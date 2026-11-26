@@ -263,7 +263,12 @@ export type WardicVariantLabels = string | ReadonlyArray<string>
  * A dynamic variant (Motion's `TargetResolver`): called each time the variant is
  * resolved with the element's `custom` (or, for an exit, its `<AnimatePresence custom>`), its values
  * now and their velocities, and returns its target, or another variant's name.
+ *
+ * One that throws is reported, and only its element is affected: it keeps its last target until the
+ * variant resolves, leaves without that exit, or starts without that variant's values.
  */
+// #979 (group F; ADR-0074, ADR-0007's Amendment): core's one call site catches it, and the failure
+// travels as the target's value, so no binding's update sees the throw.
 export type WardicVariantResolver = (
   // Motion's `custom` is `any`: a resolver declares its own (`(direction: number) => …`).
   custom: any,

@@ -19,7 +19,8 @@
 // - WT11: a `layoutId` twin in the held child enters in its place, with no handover: its leaver's
 //   record ended with the task it left in (ADR-0010), before the twin goes on.
 // - WT12 (#983): a held child whose start throws (its variant broken by what changed while it was held) is
-//   reported, nothing escapes its release, and the presence goes on: the next switch exits and enters.
+//   reported, nothing escapes its release, and the presence goes on: the next switch exits and enters. Since
+//   #979's group F, the throw is caught where its variant resolves, and reported as the variant's, once.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, type PresenceMode, wardic, WardicProvider } from "@wardic/solid/v1"
@@ -350,9 +351,11 @@ describe('AnimatePresence mode="wait" on Solid 1 (#277)', () => {
       window.removeEventListener("error", heard)
       window.removeEventListener("unhandledrejection", heard)
     }
-    const failed = errorsNamed(logs, 'wardic.presence: mode="wait"\'s release failed')
+    // Since #979's group F, its variant's throw is caught where it resolves: the release never throws.
+    const failed = errorsNamed(logs, "wardic.ward: a variant failed")
     expect(failed).toHaveLength(1)
     expect(failed[0]!.cause).toContain("its variant broke")
+    expect(errorsNamed(logs, 'wardic.presence: mode="wait"\'s release failed'), "the release goes on").toHaveLength(0)
     expect(reports).toEqual(["its variant broke"])
     expect(escaped).toEqual([])
   })

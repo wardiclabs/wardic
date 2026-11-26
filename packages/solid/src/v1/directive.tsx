@@ -53,12 +53,17 @@ export const runDirective = (el: HTMLElement, value: Accessor<WardConfig.WardCon
   // provides none.
   // Animation controls for its `animate` (#433): each change they make is its entry.
   const { cfg, controls } = controlledOf(value)
-  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
+  const runtime = useWardicRuntime()
+  // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
+  // orchestration reports to, once.
+  const variantFailures = Spine.variantFailuresOf(runtime)
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures)
   // Under a presence, its element is told to it (#286): its `key`, and whether it's a twin.
   const presence = usePresenceContext()
   if (Predicate.isNotUndefined(presence)) Spine.madeWith(presence, constVoid, untrack(cfg))(el)
   runSpine({
-    runtime: useWardicRuntime(),
+    runtime,
+    variantFailures,
     gate: useWardicGate(),
     id: createUniqueId(),
     el: () => el,

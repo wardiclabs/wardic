@@ -127,16 +127,19 @@ export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state:
     // A list (#297): merged, and each name's own keys on its own transition.
     const targets = VariantTarget.resolveTargets(entry, config.variants, custom, state)
     const merged = VariantTarget.mergedOf(targets)
+    // One of its names' resolvers threw (#979, Q3): it leaves without the whole exit, as with one name.
+    if (Option.isSome(merged.failure)) return { values: {}, transition: config.transition, name, keyframes: undefined, failure: merged.failure }
     return {
       values: merged.values,
       transition: VariantTarget.transitionOfTarget(merged.transition, config.transition),
       name,
       groups: exitGroupsOf(targets, config.transition),
       keyframes: merged.keyframes,
+      failure: merged.failure,
     }
   }
   const target = VariantTarget.resolveTarget(entry, config.variants, custom, state)
-  return { values: target.values, transition: VariantTarget.transitionOfTarget(target.transition, config.transition), name, keyframes: target.keyframes }
+  return { values: target.values, transition: VariantTarget.transitionOfTarget(target.transition, config.transition), name, keyframes: target.keyframes, failure: target.failure }
 }
 
 /** A list's exit groups (#297): each name, with the keys it's the last to set, on its own transition else `element`. */
@@ -349,10 +352,12 @@ export interface OverrideEntry {
   readonly ends: Values.Values
   /** Its target's **Keyframes** (#429): each such key's stops, its value in `values` their last. */
   readonly keyframes: VariantTarget.Keyframes | undefined
+  /** Its target's resolver that threw, and its variant's name (#979): it has none of that target's values. */
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined }
+const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined, failure: VariantTarget.NO_FAILURE }
 
 /**
  * A gesture layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
@@ -1010,6 +1015,7 @@ const layerOf = (target: VariantTarget.Target, name: string | undefined): Overri
   name,
   ends: endsOfTarget(target),
   keyframes: target.keyframes,
+  failure: target.failure,
 })
 
 /** A list's target as an active entry (#297). */
@@ -1446,7 +1452,7 @@ const baseTargetOf = (
 ): VariantTarget.Target => {
   if (Predicate.isNotUndefined(own)) return VariantTarget.resolveTarget(own, variants, custom, state)
   if (Predicate.isNotUndefined(variant)) return VariantTarget.resolveTarget(variant, variants, custom, state)
-  return { values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined }
+  return { values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: VariantTarget.NO_FAILURE }
 }
 
 /**
@@ -1581,6 +1587,8 @@ export interface Start {
    * landing with nothing to animate, is told to no one.
    */
   readonly quiet: boolean
+  /** The first of its variants whose resolver threw as it was set up (#979): that entry gave no values. */
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
 }
 
 /**
@@ -1595,14 +1603,133 @@ export const startOf = (
   untrack: Reactivity.Reactivity["untrack"],
 ): Start => {
   const startedAtAnimate = VariantTree.startsAtAnimate(config, parent, presenceBlocks)
-  const initialValues = VariantTree.startingValuesOf(config, parent, presenceBlocks, untrack)
+  // Its variants resolved once (#277), what a resolver among them threw beside them (#979): one value
+  // for an element with no variants, so its start makes nothing more (bench:solid's mount).
+  const variants = VariantTarget.startingVariantsOf(config.variants, config.custom)
+  const initialValues = VariantTree.startingValuesFrom(config, parent, presenceBlocks, untrack, variants.variants)
   return {
     quiet: VariantTree.startsQuiet(config, parent, presenceBlocks, untrack),
     initialValues,
     initialLink: Bool.match(startedAtAnimate, { onTrue: () => ({}), onFalse: () => initialValues }),
     startedLink: Bool.match(startedAtAnimate, { onTrue: () => initialValues, onFalse: () => ({}) }),
+    failure: variants.failure,
   }
 }
+
+/** How a variant's failure is reported under `message`, on a runtime: at Error, its cause what the resolver threw, annotated with the variant's name. */
+const failedOn =
+  (message: string) =>
+  (runtime: Pick<WardicServices.Runner<never>, "runFork">) =>
+  (failure: VariantTarget.VariantFailure): void => {
+    runtime.runFork(Effect.annotateLogs(Report.failure(message, Cause.die(failure.defect)), { variant: failure.name }))
+  }
+
+/** How an element's variant that throws is reported, on its runtime. */
+const variantFailedOn = failedOn("wardic.ward: a variant failed")
+
+/** How an exit whose resolver throws is reported, on `runtime`, each time an element leaves: its element leaves without it (#979). */
+export const exitVariantFailedOn: (runtime: Pick<WardicServices.Runner<never>, "runFork">) => (failure: VariantTarget.VariantFailure) => void = failedOn(
+  "wardic.presence: an exit variant failed",
+)
+
+/** An element's variant failure reported on Effect's default runtime: a server render's, which holds no app reporters (#979). */
+export const variantFailedOnServer: (failure: VariantTarget.VariantFailure) => void = /*#__PURE__*/ variantFailedOn({ runFork: (effect) => Effect.runFork(effect) })
+
+/** The first of a list of entries' failures: built once, as it's asked per Retarget (#460, compose once). */
+const firstFailureOf = Arr.findFirst<OverrideEntry, VariantTarget.VariantFailure>((layer) => layer.failure)
+
+/** The first of a resolution's entries' resolvers that threw, and its variant's name (#979). */
+export const failureOf = (resolution: Resolution): Option.Option<VariantTarget.VariantFailure> => firstFailureOf(resolution.layers)
+
+/**
+ * An element's dynamic variants that throw: its last good resolution, and each variant failing now with
+ * the places that saw it fail. One an element, made by its binding with `report` on its runtime, and
+ * read through {@link keptOf}, {@link reportStart} and {@link orchestrationOf}: each variant is
+ * reported once, until it resolves again.
+ */
+export interface VariantFailures {
+  /** Its last resolution with no failure: what {@link keptOf} gives while one carries a failure. */
+  last: Resolution | undefined
+  /** Each failing variant, by name, and where it was seen; made at the first failure: most elements never have one. */
+  failing: Map<string, number> | undefined
+  /** The runtime its failures are reported on, at Error. */
+  readonly runtime: Pick<WardicServices.Runner<never>, "runFork">
+}
+
+/** An element's {@link VariantFailures}, none failing yet, reported on `runtime`. */
+// #979 (bench:solid's mount): one plain object an element, read by the functions below, not closures, and
+// holding its runtime: its report is made only at a failure. A report made once a runtime and found in a
+// WeakMap cost Solid 1's mount 6% (the lookup, an element).
+export const variantFailuresOf = (runtime: Pick<WardicServices.Runner<never>, "runFork">): VariantFailures => ({ last: undefined, failing: undefined, runtime })
+
+/** Where a variant's failure was seen, until each resolves it again: its element's resolutions, and its orchestration. */
+const RESOLVING = 1
+const ORCHESTRATING = 2
+
+// #979 (ADR-0074; Q6 and its review): a resolver's throw is its element's alone. Each variant, by name,
+// is reported as it starts failing and fails until every place that saw it fail resolves it again, so
+// a throw its resolutions and its orchestration both see is reported once. Setup resolves with no
+// values, as orchestration does, so a setup failure counts for both: a resolver that throws only with
+// no values isn't reported again at the first change its orchestration reads.
+const failedAt = (failures: VariantFailures, failure: VariantTarget.VariantFailure, at: number): void => {
+  const name = UndefinedOr.match(failure.name, { onDefined: identity, onUndefined: () => "" })
+  if (Predicate.isUndefined(failures.failing)) failures.failing = new Map()
+  const before = failures.failing.get(name)
+  if (Predicate.isUndefined(before)) {
+    failures.failing.set(name, at)
+    variantFailedOn(failures.runtime)(failure)
+    return
+  }
+  failures.failing.set(name, before | at)
+}
+
+const resolvedAt = (failing: Map<string, number>, name: string | undefined, at: number): void => {
+  if (Predicate.isUndefined(name)) return
+  const before = failing.get(name)
+  if (Predicate.isUndefined(before)) return
+  const after = before & ~at
+  if (after === 0) {
+    failing.delete(name)
+    return
+  }
+  failing.set(name, after)
+}
+
+/** `next`, else, while it carries a failure, the element's last good resolution: it keeps its target. */
+// Per Retarget, per element (#460, compose once): statements; nothing done while nothing fails.
+export const keptOf = (failures: VariantFailures, next: Resolution): Resolution => {
+  const failure = failureOf(next)
+  if (Option.isSome(failure)) {
+    failedAt(failures, failure.value, RESOLVING)
+    // The first one has no last good one: its failed entry resolved to nothing.
+    const last = failures.last
+    if (Predicate.isUndefined(last)) return next
+    return last
+  }
+  failures.last = next
+  const failing = failures.failing
+  if (Predicate.isUndefined(failing) || failing.size === 0) return next
+  Arr.forEach(next.layers, (layer) => resolvedAt(failing, layer.name, RESOLVING))
+  return next
+}
+
+/** A start's failure, setup's or a re-entry's fresh start's: setup resolves as orchestration does, so it stands for both until each resolves the variant again. */
+export const reportStart = (failures: VariantFailures, start: Start): void => {
+  if (Option.isSome(start.failure)) failedAt(failures, start.failure.value, RESOLVING | ORCHESTRATING)
+}
+
+/** What an element's orchestration resolves, told to its failures: made by a variant node that orchestrates. */
+export const orchestrationOf =
+  (failures: VariantFailures): VariantTarget.Orchestrated =>
+  (entry, failure) => {
+    if (Option.isSome(failure)) {
+      failedAt(failures, failure.value, ORCHESTRATING)
+      return
+    }
+    const failing = failures.failing
+    if (Predicate.isUndefined(failing) || failing.size === 0) return
+    Arr.forEach(Arr.ensure(entry), (name) => resolvedAt(failing, name, ORCHESTRATING))
+  }
 
 /**
  * The Snapshot: each key's last emitted value, a number or a string, and the numeric velocities.

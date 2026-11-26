@@ -53,6 +53,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
 import { constTrue, constVoid, identity } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -254,7 +255,7 @@ const plainOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subje
     ownValues: env.ownValues,
     measuredPairs: env.measuredPairs,
     variableValues: env.variableValues,
-    start: { initialValues: {}, initialLink: {}, startedLink: {}, quiet: false },
+    start: { initialValues: {}, initialLink: {}, startedLink: {}, quiet: false, failure: Option.none() },
     snapshot,
     reuse: Spine.makeReuse(),
     links: subjects.startLinksOf(subject),
@@ -610,6 +611,9 @@ interface Readied<S extends object> {
 // refusal, its Subject's or a later Subject's, ended the animations that drew the keys taken before it.
 const readiedOf = <S extends object>(env: AnimateEnv, subjects: Subjects<S>, subject: S, variant: Config.WardicVariant): Readied<S> => {
   const target = VariantTarget.resolveTarget(variant, undefined, undefined, VariantTarget.NO_VARIANT_STATE)
+  // A function given as the target (past the types) that throws is an error at the call, as a key it
+  // can't take is: the call takes nothing (#979; ADR-0074 keeps a refusal at the call a throw).
+  if (Option.isSome(target.failure)) throw target.failure.value.defect
   const own = wardicElements.get(subject)
   if (Predicate.isNotUndefined(own)) return readOwnValues({ subject, target, host: own.host(), plain: undefined })
   const plain = plainOf(env, subjects, subject)

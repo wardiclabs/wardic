@@ -28,6 +28,7 @@ import type * as AnimationControls from "@wardic/core/unstable/AnimationControls
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { CLIENT_ONLY, CLIENT_ONLY_SYNC } from "./solid-reactivity.ts"
+import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 
 /**
@@ -111,7 +112,10 @@ const ownOrchestration = (
   parent: VariantTree.WardicVariantContextValue | undefined,
   inherited: VariantTree.WardicVariantContextValue | undefined,
   change: Accessor<AnimationControls.ControlsChange | undefined>,
+  failures: Spine.VariantFailures | undefined,
 ): OwnOrchestration => {
+  // What it resolves, told to its element's failures (#979): made here, as only an element that orchestrates has one.
+  const orchestrated = UndefinedOr.map(failures, Spine.orchestrationOf)
   // Children in mount order (a Set keeps insertion order), snapshotted at each trigger. Kept with a
   // count of the unsettled ones rather than a signal of the records, so a child's mount, unmount or
   // settle costs the same at 1,000 children as at 1. The count is plain, and the signal its copy:
@@ -225,8 +229,8 @@ const ownOrchestration = (
       VariantTree.orchestrationAt(at(), () => {
         const c = cfg()
         const own = UndefinedOr.match(VariantTree.topGestureName(VariantTree.activeNamesOf(gestures())), {
-          onDefined: (name) => VariantTarget.ownTransitionOf(undefined, name, c.variants, c.custom),
-          onUndefined: () => VariantTarget.ownTransitionOf(c.animate, variant(), c.variants, c.custom),
+          onDefined: (name) => VariantTarget.ownTransitionOf(undefined, name, c.variants, c.custom, orchestrated),
+          onUndefined: () => VariantTarget.ownTransitionOf(c.animate, variant(), c.variants, c.custom, orchestrated),
         })
         return VariantTarget.transitionOfTarget(own, c.transition)
       }),
@@ -260,7 +264,7 @@ const ownOrchestration = (
     const kept = known.get(name)
     if (Predicate.isNotUndefined(kept)) return kept
     const c = untrack(cfg)
-    const made = untrack(() => VariantTree.nameConfigOf(VariantTarget.transitionOfTarget(VariantTarget.ownTransitionOf(undefined, name, c.variants, c.custom), c.transition)))
+    const made = untrack(() => VariantTree.nameConfigOf(VariantTarget.transitionOfTarget(VariantTarget.ownTransitionOf(undefined, name, c.variants, c.custom, orchestrated), c.transition)))
     known.set(name, made)
     return made
   }
@@ -328,6 +332,7 @@ export const createVariantNode = (
   config: VariantTree.VariantConfig,
   parent: VariantTree.WardicVariantContextValue | undefined,
   controls?: Accessor<AnimationControls.ControlsChange | undefined>,
+  failures?: Spine.VariantFailures,
 ): VariantNode => {
   if (Bool.and(Predicate.isUndefined(config.variants), Bool.not(VariantTree.namesOwnVariants(config)))) return plainNode(config, parent)
   const inherited = VariantTree.inheritedContext(config, parent)
@@ -338,7 +343,7 @@ export const createVariantNode = (
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)
   const own = Bool.match(VariantTree.hasOwnVariants(config), {
     onFalse: constUndefined,
-    onTrue: () => ownOrchestration(cfg, config, parent, inherited, change),
+    onTrue: () => ownOrchestration(cfg, config, parent, inherited, change, failures),
   })
   // The spine reports on every frame (the per-frame path, docs/agents/effect-first.md): both
   // reports are resolved here, once, so a frame makes two plain calls and allocates nothing.

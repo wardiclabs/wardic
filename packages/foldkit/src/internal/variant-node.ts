@@ -12,6 +12,7 @@
  */
 import * as AnimationControls from "@wardic/core/unstable/AnimationControls"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as Arr from "effect/Array"
@@ -42,6 +43,11 @@ export interface VariantNode {
    * hands down what it takes.
    */
   readonly bindGestures: (states: () => VariantTree.GestureStates) => void
+  /**
+   * Where what its orchestration resolves is told, a variant that throws among it: its element's
+   * failures, handed over by its Mount, as the node is made at the first ask, maybe before it.
+   */
+  readonly reportsTo: (failures: Spine.VariantFailures) => void
   /** Its registration with the ancestor it joined, given up: at its element's release. */
   readonly dispose: () => void
   /**
@@ -74,6 +80,7 @@ interface OwnOrchestration {
   readonly canStartFor: (name: string) => boolean
   readonly settledFor: (names: ReadonlyArray<string>, done: boolean) => void
   readonly bindGestures: (states: () => VariantTree.GestureStates) => void
+  readonly reportsTo: (failures: Spine.VariantFailures) => void
 }
 
 /** No gesture on: what an element hands down before its Mount binds its gestures. */
@@ -102,6 +109,11 @@ const ownOrchestration = (
   const cfg = read.config
   const change = read.change
   const config = cfg()
+  // Where what it resolves is told (#979): its element's failures, once its Mount hands them over.
+  let reportTo: VariantTarget.Orchestrated | undefined
+  const orchestrated: VariantTarget.Orchestrated = (entry, failure) => {
+    if (Predicate.isNotUndefined(reportTo)) reportTo(entry, failure)
+  }
   // Children in mount order (a Set keeps insertion order); the slots are rewritten at each trigger.
   const records = new Set<ChildRecord>()
   let unsettled = 0
@@ -197,8 +209,8 @@ const ownOrchestration = (
     return VariantTree.orchestrationAt(UndefinedOr.getOrThrow(at), () => {
       const c = cfg()
       const own = UndefinedOr.match(VariantTree.topGestureName(VariantTree.activeNamesOf(gestures())), {
-        onDefined: (name) => VariantTarget.ownTransitionOf(undefined, name, c.variants as WardConfig.WardicVariants | undefined, c.custom),
-        onUndefined: () => VariantTarget.ownTransitionOf(c.animate as VariantTarget.Entry, variant(), c.variants as WardConfig.WardicVariants | undefined, c.custom),
+        onDefined: (name) => VariantTarget.ownTransitionOf(undefined, name, c.variants as WardConfig.WardicVariants | undefined, c.custom, orchestrated),
+        onUndefined: () => VariantTarget.ownTransitionOf(c.animate as VariantTarget.Entry, variant(), c.variants as WardConfig.WardicVariants | undefined, c.custom, orchestrated),
       })
       return VariantTarget.transitionOfTarget(own, c.transition)
     })
@@ -226,7 +238,7 @@ const ownOrchestration = (
     }
     const kept = byName.get(name)
     if (Predicate.isNotUndefined(kept)) return kept
-    const made = VariantTree.nameConfigOf(VariantTarget.transitionOfTarget(VariantTarget.ownTransitionOf(undefined, name, c.variants as WardConfig.WardicVariants | undefined, c.custom), c.transition))
+    const made = VariantTree.nameConfigOf(VariantTarget.transitionOfTarget(VariantTarget.ownTransitionOf(undefined, name, c.variants as WardConfig.WardicVariants | undefined, c.custom, orchestrated), c.transition))
     byName.set(name, made)
     return made
   }
@@ -271,6 +283,9 @@ const ownOrchestration = (
     settledFor,
     bindGestures: (states) => {
       MutableRef.set(ownStates, states)
+    },
+    reportsTo: (failures) => {
+      reportTo = Spine.orchestrationOf(failures)
     },
   }
 }
@@ -321,6 +336,7 @@ export const variantNodeOf = (delivered: () => Delivered, parent: VariantTree.Wa
     },
     names: namesOf(joined, orchestration),
     bindGestures: UndefinedOr.match(orchestration, { onUndefined: () => constVoid, onDefined: (o) => o.bindGestures }),
+    reportsTo: UndefinedOr.match(orchestration, { onUndefined: () => constVoid, onDefined: (o) => o.reportsTo }),
     dispose: UndefinedOr.match(joined, { onUndefined: () => constVoid, onDefined: ({ registration }) => registration.dispose }),
     configured,
     change,

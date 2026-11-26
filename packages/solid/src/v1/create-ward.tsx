@@ -266,6 +266,8 @@ export interface RunSpineOptions {
   readonly valueReads?: ElementSetup.ElementValueReads | undefined
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
+  /** Its element's dynamic variants that throw (#979): made with its variant node, which reports to them too. */
+  readonly variantFailures: Spine.VariantFailures
   /** The provider-owned flush gate (ADR-0006). */
   readonly gate: FlushGate.Shape
   /** SSR/hydration-stable gate id for this element's entry. */
@@ -433,7 +435,7 @@ const valueReadsIn = (given: ElementSetup.ElementValueReads | undefined): Elemen
 }
 
 export function runSpine(opts: RunSpineOptions): void {
-  const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
+  const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag, variantFailures } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
   const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal) })
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
@@ -473,6 +475,10 @@ export function runSpine(opts: RunSpineOptions): void {
   // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
   // frame 1 flows continuously out of it (no snap).
   const start = Spine.startOf(untrack(cfg), parent, PresenceRecord.presenceBlocksInitial(presence), untrack)
+  // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
+  // keeping its last target, and nothing thrown into Solid's update, which would freeze every element in
+  // it (#979; ADR-0074).
+  Spine.reportStart(variantFailures, start)
   const snapshot = Spine.snapshotOf(start)
   const reuse = Spine.makeReuse()
   // Where an element starts (#414): the ward's start, or, for one that comes after the last left the
@@ -482,6 +488,7 @@ export function runSpine(opts: RunSpineOptions): void {
     if (Predicate.isUndefined(entersFresh)) return start
     if (Bool.not(entersFresh(element))) return start
     const fresh = Spine.startOf(untrack(cfg), parent, false, untrack)
+    Spine.reportStart(variantFailures, fresh)
     snapshot.values = { ...fresh.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
@@ -864,7 +871,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // change, a recognizer's flip or the drag's recomputes it, and only one that resolves a new
       // target drives a Retarget. A `transition`, a callback or an option alone tells nothing, as
       // Motion's doesn't.
-      const target = createMemo((): Spine.Resolution => Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange()), undefined, { equals: Spine.sameResolution })
+      const target = createMemo((): Spine.Resolution => Spine.keptOf(variantFailures, Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange())), undefined, { equals: Spine.sameResolution })
       // A colour only the `colors` Feature reads, on a Slim element without it (#511, decision 7): said
       // once per provider, in development only, and not while a lazy load is on its way.
       if (DEV && internal.complete !== true) warnUnreadColors(useFeatureRegistry(), features, () => target().resolved)
@@ -1023,7 +1030,10 @@ export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConf
   // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
   // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
   // `when`). Read at hook-call time (component body owner), for this instance's lifetime.
-  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
+  // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
+  // orchestration reports to, once.
+  const variantFailures = Spine.variantFailuresOf(runtime)
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change), variantFailures)
 
   // The Renderer's PURE project (ADR-0003: synchronous, no engine), read once by the provider (#618, M1).
   const { project } = useWardicRenderer()
@@ -1102,6 +1112,7 @@ export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConf
   runSpine({
     valueReads,
     runtime,
+    variantFailures,
     gate,
     id,
     el,
@@ -1199,9 +1210,13 @@ const serverWard = (config: WardConfig.WardConfig | Accessor<WardConfig.WardConf
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = VariantTree.serverVariantNode(c, useVariantContext())
   const layoutNode = Spine.isLayoutNode(c)
-  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
+  // Its start, resolved once: the seed and the Appear animation's initial values read it. A variant that
+  // throws leaves its values out of the markup, logged on the server (#979).
+  const starting = VariantTree.startingOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack)
+  if (Option.isSome(starting.failure)) Spine.variantFailedOnServer(starting.failure.value)
+  const initialValues = starting.values
+  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(initialValues, layoutNode, c.transformTemplate))
   const dragDefaults = DragDefaults.dragDefaultsOf(c, internal)
-  const initialValues = VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
   const appear = serverAppearOf(c, internal.tag, initialValues, node, VariantTree.startsQuiet(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack))

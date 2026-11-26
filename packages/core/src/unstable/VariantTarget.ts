@@ -48,6 +48,11 @@ export interface Target {
    * none.
    */
   readonly keyframes: Keyframes | undefined
+  /**
+   * A resolver it called that threw, and its variant's name (#979): it resolved to nothing in its place.
+   * None when every resolver it called returned.
+   */
+  readonly failure: Option.Option<VariantFailure>
 }
 
 /** A target's **Keyframes** (#429): each such key's stops. */
@@ -99,14 +104,34 @@ type Definition = Config.WardicVariant | Config.WardicVariantResolver | string |
 const velocitiesOf = (state: VariantState): Readonly<Record<string, number>> =>
   UndefinedOr.match(state.velocitiesNow, { onUndefined: () => state.velocities, onDefined: (now) => now(state) })
 
-/** A resolver called with what it reads, as Motion calls it; anything else as it is. */
-const calledOf = (definition: Definition, custom: unknown, state: VariantState): Definition => {
-  if (Predicate.isFunction(definition)) return definition(custom, { ...state.values }, { ...velocitiesOf(state) })
+/** A resolver's throw, handed on in place of a definition: the one value, its throw in {@link thrown}. */
+// #979 (ADR-0074): every resolver runs in `calledOf`, so its throw is caught once, for every binding.
+// One value, told apart by identity: every target passes the check, and a property check (`in`, a
+// symbol a values map never has) cost a resolution 4–5% in Maglev (bench:solid's mount).
+const FAILED: { readonly failed: true } = { failed: true }
+type Failed = typeof FAILED
+
+/** What the resolver behind the last {@link FAILED} threw: set by `calledOf` and read by `resolveOne` at once, with no app code between. */
+// Module state (#979, bench:solid's mount): one throw at a time, handed from `calledOf` to `resolveOne` in one
+// synchronous step and cleared there, so `FAILED` stays one value told apart by identity.
+let thrown: unknown = undefined
+
+/** A resolver called with what it reads, as Motion calls it, its throw handed on as {@link FAILED}; anything else as it is. */
+// #979, Q4: a bare `try`, measured within 2% of the call alone; `Result.try` cost 21–35% more a call.
+const calledOf = (definition: Definition | Failed, custom: unknown, state: VariantState): Definition | Failed => {
+  if (Predicate.isFunction(definition)) {
+    try {
+      return definition(custom, { ...state.values }, { ...velocitiesOf(state) })
+    } catch (defect) {
+      thrown = defect
+      return FAILED
+    }
+  }
   return definition
 }
 
 /** A name looked up in `variants`; anything else as it is. */
-const namedOf = (definition: Definition, variants: Config.WardicVariants | undefined): Definition => {
+const namedOf = (definition: Definition | Failed, variants: Config.WardicVariants | undefined): Definition | Failed => {
   if (Bool.not(Predicate.isString(definition))) return definition
   if (Predicate.isUndefined(variants)) return undefined
   return variants[definition as string]
@@ -134,7 +159,20 @@ export const resolveTargets = (entry: Entry, variants: Config.WardicVariants | u
     return Arr.map(entry as ReadonlyArray<string>, (name): NamedTarget => ({ ...resolveOne(name, variants, custom, state), name }))
   }
   const one = entry as Config.WardicVariant | string | undefined
-  return [{ ...resolveOne(one, variants, custom, state), name: Bool.match(Predicate.isString(one), { onTrue: () => one as string, onFalse: () => undefined }) }]
+  return [{ ...resolveOne(one, variants, custom, state), name: nameOfEntry(one) }]
+}
+
+/** An entry's name: the entry itself, when it's one. */
+// Per Retarget, per element (#460, compose once): statements.
+const nameOfEntry = (entry: Config.WardicVariant | string | undefined): string | undefined => {
+  if (Predicate.isString(entry)) return entry
+  return undefined
+}
+
+/** The first of two failures: what a merge keeps. */
+const firstFailure = (before: Option.Option<VariantFailure>, after: Option.Option<VariantFailure>): Option.Option<VariantFailure> => {
+  if (Option.isSome(before)) return before
+  return after
 }
 
 /**
@@ -155,6 +193,8 @@ export const mergedOf = (targets: ReadonlyArray<Target>): Target =>
       onUndefined: () => merged.transitionEnd,
       onDefined: (own) => UndefinedOr.match(merged.transitionEnd, { onUndefined: () => own, onDefined: (before) => ({ ...before, ...own }) }),
     }),
+    // The first name's whose resolver threw (#979).
+    failure: firstFailure(merged.failure, target.failure),
   }))
 
 /**
@@ -168,12 +208,21 @@ const keyframesOver = (target: Target, before: Keyframes | undefined): Keyframes
   return Bool.match(Rec.isEmptyRecord(over), { onTrue: () => undefined, onFalse: () => over })
 }
 
+/** No failure: one value, as every target that resolves carries it (#979, bench:solid's mount). */
+export const NO_FAILURE: Option.Option<VariantFailure> = Option.none()
+
 /** Nothing resolved. */
-export const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined, keyframes: undefined }
+export const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: NO_FAILURE }
 
 /** One name or values map resolved ({@link resolveTarget}). */
 const resolveOne = (entry: Config.WardicVariant | string | undefined, variants: Config.WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
   const definition = calledOf(namedOf(calledOf(namedOf(entry, variants), custom, state), variants), custom, state)
+  // A resolver that threw resolves to nothing, carrying what it threw and the name it was reached by (#979).
+  if (definition === FAILED) {
+    const defect = thrown
+    thrown = undefined
+    return { ...NO_TARGET, failure: Option.some({ defect, name: nameOfEntry(entry) }) }
+  }
   if (Bool.or(Predicate.isUndefined(definition), Bool.or(Predicate.isString(definition), Predicate.isFunction(definition)))) {
     return NO_TARGET
   }
@@ -185,11 +234,11 @@ const resolveOne = (entry: Config.WardicVariant | string | undefined, variants: 
   // pass over its keys (#452).
   if (Bool.not(Predicate.isObject(target.transition))) {
     const split = Stops.splitValues(target, "last")
-    return { values: split.values, transition: undefined, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes) }
+    return { values: split.values, transition: undefined, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes), failure: NO_FAILURE }
   }
   const { transition, ...values } = target
   const split = Stops.splitValues(values, "last")
-  return { values: split.values, transition: transition as Config.WardicVariantTransition, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes) }
+  return { values: split.values, transition: transition as Config.WardicVariantTransition, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes), failure: NO_FAILURE }
 }
 
 /** A target's Transition end (#428), clean for core: none for anything but a values map, or an empty one. */
@@ -215,32 +264,62 @@ export const transitionOfTarget = (own: Config.WardicVariantTransition | undefin
   return rest as Config.WardicTransition
 }
 
+/** A target's values, and its failure: what {@link startingVariantsOf} reads of each. */
+const valuesOfTarget = (target: Target): Values.Values => target.values
+const failureOfTarget = (target: Target): Option.Option<VariantFailure> => target.failure
+
+/** A variant's resolver that threw (#979): what it threw, and the variant's name where it has one. */
+export interface VariantFailure {
+  readonly defect: unknown
+  readonly name: string | undefined
+}
+
+/** `variants` as the Starting style reads them, and the first of them whose resolver threw. */
+export interface StartingVariants {
+  readonly variants: object | undefined
+  readonly failure: Option.Option<VariantFailure>
+}
+
+/** No variants: one value, as most elements have none (#979, bench:solid's mount). */
+const NO_STARTING_VARIANTS: StartingVariants = { variants: undefined, failure: NO_FAILURE }
+
 /**
  * `variants` with each entry resolved to its values, a dynamic one with `custom` and no values yet
  * (#277): what dom's Starting style reads, which takes values maps only. As they are when none is a
- * function.
+ * function. A resolver that throws gives its entry no values, and its throw is the failure.
  */
-export const startingVariantsOf = (variants: object | undefined, custom: unknown): object | undefined => {
-  if (Predicate.isUndefined(variants)) return undefined
+export const startingVariantsOf = (variants: object | undefined, custom: unknown): StartingVariants => {
+  if (Predicate.isUndefined(variants)) return NO_STARTING_VARIANTS
   const entries = variants as Config.WardicVariants
-  if (Bool.not(Arr.some(Rec.values(entries), Predicate.isFunction))) return variants
-  return Rec.map(entries, (_, name) => resolveTarget(name, entries, custom, NO_VARIANT_STATE).values)
+  if (Bool.not(Arr.some(Rec.values(entries), Predicate.isFunction))) return { variants, failure: NO_FAILURE }
+  // Once an element's setup (#979): each entry resolved, a throwing resolver's left with no values.
+  const targets = Rec.map(entries, (_, name) => resolveTarget(name, entries, custom, NO_VARIANT_STATE))
+  return { variants: Rec.map(targets, valuesOfTarget), failure: Option.firstSomeOf(Arr.map(Rec.values(targets), failureOfTarget)) }
 }
+
+/** What orchestration's resolution of a variant name, `entry`, came to: its failure, or none once it resolves. */
+export type Orchestrated = (entry: Config.WardicVariantLabels, failure: Option.Option<VariantFailure>) => void
 
 /**
  * The own transition of an element's target now (#277): its `animate` map's, else the variant it
  * names or inherits (`name`), resolved with `custom` and no values. What its orchestration reads.
+ * `orchestrated` is told what a name's resolution came to: a resolver that throws gives no own
+ * transition.
  */
 export const ownTransitionOf = (
   animate: object | Config.WardicVariantLabels | undefined,
   name: Config.WardicVariantLabels | undefined,
   variants: object | undefined,
   custom: unknown,
+  orchestrated?: Orchestrated,
 ): Config.WardicVariantTransition | undefined => {
   const byName = variants as Config.WardicVariants | undefined
   if (Bool.and(Predicate.isNotUndefined(animate), Bool.not(isLabels(animate)))) {
     return resolveTarget(animate as Config.WardicVariant, byName, custom, NO_VARIANT_STATE).transition
   }
   if (Predicate.isUndefined(name)) return undefined
-  return resolveTarget(name, byName, custom, NO_VARIANT_STATE).transition
+  const target = resolveTarget(name, byName, custom, NO_VARIANT_STATE)
+  // #979 (Q6): a throw here is reported through the element's own once, its resolution's apart.
+  if (Predicate.isNotUndefined(orchestrated)) orchestrated(name, target.failure)
+  return target.transition
 }

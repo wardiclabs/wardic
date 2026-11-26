@@ -301,7 +301,7 @@ export interface WardBaseConfig {
   // Dynamic variants: #277. Orchestration: ADR-0007.
   readonly variants?: Config.WardicVariants
   /**
-   * The value passed to this element's function variants. When it changes, they're resolved again,
+   * The value passed to this element's dynamic variants. When it changes, they're resolved again,
    * and the element animates to what they give. A leaving element uses `<AnimatePresence custom>`
    * instead, if given.
    */
@@ -335,13 +335,16 @@ export interface WardBaseConfig {
   readonly transition?: WardicTransition
   /**
    * Where the element animates as it leaves an `<AnimatePresence>`: values or a `variants` name. The
-   * element stays on the page until it has played.
+   * element stays on the page until it has played. A dynamic variant that throws as the element
+   * leaves, alone or in a list, is reported, and the element leaves at once, without its exit; the
+   * others leaving beside it exit.
    *
    * @example <w.div exit={{ opacity: 0, scale: 0.9 }} />
    */
   // ADR-0007: the child doesn't drive it (it's disposed); its spine publishes the exit into the
   // presence registration, and the presence runs it on the retained node. A dynamic variant resolves
-  // as it leaves (#277); its own transition, else the element's.
+  // as it leaves (#277); its own transition, else the element's. One that throws: #979, reported by the
+  // presence's `nodeOf` each time.
   readonly exit?: WardicVariant | Config.WardicVariantLabels
   /**
    * Called when an animation of the element starts, with what it animates to: the variant name, or

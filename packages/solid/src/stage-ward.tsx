@@ -248,6 +248,7 @@ interface WardParts {
   readonly lifecycle: Lifecycle
   readonly gate: StageWardEnvironment["gate"]
   readonly registry: ReturnType<typeof Spine.registryOf>
+  readonly runtime: StageWardEnvironment["runtime"]
 }
 
 /**
@@ -283,6 +284,7 @@ interface SceneSide {
  */
 const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide => {
   const { id, cfg, lifecycle, gate, registry } = parts
+  const exitFailed = Spine.exitVariantFailedOn(parts.runtime)
   let mounts = 0
   // Kept alive: it's set before anything reads it, and a registry drops an Atom no one holds.
   const currentId = Atom.keepAlive(Atom.make(id))
@@ -304,7 +306,12 @@ const sceneSideOf = (parts: WardParts, membership: StageMembership): SceneSide =
       const exit = values.exit
       if (Predicate.isUndefined(exit)) return undefined
       const exitConfig = { animate: exit, variants: values.variants, custom: values.custom, transition: values.transition } as Config.SpineConfig
-      return Spine.resolutionOf(exitConfig, parts.inherited, parts.start.initialLink, NOTHING_ACTIVE, m.snapshot)
+      const resolution = Spine.resolutionOf(exitConfig, parts.inherited, parts.start.initialLink, NOTHING_ACTIVE, m.snapshot)
+      const failure = Spine.failureOf(resolution)
+      if (Option.isNone(failure)) return resolution
+      // An exit whose resolver throws: reported each time, and it leaves without it (#979).
+      exitFailed(failure.value)
+      return undefined
     })
 
   /**
@@ -426,7 +433,10 @@ const wardOn = (
       onUndefined: (): GraphParent | undefined => undefined,
       onDefined: (on) => Bool.match(VariantTree.isVariantChild(initialConfig), { onTrue: (): GraphParent | undefined => new GraphParent(on, joinsUnder), onFalse: constUndefined }),
     })
-    const node = createVariantNode(cfg, initialConfig, follower)
+    // A variant that throws is this Subject's alone (#979): its failures, which its spine keeps and its
+    // orchestration reports to, once.
+    const variantFailures = Spine.variantFailuresOf(runtime)
+    const node = createVariantNode(cfg, initialConfig, follower, undefined, variantFailures)
     UndefinedOr.map(follower, (f) => {
       if (Bool.not(Predicate.isFunction(given))) f.early(given as object)
     })
@@ -446,6 +456,9 @@ const wardOn = (
     if (Bool.not(Predicate.isFunction(given))) provideOn(given as object)
     if (Bool.and(Arr.contains(setup.pending, "animate"), initialConfig.initial === false)) throw new Error(STARTS_AT_PENDING)
     const start = Spine.startOf(initialConfig, node.inherited, false, untrack)
+    // A variant whose resolver throws is this Subject's alone: reported once until it resolves, keeping
+    // its last target (#979; ADR-0074).
+    Spine.reportStart(variantFailures, start)
     const snapshot = Spine.snapshotOf(start)
     const reuse = Spine.makeReuse()
     // Where its Subject starts: the ward's start, or a fresh one for the next Subject an accessor gives.
@@ -453,6 +466,7 @@ const wardOn = (
     let begun = start
     const beginFresh = (): void => {
       begun = Spine.startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
+      Spine.reportStart(variantFailures, begun)
       if (scene) return
       snapshot.values = { ...begun.initialValues }
       snapshot.velocities = {}
@@ -485,7 +499,7 @@ const wardOn = (
       () => {
         const g = gestures()
         // `dragging` stays off: a scene's drag holds its keys as the Stage's `animate` does (#433), `z` among them.
-        return Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined)
+        return Spine.keptOf(variantFailures, Spine.resolutionOf(cfg(), node.inherited, start.initialLink, { inView: false, focused: false, hovered: g.hovered, pressed: g.pressed, dragged: g.dragged, dragging: false }, snapshot, undefined))
       },
       { equals: sameTarget, transparent: true },
     )
@@ -494,7 +508,7 @@ const wardOn = (
     const lifecycle = new Lifecycle(owner, () => {
       UndefinedOr.map(mounted, startRecognizers)
     })
-    const side = UndefinedOr.map(sideOf, (of) => of({ id, cfg, inherited: node.inherited, start, lifecycle, gate, registry }))
+    const side = UndefinedOr.map(sideOf, (of) => of({ id, cfg, inherited: node.inherited, start, lifecycle, gate, registry, runtime }))
     /** A handler's throw, reported as a fiber's failure is (ADR-0030, decision 4); the watch goes on. */
     const onDefect = (cause: Cause.Cause<never>): void => {
       runtime.runFork(Report.failure("wardic.ward: a gesture handler failed", cause))

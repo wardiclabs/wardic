@@ -935,4 +935,15 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     await earlier
     wardic.dispose()
   })
+
+  it("WO33: a function given as a call's target (past the types) that throws is still an error at the call (#979)", () => {
+    const wardic = WardicObject.make()
+    const resolver = (): never => {
+      throw new Error("its target broke")
+    }
+    // A resolver's throw is caught where every resolver runs (#979): at a call it's thrown again, a refusal.
+    // Its only reach is past the types (a name resolves against no variants here), so this is a guard: green on main.
+    expect(() => wardic.animate({ x: 0 }, resolver as never)).toThrow(/its target broke/)
+    wardic.dispose()
+  })
 })

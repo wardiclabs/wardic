@@ -15,6 +15,8 @@ import type * as Subject from "./Subject.ts"
 import type * as Stops from "./Stops.ts"
 import type * as Config from "./Config.ts"
 import { constFalse } from "effect/Function"
+import type * as Option from "effect/Option"
+import type * as VariantTarget from "./VariantTarget.ts"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -92,6 +94,8 @@ export interface PresenceExit {
   readonly groups?: ReadonlyArray<ExitGroup> | undefined
   /** Its Keyframes (#429): each such key's stops, its value in `values` their last. Left out with none. */
   readonly keyframes?: Readonly<Record<string, Stops.Stops>> | undefined
+  /** Its exit's resolver that threw, and its variant's name (#979): it has none of that exit's values. None when it returned. */
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
 }
 
 /** One name of a list's exit (#297): its keys, and the transition they and its orchestration run on. */

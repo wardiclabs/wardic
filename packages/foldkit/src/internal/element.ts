@@ -53,6 +53,7 @@ import { groupDelivered, reorderItemOf } from "./reorder.ts"
 import { hydrationMounted, type Provider, reducedMotionUnder, type State } from "./services.ts"
 import { configValueOf, dropNode, layoutGroupOf, nodeOf, startUnder } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
+import { IS_SERVER } from "@wardic/foldkit/internal/server"
 
 /** An element's config as the spine reads it: what the view delivered, with its merged `style`. */
 export type Config = Ward.Config<unknown> & WardConfig.SpineConfig
@@ -94,8 +95,13 @@ const devDiagnostics = (): Spine.SpineDiagnostics | undefined => {
  * `w.Provider()` element's build gives both (#794, Q7), and its Mount writes them for an element with
  * no Provider element above.
  */
-export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue, held = false): Style.Style =>
-  startingStyleFrom(tag, config, registry, Spine.startOf(AnimationControls.uncontrolledOf(config), inherited, held, reactivity.untrack))
+export const startingStyleOf = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, inherited?: VariantTree.WardicVariantContextValue, held = false): Style.Style => {
+  const start = Spine.startOf(AnimationControls.uncontrolledOf(config), inherited, held, reactivity.untrack)
+  // A server renders it once: a variant that throws is logged there, its values left out of the markup.
+  // A client's mount reports it instead, since each render resolves it again (#979).
+  if (IS_SERVER && Option.isSome(start.failure)) Spine.variantFailedOnServer(start.failure.value)
+  return startingStyleFrom(tag, config, registry, start)
+}
 
 /** The element's Starting style (above) drawn from `start`, its own: what the walk draws beside its Appear entry, which reads `start` too (#794, PR 2). */
 export const startingStyleFrom = (tag: string | undefined, config: Config, registry: () => AtomRegistry.AtomRegistry, start: Spine.Start): Style.Style =>
@@ -307,6 +313,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // Where it starts (ADR-0003), read once: the config the view rendered it with, its inherited `initial`
     // included (#50), at its `animate` under a presence's `initial: false` (#134).
     const start = Spine.startOf(view, inherited, PresenceRecord.presenceBlocksInitial(context), reactivity.untrack)
+    // A variant whose resolver throws is this element's alone: reported once at its mount and once a run
+    // of throws until it resolves, the element keeping its last target, and nothing thrown into the
+    // render, which would crash the app (#979; ADR-0074). Each render's Starting style resolves it silently.
+    const variantFailures = Spine.variantFailuresOf(provider.runtime)
+    Spine.reportStart(variantFailures, start)
     const snapshot = Spine.snapshotOf(start)
     // Its Transform template (#443), drawn with its first write: the one at mount, then each other one.
     const templateAtMount = config.transformTemplate
@@ -377,6 +388,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       keysTaken: () => Predicate.isNotUndefined(MutableRef.get(item)),
     })
     node.bindGestures(gestures.states)
+    node.reportsTo(variantFailures)
     // A Reorder item (decision 28): joined to the group above it, which decides its drag's axis and hears
     // its samples; its keyboard lift turns `WhileDrag` on. Joined now, or as a load brings the Features (Q15).
     const item = MutableRef.make(reorderItemOf(provider, element, id, () => config, dispatch, gestures.lift))
@@ -529,7 +541,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // re-resolves it with the entries on now.
     let last: Spine.Resolution | undefined
     const retarget = (): void => {
-      const next = Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, node.change())
+      const next = Spine.keptOf(variantFailures, Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, node.change()))
       if (Predicate.isNotUndefined(last) && Spine.sameResolution(last, next)) return
       last = next
       spine.retarget(next)

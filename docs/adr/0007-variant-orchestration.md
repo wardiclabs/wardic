@@ -275,3 +275,85 @@ Wardic counted an element as naming its own variants when its `initial` or `anim
 **Decision (2026-11-05, #618 decision 8: A):** Motion's rule. `namesOwnVariants` (`variant-tree.ts`, both bindings) counts every variant prop. An element with a named `whileHover` or `exit` is no **Variant child**: it takes none of its parent's names and no stagger slot, and it hands its own names down. An object `whileHover` still leaves it a Variant child. Breaking, before 1.0. Rejected: keeping Wardic's rule and correcting the glossary.
 
 **Tests:** `variant-controlling.browser.test.tsx` VC1–VC3 on Solid 1 and on Solid 2: a named `whileHover` keeps its own look and takes no stagger slot; a named `exit` doesn't follow; an object `whileHover` still does. VC1 and VC2 fail on the old rule.
+
+## Amendment (#979, group F, 2026-11-26): a dynamic variant that throws is its element's alone
+
+**What happened.** #979's rows 30 and 31 (ADR-0074's audit): a **Dynamic variant**, a function in `variants`, that throws. Core calls every resolver in one place, `VariantTarget`'s `calledOf`, from four paths: a binding's resolution at a change (`animate`, a `while*` gesture, an inherited name), an exit's target as the element leaves, setup's Starting style (`startingVariantsOf` resolves every variant, an exit's among them), and orchestration's own transition. None caught the throw, so it came out of whatever update ran it.
+
+**Probed** in each binding, on `main` (ce728dca), two siblings with the throwing one first:
+
+| | Solid 1 | Solid 2 and the Stage | Foldkit |
+| --- | --- | --- | --- |
+| At a change (row 31) | Out of the app's setter, unlogged. Solid 1 drops the rest of that update, so both siblings (and a variant parent) froze for good. A `whileHover` one was reported as a gesture handler's failure, and the element froze. | Solid's dev `console.error` only. The other moved, and the throwing one recovered at its next change. | Caught by the delivery's `try` and reported. Under a variant parent, the inherited name's watch threw to window `error` as well. |
+| As two leave (row 30) | Out of the setter, unlogged. The first stayed for good, the second went with no exit, and `onExitComplete` never came again. | `REACTIVITY_HALTED` out of `flush()`: the first stayed, the second had no exit, and nothing after rendered. The Stage's first stayed in the scene. | Both stayed for good, with an uncaught window `error`. |
+| At setup | Out of `render()`. | `REACTIVITY_HALTED`. | Each render builds the Starting style, so the app crashed (`[foldkit] Application crash`). |
+
+Nothing resolves a variant per frame.
+
+**Decided** (group F's grill, Q1–Q9, each yes), by ADR-0074's rule:
+1. **Every path through `calledOf`** (Q1): a change, a leave, setup and orchestration. Animation controls' `start(fn)` (row 35) stays group H's.
+2. **One capture, in `calledOf`** (Q2, Q4), handed up as a value. It's a bare `try`. A paired microbench of `resolveTarget` with a resolver, on the quiet host, put a bare `try` at Bun +1.8% and Node +0.3% of the call alone. `Result.try` with a `match` cost Bun +35% (+6.9 ns) and Node +21% (+3.6 ns). The rule was `Result.try` only within noise, so it's a `try`.
+3. **The failure is a value** (Q5): a `VariantFailure { defect, name }`, named by the entry the resolver was reached by, as `Option` with none shared on success. A `Target`, an Override entry, `startOf`'s Start and an exit's `PresenceExit` carry it. A merged list keeps its first failure.
+4. **What each path does** (Q3):
+   - **A change** keeps the element's last good resolution, with no Retarget, until one resolves (`Spine.variantFailuresOf`, one per element, made by each binding with its runtime).
+   - **A leave** goes without that exit: the element is removed at once, the others' exits run, and `onExitComplete` comes as usual. A list exit with one name that throws goes without the whole exit, its other names' values too, as the Stage's does, and as a change keeps its whole last resolution.
+   - **Setup** leaves out that variant's starting values.
+   - **Orchestration** gets no own transition.
+   - Rejected: resolving to nothing at a change, where each key falls back to its Base and the element animates back.
+5. **Reports** (Q6), each annotated `variant: <name>`:
+   - `wardic.ward: a variant failed`, for a change, setup or orchestration: once a variant, by name, until each place that saw it fail resolves it again (the element's resolutions, its orchestration). Setup resolves with no values, as orchestration does, so a setup failure counts for both. One throw that several places see is reported once, and another variant's throw is still reported.
+   - `wardic.presence: an exit variant failed`, each time an element leaves.
+   - The build first left orchestration silent, reasoning that the element's own resolution reports the same throw. The review found that's not always so: orchestration resolves with no values, the element with its own, so a resolver that throws only with no values lost its children's orchestration unreported. The owner kept Q6: orchestration reports, once.
+6. **Elsewhere** (Q7):
+   - **An Imperative call** throws the failure at the call, a refusal that takes nothing (#973), as before. Its target resolves against no variants, so a name there never reaches a resolver: only a function given as the target, past the types, does, so the public docs don't mention it.
+   - **A server render** leaves the variant's values out of the markup and logs on Effect's default runtime, which holds no app reporters. Solid's server wards and Foldkit's one server render report their start. dom's `serverTargetOf` reports nothing of its own: that start has already resolved every variant, and a report there would double it.
+
+**Built:**
+- **core:** `VariantTarget` (`calledOf`, `Target.failure`, `startingVariantsOf`, `ownTransitionOf`'s `orchestrated`) and `Spine`:
+  - `variantFailuresOf(runtime)`, one plain object an element, read by `keptOf`, `reportStart` and `orchestrationOf`, which share its once by name;
+  - `failureOf`, the reports, and `exitTargetOf`'s and `startOf`'s failure.
+  - Also `VariantTree.startingValuesFrom`, `PresenceRecord`'s `PresenceExit.failure`, and Imperative's refusal.
+- **Orchestration's report:** each binding makes its element's failures before its variant node and hands them to it; a node that orchestrates makes its `orchestrationOf` callback. Foldkit makes its node at the first ask, maybe before its element mounts, so its element hands them over at its Mount.
+- **No ordering** (ADR-0074's ordering amendment): the throw is the app's own code at the resolver's call, and nothing of Wardic's runs after it in that call to put first, so the capture is a `try` that returns a value.
+- **dom:** the presence's `nodeOf` reports a failed exit.
+- **The bindings:** Solid 2's `ward`, Solid 1's `runSpine`, the Stage's ward (and its `exitOf`) and Foldkit's delivery each wrap their resolution and report setup at the element's start. Foldkit resolves the Starting style again at each render, silently, so it reports at its mount, and on a server at its one render.
+
+**Tests** (Q8). Each failed on `main` first, except WO33, a guard:
+- **Core's VT1–VT5** (`variant-target.test.ts`). A throw comes back as the target's failure, named, a list's other names still resolving, and `variantFailuresOf` keeps the last good one, reported once until a clean one. An exit, a list's (without its whole exit) and setup carry the failure named, and orchestration's own transition is none. A start's failure and the first resolution's same throw report once.
+- **Solid 1** (`v1/error-reporting.browser.test.tsx`):
+  - at a change, the element keeps its last target (0.5, not its Base) while its sibling moves, is reported once, and moves once it resolves;
+  - a `whileHover` one is reported once, and the element moves at its next change;
+  - two leavers: the first leaves at once, the second exits, and `onExitComplete` is told.
+- **Two leavers elsewhere:** Solid 2's P11 (`presence.browser.test.tsx`; the presence goes on, a later child entering), Foldkit's FV2 and the Stage's SO13 (`scene-object.solid.test.tsx`).
+- **Foldkit's FV1** (`presence.browser.test.ts`): one that throws at setup no longer crashes the app, and is reported once, however often it renders.
+- **WO33** (`wardic-object.test.ts`): a function given as an Imperative call's target that throws is still an error at the call.
+- **Solid 1's setup** (the review's): the variant its `animate` names throws from setup, and an exit-only one does beside it, each reported once, the elements at their `initial` and the one beside them animating. The Solid 1 tests check the log's `variant` annotation.
+- **Orchestration** (the review's): core's VT6, the once by name (one only orchestration sees, one setup saw, one both see, another name's). Solid 1: a parent whose resolver, broken after setup, throws only with no values: reported once across two changes, and it and its Variant child animate.
+- **Not pinned by a test** (Q8 named no seam for them): Solid 2's, the Stage's and Foldkit's last good resolution at a change, and every server report.
+- **Mutations:** 22, each caught, on the code as built:
+  - the `try` dropped, and the throw not handed on;
+  - the once: the failing resolution given, not the last good one; reported each time, or never; a start reported past it; setup counted for its resolutions only; a clean resolution or orchestration clearing nothing;
+  - orchestration not told, and Solid 1's node given no failures;
+  - Solid 1's memo unwrapped, and its setup and Foldkit's unreported;
+  - the presence's report dropped; the Stage's exit unreported, or run;
+  - Imperative's refusal dropped;
+  - setup's, an exit's and a list exit's failure dropped, and a failure left unnamed.
+
+**What else changes:**
+- **#983's held child:** on Solid 1, its start's throw is now caught where its variant resolves, and reported once as the variant's. So `mode="wait"`'s release no longer throws (ADR-0048, *Amendment (#983)*), and WT12 and PG11 check the variant's report and none from the release.
+- **The release's `try`** stays, for a throw from anything else in the update Solid 1 runs inside it, but no test reaches it any more. Its source on Solid 1 was this row.
+
+**Cost** (Q4: `bench:solid --base main`, `bun run size`):
+- **The first build failed the warm mount** on both bindings: Solid 1 +10.5% [+7.6, +12.4], Solid 2 +11.3% [+7.9, +12.3] (the control -0.4%), with 0.25 KB more retained an element. Nothing in the bench page has a variant, so this was what every element paid.
+- **Bisected:**
+  - a head whose failure gate was one shared no-op kept half of it (+6.9%, +5.4%), and core's commit alone with main's bindings +5.8%;
+  - a probe of core's mount path in Node, capped at Maglev, where it showed and TurboFan hid it, put the rest in a resolution (+8%) and a start (+5%);
+  - on Solid 1, its binding at main's on the new core was +1.0%, `create-ward.tsx` alone +7.4%, and one gate shared by every element -1.8%.
+- **What cost, and what it is now:**
+  - the gate was seven closures an element: it's one plain object, read through `Spine`'s functions;
+  - its report, made once a runtime and found in a `WeakMap`, cost Solid 1's mount 6% for the lookup an element: the object holds the runtime, and the report is made at a failure;
+  - every target literal called `Option.none()`: it's one value, `NO_FAILURE`;
+  - telling a throw apart by a symbol `in` check cost a resolution 4-5%: it's one marker, told apart by identity, the throw beside it;
+  - a start made a `{ values, failure }` an element: an element with no variants makes nothing more.
+- **Size** (`bun run size`): every app with a ward 552–753 B more gzipped, within the 1% gate, and the Batch apps none. Core is 1.4–1.6 KB of it minified, the bindings 0.1–0.2 and Effect 0.1. Five budgets raised by what was measured: `s1-slim` 96.1, `s2-slim` 118.9, `f-slim` 198.3, `t2-stage` 246.1 and `t2-features` 253.6.
+- **The last run** (main against 00f2a22f): warm mount Solid 1 +3.9% [+1.0, +7.2], Solid 2 +2.1% [-2.8, +3.8], the control -0.7%. Retarget, rest-retarget and unmount within noise, bytes +0.1-0.2%, retained +0.1-0.3%. Main against main read Solid 1's mount -0.4% [-7.0, +4.1]: its spread is wide, so +3.9% is within it.

@@ -824,6 +824,7 @@ const nodeFor = (
   config: WardConfigValues,
   parent: VariantTree.WardicVariantContextValue | undefined,
   change: Accessor<AnimationControls.ControlsChange | undefined> | undefined,
+  failures: Spine.VariantFailures,
 ): VariantNode => {
   if (Predicate.isNotUndefined(share)) {
     const node = share.node
@@ -831,7 +832,7 @@ const nodeFor = (
       if (share.carries) return node
     }
   }
-  return createVariantNode(cfg, config, parent, change)
+  return createVariantNode(cfg, config, parent, change, failures)
 }
 
 /** A ward's **Animation controls** (#433): the controls, its view with each change as its entry, and the change in effect. */
@@ -1006,7 +1007,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its place in variant orchestration (ADR-0007, #50): where it's made, its given parent's (#349),
   // or its given ward's.
   const parent = variantParentOf(internal)
-  const node = nodeFor(share, cfg, initialConfig, parent, UndefinedOr.map(controls, (c) => c.change))
+  // A variant that throws is this element's alone (#979): its failures, which its spine keeps and its
+  // orchestration reports to, once.
+  const variantFailures = Spine.variantFailuresOf(runtime)
+  const node = nodeFor(share, cfg, initialConfig, parent, UndefinedOr.map(controls, (c) => c.change), variantFailures)
 
   // The nearest <AnimatePresence> (ADR-0007), or none.
   const presence = usePresenceContext()
@@ -1018,6 +1022,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const presenceBlocks = PresenceRecord.presenceBlocksInitial(presence)
   if (Bool.and(Arr.contains(setup.pending, "animate"), VariantTree.startsAtAnimate(initialConfig, node.inherited, presenceBlocks))) throw new Error(STARTS_AT_PENDING)
   const start = Spine.startOf(initialConfig, node.inherited, presenceBlocks, untrack)
+  // A variant whose resolver throws is this element's alone: reported once until it resolves, the element
+  // keeping its last target (#979; ADR-0074).
+  Spine.reportStart(variantFailures, start)
   // Read once by the provider (#618, M1).
   const { project } = useWardicRenderer()
 
@@ -1073,6 +1080,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // The config now, a plain copy read untracked, as setup reads it: this runs in the mount effect.
     const now = WARD_VIEW.setupOf(view).config
     begun = Spine.startOf(now, node.inherited, false, untrack)
+    Spine.reportStart(variantFailures, begun)
     snapshot.values = { ...begun.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
@@ -1154,7 +1162,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const target = createMemo<Spine.Resolution>(
     () => {
       const g = gestures()
-      return Spine.resolutionOf(
+      return Spine.keptOf(variantFailures, Spine.resolutionOf(
         cfg(),
         node.inherited,
         start.initialLink,
@@ -1168,7 +1176,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         },
         snapshot,
         ownChange(),
-      )
+      ))
     },
     { equals: sameTarget, transparent: true },
   )
@@ -2051,7 +2059,10 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   if (Bool.and(Arr.contains(setup.pending, "animate"), VariantTree.startsAtAnimate(atSetup, VariantTree.inheritedContext(atSetup, parent), presenceBlocks))) throw new Error(STARTS_AT_PENDING)
   const c = AnimationControls.uncontrolledOf(WARD_VIEW.snapshotOf(view))
   const node = VariantTree.serverVariantNode(c, parent)
-  const initialValues = Spine.startOf(c, node.inherited, presenceBlocks, untrack).initialValues
+  const serverStart = Spine.startOf(c, node.inherited, presenceBlocks, untrack)
+  // A variant that throws leaves its values out of the markup, logged on the server (#979).
+  if (Option.isSome(serverStart.failure)) Spine.variantFailedOnServer(serverStart.failure.value)
+  const initialValues = serverStart.initialValues
   const layoutNode = Spine.isLayoutNode(c)
   const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(initialValues, layoutNode, c.transformTemplate))
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
