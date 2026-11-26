@@ -27,11 +27,16 @@
 //   writable is a defect.
 // - LV17: `createScroll` brings the `scroll` Feature (#518): a provider given none reads the
 //   Environment's own `ScrollSource` when it gives one.
+// - LV18 (#979, group D): a transform whose function throws keeps its last value, reported once a run of
+//   throws; the follow it's over and that follow's other consumer go on; it maps again once it returns.
+// - LV19: so on a plain signal's memo: Wardic's report, none of Solid's.
+// - LV20: so over a ward's `read("x")`: the ward's own animation lands.
+// - LV21: so as what the function reads of Solid changes while it throws: no throw out of Solid's effect.
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as ScrollSource from "@wardic/core/ScrollSource"
 import { DomLive } from "@wardic/dom"
 import * as ScrollOffset from "@wardic/dom/ScrollOffset"
-import { createScroll, createSpring, createTime, createTransform, createVelocity, fromAtom, type SpringAccessor, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid"
+import { createFollowValue, createScroll, createSpring, createTime, createTransform, createVelocity, fromAtom, type SpringAccessor, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -40,6 +45,7 @@ import { type Accessor, createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { afterPaint, raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { envWith, errorsNamed, type Logged } from "./report-env.ts"
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 const settle = async (): Promise<void> => {
@@ -646,5 +652,162 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
     // @ts-expect-error: `jump` takes a follow's Atom or a writable one.
     const jumpDerived = LiveValue.jump(derived, 1)
     expect(() => runtime.runSync(jumpDerived)).toThrow(/isn't writable/)
+  })
+})
+
+describe("a transform's failure is its own (#979, group D; ADR-0074)", () => {
+  const FAILED = "wardic.transform: its function failed"
+
+  it("LV18: a transform whose function throws keeps its last value, reported once; the follow and its other consumer go on, and it maps again", async () => {
+    const logs: Array<Logged> = []
+    let broken = false
+    let followed!: Accessor<number>
+    let doubled!: Accessor<number>
+    let plusOne!: Accessor<number>
+    const [to, setTo] = createSignal(0)
+    const Probe = () => {
+      followed = createFollowValue(to, { type: "tween", duration: 0.3, ease: "linear" })
+      doubled = createTransform(followed, (v: number) => {
+        if (broken && v > 20) throw new Error("its function broke")
+        return v * 2
+      })
+      plusOne = createTransform(followed, (v: number) => v + 1)
+      return null
+    }
+    mount(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <Probe />
+      </WardicProvider>
+    ))
+    await settle()
+    broken = true
+    setTo(100)
+    flush()
+    // Before #979, the transform's throw came back through the follow's write and ended its run, for good.
+    await until(() => followed() === 100, 3000, "the follow landed")
+    const kept = doubled()
+    expect(kept, "its last value, from at most 20").toBeLessThanOrEqual(40)
+    expect(plusOne(), "the follow's other consumer").toBe(101)
+    broken = false
+    setTo(50)
+    flush()
+    await until(() => followed() === 50, 3000, "the follow landed again")
+    expect(doubled(), "mapped again").toBe(100)
+    expect(errorsNamed(logs, FAILED)).toHaveLength(1)
+  })
+
+  it("LV19: on a plain signal's memo, a function that throws keeps its last value: Wardic's report, none of Solid's", async () => {
+    const logs: Array<Logged> = []
+    const said: Array<string> = []
+    const keep = console.error
+    console.error = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
+    try {
+      let doubled!: Accessor<number>
+      const [x, setX] = createSignal(1)
+      const Probe = () => {
+        doubled = createTransform(x, (v: number) => {
+          if (v > 2) throw new Error("its function broke")
+          return v * 2
+        })
+        return null
+      }
+      mount(() => (
+        <WardicProvider env={envWith({ logs, reports: [] })}>
+          <Probe />
+        </WardicProvider>
+      ))
+      setX(2)
+      flush()
+      expect(doubled()).toBe(4)
+      setX(3)
+      flush()
+      setX(4)
+      flush()
+      expect(doubled(), "its last value").toBe(4)
+      setX(1)
+      flush()
+      expect(doubled(), "mapped again").toBe(2)
+      await settle()
+    } finally {
+      console.error = keep
+    }
+    expect(errorsNamed(logs, FAILED)).toHaveLength(1)
+    expect(said.filter((line) => line.includes("its function broke")), "nothing of Solid's").toEqual([])
+  })
+
+  it("LV20: over a ward's read('x'), a function that throws leaves the ward's own animation landing", async () => {
+    const logs: Array<Logged> = []
+    let card!: ReturnType<typeof ward>
+    const [to, setTo] = createSignal(0)
+    const Scene = () => {
+      card = ward({ animate: () => ({ x: to() }), transition: { type: "tween", duration: 0.3, ease: "linear" }, style: BOX })
+      const opacity = createTransform(card.read("x"), (x: number) => {
+        if (x > 20) throw new Error("its function broke")
+        return 1 - x / 200
+      })
+      const follower = ward({ style: { ...BOX, opacity } })
+      return (
+        <>
+          <div {...card} ref={card} />
+          <div {...follower} ref={follower} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    setTo(200)
+    flush()
+    // Before #979, the throw came out of the gate's write into the ward's own leg, and its animation ended there.
+    await until(() => card.read("x")() === 200, 3000, "the ward landed")
+    await settle()
+    expect(errorsNamed(logs, FAILED)).toHaveLength(1)
+    expect(errorsNamed(logs, "wardic.spine: a leg failed"), "no leg of its failed").toEqual([])
+  })
+
+  it("LV21: a function whose own Solid reads change while it throws keeps its last value, reported once, with no throw out of Solid's effect", async () => {
+    const logs: Array<Logged> = []
+    const said: Array<string> = []
+    const keep = console.error
+    console.error = (...args: Array<unknown>) => void said.push(args.map(String).join(" "))
+    try {
+      let scaled!: Accessor<number>
+      const [scale, setScale] = createSignal(1)
+      const source = Atom.make(10)
+      const Probe = () => {
+        // Over an Atom, its own read of `scale` tracked: a change of it derives it again.
+        scaled = createTransform(fromAtom(source), (v: number) => {
+          if (scale() > 2) throw new Error("its function broke")
+          return v * scale()
+        })
+        return null
+      }
+      mount(() => (
+        <WardicProvider env={envWith({ logs, reports: [] })}>
+          <Probe />
+        </WardicProvider>
+      ))
+      await settle()
+      setScale(2)
+      flush()
+      await settle()
+      expect(scaled()).toBe(20)
+      // Before #979, the throw came out of the effect that tracks what it reads.
+      setScale(3)
+      flush()
+      await settle()
+      expect(scaled(), "its last value").toBe(20)
+      setScale(1)
+      flush()
+      await settle()
+      expect(scaled(), "mapped again").toBe(10)
+    } finally {
+      console.error = keep
+    }
+    expect(errorsNamed(logs, FAILED)).toHaveLength(1)
+    expect(said.filter((line) => line.includes("its function broke")), "nothing of Solid's").toEqual([])
   })
 })

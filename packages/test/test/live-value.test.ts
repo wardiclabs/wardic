@@ -22,6 +22,18 @@
 // - FV6: a `velocity` given steers every change.
 // - FV7: a change to where it is starts nothing; a `jump` ends a tween; the skips jump a tween.
 //
+// #979, group D (ADR-0074): a Live value's failure is its own.
+// - LF1: a follow whose dependent throws keeps following and lands, its other listener hearing every frame;
+//   reported once a run of throws.
+// - LF2: a spring over a source that throws holds its last read, reported once, and goes on to the source
+//   once it recovers.
+// - LF3: a velocity whose source throws reads as still, reported once, and an unrelated run still lands
+//   (#979's row 40: its end-of-tick read failed every run on the loop).
+// - LF4: time whose dependent throws keeps counting, reported once.
+// - LF5: transform whose `mixer` throws keeps its last value, reported once a run of throws; its first
+//   value's throw is its reader's.
+// - LF6: a velocity whose dependent throws goes on and rests at 0, reported once.
+//
 // #443, `eachFrame` (Motion's `useAnimationFrame`):
 // - AF1: time 0 at its first frame, then the total of each tick's dt, unclamped; delta the tick's dt in ms.
 // - AF2: delta held to 1–40 ms, as Motion's frame loop holds it; time not.
@@ -39,6 +51,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
@@ -751,5 +764,198 @@ describe("LiveValue.eachFrame: each frame's time and delta to a callback (#443)"
         yield* h.clock.advance(F)
         expect(calls.length).toBe(2)
       }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+})
+
+describe("a Live value's failure is its own (#979, group D; ADR-0074)", () => {
+  /** A Logger keeping each report's message, given to the Frame loop's build too, so its reports are heard. */
+  const heard = () => {
+    const reports: Array<string> = []
+    const layer = Logger.layer([Logger.make(({ message }) => void reports.push(String((message as ReadonlyArray<unknown>)[0])))])
+    return { reports, layer }
+  }
+  const LINEAR = { type: "tween", duration: 0.2, ease: "linear" } as const
+
+  it.effect("LF1: a follow whose dependent throws keeps following and lands, its other listener hearing it all; reported once a run of throws", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      const log = heard()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const out = yield* LiveValue.follow(source, LINEAR)
+        let broken = true
+        // An app's own Atom over the value, throwing past 20 while it's broken.
+        const dependent = Atom.make((get) => {
+          const v = get(out)
+          if (broken && v > 20) throw new Error("its transform broke")
+          return v
+        })
+        registry.subscribe(dependent, () => undefined)
+        const other: Array<number> = []
+        registry.subscribe(out, (v) => void other.push(v))
+        registry.set(source, 100)
+        // Before #979, the first throwing write ended the run, and the value stayed there for good.
+        yield* frames(h.clock, registry, out, 6)
+        broken = false
+        yield* frames(h.clock, registry, out, 12)
+        expect(registry.get(out), "it landed").toBe(100)
+        expect(h.live(), "its run ended").toBe(0)
+        expect(other.at(-1)).toBe(100)
+        expect(other.length, "a value every frame").toBeGreaterThanOrEqual(12)
+        // A second run of throws is reported again.
+        broken = true
+        registry.set(source, 0)
+        yield* frames(h.clock, registry, out, 18)
+        expect(registry.get(out)).toBe(0)
+        yield* Effect.yieldNow
+      }).pipe(Effect.scoped, Effect.provide(Layer.provideMerge(h.layer, log.layer)))
+      expect(log.reports).toEqual(["wardic.liveValue: its dependent failed", "wardic.liveValue: its dependent failed"])
+    }))
+
+  it.effect("LF2: a spring over a source that throws holds its last read, reported once, and goes on once it recovers", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      const log = heard()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const raw = Atom.make(0)
+        let broken = false
+        // An app's own Atom under the spring, read every step.
+        const source = Atom.make((get) => {
+          const v = get(raw)
+          if (broken) throw new Error("its source broke")
+          return v
+        })
+        const out = yield* LiveValue.spring(source)
+        registry.set(raw, 100)
+        yield* frames(h.clock, registry, out, 10)
+        const held = registry.get(out)
+        expect(held, "moving toward 100").toBeGreaterThan(10)
+        broken = true
+        // The app's own set throws, its Atom's failure handed back by Effect's registry.
+        expect(() => registry.set(raw, 50)).toThrow("its source broke")
+        // Before #979, the spring's next step read the failed source and its run ended there, for good.
+        const steering = yield* frames(h.clock, registry, out, 10)
+        expect(steering.at(-1), "still steering toward its last read, 100").toBeGreaterThan(held)
+        broken = false
+        registry.set(raw, 60)
+        yield* frames(h.clock, registry, out, 600)
+        expect(registry.get(out), "it went on to the source").toBeCloseTo(60, 2)
+        expect(h.live(), "and rests").toBe(0)
+        yield* Effect.yieldNow
+      }).pipe(Effect.scoped, Effect.provide(Layer.provideMerge(h.layer, log.layer)))
+      expect(log.reports).toEqual(["wardic.liveValue: its source failed"])
+    }))
+
+  it.effect("LF3: a velocity whose source throws reads as still, reported once, and an unrelated run still lands (row 40)", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      const log = heard()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const raw = Atom.make(0)
+        let broken = false
+        const source = Atom.make((get) => {
+          const v = get(raw)
+          if (broken) throw new Error("its source broke")
+          return v
+        })
+        const speed = yield* LiveValue.velocity(source)
+        const other = Atom.make(0)
+        const followed = yield* LiveValue.follow(other, LINEAR)
+        registry.set(raw, 10)
+        yield* frames(h.clock, registry, speed, 1)
+        broken = true
+        expect(() => registry.set(raw, 20)).toThrow("its source broke")
+        // Before #979, the velocity's read at each tick's end threw out of the tick, and every run on the
+        // loop ended with it.
+        registry.set(other, 100)
+        yield* frames(h.clock, registry, followed, 14)
+        expect(registry.get(followed), "the unrelated follow landed").toBe(100)
+        expect(registry.get(speed), "a source it can't read is still").toBe(0)
+        yield* Effect.yieldNow
+      }).pipe(Effect.scoped, Effect.provide(Layer.provideMerge(h.layer, log.layer)))
+      expect(log.reports).toEqual(["wardic.liveValue: its source failed"])
+    }))
+
+  it.effect("LF4: time whose dependent throws keeps counting, reported once", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      const log = heard()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const elapsed = yield* LiveValue.time()
+        const dependent = Atom.make((get) => {
+          const ms = get(elapsed)
+          if (ms > 50) throw new Error("its transform broke")
+          return ms
+        })
+        registry.subscribe(dependent, () => undefined)
+        // Before #979, the first throwing write ended its run, and it stopped counting.
+        const counted = yield* frames(h.clock, registry, elapsed, 10)
+        expect(Math.round(counted.at(-1)!), "ten frames of 1/60 s").toBe(167)
+        yield* Effect.yieldNow
+      }).pipe(Effect.scoped, Effect.provide(Layer.provideMerge(h.layer, log.layer)))
+      expect(log.reports).toEqual(["wardic.liveValue: its dependent failed"])
+    }))
+
+  it.effect("LF5: transform whose mixer throws keeps its last value, reported once; its first value's throw is its reader's", () =>
+    Effect.gen(function* () {
+      const log = heard()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        let broken = false
+        const mixer = (a: number, b: number) => (t: number): number => {
+          if (broken) throw new Error("its mixer broke")
+          return a + (b - a) * t
+        }
+        const out = yield* LiveValue.transform(source, [0, 100], [0, 1], { mixer })
+        registry.subscribe(out, () => undefined)
+        registry.set(source, 50)
+        expect(registry.get(out)).toBe(0.5)
+        broken = true
+        // Before #979, the mixer's throw came out of the source's set, and the transform failed.
+        registry.set(source, 75)
+        registry.set(source, 80)
+        expect(registry.get(out), "its last value").toBe(0.5)
+        broken = false
+        registry.set(source, 100)
+        expect(registry.get(out), "mapped again").toBe(1)
+        broken = true
+        const fresh = yield* LiveValue.transform(source, [0, 100], [0, 1], { mixer })
+        expect(() => registry.get(fresh), "no value yet to keep").toThrow("its mixer broke")
+        yield* Effect.yieldNow
+      }).pipe(Effect.provide(Layer.mergeAll(InterpolatorRegistry.layer, AtomRegistry.layer, log.layer)))
+      expect(log.reports).toEqual(["wardic.transform: its mixer failed"])
+    }))
+
+  it.effect("LF6: a velocity whose dependent throws goes on and rests at 0, reported once", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      const log = heard()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const speed = yield* LiveValue.velocity(source)
+        const dependent = Atom.make((get) => {
+          const v = get(speed)
+          if (v !== 0) throw new Error("its transform broke")
+          return v
+        })
+        registry.subscribe(dependent, () => undefined)
+        // Before #979, its first throwing write ended its run, and it never read still again.
+        for (let i = 1; i <= 3; i++) {
+          registry.set(source, i * 10)
+          yield* frames(h.clock, registry, speed, 1)
+        }
+        expect(registry.get(speed), "moving").toBeGreaterThan(0)
+        yield* frames(h.clock, registry, speed, 3)
+        expect(registry.get(speed), "at rest").toBe(0)
+        expect(h.live(), "its run ended").toBe(0)
+        yield* Effect.yieldNow
+      }).pipe(Effect.scoped, Effect.provide(Layer.provideMerge(h.layer, log.layer)))
+      expect(log.reports).toEqual(["wardic.liveValue: its dependent failed"])
     }))
 })
