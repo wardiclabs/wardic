@@ -29,6 +29,7 @@ import * as Stops from "./Stops.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, identity } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as AnimationControls from "./AnimationControls.ts"
@@ -480,6 +481,12 @@ export const startsQuiet = (
   return VariantTarget.sameLabels(initial as Config.WardicVariantLabels, animateOf(config, inherited, untrack) as Config.WardicVariantLabels)
 }
 
+/** What an element starts from, and the first of its variants whose resolver threw (#979). */
+export interface Starting {
+  readonly values: Values.Values
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
+}
+
 /**
  * The values an element starts from, its Starting style's input (ADR-0003): its `initial` (own, else
  * inherited, #50), or, when it {@link startsAtAnimate}, its `animate` (own, else inherited), as
@@ -490,7 +497,18 @@ export const startingValuesOf = (
   inherited: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
   untrack: Reactivity.Reactivity["untrack"],
-): Values.Values => {
+): Values.Values => startingOf(config, inherited, presenceBlocks, untrack).values
+
+/**
+ * {@link startingValuesOf}, with what a resolver among the element's variants threw: its entry gives no
+ * values, and the element starts at the rest (#979).
+ */
+export const startingOf = (
+  config: VariantConfig,
+  inherited: WardicVariantContextValue | undefined,
+  presenceBlocks: boolean,
+  untrack: Reactivity.Reactivity["untrack"],
+): Starting => {
   const atAnimate = startsAtAnimate(config, inherited, presenceBlocks)
   const animate = animateOf(config, inherited, untrack)
   const initial = initialOf(config, inherited)
@@ -502,18 +520,23 @@ export const startingValuesOf = (
     from = false
     first = animate
   }
+  // Dynamic variants resolved first (#277): `@wardic/dom`'s Starting style reads values maps only.
+  const starting = VariantTarget.startingVariantsOf(config.variants, config.custom)
   const values = Stops.resolveInitial({
     initial: from,
     animate,
-    // Dynamic variants resolved first (#277): `@wardic/dom`'s Starting style reads values maps only.
-    variants: VariantTarget.startingVariantsOf(config.variants, config.custom) as Readonly<Record<string, object | undefined>> | undefined,
+    variants: starting.variants as Readonly<Record<string, object | undefined>> | undefined,
   })
   // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
   // renders it, and a hydration finds it.
-  if (Predicate.isUndefined(first) || first === false) return values
-  const end = VariantTarget.resolveTarget(first as VariantTarget.Entry, config.variants as Config.WardicVariants | undefined, config.custom, VariantTarget.NO_VARIANT_STATE).transitionEnd
-  if (Predicate.isUndefined(end)) return values
-  return { ...values, ...end }
+  if (Predicate.isUndefined(first) || first === false) return { values, failure: starting.failure }
+  const target = VariantTarget.resolveTarget(first as VariantTarget.Entry, config.variants as Config.WardicVariants | undefined, config.custom, VariantTarget.NO_VARIANT_STATE)
+  const failure = Option.orElse(starting.failure, () =>
+    Option.map(target.failure, (defect): VariantTarget.VariantFailure => ({ defect, name: Bool.match(Predicate.isString(first), { onTrue: () => first as string, onFalse: () => undefined }) })),
+  )
+  const end = target.transitionEnd
+  if (Predicate.isUndefined(end)) return { values, failure }
+  return { values: { ...values, ...end }, failure }
 }
 
 /**

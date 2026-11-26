@@ -133,10 +133,13 @@ export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state:
       name,
       groups: exitGroupsOf(targets, config.transition),
       keyframes: merged.keyframes,
+      // The first of its names whose resolver threw (#979).
+      failure: Option.firstSomeOf(Arr.map(targets, (target) => Option.map(target.failure, (defect): VariantTarget.VariantFailure => ({ defect, name: target.name })))),
     }
   }
   const target = VariantTarget.resolveTarget(entry, config.variants, custom, state)
-  return { values: target.values, transition: VariantTarget.transitionOfTarget(target.transition, config.transition), name, keyframes: target.keyframes }
+  const failure = Option.map(target.failure, (defect): VariantTarget.VariantFailure => ({ defect, name: Bool.match(Predicate.isString(entry), { onTrue: () => entry as string, onFalse: () => undefined }) }))
+  return { values: target.values, transition: VariantTarget.transitionOfTarget(target.transition, config.transition), name, keyframes: target.keyframes, failure }
 }
 
 /** A list's exit groups (#297): each name, with the keys it's the last to set, on its own transition else `element`. */
@@ -349,10 +352,12 @@ export interface OverrideEntry {
   readonly ends: Values.Values
   /** Its target's **Keyframes** (#429): each such key's stops, its value in `values` their last. */
   readonly keyframes: VariantTarget.Keyframes | undefined
+  /** What its target's resolver threw (#979): it has none of that target's values. */
+  readonly failure: Option.Option<unknown>
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined }
+const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined, failure: Option.none() }
 
 /**
  * A gesture layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
@@ -1010,6 +1015,7 @@ const layerOf = (target: VariantTarget.Target, name: string | undefined): Overri
   name,
   ends: endsOfTarget(target),
   keyframes: target.keyframes,
+  failure: target.failure,
 })
 
 /** A list's target as an active entry (#297). */
@@ -1446,7 +1452,7 @@ const baseTargetOf = (
 ): VariantTarget.Target => {
   if (Predicate.isNotUndefined(own)) return VariantTarget.resolveTarget(own, variants, custom, state)
   if (Predicate.isNotUndefined(variant)) return VariantTarget.resolveTarget(variant, variants, custom, state)
-  return { values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined }
+  return { values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: Option.none() }
 }
 
 /**
@@ -1581,6 +1587,8 @@ export interface Start {
    * landing with nothing to animate, is told to no one.
    */
   readonly quiet: boolean
+  /** The first of its variants whose resolver threw as it was set up (#979): that entry gave no values. */
+  readonly failure: Option.Option<VariantTarget.VariantFailure>
 }
 
 /**
@@ -1595,12 +1603,71 @@ export const startOf = (
   untrack: Reactivity.Reactivity["untrack"],
 ): Start => {
   const startedAtAnimate = VariantTree.startsAtAnimate(config, parent, presenceBlocks)
-  const initialValues = VariantTree.startingValuesOf(config, parent, presenceBlocks, untrack)
+  const starting = VariantTree.startingOf(config, parent, presenceBlocks, untrack)
+  const initialValues = starting.values
   return {
     quiet: VariantTree.startsQuiet(config, parent, presenceBlocks, untrack),
     initialValues,
     initialLink: Bool.match(startedAtAnimate, { onTrue: () => ({}), onFalse: () => initialValues }),
     startedLink: Bool.match(startedAtAnimate, { onTrue: () => initialValues, onFalse: () => ({}) }),
+    failure: starting.failure,
+  }
+}
+
+/**
+ * How an element's variant that throws is reported, on `runtime`: at Error, its cause what the resolver
+ * threw, annotated with the variant's name. What a binding hands {@link keptResolutions}, and reports
+ * a setup's {@link Start.failure} with.
+ */
+export const variantFailedOn = (runtime: Pick<WardicServices.Runner<never>, "runFork">) => (defect: unknown, name: string | undefined): void => {
+  runtime.runFork(Effect.annotateLogs(Report.failure("wardic.ward: a variant failed", Cause.die(defect)), { variant: name }))
+}
+
+/**
+ * How an exit whose resolver throws is reported, on `runtime`, each time an element leaves: its element
+ * leaves without it, and the report names its variant (#979).
+ */
+export const exitVariantFailedOn = (runtime: Pick<WardicServices.Runner<never>, "runFork">) => (failure: VariantTarget.VariantFailure): void => {
+  runtime.runFork(Effect.annotateLogs(Report.failure("wardic.presence: an exit variant failed", Cause.die(failure.defect)), { variant: failure.name }))
+}
+
+/** {@link variantFailedOn} Effect's default runtime: a server render's, which holds no app reporters (#979). */
+export const variantFailedOnServer: (defect: unknown, name: string | undefined) => void = /*#__PURE__*/ variantFailedOn({ runFork: (effect) => Effect.runFork(effect) })
+
+/** A setup's failure, if it has one, reported with `report` (#979). */
+export const reportStart = (start: Start, report: (defect: unknown, name: string | undefined) => void): void => {
+  Option.map(start.failure, (failure) => report(failure.defect, failure.name))
+}
+
+/** What the first of a resolution's entries whose resolver threw threw, and that entry's name (#979). */
+export const failureOf = (resolution: Resolution): Option.Option<VariantTarget.VariantFailure> =>
+  Option.flatMap(
+    Arr.findFirst(resolution.layers, (layer) => Option.isSome(layer.failure)),
+    (layer) => Option.map(layer.failure, (defect): VariantTarget.VariantFailure => ({ defect, name: layer.name })),
+  )
+
+/**
+ * An element's resolutions, kept while a variant's resolver throws: each new one, else the last good one,
+ * so the element keeps its target. Its failure is reported once, with its variant's name, until a
+ * resolution comes back clean. Made once an element by its binding, `report` on its runtime.
+ */
+// #979 (ADR-0074): a resolver's throw is that element's alone; it recovers at the next clean resolution.
+export const keptResolutions = (report: (defect: unknown, name: string | undefined) => void): ((next: Resolution) => Resolution) => {
+  let last: Resolution | undefined
+  let failing = false
+  return (next) => {
+    const failed = failureOf(next)
+    if (Option.isNone(failed)) {
+      failing = false
+      last = next
+      return next
+    }
+    if (!failing) {
+      failing = true
+      report(failed.value.defect, failed.value.name)
+    }
+    // The first one has no last good one: its failed entry resolved to nothing.
+    return UndefinedOr.match(last, { onUndefined: () => next, onDefined: identity })
   }
 }
 
