@@ -357,7 +357,7 @@ export interface OverrideEntry {
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined, failure: Option.none() }
+const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined, failure: VariantTarget.NO_FAILURE }
 
 /**
  * A gesture layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
@@ -1452,7 +1452,7 @@ const baseTargetOf = (
 ): VariantTarget.Target => {
   if (Predicate.isNotUndefined(own)) return VariantTarget.resolveTarget(own, variants, custom, state)
   if (Predicate.isNotUndefined(variant)) return VariantTarget.resolveTarget(variant, variants, custom, state)
-  return { values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: Option.none() }
+  return { values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: VariantTarget.NO_FAILURE }
 }
 
 /**
@@ -1603,14 +1603,16 @@ export const startOf = (
   untrack: Reactivity.Reactivity["untrack"],
 ): Start => {
   const startedAtAnimate = VariantTree.startsAtAnimate(config, parent, presenceBlocks)
-  const starting = VariantTree.startingOf(config, parent, presenceBlocks, untrack)
-  const initialValues = starting.values
+  // Its variants resolved once (#277), what a resolver among them threw beside them (#979): one value
+  // for an element with no variants, so its start makes nothing more (bench:solid's mount).
+  const variants = VariantTarget.startingVariantsOf(config.variants, config.custom)
+  const initialValues = VariantTree.startingValuesFrom(config, parent, presenceBlocks, untrack, variants.variants)
   return {
     quiet: VariantTree.startsQuiet(config, parent, presenceBlocks, untrack),
     initialValues,
     initialLink: Bool.match(startedAtAnimate, { onTrue: () => ({}), onFalse: () => initialValues }),
     startedLink: Bool.match(startedAtAnimate, { onTrue: () => initialValues, onFalse: () => ({}) }),
-    failure: starting.failure,
+    failure: variants.failure,
   }
 }
 

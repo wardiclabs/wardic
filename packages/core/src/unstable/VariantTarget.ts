@@ -206,8 +206,11 @@ const keyframesOver = (target: Target, before: Keyframes | undefined): Keyframes
   return Bool.match(Rec.isEmptyRecord(over), { onTrue: () => undefined, onFalse: () => over })
 }
 
+/** No failure: one value, as every target that resolves carries it (#979, bench:solid's mount). */
+export const NO_FAILURE: Option.Option<VariantFailure> = Option.none()
+
 /** Nothing resolved. */
-export const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: Option.none() }
+export const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined, keyframes: undefined, failure: NO_FAILURE }
 
 /** One name or values map resolved ({@link resolveTarget}). */
 const resolveOne = (entry: Config.WardicVariant | string | undefined, variants: Config.WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
@@ -229,11 +232,11 @@ const resolveOne = (entry: Config.WardicVariant | string | undefined, variants: 
   // pass over its keys (#452).
   if (Bool.not(Predicate.isObject(target.transition))) {
     const split = Stops.splitValues(target, "last")
-    return { values: split.values, transition: undefined, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes), failure: Option.none() }
+    return { values: split.values, transition: undefined, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes), failure: NO_FAILURE }
   }
   const { transition, ...values } = target
   const split = Stops.splitValues(values, "last")
-  return { values: split.values, transition: transition as Config.WardicVariantTransition, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes), failure: Option.none() }
+  return { values: split.values, transition: transition as Config.WardicVariantTransition, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes), failure: NO_FAILURE }
 }
 
 /** A target's Transition end (#428), clean for core: none for anything but a values map, or an empty one. */
@@ -276,7 +279,7 @@ export interface StartingVariants {
 }
 
 /** No variants: one value, as most elements have none (#979, bench:solid's mount). */
-const NO_STARTING_VARIANTS: StartingVariants = { variants: undefined, failure: Option.none() }
+const NO_STARTING_VARIANTS: StartingVariants = { variants: undefined, failure: NO_FAILURE }
 
 /**
  * `variants` with each entry resolved to its values, a dynamic one with `custom` and no values yet
@@ -286,7 +289,7 @@ const NO_STARTING_VARIANTS: StartingVariants = { variants: undefined, failure: O
 export const startingVariantsOf = (variants: object | undefined, custom: unknown): StartingVariants => {
   if (Predicate.isUndefined(variants)) return NO_STARTING_VARIANTS
   const entries = variants as Config.WardicVariants
-  if (Bool.not(Arr.some(Rec.values(entries), Predicate.isFunction))) return { variants, failure: Option.none() }
+  if (Bool.not(Arr.some(Rec.values(entries), Predicate.isFunction))) return { variants, failure: NO_FAILURE }
   // Once an element's setup (#979): each entry resolved, a throwing resolver's left with no values.
   const targets = Rec.map(entries, (_, name) => resolveTarget(name, entries, custom, NO_VARIANT_STATE))
   return { variants: Rec.map(targets, valuesOfTarget), failure: Option.firstSomeOf(Arr.map(Rec.values(targets), failureOfTarget)) }

@@ -497,7 +497,7 @@ export const startingValuesOf = (
   inherited: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
   untrack: Reactivity.Reactivity["untrack"],
-): Values.Values => startingOf(config, inherited, presenceBlocks, untrack).values
+): Values.Values => startingValuesFrom(config, inherited, presenceBlocks, untrack, VariantTarget.startingVariantsOf(config.variants, config.custom).variants)
 
 /**
  * {@link startingValuesOf}, with what a resolver among the element's variants threw: its entry gives no
@@ -509,6 +509,21 @@ export const startingOf = (
   presenceBlocks: boolean,
   untrack: Reactivity.Reactivity["untrack"],
 ): Starting => {
+  const variants = VariantTarget.startingVariantsOf(config.variants, config.custom)
+  return { values: startingValuesFrom(config, inherited, presenceBlocks, untrack, variants.variants), failure: variants.failure }
+}
+
+/**
+ * {@link startingValuesOf} from its variants already resolved to values (`VariantTarget.startingVariantsOf`):
+ * what an element's start reads, which reads their failure too.
+ */
+export const startingValuesFrom = (
+  config: VariantConfig,
+  inherited: WardicVariantContextValue | undefined,
+  presenceBlocks: boolean,
+  untrack: Reactivity.Reactivity["untrack"],
+  variants: object | undefined,
+): Values.Values => {
   const atAnimate = startsAtAnimate(config, inherited, presenceBlocks)
   const animate = animateOf(config, inherited, untrack)
   const initial = initialOf(config, inherited)
@@ -521,20 +536,17 @@ export const startingOf = (
     first = animate
   }
   // Dynamic variants resolved first (#277): `@wardic/dom`'s Starting style reads values maps only.
-  const starting = VariantTarget.startingVariantsOf(config.variants, config.custom)
   const values = Stops.resolveInitial({
     initial: from,
     animate,
-    variants: starting.variants as Readonly<Record<string, object | undefined>> | undefined,
+    variants: variants as Readonly<Record<string, object | undefined>> | undefined,
   })
   // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
   // renders it, and a hydration finds it.
-  // Its failure is setup's: `startingVariantsOf` resolved every variant, `first`'s among them (#979).
-  const failure = starting.failure
-  if (Predicate.isUndefined(first) || first === false) return { values, failure }
+  if (Predicate.isUndefined(first) || first === false) return values
   const end = VariantTarget.resolveTarget(first as VariantTarget.Entry, config.variants as Config.WardicVariants | undefined, config.custom, VariantTarget.NO_VARIANT_STATE).transitionEnd
-  if (Predicate.isUndefined(end)) return { values, failure }
-  return { values: { ...values, ...end }, failure }
+  if (Predicate.isUndefined(end)) return values
+  return { ...values, ...end }
 }
 
 /**
