@@ -1138,6 +1138,67 @@ describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
       await runtime.dispose()
     }
   })
+
+  it("GV9: an element that unregisters while an output's dependent throws ends every output, set to undefined and unmounted, with nothing thrown; reported once (#979, row 42)", async () => {
+    const { runtime, logged, settle } = logging()
+    try {
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+      const unregister = gate.register("a", sinkOf(() => {}))
+      const x = gate.valueOf("a", "x")
+      const opacity = gate.valueOf("a", "opacity")
+      // An app's own Atom over a ward's `atom("x")` that can't take `undefined`, held past its element.
+      const offLabel = registry.subscribe(Atom.make((get) => (get(x) as number).toFixed(1)), () => {})
+      const heard: Array<unknown> = []
+      const offOpacity = registry.subscribe(opacity, (v) => void heard.push(v))
+      gate.write("a", { x: 1, opacity: 0.5 })
+      fireFrame()
+      // Before #979's row 42, the dependent's throw came out of the unregister, a binding's cleanup.
+      expect(() => unregister()).not.toThrow()
+      expect(registry.get(x), "x set to undefined").toBeUndefined()
+      expect(heard, "its other output set to undefined").toEqual([0.5, undefined])
+      offLabel()
+      offOpacity()
+      // The registry removes a node nothing holds in a task of its own.
+      await settle()
+      // With the app's listeners gone, nothing holds them: the gate let go of its own.
+      expect(registry.getNodes().has(x), "x unmounted").toBe(false)
+      expect(registry.getNodes().has(opacity), "opacity unmounted").toBe(false)
+      expect(logged).toEqual([{ message: "wardic.gate: an output failed", id: "a", key: "x" }])
+    } finally {
+      await runtime.dispose()
+    }
+  })
+
+  it("GV10: so as the gate is disposed: the elements after it end their outputs too, with nothing thrown (#979, row 42)", async () => {
+    const { runtime, logged, settle } = logging()
+    try {
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+      gate.register("a", sinkOf(() => {}))
+      gate.register("b", sinkOf(() => {}))
+      const x = gate.valueOf("a", "x")
+      const opacity = gate.valueOf("b", "opacity")
+      const offLabel = registry.subscribe(Atom.make((get) => (get(x) as number).toFixed(1)), () => {})
+      const heard: Array<unknown> = []
+      const offOpacity = registry.subscribe(opacity, (v) => void heard.push(v))
+      gate.write("a", { x: 1 })
+      gate.write("b", { opacity: 0.5 })
+      fireFrame()
+      // Before #979's row 42, `a`'s throw came out of the dispose, and `b`'s outputs were never ended.
+      expect(() => gate.dispose()).not.toThrow()
+      expect(registry.get(x), "a's set to undefined").toBeUndefined()
+      expect(heard, "the next element's output set to undefined").toEqual([0.5, undefined])
+      offLabel()
+      offOpacity()
+      await settle()
+      expect(registry.getNodes().has(x), "a's unmounted").toBe(false)
+      expect(registry.getNodes().has(opacity), "b's unmounted").toBe(false)
+      expect(logged).toEqual([{ message: "wardic.gate: an output failed", id: "a", key: "x" }])
+    } finally {
+      await runtime.dispose()
+    }
+  })
 })
 
 describe("the gate's commit hook, onCommit (#233, ADR-0043 Amendment (#233, #234))", () => {

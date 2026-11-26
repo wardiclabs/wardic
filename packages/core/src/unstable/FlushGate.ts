@@ -537,10 +537,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     }
   }
 
-  /**
-   * `output` set to `value`, its dependent's throw its own. The try is here, out of `setOutputs`' loop over
-   * the Map: in its body, it measured +5–8% on Node's write.
-   */
+  /** `output` set to `value`, its dependent's throw its own: reported once a run of throws, until a clean set. */
+  // The try is here, out of the loops that call it (`setOutputs`', `endOutputs`'): in the body of
+  // `setOutputs`' loop over the element's outputs Map, it measured +5–8% on Node's write.
   const setOutput = (id: string, key: string, output: Output, value: unknown): void => {
     try {
       registry.set(output.atom, value)
@@ -664,12 +663,15 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   /** `id`'s live outputs, each set to `undefined` and forgotten: its element is gone. */
+  // #979, row 42 (ADR-0074): set through `setOutput`, so a dependent that throws as its element leaves is
+  // reported, and every output still ends: before, its throw came out of the unregister, a binding's
+  // cleanup, and left that output and the later ones mounted.
   const endOutputs = (id: string): void => {
     const outputs = outputsById.get(id)
     if (Predicate.isUndefined(outputs)) return
     outputsById.delete(id)
-    for (const output of outputs.values()) {
-      registry.set(output.atom, undefined)
+    for (const [key, output] of outputs) {
+      setOutput(id, key, output, undefined)
       output.unmount()
     }
   }

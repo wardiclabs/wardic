@@ -412,7 +412,7 @@ A **Timeline value** is a Live value derived from a container's scroll by ranges
 
 ## Amendment (#979, group D, 2026-11-26): a Live value's failure is its own
 
-ADR-0074's rule (one Subject's failure is its own) for Live values: its row 32, and two rows its probe found (#979's 40 and 41). ADR-0027 and ADR-0033 each carry a short amendment for their own row, pointing here.
+ADR-0074's rule (one Subject's failure is its own) for Live values: its row 32, two rows its probe found (#979's 40 and 41), and one its review found (42). ADR-0027 and ADR-0033 each carry a short amendment for their own rows, pointing here.
 
 **What happened** (probed on `main` at 0e8b5768, in Chromium, in every binding):
 1. **A run's dependent** (row 32): a `createTransform` whose function throws, over a follow, a spring, a velocity or time. Effect's registry tells every listener, then throws the first failure back out of `registry.set`, here the run's write. The run died, nobody watching it, its `running` left set: the value frozen for good, its other consumers with it, nothing logged. Only `jump()` brought it back.
@@ -421,12 +421,13 @@ ADR-0074's rule (one Subject's failure is its own) for Live values: its row 32, 
 4. **The Flush gate's outputs** (row 41): a throwing dependent of a ward's `read(key)` came out of the gate's write, into the ward's own leg. Its animation ended mid-flight, reported once a Retarget.
 5. **Solid 1:** its function form is a memo, and its throw broke Solid 1's synchronous update. The rest of the update was dropped (an element painted 17.7 where its accessor said 23.2), and what read the failed memo lost its subscription for good.
 6. **Already following the rule:** the DOM's carried `style` keeps its last value; Foldkit's `w.OnUpdate` values are reported once a run by the gate's `onCommit`; Solid 2's memo form logs Solid's own error once and recovers. Foldkit has no transform helper: its apps use `LiveValue.transform`, or an `Atom.map` of their own.
+7. **The gate's outputs as an element unregisters** (row 42, found by the review, probed on the branch at 5019e111): the gate set each to `undefined` with no `try`. An app's Atom over a ward's `atom("x")` that can't take `undefined`, held past the ward's owner, threw out of the unregister and left that output and the later ones mounted for good; at the gate's dispose, the later elements' outputs were skipped too. Both Solid bindings unregister as the ward's owner is disposed: on Solid 1 the throw came out of the app's own `set`, and the cleanups Solid 1 had left in that disposal were skipped, an earlier sibling's in the probe; on Solid 2, out of `flush()`. Solid 2's `read(key)` falls back to where the key rests, so it never gives `undefined`; its Stage ward's `atom(key)` reads the same outputs through object's gate, the same `endOutputs`, not probed; Foldkit never asks for an output.
 
 **Decided (grilled 2026-11-26, Q1–Q10):**
 1. **Every Wardic transform keeps its last value** (Q1): Solid 2's Atom form, the effect that derives it again as its function's Solid reads change, and its memo form; Solid 1's memos; core's `LiveValue.transform`, whose `mixer` is the app's. A function that throws keeps the value it gave last, reported once a run of throws (ADR-0074 rule 3). Its Atom never fails, so nothing over it or under it sees a throw: 1, 2, 4 and 5 at their source, for Wardic's own transforms.
 2. **Its first value** (Q5): with no value yet to keep, its throw is its first reader's. That's `createTransform`'s call where the call reads it (Solid 1's memo, Solid 2's Atom form), a refusal that takes nothing (ADR-0074's scope); Solid 2's memo form, which Solid computes and holds an error of, at its first read; in core, the transform's first reader.
 3. **The loop's hooks** (Q2, row 40): a `try` per hook, at the tick's end and in a Late round, as each run's step has (ADR-0027, *Amendment (#979, group D)*).
-4. **The runs and the gate** (Q3): follow (a spring is one), velocity and time catch their per-frame write and their source reads, and the gate catches each output's set (ADR-0033, *Amendment (#979, group D)*). So an Atom Wardic doesn't wrap, an app's `Atom.map`, can't freeze them: a run's bookkeeping goes on past its write, a spring steers toward its source's last read, and a velocity over a source it can't read reads as still. An app's own Atom still throws out of the app's own `set`: that's Effect's registry, and the app's own code.
+4. **The runs and the gate** (Q3): follow (a spring is one), velocity and time catch their per-frame write and their source reads, and the gate catches each output's set, as its element unregisters and as the gate is disposed too, every output unmounted whatever its dependent does (ADR-0033, *Amendment (#979, group D)*). So an Atom Wardic doesn't wrap, an app's `Atom.map`, can't freeze them: a run's bookkeeping goes on past its write, a spring steers toward its source's last read, and a velocity over a source it can't read reads as still. An app's own Atom still throws out of the app's own `set`: that's Effect's registry, and the app's own code.
 5. **The messages** (Q6), each once a run of throws, cleared by the next clean call:
 
    | Where | Message |
@@ -469,19 +470,21 @@ ADR-0074's rule (one Subject's failure is its own) for Live values: its row 32, 
   - LF5: `transform` with a throwing `mixer` keeps its last value, its first value's throw its reader's;
   - LF6: a velocity whose dependent throws rests at 0.
 - **The Frame loop** (`frame-loop.test.ts`): a throwing hook leaves the tick's other hooks and every run going, reported once a run (row 40); TK3 and LW8 now pin the window's close after it.
-- **The gate** (`gate.node.test.ts`): GV8, an output whose dependent throws leaves every write committing and its other output set (row 41).
+- **The gate** (`gate.node.test.ts`): GV8, an output whose dependent throws leaves every write committing and its other output set (row 41); GV9 and GV10 (row 42), an element that unregisters, and a gate disposed, while an output's dependent throws: every output set to `undefined` and unmounted, nothing thrown, reported once.
 - **Solid 2** (`live-values.browser.test.tsx`):
   - LV18: the function form over a follow keeps its last value, and the follow and its other consumer go on;
   - LV19: the memo form: Wardic's report, none of Solid's;
   - LV20: over a ward's `read("x")`, the ward lands;
-  - LV21: its own Solid reads changing while it throws.
-- **Solid 1** (`v1/live-values.browser.test.tsx`): LF19, the rest of the update paints.
+  - LV21: its own Solid reads changing while it throws;
+  - LV22 (row 42): a ward whose owner is disposed while an Atom over its `atom("x")` throws on `undefined`: nothing out of the app's `flush()`, every cleanup run.
+- **Solid 1** (`v1/live-values.browser.test.tsx`): LF19, the rest of the update paints; LF20 (row 42), LV22's case: nothing out of the app's own `set`, and the rest of the disposal runs.
 - **Foldkit** (`values.browser.test.ts`): `LiveValue.transform` with a throwing `mixer`, through `Wardic.provide`.
-- **Mutations:** 23 of 23 caught, each run alone (`.tmp/979d/mutate.py`):
+- **Mutations:** 23 of 23 caught (`.tmp/979d/mutate.py`), and row 42's 4 of 4 (`.tmp/979d/mutate42.py`), each run alone:
   - each `try` dropped: a run's write and source read, a hook's in a tick and a Late round, an output's, a transform's;
   - each report dropped, or made at every throw, or never cleared;
-  - a spring's last read lost, and a transform's first throw kept as a value.
+  - a spring's last read lost, and a transform's first throw kept as a value;
+  - row 42's: its `try` dropped, its unmount skipped, its report dropped, and its unmount made only on a clean set.
   - **Missed first:** velocity's hook without its `try`, as the loop's own `try` caught it there, reported on a context the test's Logger hadn't reached. The core tests now build the loop with it.
   - **Two each at one seam:** the transform's once by LF5, as Foldkit's test throws once; an output's `try` by GV8, as Solid 2's transform catches its own throw before the gate sees one.
 
-**Size** (`bun run size`): every app grows, within the 1% gate, since every app has the loop and the gate: `s1-slim` +170 B gzipped, `s2-slim` +117, `f-slim` +343, `t2-stage` +141, `t2-features` +213, and the scroll apps the most, about +600. The five budgets were raised by what was measured, to 96.2, 119.0, 198.6, 246.2 and 253.8.
+**Size** (`bun run size`): every app grows, within the 1% gate, since every app has the loop and the gate: `s1-slim` +170 B gzipped, `s2-slim` +117, `f-slim` +343, `t2-stage` +141, `t2-features` +213, and the scroll apps the most, about +600. The five budgets were raised by what was measured, to 96.2, 119.0, 198.6, 246.2 and 253.8. Row 42, against `main` with the rest of group D merged: every app −16 to +20 B gzipped, every budget held.
