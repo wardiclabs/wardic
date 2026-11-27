@@ -11,7 +11,7 @@ import { defineMessageUnion } from "foldkit/message"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { until } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded, opacityOf } from "./harness.ts"
+import { BOX, boxOf, capture, embed, embedActions, type Embedded, frames, opacityOf, saidTimes, translateXOf } from "./harness.ts"
 
 const Model = Schema.Struct({ open: Schema.Boolean })
 type Model = typeof Model.Type
@@ -296,5 +296,63 @@ describe("targets", () => {
     expect(itemsOf(held).map((el) => el.style.display)).toEqual(["block", "block"])
     held.send(false)
     await until(() => itemsOf(held).every((el) => el.style.display === "none"), 2000, "closed lands, and its transitionEnd with it")
+  })
+})
+
+// #979 (ADR-0074, row 35 and row 43): a Variant child its parent hands the same vnode to gets no delivery of
+// its own and hears its parent's name through the port's re-check (P17), which called every watch with no
+// try. A parent's `delayChildren` function that threw there came out of the patch's microtask, and the
+// watches after it, other trees' too, missed that patch.
+describe("a delayChildren function that throws (#979)", () => {
+  it("through the re-check: that child starts with no delay, the later children and another tree's start in the same patch, reported once", async () => {
+    const errors: Array<string> = []
+    const onError = (event: ErrorEvent): void => {
+      errors.push(event.message)
+      event.preventDefault()
+    }
+    window.addEventListener("error", onError)
+    const captured = capture()
+    try {
+      const T = { duration: 0.2, ease: "linear" } as const
+      const item = { off: { x: 0 }, on: { x: 100 } }
+      const parent = {
+        off: { opacity: 1 },
+        on: {
+          opacity: 0.5,
+          transition: {
+            delayChildren: (i: number): number => {
+              if (i === 0) throw new Error("its delayChildren broke")
+              return 0
+            },
+          },
+        },
+      }
+      const plain = { off: { opacity: 1 }, on: { opacity: 0.5 } }
+      // Built once, so every render hands each parent the same children: none gets a delivery of its own.
+      let kidsC: ReadonlyArray<Html> | undefined
+      let kidsD: ReadonlyArray<Html> | undefined
+      const held = embedActions((on, h) => {
+        const w = wardic.html(h)
+        const name = Bool.match(on, { onTrue: () => "on", onFalse: () => "off" })
+        kidsC ??= [0, 1, 2].map((i) => w.div([h.Id(`c${i}`), w.Variants(item), w.Transition(T), h.Style(BOX)]))
+        kidsD ??= [0, 1].map((i) => w.div([h.Id(`d${i}`), w.Variants(item), w.Transition(T), h.Style(BOX)]))
+        return h.div([], [
+          w.div([h.Id("p"), w.Variants(parent), w.Initial("off"), w.Animate(name), w.Transition(T), h.Style(BOX)], [...kidsC]),
+          w.div([h.Id("q"), w.Variants(plain), w.Initial("off"), w.Animate(name), w.Transition(T), h.Style(BOX)], [...kidsD]),
+        ])
+      }, {})
+      app = held
+      const children = await Promise.all(["c0", "c1", "c2", "d0", "d1"].map((id) => boxOf(held, id)))
+      await frames(6)
+      held.send("toggle")
+      await frames(4)
+      expect(children.map((el) => translateXOf(el) > 0), "every child started in that patch").toEqual([true, true, true, true, true])
+      await until(() => children.every((el) => translateXOf(el) === 100), 2000, "every child lands")
+      expect(errors, "nothing out of the patch").toEqual([])
+      expect(saidTimes(captured.lines, "wardic.stagger: a delayChildren function failed"), "once").toBe(1)
+    } finally {
+      captured.stop()
+      window.removeEventListener("error", onError)
+    }
   })
 })

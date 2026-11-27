@@ -9,6 +9,8 @@
 // - ACV4: a function definition is called once per element with its `custom`.
 // - ACV5: `set` toward the target a running start heads for lands at once: a change is a new target
 //   for Solid 2's memo, though it resolves to the same values.
+// - ACV6 (#979 row 35): a `start` or `set` whose function throws for one element is refused at the call,
+//   taking nothing: the throw comes out of the call, no element moves, and the next call reaches them all.
 //
 // No GC test, as Solid 1's AC13: Solid 2's dev build keeps an unmounted element's node in this harness,
 // a plain one's too, so a WeakRef never clears.
@@ -143,5 +145,30 @@ describe("Animation controls on Solid 2 (#433)", () => {
     controls.set({ x: 100 })
     await frames(3)
     expect(xOf(byId("a")), "landed, not still on its 2 s").toBeCloseTo(100, 0)
+  })
+
+  it("ACV6: a start or set whose function throws for one element is refused at the call, taking nothing (#979)", async () => {
+    const controls = createAnimationControls()
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <For each={[0, 1, 2]}>{(i) => <wardic.div id={`c${i}`} custom={i} initial={{ x: 0 }} animate={controls} style={BOX} />}</For>
+      </WardicProvider>
+    ))
+    await frames(4)
+    let broken = true
+    const toward = (i: number) => {
+      if (broken && i === 1) throw new Error("its definition broke")
+      return { x: (i + 1) * 50 }
+    }
+    expect(() => controls.start(toward, { duration: 0.1 })).toThrow("its definition broke")
+    expect(() => controls.set(toward)).toThrow("its definition broke")
+    await frames(12)
+    expect([0, 1, 2].map((i) => xOf(byId(`c${i}`))), "none moved").toEqual([0, 0, 0])
+    broken = false
+    await controls.start(toward, { duration: 0.1 })
+    expect([0, 1, 2].map((i) => Math.round(xOf(byId(`c${i}`))))).toEqual([50, 100, 150])
+    controls.set((i: number) => ({ x: i * 10 }))
+    await frames(3)
+    expect([0, 1, 2].map((i) => Math.round(xOf(byId(`c${i}`))))).toEqual([0, 10, 20])
   })
 })

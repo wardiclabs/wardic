@@ -23,6 +23,8 @@
 //   until the element lands.
 // - AC12: a start made in the task of one that changed nothing waits for its own landing.
 // - AC13: an unmounted element is let go by the controls, which outlive it.
+// - AC14 (#979 row 35): a `start` whose function throws for one element is refused at the call, taking
+//   nothing: the throw comes out of the call, no element moves, and the next start reaches them all.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimationControls, createWard, Reorder, wardic, WardicProvider, type WardicVariants } from "@wardic/solid/v1"
@@ -299,5 +301,22 @@ describe("Animation controls on Solid 1 (#433)", () => {
     expect(refs.filter((ref) => ref.deref() !== undefined), "collected").toHaveLength(0)
     // The controls live on: here, past the collection.
     controls.stop()
+  })
+
+  it("AC14: a start whose function throws for one element is refused at the call, taking nothing (#979)", async () => {
+    const controls = createAnimationControls()
+    mount(() => <For each={[0, 1, 2]}>{(i) => <wardic.div id={`c${i}`} custom={i} initial={{ x: 0 }} animate={controls} style={BOX} />}</For>)
+    await frames(4)
+    let broken = true
+    const toward = (i: number) => {
+      if (broken && i === 1) throw new Error("its definition broke")
+      return { x: (i + 1) * 50 }
+    }
+    expect(() => controls.start(toward, { duration: 0.1 })).toThrow("its definition broke")
+    await frames(12)
+    expect([0, 1, 2].map((i) => xOf(byId(`c${i}`))), "none moved").toEqual([0, 0, 0])
+    broken = false
+    await controls.start(toward, { duration: 0.1 })
+    expect([0, 1, 2].map((i) => Math.round(xOf(byId(`c${i}`))))).toEqual([50, 100, 150])
   })
 })

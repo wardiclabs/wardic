@@ -7,6 +7,9 @@
 // - SG2: `startDelay` and `ease`: each child waits as `stagger()` itself says, Motion's math.
 // - SG3: a presence's propagated exits stagger by their exit's `delayChildren: stagger()`.
 // - SG4: `createAnimate`'s `delay: stagger()` staggers a selection.
+// - SG5 (#979 row 43): a `delayChildren` function that throws for two children gives them no delay and
+//   the other its own, nothing comes out of the app's setter, an element changed in the same update moves,
+//   and it's reported once a run of throws for each child, again after a clean call.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createAnimate, stagger, type WardicAnimate, wardic, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid/v1"
@@ -14,6 +17,7 @@ import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -133,5 +137,49 @@ describe("delayChildren: stagger() on Solid 1 (#436)", () => {
     void animate("li", { x: 100 }, { type: "tween", duration: 0.2, ease: "linear", delay: stagger(0.25, { from: "last" }) })
     const starts = relative(await startsOf(Array.from(container.querySelectorAll("li")), 0, t0))
     ;[0.5, 0.25, 0].forEach((want, i) => expect(Math.abs(starts[i]! - want), `li ${i}`).toBeLessThan(TOLERANCE))
+  })
+
+  it("SG5: a delayChildren function that throws for two children: no delay for them, nothing out of the setter, reported once a run each (#979)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const [on, setOn] = createSignal(false)
+    let broken = true
+    const delayChildren = (i: number): number => {
+      if (Bool.and(broken, i > 0)) throw new Error("its delayChildren broke")
+      return 0.4 - i * 0.2
+    }
+    let other!: HTMLDivElement
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.ul initial="hidden" animate={Bool.match(on(), { onTrue: () => "shown", onFalse: () => "hidden" })} variants={{ hidden: {}, shown: {} }} transition={{ delayChildren }} style={{ "list-style": "none" }}>
+          <For each={[0, 1, 2]}>{() => <wardic.li variants={ITEM} transition={TWEEN} style={BOX} />}</For>
+        </wardic.ul>
+        <wardic.div ref={other} animate={{ x: Bool.match(on(), { onTrue: () => 100, onFalse: () => 0 }) }} transition={TWEEN} style={BOX} />
+      </WardicProvider>
+    ))
+    await frames(3)
+    const items = Array.from(container.querySelectorAll("li"))
+    const failed = (): number => errorsNamed(logs, "wardic.stagger: a delayChildren function failed").length
+    expect(() => setOn(true), "nothing out of the setter").not.toThrow()
+    await frames(4)
+    expect([xOf(items[1]!), xOf(items[2]!)].every((x) => x > 0), "the children it threw for start at once").toBe(true)
+    expect(xOf(items[0]!), "the other waits out its 0.4 s").toBe(0)
+    await frames(60)
+    expect([...items.map(xOf), xOf(other)], "every one landed").toEqual([100, 100, 100, 100])
+    expect(failed(), "once for each child").toBe(2)
+    // Still throwing at the next change: the same runs.
+    setOn(false)
+    await frames(60)
+    expect(failed(), "not again").toBe(2)
+    // A clean call ends each child's run; the next throws are reported.
+    broken = false
+    setOn(true)
+    await frames(60)
+    broken = true
+    setOn(false)
+    await frames(60)
+    expect([...items.map(xOf), xOf(other)], "back").toEqual([0, 0, 0, 0])
+    expect(failed(), "again after a clean call").toBe(4)
+    expect(reports.every((message) => message === "its delayChildren broke")).toBe(true)
   })
 })

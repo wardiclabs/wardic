@@ -23,10 +23,10 @@ export const delayOf = (animation: string): number => Number(/s linear (-?[\d.]+
 
 /**
  * The provider's explanations logged while `render` runs (#585): each `wardic.appear:` line, from its
- * start. A render that returns a promise is awaited, so a word logged by a microtask after its build
- * counts (Foldkit's, #794).
+ * start, or each line of another `prefix`'s (#979: a stagger's report). A render that returns a promise is
+ * awaited, so a word logged by a microtask after its build counts (Foldkit's, #794).
  */
-export const said = async (render: () => unknown): Promise<ReadonlyArray<string>> => {
+export const said = async (render: () => unknown, prefix = "wardic.appear:"): Promise<ReadonlyArray<string>> => {
   const lines: Array<string> = []
   const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
     vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
@@ -39,7 +39,7 @@ export const said = async (render: () => unknown): Promise<ReadonlyArray<string>
     for (const spy of spies) spy.mockRestore()
   }
   return lines.flatMap((line) => {
-    const at = line.indexOf("wardic.appear:")
+    const at = line.indexOf(prefix)
     if (at === -1) return []
     return [line.slice(at).trim()]
   })

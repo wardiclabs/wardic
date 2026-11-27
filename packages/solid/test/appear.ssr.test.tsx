@@ -50,6 +50,8 @@
 //   samples them with the Interpolators the first built, which a server keeps.
 // - AR27 (#618, P1): the provider's `nonce`: the head's `<style>` carries it, and a late chunk's head
 //   patch too; with none, neither has one.
+// - AR28 (#979 row 43): a `delayChildren` function that throws for one Variant child times that child's rule
+//   with no delay and the others' as given; the render goes on, and it's reported once.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -651,6 +653,31 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     const css = headCss(html)
     const delayIn = (k: string): number => Number(/s linear (-?[\d.]+)s/.exec(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)?.[1] ?? Number.NaN)
     expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the centre").toEqual([0.1, 0, 0.1])
+  })
+
+  it("AR28: a delayChildren function that throws for one child: its rule has no delay, the others theirs, reported once (#979)", async () => {
+    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
+    const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
+    const delayChildren = (i: number): number => {
+      if (i === 1) throw new Error("its delayChildren broke")
+      return 0.1 + i * 0.1
+    }
+    let html = ""
+    const lines = await said(async () => {
+      html = page(() => (
+        <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ delayChildren }}>
+          <wardic.li data-k="a" variants={item} />
+          <wardic.li data-k="b" variants={item} />
+          <wardic.li data-k="c" variants={item} />
+        </wardic.ul>
+      ))
+      // Reported on Effect's default runtime, as a server render holds no app reporters: its fiber runs after.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }, "wardic.stagger:")
+    const css = headCss(html)
+    const delayIn = (k: string): number => Number(/s linear (-?[\d.]+)s/.exec(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)?.[1] ?? Number.NaN)
+    expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "b with no delay").toEqual([0.1, 0, 0.3])
+    expect(lines.filter((line) => line.startsWith("wardic.stagger: a delayChildren function failed")), "once").toHaveLength(1)
   })
 
   it("AR24: a wrapped component's pending child waits at its wrap, its rule in the head (#525)", async () => {
