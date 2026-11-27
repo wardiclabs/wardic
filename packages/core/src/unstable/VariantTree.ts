@@ -25,9 +25,13 @@
 // element's place in variant orchestration in core.
 import * as Stagger from "../Stagger.ts"
 import type * as Values from "../Values.ts"
+import * as Report from "./Report.ts"
 import * as Stops from "./Stops.ts"
+import type * as WardicServices from "./WardicServices.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
+import * as Effect from "effect/Effect"
 import { constTrue, constUndefined, identity } from "effect/Function"
 import type * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -588,14 +592,58 @@ export const directed = (index: number, total: number, direction: 1 | -1): numbe
 }
 
 /**
+ * Where a stagger reports a `delayChildren` function that throws: the runtime it's reported on, and whether
+ * it's failing, so a run of throws is reported once. A Variant child's is its element's, for its life, its
+ * run ended by its next clean call. A presence's exit and a server's Appear timing make one for the event,
+ * `event`, whose first throw is reported whatever its other calls do.
+ */
+export interface DelayFailures {
+  delayFailing: boolean
+  readonly runtime: Pick<WardicServices.Runner<never>, "runFork">
+  readonly event?: true
+}
+
+/** The runtime a server render reports on: Effect's default, as a server holds no app reporters. */
+export const ON_SERVER: Pick<WardicServices.Runner<never>, "runFork"> = { runFork: (effect) => Effect.runFork(effect) }
+
+/** One exit's or one render's {@link DelayFailures}, reported on `runtime` at its first throw. */
+export const eventDelayFailuresOf = (runtime: Pick<WardicServices.Runner<never>, "runFork">): DelayFailures => ({ delayFailing: false, runtime, event: true })
+
+/**
  * A child's delay in a stagger (ADR-0007): its `delayChildren` plus its place from the origin, turned
  * by its `staggerDirection`. A function `delayChildren` (#436, Motion's `calcChildStagger`) decides it
- * whole, from the child's index and the count. Every stagger, a Variant child's, a presence's exit's
- * and a server's Appear timing, is placed by it.
+ * whole, from the child's index and the count; one that throws gives the child no delay, reported on
+ * `failures` (on Effect's default runtime with none) at the first throw of a run of them. Every stagger,
+ * a Variant child's, a presence's exit's and a server's Appear timing, is placed by it.
  */
-export const childDelayOf = (s: WardicStaggerConfig, index: number, total: number): number => {
-  if (Predicate.isFunction(s.delayChildren)) return s.delayChildren(index, total)
+export const childDelayOf = (s: WardicStaggerConfig, index: number, total: number, failures: DelayFailures | undefined): number => {
+  if (Predicate.isFunction(s.delayChildren)) return calledDelayOf(s.delayChildren, index, total, failures)
   return s.delayChildren + Stagger.make(s.amount, { from: s.from })(directed(index, total, s.direction), total)
+}
+
+// #979 (ADR-0074, row 43, found by group H's probe): a `delayChildren` function is the app's, called at each
+// child's Retarget, exit and Appear timing with no try. A throw halted Solid 2, came out of Solid 1's
+// setter, and skipped Foldkit's later watches at a patch.
+const DELAY_FAILED = "wardic.stagger: a delayChildren function failed"
+
+/** `delayChildren` called for a child, a throw its child's: no delay, reported once a run on `failures`. */
+// A child's run is its element's, whatever name it's staggered under: a parent's own transition staggers
+// every name with one function, so a run kept by name would report it again for each. (The review's: a
+// child staggered under two names at once, one function throwing and one not, is reported at each change.)
+const calledDelayOf = (delayChildren: Config.WardicStagger, index: number, total: number, failures: DelayFailures | undefined): number => {
+  try {
+    const delay = delayChildren(index, total)
+    if (Predicate.isNotUndefined(failures) && failures.delayFailing && failures.event !== true) failures.delayFailing = false
+    return delay
+  } catch (defect) {
+    if (Predicate.isUndefined(failures)) {
+      Report.failureOn(undefined, DELAY_FAILED, Cause.die(defect), { index })
+      return 0
+    }
+    if (!failures.delayFailing) failures.runtime.runFork(Report.failure(DELAY_FAILED, Cause.die(defect)).pipe(Effect.annotateLogs({ index })))
+    failures.delayFailing = true
+    return 0
+  }
 }
 
 /** A name's orchestration (#297): its stagger config, and its own `when`, from its own transition, else the element's. */

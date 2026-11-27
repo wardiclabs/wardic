@@ -1646,7 +1646,7 @@ export const exitVariantFailedOn: (runtime: Pick<WardicServices.Runner<never>, "
 )
 
 /** An element's variant failure reported on Effect's default runtime: a server render's, which holds no app reporters (#979). */
-export const variantFailedOnServer: (failure: VariantTarget.VariantFailure) => void = /*#__PURE__*/ variantFailedOn({ runFork: (effect) => Effect.runFork(effect) })
+export const variantFailedOnServer: (failure: VariantTarget.VariantFailure) => void = /*#__PURE__*/ variantFailedOn(VariantTree.ON_SERVER)
 
 /** The first of a list of entries' failures: built once, as it's asked per Retarget (#460, compose once). */
 const firstFailureOf = Arr.findFirst<OverrideEntry, VariantTarget.VariantFailure>((layer) => layer.failure)
@@ -1660,7 +1660,7 @@ export const failureOf = (resolution: Resolution): Option.Option<VariantTarget.V
  * read through {@link keptOf}, {@link reportStart} and {@link orchestrationOf}: each variant is
  * reported once, until it resolves again.
  */
-export interface VariantFailures {
+export interface VariantFailures extends VariantTree.DelayFailures {
   /** Its last resolution with no failure: what {@link keptOf} gives while one carries a failure. */
   last: Resolution | undefined
   /** Each failing variant, by name, and where it was seen; made at the first failure: most elements never have one. */
@@ -1673,7 +1673,7 @@ export interface VariantFailures {
 // #979 (bench:solid's mount): one plain object an element, read by the functions below, not closures, and
 // holding its runtime: its report is made only at a failure. A report made once a runtime and found in a
 // WeakMap cost Solid 1's mount 6% (the lookup, an element).
-export const variantFailuresOf = (runtime: Pick<WardicServices.Runner<never>, "runFork">): VariantFailures => ({ last: undefined, failing: undefined, runtime })
+export const variantFailuresOf = (runtime: Pick<WardicServices.Runner<never>, "runFork">): VariantFailures => ({ last: undefined, failing: undefined, delayFailing: false, runtime })
 
 /** Where a variant's failure was seen, until each resolves it again: its element's resolutions, and its orchestration. */
 const RESOLVING = 1

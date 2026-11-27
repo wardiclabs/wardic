@@ -15,7 +15,8 @@
  * - **`stop()`** ends each element's running legs where they are.
  *
  * A function definition is called once per element, with its `custom`, values and velocities, as
- * Motion's `controls.start((i) => …)`. An element hears the controls from its mount to its unmount.
+ * Motion's `controls.start((i) => …)`, every element's before any is set: one that throws for an element
+ * refuses the call, taking nothing. An element hears the controls from its mount to its unmount.
  *
  * Unstable, for Wardic's own packages: public, with no semver promise.
  *
@@ -58,9 +59,11 @@ export interface ControlsChange {
   readonly landed: () => void
 }
 
-/** What a controlled element does at a change, as its binding wires it: its entry set, and the change's landing promised. */
+/** What a controlled element does at a change, as its binding wires it: its entry worked out, then set, and the change's landing promised. */
 export interface Controlled {
-  readonly change: (definition: Config.WardicControlsDefinition, override: Config.WardicTransition | undefined) => Promise<void>
+  /** Its entry for `definition`: a function definition called with its `custom`, values and velocities; anything else as it is. */
+  readonly entryOf: (definition: Config.WardicControlsDefinition) => Config.WardicVariant | Config.WardicVariantLabels
+  readonly change: (entry: Config.WardicVariant | Config.WardicVariantLabels, override: Config.WardicTransition | undefined) => Promise<void>
   readonly stop: () => void
 }
 
@@ -70,6 +73,15 @@ const subscribers = new WeakMap<Config.WardicAnimationControls, Set<Controlled>>
 
 /** `set`'s transition (#433, Motion's `setValues`): none to speak of, and no orchestration. */
 export const INSTANT: Config.WardicTransition = { type: "tween", duration: 0 }
+
+/**
+ * Each element's entry for `definition`, worked out before any is set: a function definition that throws
+ * for one refuses the call, taking nothing, as an `animate()` call refuses one.
+ */
+// #979 (ADR-0074, row 35): `start` and `set` set each element's entry as they called its function, so one
+// that threw for a later element left the earlier ones changed and the rest unreached, as #986's row 20.
+const entriesOf = (elements: ReadonlyArray<Controlled>, definition: Config.WardicControlsDefinition): ReadonlyArray<Config.WardicVariant | Config.WardicVariantLabels> =>
+  Arr.map(elements, (element) => element.entryOf(definition))
 
 /**
  * Makes animation controls, which animate elements from code by their variants or targets: give them
@@ -87,12 +99,18 @@ export const createAnimationControls = (): Config.WardicAnimationControls => {
   const reached = new Set<Controlled>()
   const controls: Config.WardicAnimationControls = {
     [Config.CONTROLS]: true,
-    start: (definition, transitionOverride) =>
-      Promise.all(Arr.map(Arr.fromIterable(reached), (element) => element.change(definition, transitionOverride))).then(() => undefined),
-    set: (definition) =>
-      reached.forEach((element) => {
-        void element.change(definition, INSTANT)
-      }),
+    start: (definition, transitionOverride) => {
+      const elements = Arr.fromIterable(reached)
+      const entries = entriesOf(elements, definition)
+      return Promise.all(Arr.zipWith(elements, entries, (element, entry) => element.change(entry, transitionOverride))).then(() => undefined)
+    },
+    set: (definition) => {
+      const elements = Arr.fromIterable(reached)
+      const entries = entriesOf(elements, definition)
+      Arr.forEach(Arr.zip(elements, entries), ([element, entry]) => {
+        void element.change(entry, INSTANT)
+      })
+    },
     stop: () => reached.forEach((element) => element.stop()),
   }
   subscribers.set(controls, reached)
@@ -121,25 +139,34 @@ export const subscribe = (controls: Config.WardicAnimationControls, element: Con
 let serials = 0
 
 /**
- * A change of one element (#433): its entry, `definition` called with the element's `custom`, values
- * and velocities when it's a resolver (once, as Motion's), on `override`; and its landing, promised. It
- * lands once every element it reaches has joined, at the end of the binding's flush (`armed`), and
- * left. One that reaches no element lands then.
+ * An element's entry for `definition`: a resolver called with its `custom`, values and velocities (once,
+ * as Motion's), anything else as it is.
  */
-export const changeOf = (
+// #433; #979 (row 35): worked out for every element before any is set.
+export const entryOf = (
   definition: Config.WardicControlsDefinition,
-  override: Config.WardicTransition | undefined,
   custom: unknown,
   values: Readonly<Record<string, number | string>>,
   velocities: Readonly<Record<string, number>>,
+): Config.WardicVariant | Config.WardicVariantLabels =>
+  Bool.match(Predicate.isFunction(definition), {
+    onTrue: () => (definition as Config.WardicVariantResolver)(custom, { ...values }, { ...velocities }),
+    onFalse: () => definition as Config.WardicVariant | Config.WardicVariantLabels,
+  })
+
+/**
+ * A change of one element: its entry, on `override`, and its landing, promised. It lands once every
+ * element it reaches has joined, at the end of the binding's flush (`armed`), and left. One that reaches
+ * no element lands then.
+ */
+// #433.
+export const changeOf = (
+  entry: Config.WardicVariant | Config.WardicVariantLabels,
+  override: Config.WardicTransition | undefined,
 ): { readonly change: ControlsChange; readonly landing: Promise<void> } => {
   let resolve!: () => void
   const landing = new Promise<void>((done) => {
     resolve = done
-  })
-  const entry = Bool.match(Predicate.isFunction(definition), {
-    onTrue: () => (definition as Config.WardicVariantResolver)(custom, { ...values }, { ...velocities }),
-    onFalse: () => definition as Config.WardicVariant | Config.WardicVariantLabels,
   })
   const change: ControlsChange = { serial: ++serials, definition: entry, override, pending: 0, armed: false, landed: resolve }
   return { change, landing }
@@ -194,8 +221,9 @@ export interface ControlledSnapshot {
  * every element it reaches joined by then; `stop` ends its legs.
  */
 export const controlledElement = (setChange: (change: ControlsChange) => void, state: ControlledState, stop: () => void): Controlled => ({
-  change: (definition, override) => {
-    const made = changeOf(definition, override, state.custom(), state.snapshot.values, state.snapshot.velocitiesNow(state.snapshot))
+  entryOf: (definition) => entryOf(definition, state.custom(), state.snapshot.values, state.snapshot.velocitiesNow(state.snapshot)),
+  change: (entry, override) => {
+    const made = changeOf(entry, override)
     setChange(made.change)
     queueMicrotask(() => arm(made.change))
     return made.landing
