@@ -451,3 +451,19 @@ ADR-0033 had removed a Priming step taken at the end of every pass, because a pa
 | no inheritance | AT9 |
 | `ticking()` left set after a throwing hook | TK3 |
 | `ticking()` cleared before the hooks | TK1, AT1, AT5, AT6, AT8, AT9, AT10 |
+
+## Amendment (#979, group E, 2026-11-27): a node's Transform template at the pass is its own
+
+ADR-0074's rule (one Subject's failure is its own) for the Measure pass: #979's row 13. ADR-0027's *Amendment (#979, group E)* records the group, its cost and its tests; this is the pass's part.
+
+**What happened** (probed on `main` at 47ae7e48, in Chromium, the same in every binding). The pass holds each node's transform for its read (*Amendment (#443)*): a node with a Transform template at the template's, which calls the app's code. That loop ran before the pass's `try`, so a template that threw ended the pass there:
+- **Held for good:** the nodes held before it kept their held transform, `none`. One at rest with a `rotate: 10` of its own lost it for good.
+- **Nothing seeded:** the change wasn't animated, so the nodes it moved jumped. A box change while it still threw made a node jump about 290 px later, from a stale delta.
+- **A corrector at the seed:** an app's scale corrector that threw as the pass seeded a node ended the pass before the coordinator started, so every seeded node stayed at its origin, logged once as `measure pass failed`.
+- **What the row said wrongly:** settle callbacks waited for the next pass that ended, rather than being skipped. The pass-end listeners were skipped for that pass.
+
+**Now:**
+- **A `try` per node around its template** in the hold's loop. One that throws is reported once a run of throws, `wardic.projection: a transformTemplate failed at a Measure pass`, and its node is held where its template's last call held it, `none` before one. So a static part, such as centring, is still measured, and the node isn't seen to move. Grilled as `none`, as a node with no template is held, it read a centred node 25 px off in the build: a layout animation the node never made, and another back as the template recovered. Every node held is given its own transform back, and the pass goes on.
+- **The seed's corrector** is caught where it's called (ADR-0027's amendment), so a pass always ends by starting the coordinator, telling its listeners, and taking its settle callbacks.
+- **The pass's own `try`/`finally`** and its `measure pass failed` report stay, for a throw of Wardic's own.
+- **Tests:** `projection-measure-pass.browser.test.ts`: a template that throws, with a node at rest with its own rotation held before it. Its rotation and the template's node's own transform come back, a moved node is seeded and steps, the template's node isn't seen to move, and it's reported once a run of throws, again after a clean call. The seed's corrector: ADR-0027's amendment's tests.

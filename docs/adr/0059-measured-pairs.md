@@ -89,3 +89,21 @@ The layout scenes and retained memory are flat. The bytes aren't attributed; `.t
 ## Amendment (#460, 2026-11-02): two stops, as decided
 
 #460's sweep found decision 1's "two stops only" unkept: a Retarget asked the batch about every Keyframes key, so `height: [0, 200, "auto"]` became a pair from 0 to `auto`'s px, its middle stop dropped, and a spring given three such stops raised no error. An exit did the same. Now `measuredOf` (the Retarget's and an Imperative animation's) and `exitMeasuredOf` skip a key with more than two stops (`hasManyStops`, `retarget-legs.ts`), which runs through them on `keyframesValues` and switches where types mix, as Motion's. MS9 and MS10 pin a Retarget's and an exit's.
+
+## Amendment (#979, group E, 2026-11-27): one request's failure is its own
+
+ADR-0074's rule (one Subject's failure is its own) for the batch: #979's row 8. ADR-0027's *Amendment (#979, group E)* records the group, its cost and its tests; this is the batch's part.
+
+**What happened** (probed on `main` at 47ae7e48, in Chromium). The batch calls one piece of an app's code: an exit's Transform template, through `project`, as it writes a translate's start or target (#594). A Retarget's values never hold one. Both writes ran outside the batch's `try`s, so a template that threw ended the batch, uncaught, in the end-of-task microtask, with nothing logged:
+- every pair in that batch was voided, so a Retarget beside it jumped and every exit in it ended at its first frame;
+- the targets written before it were left inline.
+
+The next batch recovered.
+
+**Now:**
+- **A `try` per request** in each write's loop. A request that throws is left unread, so its keys switch as a pair the batch couldn't read does, and the batch measures every other request. Each write saves what it replaces before writing, into the phase's list, and the phase's `finally` now covers its writes, so every style written is put back.
+- **Who's told:** core's unstable `MeasuredPairs` port's `measure` takes a fourth argument, `failed`, the asker's, told what the request's write threw. The batch is page-wide, across providers, with no runtime of its own, so each asker reports through its own, each time, a request being one Retarget or one exit:
+  - an exit: `wardic.presence: an exit's Measured pairs failed`;
+  - a Retarget or an Imperative animation (`Spine.measuredOf`): `wardic.spine: a Retarget's Measured pairs failed`, annotated with its `id`. Only a throw of Wardic's own reaches it.
+- **`@wardic/dom/MeasuredPair`'s `measure`,** which is stable, keeps its three arguments: a request's throw there goes to the page's `reportError`, as an uncaught one does, and the rest of the batch goes on. Taking `failed` there would have been new API in a patch (#957's rule), and an app's `failed` that threw would have ended the batch again.
+- **Tests:** `dom/test/measured-pairs.browser.test.ts`, MB1: a request whose template throws at a translate's start, one at its target, a request before them and one after. The two measure, every style is put back, nothing is left on the two that threw, and each is told once. Solid 2's MW2: an exit's pairs whose template throws switch, reported once through the app's logger, and an accordion's pairs in the same batch are measured.
