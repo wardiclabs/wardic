@@ -9,6 +9,9 @@
 // - SL5: createTime: milliseconds of frames, ending with its owner.
 // - SL6: createScroll brings the `scroll` Feature (#518): a provider given none reads the Environment's
 //   own `ScrollSource` when it gives one.
+// - SL7 (#979, row 14; ADR-0074): an app's effect over one createScroll that throws past 100: a second
+//   createScroll of the same box follows every scroll, nothing is thrown inside the scroll's dispatch,
+//   and it's reported once.
 // - OU1: onUpdate is called once a frame Wardic changed the element's values, with every one of them
 //   before they're drawn, in one object reused; not on a frame that changed nothing.
 // - OU2: createWard's `onUpdate` too, read when it's called.
@@ -20,9 +23,10 @@ import { createScroll, createTime, createTransform, createVelocity, createWard, 
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { Atom } from "effect/reactivity"
-import { type Accessor, createRoot, createSignal } from "solid-js"
+import { type Accessor, createEffect, createRoot, createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { afterPaint, raf } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 import { resetScene, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -141,6 +145,43 @@ describe("createScroll (#234)", () => {
     ))
     await settle()
     expect([values.scrollX(), values.scrollY(), values.scrollXProgress(), values.scrollYProgress()]).toEqual([5, 42, 0.1, 0.42])
+  })
+
+  it("SL7 (#979, row 14): an app's effect over one createScroll that throws: a second one follows every scroll, reported once", async () => {
+    const logs: Array<Logged> = []
+    let box!: HTMLDivElement
+    let second!: Accessor<number>
+    const Scene = () => {
+      // The first reader of the box, its app effect throwing past 100.
+      const { scrollY } = createScroll({ container: () => box })
+      createEffect(() => {
+        if (scrollY() > 100) throw new Error(`the app's effect threw at ${scrollY()}`)
+      })
+      second = createScroll({ container: () => box }).scrollY
+      return <Box box={(el) => (box = el)} />
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    const uncaught: Array<string> = []
+    const onError = (event: ErrorEvent): void => {
+      uncaught.push(event.message)
+      event.preventDefault()
+    }
+    window.addEventListener("error", onError)
+    const followed: Array<number> = []
+    for (const top of [50, 200, 300, 450]) {
+      scrollTo(box, top)
+      followed.push(second())
+    }
+    window.removeEventListener("error", onError)
+    await settle()
+    expect(followed, "the second reader, inside each scroll").toEqual([50, 200, 300, 450])
+    expect(uncaught, "nothing thrown inside the scroll's dispatch").toEqual([])
+    expect(errorsNamed(logs, "wardic.scroll: its dependent failed"), "once for the run").toHaveLength(1)
   })
 })
 

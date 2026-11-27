@@ -14,14 +14,23 @@
 // - BT10: Batches are a Stage's feature: a Stage without `stageBatches` makes none, an error naming it.
 // - BT11 (#981): a member's `removed` listener throwing as it leaves: with no exit, the others leaving with it
 //   still go; with an exit, it goes and is disposed; reported once each time.
+// - BT12 (#979, row 34; ADR-0074): a member's `whileHover` that throws: reported, its hoverStart and
+//   hoverEnd told, and a change of `animate` while it's hovered moves every member, Solid going on; read
+//   once as its hover starts (ADR-0070 Q58), it scales at its next hover once it stops throwing.
+// - BT13 (#979, row 34): a `whileHover` giving a key the Batch hasn't: reported at the hover, and the
+//   next change of `animate` moves every member.
+// - BT14 (ADR-0070 Q59): a hovered member keeps its hover's values through a change of `animate` that
+//   leaves it under the pointer, as it read them at the hover's start.
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createBatch, type StageBatch, stagger, WardicStage } from "@wardic/solid"
 import { stageBatches, TestStage } from "@wardic/three/solid"
 import type { JSX } from "@solidjs/web"
 import { children, createRenderEffect, createRoot, createSignal, Errored, flush } from "solid-js"
 import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, Vector3 } from "three"
 import { afterEach, describe, expect, it } from "vitest"
-import { reportsDuring } from "../../object/test/reports.ts"
+import { reportsDuring, saidDuring } from "../../object/test/reports.ts"
 
 const disposers: Array<() => void> = []
 const mountTree = (tree: () => JSX.Element): (() => void) =>
@@ -418,5 +427,98 @@ describe("createBatch in a scene (#885's PR 5)", () => {
     expect(Arr.map(["a", "b"], (id) => exiting.get(id)!.parent), "both left").toEqual([null, null])
     expect(disposed.sort(), "both disposed").toEqual(["a", "b"])
     expect(reports).toEqual(["wardic.stage: a Subject's leave failed"])
+  })
+
+  /** Two keyed meshes on `animate`'s x, shifted by `shift()`, with `whileHover` and the keys given. */
+  const hoveredOn = (whileHover: unknown, keys?: ReadonlyArray<string>) => {
+    const { stage, frames } = stageOf()
+    const made = new Map<string, Mesh>()
+    const [items] = createSignal<ReadonlyArray<Item>>([{ id: "a" }, { id: "b" }])
+    const [shift, setShift] = createSignal(0)
+    const grid = batchOn(stage, () =>
+      createBatch({
+        each: items,
+        key: "id",
+        ...UndefinedOr.match(keys, { onUndefined: () => ({}), onDefined: (given) => ({ keys: given }) }),
+        object: (item: Item) => {
+          const mesh = meshOf()
+          made.set(item.id, mesh)
+          return mesh
+        },
+        animate: (_item: Item, i: number) => ({ x: i * 3 - 1.5 + shift() }),
+        whileHover: whileHover as never,
+        transition: LINEAR,
+      }),
+    )
+    return { stage, frames, made, grid, setShift }
+  }
+
+  it("BT12 (#979, row 34): a whileHover that throws: reported, its events told, a change moves every member, and it scales once it stops", async () => {
+    let broken = true
+    const { stage, frames, made, grid, setShift } = hoveredOn(
+      (item: Item) => {
+        if (Bool.and(item.id === "b", broken)) throw new Error("b's whileHover broke")
+        return { scale: 1.5 }
+      },
+      ["x", "scale"],
+    )
+    await frames(20)
+    const told: Array<string> = []
+    void grid().next("hoverStart").then(() => told.push("hoverStart"), () => undefined)
+    const said = await saidDuring(async () => {
+      stage.pointer.over(made.get("b")!)
+      await frames(1)
+      await frames(20)
+    })
+    expect(said.filter((line) => line.includes("createBatch: a gesture failed")), "reported").toHaveLength(1)
+    expect(made.get("b")!.scale.x, "no hover layer").toBe(1)
+    // A change of animate while b is hovered, small enough to leave it under the pointer: its whileHover
+    // isn't called again, so nothing halts.
+    setShift(0.1)
+    await frames(1)
+    await frames(20)
+    expect([made.get("a")!.position.x, made.get("b")!.position.x], "every member moved").toEqual([-1.4, 1.6])
+    void grid().next("hoverEnd").then(() => told.push("hoverEnd"), () => undefined)
+    stage.pointer.leave()
+    await frames(1)
+    await frames(20)
+    expect(told, "its hover's start and end, both told").toEqual(["hoverStart", "hoverEnd"])
+    broken = false
+    stage.pointer.over(made.get("b")!)
+    await frames(1)
+    await frames(20)
+    expect(made.get("b")!.scale.x, "read again at its next hover").toBeCloseTo(1.5, 5)
+  })
+
+  it("BT13 (#979, row 34): a whileHover giving a key the Batch hasn't: reported at the hover, and the next change moves every member", async () => {
+    // A function's keys aren't the Batch's unless `keys` names them: here only x.
+    const { stage, frames, made, setShift } = hoveredOn(() => ({ scale: 1.5 }))
+    await frames(20)
+    const said = await saidDuring(async () => {
+      stage.pointer.over(made.get("b")!)
+      await frames(1)
+      await frames(20)
+    })
+    expect(said.filter((line) => line.includes("createBatch: a gesture failed")), "reported at the hover").toHaveLength(1)
+    expect(said.join("\n"), "naming the key").toContain(`"scale" isn't one of its keys`)
+    setShift(0.1)
+    await frames(1)
+    await frames(20)
+    expect([made.get("a")!.position.x, made.get("b")!.position.x], "every member moved").toEqual([-1.4, 1.6])
+  })
+
+  it("BT14 (ADR-0070 Q59): a hovered member keeps its hover's values through a change of animate that leaves it under the pointer", async () => {
+    const { stage, frames, made, setShift } = hoveredOn({ scale: 1.5 })
+    await frames(20)
+    stage.pointer.over(made.get("b")!)
+    await frames(1)
+    await frames(20)
+    expect(made.get("b")!.scale.x).toBeCloseTo(1.5, 5)
+    // A shift of 0.1 keeps it under the pointer (a shift of 1 moves it out, and its hover ends).
+    setShift(0.1)
+    await frames(1)
+    await frames(20)
+    expect(made.get("b")!.position.x, "moved").toBeCloseTo(1.6, 5)
+    expect(made.get("b")!.scale.x, "still hovered").toBeCloseTo(1.5, 5)
   })
 })
