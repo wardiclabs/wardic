@@ -28,8 +28,10 @@
  */
 import * as ScrollSource from "@wardic/core/ScrollSource"
 import * as SharedSource from "@wardic/core/SharedSource"
+import * as Report from "@wardic/core/unstable/Report"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
@@ -329,9 +331,18 @@ const open = (element: Element): Container => {
   return container
 }
 
-/** A reader of a container's scroll: the container's listeners held from `containers` while its Scope is open. */
+/** A reader's Atom whose dependent threw as it was set: an app's Atom over the scroll, say. */
+const DEPENDENT_FAILED = "wardic.scroll: its dependent failed"
+
+/**
+ * A reader of a container's scroll: the container's listeners held from `containers` while its Scope is
+ * open, a failure reported on the context it's read in.
+ */
 const readerOf = (registry: AtomRegistry.AtomRegistry, containers: (element: Element) => Effect.Effect<Container, never, Scope.Scope>) =>
   Effect.fnUntraced(function* (options: ScrollSource.Options = {}) {
+    // Where its failure is reported (#979, row 14): the reader's, a provider's runtime with the app's
+    // logger, which a source's own build never sees (an app's layers sit beside it).
+    const context = yield* Effect.context<never>()
     const element = UndefinedOr.match(options.container as Element | undefined, { onUndefined: pageOf, onDefined: (given) => given })
     const container = yield* containers(element)
     const measure = measureOf(element, options)
@@ -339,11 +350,22 @@ const readerOf = (registry: AtomRegistry.AtomRegistry, containers: (element: Ele
     // Mounted while read, not kept alive: a kept-alive Atom's node never leaves the registry.
     const atom = Atom.make(last)
     const unmount = registry.mount(atom)
+    // #979, row 14 (ADR-0074): a dependent of its Atom that throws, an app's Atom over the scroll, is this
+    // reader's own: the Atom holds the scroll, and the container's later readers still hear the event.
+    // Before, the throw stopped the container's listener there, uncaught, every event. Reported once a
+    // run of throws, its flag cleared only when it's set.
+    let failing = false
     const read = (): void => {
       const next = measure()
       if (sameScroll(last, next)) return
       last = next
-      registry.set(atom, next)
+      try {
+        registry.set(atom, next)
+        if (failing) failing = false
+      } catch (defect) {
+        if (!failing) Report.failureOn(context, DEPENDENT_FAILED, Cause.die(defect))
+        failing = true
+      }
     }
     yield* Effect.acquireRelease(
       Effect.sync(() => container.readers.add(read)),
