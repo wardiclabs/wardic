@@ -495,3 +495,11 @@ ADR-0074's rule for two Live values a DOM event sets: #979's row 14. ADR-0055's 
 - **A scroll reader** (*Amendment (#233, #234)*): its `registry.set` in a `try`, so a dependent that throws, an app's Atom or a Solid 1 effect over `createScroll`'s values, keeps neither the container's later readers from the scroll nor itself from holding it. Reported once a run of throws, `wardic.scroll: its dependent failed`, on the context the reader is read in: a provider's runtime, as each Live value's since group D, not the source's build, which an app's logger, merged beside `DomLive`, never reaches.
 - **The pointer's values** (`Wardic.pointer`, #833): each of the seven sets in a `try` of its own, written in place, so every value is set at each event. Reported once a run of events that threw, `wardic.pointer: its dependent failed`, with its key.
 - **Pinned by** PS14 and PV4 (dom), SL7 (Solid 1) and Foldkit's `Wardic.pointer` test.
+
+## Amendment (#979, group H, 2026-11-27): a Timeline value's make that throws is its key's
+
+ADR-0074's rule for a Timeline value (*Amendment (#240)*): #979's row 7. ADR-0074's *Amendment (#979, group H)* records the group, its cost and its tests; this is the Timeline values' part.
+- **Its make calls the app's code:** the transform's `ease`, or an app's own interpolator, at every point its keyframes sample, some the frame path never reads. One that threw came out of the binding: Solid 2 halted for good; Solid 1 dropped the update at mount, or threw out of the app's setter as a container's ref arrived, the elements after it missing theirs; Foldkit's mount failed.
+- **Now** the make runs to its Exit in `TimelineKeys`: a failure is reported, `wardic.timeline: a Timeline value failed` with its `key`, and makes none, so the gate draws the key, as it does any key a Timeline value can't run, where group D's transform keeps its last value. It's kept as made: reported once per element, key and derivation, and tried again only for a new derivation.
+- **Its recheck and its cancels** run Wardic's and the browser's code alone: unchanged.
+- **Pinned by** TL9, on both bindings.

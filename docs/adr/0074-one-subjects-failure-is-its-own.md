@@ -114,10 +114,10 @@ Not a throw, but silent: a three key whose place is gone (a material swapped mid
 **Already following the rule:** rows 1, 2, 12, 23 and 24. Rows 22, 25, 26, 28 and 29 isolate and end but log every throw: group I.
 
 **Not determined by the audit:** these are left to their groups' tests.
-- whether `hooks.landed`'s throw (`BatchMembers.ts:2047`) is swallowed;
+- whether `hooks.landed`'s throw (`BatchMembers.ts:2047`) is swallowed (*Amendment (#979, group H)*: it was, by the run's fiber observer; Solid 1's, the only app code there, is reported now);
 - how Solid surfaces a synchronous mount or effect throw;
 - whether Solid 1's `mode="wait"` release runs inside `Batch.step`;
-- how Foldkit reports a dead Command fiber;
+- how Foldkit reports a dead Command fiber (*Amendment (#979, group H)*: its crash view replaces the app);
 - whether `transformPagePoint` runs under `onDefect`;
 - whether a `config()` getter can throw at `projection.ts:4500`.
 
@@ -155,3 +155,75 @@ finish() {
 - **Order first.** Wardic updates its own state and makes its own writes before it calls app code, as `finish()` does. A throw from the app's code then leaves nothing of Wardic's half done, and keeping the rule needs no `try`.
 - **A `try` where it can't be ordered so:** a loop over Subjects, where one Subject's app code runs before the next Subject's write, or a step the frame's order fixes. Group A's are of that kind: the raycast runs against what was last drawn, before Wardic's writes, and the render after them.
 - **Each group's grill asks it first:** can Wardic's own part come before the app's code? Row 16's `onComplete` (group C) is the plainest case: its call can end `"finished"` before `onComplete` is called.
+
+## Amendment (#979, group H, 2026-11-27): the bindings' own paths
+
+This ADR's rule for the paths each binding owns: #979's group H, its rows 7 (Timeline values), 11 (the own value at a Retarget), 33 (Solid 1's `createBatch` callbacks) and 35 (Foldkit's re-check, and Animation controls' resolvers), and row 43, a `delayChildren` function, which its probe found. Group H spans five areas, so its record is here. ADR-0007, ADR-0043, ADR-0061, ADR-0070 and ADR-0071 each carry a short amendment for their part, pointing here.
+
+**What happened** (probed on `main` at e5b1b802, in Chromium, with three's Stage in Node; every row was *to confirm*):
+1. **Row 7, Timeline values, wider than the row.** Their only app code is at the make: the transform's `ease`, or an app's own interpolator, called at every point the keyframes sample, some the frame path never reads. Its throw came out of the binding wherever a make runs, at an element's first show and in `described()`'s loop over every mounted element:
+   - Solid 2 halted for good;
+   - Solid 1, at mount, threw out of `render()`, and the other elements never moved again; as a container's ref arrived, out of the app's setter, the elements after it missing theirs;
+   - Foldkit's mount failed.
+
+   Nothing remembered the failure, so each later show threw again. Their recheck and their cancels run Wardic's and the browser's code alone: *narrower* there.
+2. **Row 11, the own value at a Retarget: corrected, no app code of Wardic's to isolate.** The DOM's own value is `getComputedStyle`. The `style` link reads the app's own `style` expression, which the ward renders with too, so a throwing `style` fails the app's own render, whatever Wardic does: app code outside Wardic's calls (decision 2's scope). A Live value in `style` is read there only at mount, its first value's throw its reader's (ADR-0043, *Amendment (#979, group D)*, Q5). A three Stage's later `animate` adding a key the mesh lacks throws #968's refusal, as at mount. A Scene object's throwing getter is read first by ThreeColours, where Solid logs it and that ward's change is lost once.
+3. **Row 33, Solid 1's `createBatch` callbacks, confirmed and more.** An `onAnimationStart` that threw ran before the Batch's run was forked: the run never forked, and the throw came out of the change's update, Solid 1 dropping the rest of it, another Batch's and two `wardic.div`s' Retargets with it, or, at mount, out of the arrivals' flush, uncaught. The flight stayed marked started, so the next change told no start, and its landing counted none of its members. An `onAnimationComplete` that threw was swallowed by the run's fiber observer, unlogged. Solid 2's Batch and three's Stage Batch run only Wardic's own code there; Foldkit has no Batch.
+4. **Row 35, Foldkit's re-check, confirmed, its app code narrower.** The port's re-check calls every watch with no `try`, but the only app code reaching it was a parent's `delayChildren` function (row 43), through a Variant child its parent hands the same vnode to, which hears the name only there. Its throw came out of the patch's microtask, uncaught, and the watches after it, another tree's too, missed that patch.
+5. **Row 35, Animation controls' resolvers, confirmed.** `start` and `set` set each element's entry as they called its function, so one that threw for a later element came out of the call synchronously, the earlier elements already changed and the rest unreached, as row 20 did before group C. Motion's `animationControls.start` does the same (framer-motion 14.9.0). On Foldkit, `AnimationControls.start`'s Command died with it, and Foldkit's crash view replaced the app: the answer to "how Foldkit reports a dead Command fiber" (the audit's open list).
+6. **Row 43 (found by the probe): a `delayChildren` function** (ADR-0007, *Amendment (#436)*), called with no `try` at every stagger: a Variant child's Retarget, a presence's exit, a server's Appear timing. Its throw halted Solid 2, came out of Solid 1's setter (its siblings' and an unrelated element's Retargets dropped), and on Foldkit was row 35's.
+
+**Decided** (grilled 2026-11-27, three rounds, every recommendation taken, Q5 asked twice):
+1. **Row 7** (Q5): the make runs to its Exit in `TimelineKeys.timelineOf`. A failure is reported, makes none, so the gate draws the key, as it does any key a Timeline value can't run, and group D's transform keeps its last value there. It's kept as made: reported once per element, key and derivation, and tried again only for a new derivation. Its recheck and cancels are unchanged.
+2. **Row 11** (Q6): no change; the row corrected, as above.
+3. **Row 33** (Q3): each callback in a `try` in Solid 1's binding, as an element's own are (`Spine.animationCallbacks`), reported each time, as an element's are until group I. The flight goes on, its run forked and its landing told, in the same order. `BatchMembers` is unchanged, so Solid 2's Batch pays nothing.
+4. **Row 35, Animation controls** (Q2, (a)): a refusal at the call, taking nothing. Every element's entry is worked out first, in order (`Controlled.entryOf`), then each is set. A throw comes out of `start()` or `set()` as before, and no element has changed. Not each element on its own, which would make a throw at the call something other than a refusal; not a rejected promise, an API change.
+5. **Row 35, on Foldkit** (Q9, (a)): the refused start's Command still dies with the throw, a Command's own defect, which Foldkit's crash view shows; its JSDoc says so. A typed failure would change its type, a minor's change.
+6. **Row 35, the re-check** (Q8): unchanged. With row 43 caught at its source, no app code reaches it, and the port, one object for every provider, has no runtime to report on.
+7. **Row 43** (Q7), added to #979 in this group: `VariantTree.childDelayOf` calls the function in a `try`. A throw gives that child no delay, the others theirs. A Variant child reports through its element's failures (`Spine.VariantFailures` now carries `delayFailing`), once a run of throws, ended by its next clean call. A presence's exit, its list's names together, and a server's render each make one for the event (`eventDelayFailuresOf`), reported at its first throw, whatever its other children's calls do; a server's on Effect's default runtime.
+8. **The messages,** at Error, each with the app's throw as its cause:
+
+   | Where | Message | Reported |
+   |---|---|---|
+   | a Timeline value's make, with its `key` | `wardic.timeline: a Timeline value failed` | once per element, key and derivation |
+   | Solid 1's `createBatch` callbacks | `createBatch: onAnimationStart failed`, `createBatch: onAnimationComplete failed` | each time, as an element's (group I makes both once a run) |
+   | a `delayChildren` function, with the child's `index` | `wardic.stagger: a delayChildren function failed` | once a run per child; once an exit or a render |
+
+**Changed in the build:**
+- **An event's run is the event's** (Q7 said "each time" for an exit and a render). One flag shared by an exit's or a render's children was cleared by a sibling's clean call, so AR28 saw one child's throw reported twice in one render. An event's failures (`event`) are never cleared: reported once for the event.
+- **One event a leave, not one a name** (the review). The presence first made an event for each name of a list exit, so a list exit reported once a name; one is made at the leave and threaded through its tree.
+- **A child's run is its element's, not a name's** (the review asked for a name's). A parent's own transition staggers every name with one function, so a run kept by name reported it again for each name a Retarget reads: SGV2 saw three. Kept a child's, as Q7 said: a child staggered under two names at once, one whose function throws and one whose doesn't, is reported at each change, the review's case, left so.
+- **Foldkit's variant node keeps a child's failures only when it's a Variant child:** every `w.*` element has a node, and most join none, so they make nothing more at mount.
+
+**Found, not here:**
+- A Foldkit `w.*` element whose mount fails partway still Retargets on later deliveries, though its report says it stays at its Starting style, and its release, its Provider's `left` with it, never runs (from reading `mountOn`; the later Retarget probed): #997. Row 7 was one way in, now closed.
+
+**Cost** (Q4). None of these paths runs per frame: each runs at a make, a change, a landing, a leave, a render or a call, so no microbench. On the quiet bench host, against `main`:
+- **`bench:solid --base main --features`** passed both bindings (control −2.0%). Warm, every task within ±2%: mount −0.6% and −0.9%, Retargets −0.0% to +1.9%, unmount 0.0% and −0.2%. Bytes +0.4% and −0.2%, retained per element at rest 0.0% to +0.1%, and the feature pages within ±3.3%. Solid 1's cold mount, not gated, read +8.8% [+2.1 – +11.7]; a second run of Solid 1 alone read +1.6% [+0.0 – +3.5], with warm within ±1.1% and bytes −0.3%, so it was the cold round's noise.
+- **`bench:foldkit --base main`** passed (control −0.1%): every gated warm task within ±0.8% (mount +0.2%, unmount −0.7%), bytes +0.4%. Q4 asked for it only if the re-check changed, which it didn't; it ran for the variant node's change at mount.
+
+**Tests** (Q5, Q12), each failing on `main` first, but AC13, which pins the crash `main` has too:
+- **Solid 1:**
+  - CB13 (`create-batch.browser.test.tsx`): an `onAnimationStart` that throws, at mount and at a change, a `wardic.div` set in the same update: the members move and land each time, the `wardic.div` too, every throw reported, the landing counting both members, nothing uncaught;
+  - CB14: an `onAnimationComplete` that throws: reported each time, the next flight starting and landing;
+  - AC14 (`animation-controls.browser.test.tsx`): a `start` whose function throws for the second of three elements: the throw out of the call, no element moved, the next start reaching all three;
+  - TL9 (`timeline-values.browser.test.tsx`): a container's ref arriving with an element whose `ease` throws mounted first: nothing out of the app's setter, the element after it running its own, reported once;
+  - SG5 (`stagger-fn.browser.test.tsx`): a `delayChildren` function throwing for two of three children: no delay for them, nothing out of the setter, an element set in the same update moving, reported once a run for each child, and again after a clean call.
+- **Solid 2:**
+  - ACV6 (`animation-controls.browser.test.tsx`): as AC14, for `start` and `set`;
+  - TL9 (`timeline-values.browser.test.tsx`): two elements on one scroll, the first's `ease` throwing past halfway: the second runs its own, the first's key drawn by the gate and its other key started, reported once, not again at a scroll or as the key comes back;
+  - SGV2 (`stagger-fn.browser.test.tsx`): a `delayChildren` function throwing for one child: no delay for it, the others theirs, no halt, reported once a run, again after a clean call;
+  - GV3 and GV4 (`presence-propagate.browser.test.tsx`): a leaving parent whose exit's function throws: its children exit, it's removed, reported each leave; a list exit, reported once for the leave;
+  - AR28 (`appear.ssr.test.tsx`): the server's Appear timing: the child's rule with no delay, the others theirs, reported once.
+- **Foldkit:**
+  - AC12 (`animation-controls.browser.test.ts`): the refused start's Effect dies, no element moved, the next start reaching all three; AC13: as a Command, the app crashes, no element moved;
+  - `tree.browser.test.ts`: a parent's `delayChildren` function throwing through the re-check, its children handed the same vnodes: every child, and another tree's, starts in that patch, nothing uncaught, reported once.
+
+**Mutations:** 20 of 20 caught (`.tmp/979h/mutate.py`), each run alone and restored from a copy, and run again on the reviewed code, every mutated file checked to parse first: in the first run, the `delayChildren` call's dropped `try` left its `catch` behind, so its "caught" was a syntax error's.
+- each `try` dropped: a flight callback's, a Timeline value's make's, a `delayChildren` call's;
+- each report dropped; a `delayChildren` throw reported at every throw, a child's run never ended by a clean call, an event's ended by another child's, and its index dropped; a Timeline failure's key dropped, and its failure not kept as made;
+- Animation controls' entries worked out inside each change again, for `start` and for `set`;
+- a throw's delay other than 0;
+- each binding's variant node reporting on Effect's default runtime, Foldkit's never handed its failures, a presence's exit's stagger reporting on the default runtime, and an exit's event made a name at a time.
+
+**Size** (`bun run size`): every app with a ward grows 110 to 199 B gzipped, core's 0.3 to 0.4 KB of it minified, Solid 1's Batch app 41 B, and Solid 2's Batch and the reorder Batch apps not at all; every app within the 1% gate. All five budgets were raised by what was measured, to 96.5, 119.3, 199.0, 246.5 and 254.3 (172, 178, 175, 110 and 199 B).

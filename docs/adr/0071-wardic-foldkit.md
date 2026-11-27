@@ -504,3 +504,10 @@ Slice 4 (#794: server rendering, Appear and hydration) was grilled 2026-11-17 (Q
 ## Amendment (#566, 2026-11-18): exact pins, not the fixed group
 
 Decision 5 is amended: Wardic's own packages match through the versions each publishes with, not through the Changesets fixed group alone. `@wardic/solid` left the group at its 2.0 (ADR-0045, *Amendment (#566)*): `@wardic/core`, `@wardic/dom` and `@wardic/test` stay one group, which `@wardic/foldkit` joins at its release (*Amendment (#795)*). Every `@wardic/*` dependency is `workspace:*`, which `bun pm pack` writes as that package's exact version, and `publish-packages.ts` checks each against the package's own version in the repo before it publishes. So `@wardic/solid` runs the exact `@wardic/core` and `@wardic/dom` it was built with, and a release of theirs gives it a patch release, as a dependent.
+
+## Amendment (#979, group H, 2026-11-27): the port's re-check, and a refused controls start
+
+ADR-0074's rule for two of Foldkit's paths: #979's row 35. ADR-0074's *Amendment (#979, group H)* records the group, its cost and its tests.
+- **The Reactivity port's re-check is unchanged.** Its only app code was a parent's `delayChildren` function, reached through a Variant child's Retarget, which `childDelayOf` now catches where it's called (ADR-0007, *Amendment (#979, group H)*). Every other watch's accessor and change is Wardic's own, and the port, one object for every provider, has no runtime to report on.
+- **A refused `AnimationControls.start` crashes the app.** A definition function that throws refuses the start with no element changed (ADR-0061, *Amendment (#979, group H)*), and the Command dies with the throw, as a Command's own defect does: Foldkit 0.171.0's crash view replaces the app. That answers ADR-0074's "how Foldkit reports a dead Command fiber". Pinned by AC12 (the Effect dies, no element moved) and AC13 (as a Command, the app crashes).
+- **Found, not here:** a `w.*` element whose mount fails partway still Retargets on later deliveries, though its report says it stays at its Starting style, and its release never runs: #997.
