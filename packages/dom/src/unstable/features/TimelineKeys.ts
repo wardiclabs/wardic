@@ -12,8 +12,11 @@
 // Unstable: ADR-0071, decision 5. #672 (PR6-Q1): solid's `features/timeline-keys.ts`, moved to dom with the Features, for
 // every DOM binding.
 import * as LiveValue from "@wardic/core/LiveValue"
+import * as Report from "@wardic/core/unstable/Report"
 import * as TimelineValue from "../../TimelineValue.ts"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Atom from "effect/reactivity/Atom"
@@ -49,6 +52,10 @@ export const makeTimelines = (): Timelines.Timelines["Service"] => {
   }
 }
 
+// #979 (ADR-0074, row 7): a make calls the app's code, an `ease` or an interpolator, at each point its
+// keyframes sample, some the frame path never reads. Its throw came out of the binding, a Solid 2 halt.
+const TIMELINE_FAILED = "wardic.timeline: a Timeline value failed"
+
 /**
  * An element's keys. `shown` runs at each write of a key's Live value, so per frame while it moves: a key
  * shown already from the same source is left as it is, with nothing read but its source, statements and
@@ -65,7 +72,11 @@ const elementKeysOf = (options: Timelines.TimelineKeysOptions, unmounted: () => 
   // The keys whose Timeline value the gate has, each with it.
   const running = new Map<string, TimelineValue.TimelineValue>()
 
-  /** `key`'s Timeline value now, made again when its derivation changed; `undefined` for none. */
+  /**
+   * `key`'s Timeline value now, made again when its derivation changed; `undefined` for none. A make that
+   * throws is reported and makes none, so the gate draws the key, and it's kept as made: tried again only
+   * for a new derivation.
+   */
   const timelineOf = (key: string): TimelineValue.TimelineValue | undefined => {
     const atom = live.atomOf(key)
     if (Predicate.isUndefined(atom)) return undefined
@@ -75,7 +86,13 @@ const elementKeysOf = (options: Timelines.TimelineKeysOptions, unmounted: () => 
     if (Predicate.isNotUndefined(last)) {
       if (last.derivation === derivation) return last.timeline
     }
-    const timeline = Option.getOrUndefined(runtime.runSync(TimelineValue.make(derivation, element, key)))
+    const timeline = Exit.match(runtime.runSyncExit(TimelineValue.make(derivation, element, key)), {
+      onSuccess: Option.getOrUndefined,
+      onFailure: (cause) => {
+        runtime.runFork(Report.failure(TIMELINE_FAILED, cause).pipe(Effect.annotateLogs({ key })))
+        return undefined
+      },
+    })
     made.set(key, { derivation, timeline })
     return timeline
   }
