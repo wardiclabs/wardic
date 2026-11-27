@@ -29,11 +29,14 @@
 //   its exit's values (`registerValues`) on the correction, and the returned call ends it.
 // - LV11 (#407): a Follower's exit values aren't drawn on its handover: a leaver whose exit moved it,
 //   taken over late, is drawn where its Lead is.
+// - LV12 (#979, row 5; ADR-0074): a carried leaver whose write throws (its Transform template here) keeps
+//   what it drew last, and its parent and a node beside it go on and land, reported once a run of throws.
 import { describe, expect, it } from "@effect/vitest"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
+import { clearStages, el, endOfTask, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 import * as Option from "effect/Option"
 
 beforeEach(stubFrames)
@@ -384,6 +387,50 @@ describe("a just-disposed layout node, held until the end of its task (#221)", (
     for (let i = 0; i < 5; i++) fireFrame()
     expect(sk.of("card").length, "the card still shrinking").toBeGreaterThan(cardWrites)
     expect(answer.style.transform, "not written once ended").toBe("")
+    e.dispose()
+  })
+
+  it("LV12 (#979, row 5): a carried leaver whose write throws keeps what it drew, and its parent and a node beside it go on, reported once a run of throws", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const card = makeBox(root, 20, 40, 200, 160)
+    register(e, "card", card)
+    const answer = makeBox(card, 0, 60, 120, 60)
+    const answerHandle = register(e, "answer", answer)
+    const side = makeBox(root, 300, 40, 100, 100)
+    register(e, "side", side)
+    await settle()
+    // The answer leaves as in LV10, its exit drawn through its Transform template, which throws once failing.
+    answerHandle.dispose()
+    const forget = e.system.keepLeaving(answer, () => () => {})
+    let failing = false
+    const template = (_values: unknown, generated: string): string => {
+      if (failing) throw new Error("template failed")
+      return generated
+    }
+    e.system.registerValues(answer, () => ({ x: 4, [DomRenderer.TEMPLATE_KEY]: template }))
+    card.style.height = "60px"
+    side.style.left = "500px"
+    e.system.notify()
+    await endOfTask()
+    fireFrames(3)
+    const drawn = answer.style.transform
+    expect(drawn, "the leaver is drawn").not.toBe("")
+
+    failing = true
+    const cardWrites = sk.of("card").length
+    const sideWrites = sk.of("side").length
+    fireFrames(5)
+    expect(answer.style.transform, "the leaver keeps what it drew").toBe(drawn)
+    expect(sk.of("card").length, "its parent goes on").toBe(cardWrites + 5)
+    expect(sk.of("side").length, "the node beside it goes on").toBe(sideWrites + 5)
+    for (let i = 0; i < 120; i++) fireFrame()
+    expect(sk.of("card").at(-1)!.sy, "its parent lands").toBeCloseTo(1, 3)
+    expect(Math.abs(sk.of("side").at(-1)!.tx), "the node beside it lands").toBeLessThan(0.5)
+    const failures = e.logs.filter((l) => l.message.endsWith("failed"))
+    expect(failures.map((l) => ({ message: l.message, id: l.annotations.id }))).toEqual([{ message: "wardic.projection: a leaving node's write failed", id: "answer" }])
+    forget()
     e.dispose()
   })
 

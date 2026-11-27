@@ -18,6 +18,8 @@
 //   live value. Another provider keeps the built-in one. PU8: a replaced radius isn't blended across a
 //   handover, nor written by the built-in: an app's corrector writing one corner leaves the others,
 //   and its twin keeps its own at the end. PU9: a flight that doesn't scale writes nothing.
+// - PU10 (#979, row 5; ADR-0074): a corrector that throws for one element is that element's own: its
+//   radius stays as it was, it and the element beside it animate and land, reported once.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import {
@@ -386,5 +388,48 @@ describe("WardicProvider's scaleCorrectors on Solid 1 (#443)", () => {
     expect(el.style.transform, "flying").toContain("translate")
     expect(el.style.borderRadius, "nothing written").toBe("")
     expect(calls).toBe(0)
+  })
+
+  it("PU10 (#979, row 5): a corrector that throws for one element leaves its radius as it was; it and the element beside it animate and land, reported once", async () => {
+    const logs: Array<Logged> = []
+    let failing = false
+    const radius: WardicScaleCorrector = {
+      correct: (latest, { projectionDelta }) => {
+        if (failing && latest === "10px") throw new Error("corrector broke")
+        return `${Number.parseFloat(String(latest)) / projectionDelta.x.scale}px`
+      },
+    }
+    const [wide, setWide] = createSignal(false)
+    const Box = (props: { readonly name: string; readonly radius: string }) => (
+      <wardic.div
+        data-name={props.name}
+        layout
+        layoutDependency={wide()}
+        transition={FLY}
+        style={{ width: Bool.match(wide(), { onTrue: () => "300px", onFalse: () => "100px" }), height: "40px", "border-radius": props.radius }}
+      />
+    )
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })} scaleCorrectors={{ borderRadius: radius }}>
+        <Box name="a" radius="10px" />
+        <Box name="b" radius="20px" />
+      </WardicProvider>
+    ))
+    const a = container.querySelector<HTMLElement>('[data-name="a"]')!
+    const b = container.querySelector<HTMLElement>('[data-name="b"]')!
+    await frames(4)
+    // Failing from the Measure pass that seeds them: A's radius is corrected there too.
+    failing = true
+    setWide(true)
+    await frames(8)
+    for (const el of [a, b]) expect(widthOf(el), "mid-flight").toBeGreaterThan(110)
+    for (const el of [a, b]) expect(widthOf(el), "mid-flight").toBeLessThan(290)
+    expect(a.style.borderRadius, "A's radius, as it was").toBe("10px")
+    expect(Number.parseFloat(b.style.borderRadius), "B's, corrected").toBeGreaterThan(20)
+    await until(() => Bool.and(Math.abs(widthOf(a) - 300) < 0.5, Math.abs(widthOf(b) - 300) < 0.5), 3000, "both land")
+    const failed = errorsNamed(logs, "wardic.projection: a scale corrector failed")
+    expect(failed, "reported once").toHaveLength(1)
+    expect(failed[0]!.annotations.key).toBe("borderRadius")
+    expect(failed[0]!.cause).toContain("corrector broke")
   })
 })

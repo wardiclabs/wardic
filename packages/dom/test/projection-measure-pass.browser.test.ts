@@ -18,6 +18,8 @@ import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
 import { afterEach, beforeEach, vi } from "vitest"
@@ -120,15 +122,19 @@ const makeBox = (left: number, top = 0): HTMLElement => {
   return el
 }
 
-/** Build the engine over `sink` with a DomLive runtime (rAF already stubbed). */
+/** Build the engine over `sink` with a DomLive runtime (rAF already stubbed), its logs recorded. */
 const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
-  const runtime = ManagedRuntime.make(DomLive)
+  const logs: Array<{ readonly message: string; readonly annotations: Readonly<Record<string, unknown>> }> = []
+  const logger = Logger.map(Logger.formatStructured, (structured) => {
+    logs.push({ message: String(structured.message), annotations: structured.annotations })
+  })
+  const runtime = ManagedRuntime.make(Layer.mergeAll(DomLive, Logger.layer([logger])))
   const system: internalProjection.ProjectionSystem = internalProjection.makeProjectionSystem(runtime, sink)
   const dispose = (): void => {
     system.dispose()
     void runtime.dispose()
   }
-  return { runtime, system, dispose }
+  return { runtime, system, dispose, logs }
 }
 
 /** Keep the Clock ticking with a subscription of the test's own (a warm Clock). */
@@ -425,5 +431,63 @@ describe("a layout spring's rest (#344, ADR-0050)", () => {
       const before = UndefinedOr.getOrThrow(r.steps[r.landing - 1])
       expect(Math.abs(before), `${JSON.stringify(transition)}: the last step before the landing, ${before} px`).toBeLessThan(0.3)
     }
+  })
+})
+
+describe("a node's Transform template at the Measure pass is its node's own (#979, row 13; ADR-0074)", () => {
+  it("one that throws holds its node where its last call did, so it isn't seen to move: every node held before it is restored, a moved node is seeded, reported once a run of throws", async () => {
+    const { sink, log } = makeSink()
+    const { system, dispose, logs } = makeEngine(sink)
+    const spring = () => Option.some({ type: "spring" as const })
+    // C, at rest with a rotation of its own: held at none for the read, and given it back after.
+    const c = makeBox(0, 200)
+    c.style.transform = "rotate(10deg)"
+    system.register({ id: "c", element: c, transition: spring })
+    const b = makeBox(0, 0)
+    const bHandle = system.register({ id: "b", element: b, transition: spring })
+    // A, drawn through its Transform template, which throws once failing (#443's centring here).
+    let failing = false
+    const a = makeBox(0, 100)
+    a.style.transform = "translate(-50%, -50%)"
+    system.register({
+      id: "a",
+      element: a,
+      transition: spring,
+      heldTransform: () => {
+        if (failing) throw new Error("template failed")
+        return "translate(-50%, -50%)"
+      },
+    })
+    await endOfTask()
+
+    failing = true
+    b.style.left = "200px"
+    bHandle.notify()
+    await endOfTask()
+    expect(c.style.transform, "C's own rotation, back").toBe("rotate(10deg)")
+    expect(a.style.transform, "A's own transform, back").toBe("translate(-50%, -50%)")
+    expect(writesFor(insideLastFlush(log), "a"), "A, read at its last hold, centred: no layout animation").toEqual([])
+    const seed = writesFor(insideLastFlush(log), "b")
+    expect(seed.length, "B is seeded").toBe(1)
+    expect(seed[0]!.translateX, "at its old box").toBeCloseTo(-200, 1)
+    fireFrame()
+    expect(writesFor(afterLastFlush(log), "b").length, "and steps").toBe(1)
+    const failed = (): ReadonlyArray<{ readonly message: string; readonly id: unknown }> =>
+      logs.filter((l) => l.message.includes("failed")).map((l) => ({ message: l.message, id: l.annotations.id }))
+    expect(failed()).toEqual([{ message: "wardic.projection: a transformTemplate failed at a Measure pass", id: "a" }])
+
+    // Another pass while it still throws: nothing more is reported.
+    system.notify()
+    await endOfTask()
+    expect(failed(), "reported once a run of throws").toHaveLength(1)
+    // A clean call ends the run: the next throw is reported again.
+    failing = false
+    system.notify()
+    await endOfTask()
+    failing = true
+    system.notify()
+    await endOfTask()
+    expect(failed()).toHaveLength(2)
+    dispose()
   })
 })
