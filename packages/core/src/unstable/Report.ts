@@ -22,11 +22,13 @@
 // reports from core once it's lifted there.
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as LogLevel from "effect/LogLevel"
 import * as Predicate from "effect/Predicate"
 import * as References from "effect/References"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 /**
  * `cause` logged at Error as `message`, with the cause, and handed to the Environment's
@@ -38,6 +40,21 @@ export const failure = (message: string, cause: Cause.Cause<unknown>): Effect.Ef
     onTrue: () => Effect.void,
     onFalse: () => Effect.logError(message, cause).pipe(Effect.andThen(ErrorReporter.report(cause))),
   })
+
+/**
+ * {@link failure}, run where no fiber of a binding's is there to see it: on `context`, what the failing
+ * code was built or started in, so an app's logger and reporters hear it, else on Effect's default
+ * runtime. Forked, off the path that failed, with `annotations` on its log when given.
+ */
+// #979 (ADR-0030, *Amendment (#979, groups D and G)*): a Live value's run, a scroll's reader, a pointer's
+// value and a watch with no onDefect, each captured its context once and calls this only at a failure.
+export const failureOn = (context: Context.Context<never> | undefined, message: string, cause: Cause.Cause<unknown>, annotations?: Readonly<Record<string, unknown>>): void => {
+  const report = UndefinedOr.match(annotations, { onUndefined: () => failure(message, cause), onDefined: (given) => Effect.annotateLogs(failure(message, cause), given) })
+  UndefinedOr.match(context, {
+    onUndefined: () => void Effect.runFork(report),
+    onDefined: (given) => void Effect.runForkWith(given)(report),
+  })
+}
 
 /**
  * Whether a Debug log would be kept, as Effect's `MinimumLogLevel` says. Run it once (a runtime, a

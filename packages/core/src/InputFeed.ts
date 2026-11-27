@@ -31,7 +31,8 @@
 // authors; nothing here names a DOM type.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import * as Cause from "effect/Cause"
+import type * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
 import * as MutableRef from "effect/MutableRef"
@@ -41,6 +42,7 @@ import * as Queue from "effect/Queue"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { guarded, switchedOn } from "./internal/guarded.ts"
 
 /**
  * A source of events: called with `emit` and `end`, it calls `emit` with each event from then on, and
@@ -141,9 +143,11 @@ export const byTarget = <A>(lookup: (target: unknown) => InputFeed<A>): ((target
 
 /**
  * Where a watch hands a throw from its handler, so a binding can report it its own way; the watch goes
- * on with the next event. With none, the throw goes up the platform's dispatch.
+ * on with the next event. With none, the throw is reported once a run of throws, on the context the
+ * watch started in, and the watch goes on.
  */
-// #318, ADR-0055. Core reports nothing (ADR-0030, decision 4).
+// #318, ADR-0055. With none, core reports the throw itself (#979, row 27; ADR-0030, *Amendment (#979,
+// groups D and G)*): where no binding's fiber is there to see it.
 export type OnDefect = (cause: Cause.Cause<never>) => void
 
 /** A watch's handlers. */
@@ -151,7 +155,7 @@ export type OnDefect = (cause: Cause.Cause<never>) => void
 export interface Handlers<A> {
   /** Each event or value, inside the event's dispatch. */
   readonly on: (value: A) => void
-  /** A throw from a handler. Without it, the throw goes up the platform's dispatch. */
+  /** A throw from a handler. Without it, the throw is reported once a run of throws, and the watch goes on. */
   readonly onDefect?: OnDefect | undefined
   /** The feed ran out, as a test's script does. */
   readonly onEnd?: (() => void) | undefined
@@ -161,19 +165,6 @@ export interface Handlers<A> {
    */
   readonly onStop?: (() => void) | undefined
 }
-
-/** `handle`, a throw from it handed to `onDefect` when there is one. */
-const guarded = <A>(handle: (event: A) => void, onDefect: OnDefect | undefined): ((event: A) => void) =>
-  UndefinedOr.match(onDefect, {
-    onUndefined: () => handle,
-    onDefined: (defect) => (event: A): void => {
-      try {
-        handle(event)
-      } catch (error) {
-        defect(Cause.die(error))
-      }
-    },
-  })
 
 /** A subscription its owner opens and closes: `switched`'s. */
 // #460.
@@ -186,38 +177,39 @@ export interface Switch {
 
 /**
  * A subscription to `feed` its owner opens and closes, each event handed to `handle` inside its emit, a
- * throw to `onDefect`, as `watchWith`'s are. For a feed a watch needs only some of the time: a keyboard
+ * throw to `onDefect`. With none, a throw is reported once a run of throws on Effect's default runtime, as
+ * a subscription has no context of its own, and it goes on. For a feed a watch needs only some of the time: a keyboard
  * press holds its target's keys only while focus is within it, so an element at rest holds none. The feed
  * running out ends nothing; its owner closes it when it's done.
  */
 // #460: a **Keyboard press**.
-export const switched = <A>(feed: InputFeed<A>, handle: (event: A) => void, onDefect?: OnDefect): Switch => {
-  const on = guarded(handle, onDefect)
-  let stop: (() => void) | undefined
-  return {
-    open: () => {
-      if (Predicate.isUndefined(stop)) stop = feed(on, constVoid)
-    },
-    close: () => {
-      if (Predicate.isUndefined(stop)) return
-      const running = stop
-      stop = undefined
-      running()
-    },
-  }
-}
+export const switched = <A>(feed: InputFeed<A>, handle: (event: A) => void, onDefect?: OnDefect): Switch => switchedOn(feed, handle, onDefect, undefined)
 
 /**
  * Watches `feed` while the Scope is open, with a handler that can stop: `make` makes this subscription's
  * handler, which hears each event inside its emit and returns whether to go on. `false` stops it, even
- * from inside the feed's start. A throw from it goes to `handlers.onDefect`, `handlers.onEnd` is told if
- * the feed runs out, and closing the Scope stops the feed.
+ * from inside the feed's start. A throw from it goes to `handlers.onDefect`, else it's reported once a run
+ * of throws on the context the watch started in, and the watch goes on. `handlers.onEnd` is told if the
+ * feed runs out, and closing the Scope stops the feed.
  */
 // #318, #379: no fiber and no Stream. A recognizer's `once` returns `false`.
 export const watchWith = <A>(
   feed: InputFeed<A>,
   make: () => (event: A) => boolean,
   handlers: Pick<Handlers<never>, "onDefect" | "onEnd" | "onStop">,
+): Effect.Effect<void, never, Scope.Scope> =>
+  // The context a throw with no `onDefect` is reported on (#979, row 27), read only for such a watch.
+  UndefinedOr.match(handlers.onDefect, {
+    onDefined: () => watching(feed, make, handlers, undefined),
+    onUndefined: () => Effect.flatMap(Effect.context<never>(), (context) => watching(feed, make, handlers, context)),
+  })
+
+/** `watchWith`'s watch, a throw with no `onDefect` reported on `context`. */
+const watching = <A>(
+  feed: InputFeed<A>,
+  make: () => (event: A) => boolean,
+  handlers: Pick<Handlers<never>, "onDefect" | "onEnd" | "onStop">,
+  context: Context.Context<never> | undefined,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.sync(() => {
@@ -231,10 +223,14 @@ export const watchWith = <A>(
         if (Predicate.isNotUndefined(handlers.onStop)) handlers.onStop()
       }
       const stop = feed(
-        guarded((event: A) => {
-          if (MutableRef.get(done)) return
-          if (Bool.not(handle(event))) finish()
-        }, handlers.onDefect),
+        guarded(
+          (event: A) => {
+            if (MutableRef.get(done)) return
+            if (Bool.not(handle(event))) finish()
+          },
+          handlers.onDefect,
+          context,
+        ),
         () => {
           if (MutableRef.get(done)) return
           UndefinedOr.map(handlers.onEnd, (onEnd) => onEnd())

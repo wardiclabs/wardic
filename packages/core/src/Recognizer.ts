@@ -32,6 +32,7 @@ import * as InputFeed from "./InputFeed.ts"
 import * as InputSource from "./InputSource.ts"
 import * as PressClaims from "./PressClaims.ts"
 import * as Probe from "./Probe.ts"
+import { contextFor, switchedOn } from "./internal/guarded.ts"
 import { tracedScoped } from "./internal/tracing.ts"
 import { amongFeed, streamOf, watchFeed } from "./internal/watch.ts"
 import type { AmongHandlers } from "./internal/watch.ts"
@@ -560,6 +561,8 @@ export const watchPress: (
       if (told.phase === "start") claims.mark(event, target, Bool.not(propagates()))
     }
     const focusWithin = input.focusWithin
+    // What its keys' switch reports a throw on with no `onDefect` (#979, row 27): this watch's context.
+    const context = yield* contextFor(handlers.onDefect)
     const state = MutableRef.make(noPress)
     const feeds = MutableRef.make(feedsWatched(keys, Predicate.isNotUndefined(focusWithin)))
     // The keys while focus is within the target (#460): made at the first focus, let go with the watches.
@@ -601,7 +604,7 @@ export const watchPress: (
     }
     // Keys only while focus is within the target (#460), from a focus, or from now when it already is.
     const openKeys = (): void => {
-      if (Predicate.isUndefined(keysNow)) keysNow = InputFeed.switched(input.keyboard(target), onKey(), handlers.onDefect)
+      if (Predicate.isUndefined(keysNow)) keysNow = switchedOn(input.keyboard(target), onKey(), handlers.onDefect, context)
       keysNow.open()
     }
     const blurs = onFocus()
@@ -660,6 +663,8 @@ export const watchPressAmong: (
     const pointer = yield* amongFeed(input.pointerAmong, "pointerAmong")
     const focusAmong = input.focusAmong
     const keys = Bool.and(keysPressOf(options), Predicate.isNotUndefined(focusAmong))
+    // What each target's keys report a throw on with no `onDefect` (#979, row 27): this watch's context.
+    const context = yield* contextFor(handlers.onDefect)
     const keyed = whileKeysOn(keysOnOf(options))
     const propagates = propagatesOf(options)
     // Each target with a press held, and each focused target's keys.
@@ -709,13 +714,14 @@ export const watchPressAmong: (
         marking(event, told)
         takeSpace(event, told)
       }
-      const keysNow = InputFeed.switched(
+      const keysNow = switchedOn(
         input.keyboard(target),
         keyed((event) => {
           stepOn(target, event, keyStep(activity, claims, target), keyPressOf, keyTaken)
           return true
         }),
         handlers.onDefect,
+        context,
       )
       keysOf.set(target, keysNow)
       keysNow.open()
