@@ -2,6 +2,8 @@
 // in the patch's frame, P20), `Wardic.animate` and `Wardic.provide` from Commands, Live values in
 // `w.Style`, `w.Text`, `w.OnUpdate` and `w.TransformTemplate`. And #979's group D: core's
 // `LiveValue.transform` whose `mixer` throws, through `Wardic.provide`, keeps its last value, reported once.
+// Group G (row 14): a view's Atom over `Wardic.pointer`'s values that throws leaves the other values driving
+// the view, reported once.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -447,5 +449,68 @@ describe("a transform's failure is its own (#979, group D; ADR-0074)", () => {
     held.send(true)
     await until(() => held.container.querySelector("#seen")?.textContent === "0.5,0.5,1", 3000, "kept, then mapped again")
     await until(() => errorsNamed(logs, "wardic.transform: its mixer failed").length === 1, 2000, "reported once")
+  })
+})
+
+describe("a pointer value's failure is its own (#979, group G, row 14; ADR-0074)", () => {
+  it("a view's Atom over Wardic.pointer's progress that throws: inside, set after it, still drives the view, reported once", async () => {
+    const logs: Array<Logged> = []
+    const reporting = Wardic.make({ env: envWith({ logs, reports: [] }) })
+    const across = Atom.make(0)
+    const inside = Atom.make(false)
+    const Model = Schema.Struct({})
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Go: {}, Done: {} })
+    type Message = typeof Message.Type
+    // The pad's pointer mirrored into the app's Atoms, as #833's test does, held while the test runs.
+    const Follow = Command.define("Follow", {
+      messages: [Message.Done],
+      execute: Effect.scoped(
+        Wardic.provide(
+          Effect.gen(function* () {
+            const registry = yield* AtomRegistry.AtomRegistry
+            const values = yield* Wardic.pointer(Option.getOrThrow(Option.fromNullOr(document.querySelector("#pad"))))
+            const stops = [registry.subscribe(values.xProgress, (at) => registry.set(across, at)), registry.subscribe(values.inside, (is) => registry.set(inside, is))]
+            yield* Effect.addFinalizer(() => Effect.sync(() => stops.forEach((stop) => stop())))
+            yield* Effect.never
+            return Message.Done()
+          }),
+        ),
+      ),
+    })
+    const held = embed<Model, Message, boolean, Wardic.Wardic>({
+      Model,
+      Set: Schema.Boolean,
+      init: {},
+      update: (model, message) => Message.match(message, { Go: () => ({ model, commands: [Follow()] }), Done: () => ({ model }) }),
+      view: (_model, h) => {
+        const w = reporting.html(h)
+        return h.div([h.Id("root")], [
+          // The app's Atom over the progress, throwing past a quarter: Foldkit follows it into the text.
+          w.span([h.Id("across"), w.Text(Atom.map(across, (at) => {
+            if (at > 0.25) throw new Error(`the view's Atom threw at ${at}`)
+            return String(at)
+          }))]),
+          w.span([h.Id("inside"), w.Text(Atom.map(inside, String))]),
+          h.div([h.Id("pad"), h.Style({ width: "200px", height: "100px" })]),
+        ])
+      },
+      toMessage: () => Message.Go(),
+      resources: reporting.resources,
+    })
+    app = held
+    const pad = await boxOf(held, "pad")
+    const insideEl = await boxOf(held, "inside")
+    held.send(true)
+    // Each move lands further across, past a quarter, so each throws in the view's Atom (an unchanged
+    // progress would set nothing): inside is set after the progress.
+    let step = 0
+    await until(() => {
+      const box = pad.getBoundingClientRect()
+      const fraction = 0.5 + (step++ % 40) / 100
+      pad.dispatchEvent(new PointerEvent("pointermove", { clientX: box.left + box.width * fraction, clientY: box.top + box.height / 2, pointerType: "mouse", bubbles: true }))
+      return insideEl.textContent === "true"
+    }, 3000, "inside drives the view, though the progress's Atom threw at each move")
+    await until(() => errorsNamed(logs, "wardic.pointer: its dependent failed").length === 1, 2000, "reported once")
   })
 })

@@ -191,7 +191,7 @@ export const transform: {
         if (failing) failing = false
       } catch (defect) {
         if (!kept) throw defect
-        if (!failing) failedOn(context, MIXER_FAILED, defect)
+        if (!failing) Report.failureOn(context, MIXER_FAILED, Cause.die(defect))
         failing = true
       }
       return last as O
@@ -401,14 +401,8 @@ const velocityOfFrame = (frame: Frame.Frame<number>): number => {
   return velocity
 }
 
-/**
- * `defect`, a Live value's failure named by `message`, logged and handed to the ErrorReporters of what it
- * was built with. Its failure path, off the per-frame one.
- */
-// #979, group D (ADR-0074): a run goes on past an Atom over it, or under it, that throws.
-const failedOn = (context: Context.Context<never>, message: string, defect: unknown): void => {
-  Effect.runForkWith(context)(Report.failure(message, Cause.die(defect)))
-}
+// #979, group D (ADR-0074): a run goes on past an Atom over it, or under it, that throws, its failure
+// reported on what it was built with (`Report.failureOn`), off the per-frame path.
 
 /** A run's dependent that threw at its write: an app's Atom over its value, say. */
 const DEPENDENT_FAILED = "wardic.liveValue: its dependent failed"
@@ -478,7 +472,7 @@ export const follow: (
         lastTarget = registry.get(source)
         if (sourceFailing) sourceFailing = false
       } catch (defect) {
-        if (!sourceFailing) failedOn(context, SOURCE_FAILED, defect)
+        if (!sourceFailing) Report.failureOn(context, SOURCE_FAILED, Cause.die(defect))
         sourceFailing = true
       }
       return lastTarget
@@ -531,7 +525,7 @@ export const follow: (
                 registry.set(out, frame.value)
                 if (failing) failing = false
               } catch (defect) {
-                if (!failing) failedOn(context, DEPENDENT_FAILED, defect)
+                if (!failing) Report.failureOn(context, DEPENDENT_FAILED, Cause.die(defect))
                 failing = true
               }
               velocity = velocityOfFrame(frame)
@@ -782,7 +776,7 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
         previous = registry.get(source)
         if (sourceFailing) sourceFailing = false
       } catch (defect) {
-        if (!sourceFailing) failedOn(context, SOURCE_FAILED, defect)
+        if (!sourceFailing) Report.failureOn(context, SOURCE_FAILED, Cause.die(defect))
         sourceFailing = true
       }
       return undefined
@@ -805,7 +799,7 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
         now = registry.get(source)
         if (sourceFailing) sourceFailing = false
       } catch (defect) {
-        if (!sourceFailing) failedOn(context, SOURCE_FAILED, defect)
+        if (!sourceFailing) Report.failureOn(context, SOURCE_FAILED, Cause.die(defect))
         sourceFailing = true
       }
       const v = (now - previous) / step
@@ -816,7 +810,7 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
           registry.set(out, frame.value)
           if (failing) failing = false
         } catch (defect) {
-          if (!failing) failedOn(context, DEPENDENT_FAILED, defect)
+          if (!failing) Report.failureOn(context, DEPENDENT_FAILED, Cause.die(defect))
           failing = true
         }
         if (frame.done) running = false
@@ -872,7 +866,7 @@ export const time: () => Effect.Effect<Atom.Atom<number>, never, FrameLoop.Frame
             registry.set(out, frame.value)
             if (failing) failing = false
           } catch (defect) {
-            if (!failing) failedOn(context, DEPENDENT_FAILED, defect)
+            if (!failing) Report.failureOn(context, DEPENDENT_FAILED, Cause.die(defect))
             failing = true
           }
           return undefined

@@ -5,7 +5,8 @@
 // - WT2: closing the Scope unsubscribes: no event after it, and the target's feed stops.
 // - WT3: a throw from a handler goes to `onDefect`, as a die, and the watch goes on with the next
 //   event; another watch on the same target hears every event.
-// - WT4: with no `onDefect`, the throw goes up the push, as an event listener's would.
+// - WT4 (#979, row 27; ADR-0074): with no `onDefect`, nothing goes up the push: the throw is reported once on
+//   the watch's context, and the watch hears the next event.
 // - WT5: an event a handler causes runs nested, inside it, before the handler goes on: a press's
 //   handler that focuses its element sees the focus watch run first (Motion's order: its gestures are
 //   plain listeners).
@@ -33,6 +34,7 @@ import { expect, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Logger from "effect/Logger"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
@@ -102,16 +104,24 @@ it.effect("WT3: a throw goes to onDefect and the watch goes on; another watch on
     }).pipe(Effect.provide(input.layer))
   }))
 
-it.effect("WT4: with no onDefect, the throw goes up the push", () =>
+it.effect("WT4 (#979, row 27): with no onDefect, nothing goes up the push: reported on the watch's context, and it hears the next event", () =>
   Effect.gen(function* () {
     const input = yield* TestInput.pushable()
+    const logged: Array<string> = []
+    const logger = Logger.make(({ message }) => void logged.push(String((message as ReadonlyArray<unknown>)[0])))
+    const edges: Array<boolean> = []
     yield* Effect.gen(function* () {
-      yield* opened(Recognizer.watchHover("el", { on: () => {
-        throw new Error("up the dispatch")
+      yield* opened(Recognizer.watchHover("el", { on: (edge) => {
+        if (edge.active) throw new Error("its handler threw")
+        edges.push(edge.active)
       } }))
       const exit = yield* Effect.exit(input.push(ev("enter")))
-      expect(Exit.isFailure(exit)).toBe(true)
-    }).pipe(Effect.provide(input.layer))
+      expect(Exit.isSuccess(exit), "nothing up the push").toBe(true)
+      yield* input.push(ev("leave"))
+      yield* Effect.yieldNow
+    }).pipe(Effect.provide(input.layer), Effect.provide(Logger.layer([logger])))
+    expect(edges, "the next event heard").toEqual([false])
+    expect(logged.filter((message) => message === "wardic.input: a watch's handler failed")).toHaveLength(1)
   }))
 
 it.effect("WT5: an event a handler causes runs nested, inside it: a press that focuses sees the focus watch first", () =>

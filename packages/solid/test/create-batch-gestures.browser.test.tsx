@@ -11,6 +11,9 @@
 // - CVG3: a Batch change mid-hover moves the keys the hover doesn't hold (Q59); a focused member's Enter
 //   presses it; a release off a member tells its hover's end, then its press's, whichever was asked first;
 //   a function form's unknown key is reported, naming it.
+// - CVG4 (#979, group G; ADR-0074): a member's `whileHover` and `whileTap` functions that throw: reported,
+//   and its hover's start and end, its press's start and tap, all told; once they stop throwing, its next
+//   hover moves it.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import * as InputSource from "@wardic/core/InputSource"
@@ -233,5 +236,68 @@ describe("hover and press per member on Solid 2 (#665)", () => {
     await over(2, () => 0)
     expect(errorsNamed(logs, "createBatch: a gesture failed")).toHaveLength(1)
     expect(reports.join("\n")).toMatch(/member 0's `whileHover` gives "rotate", which isn't one of its keys \(x\)/)
+  })
+
+  it("CVG4 (#979, group G): a whileHover and a whileTap that throw: reported, their events all told, and it moves once they stop", async () => {
+    const input = Effect.runSync(TestInput.pushable())
+    const logs: Array<Logged> = []
+    let broken = true
+    let member!: HTMLDivElement
+    let grid!: ReturnType<typeof makeGrid>
+    const makeGrid = () =>
+      createBatch({
+        count: 1,
+        animate: () => ({ x: 0, scale: 1 }),
+        whileHover: () => {
+          if (broken) throw new Error("its whileHover broke")
+          return { scale: 1.2 }
+        },
+        whileTap: () => {
+          if (broken) throw new Error("its whileTap broke")
+          return { scale: 0.9 }
+        },
+        transition: TWEEN,
+      })
+    const Scene = (): JSX.Element => {
+      grid = makeGrid()
+      return <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
+    }
+    mount(() => (
+      <WardicProvider env={input.layer.pipe(Layer.provideMerge(envWith({ logs, reports: [] })))}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await gesturesLoaded()
+    const order: Array<string> = []
+    mount(() => {
+      createEffect(grid.when("hoverStart"), () => {
+        order.push("hoverStart")
+      })
+      createEffect(grid.when("hoverEnd"), () => {
+        order.push("hoverEnd")
+      })
+      createEffect(grid.when("pressStart"), () => {
+        order.push("pressStart")
+      })
+      createEffect(grid.when("tap"), () => {
+        order.push("tap")
+      })
+      return null
+    })
+    await over(2, () => 0)
+    Effect.runSync(input.pushTo(member, ev("enter", 1)))
+    await over(2, () => 0)
+    Effect.runSync(input.pushTo(member, ev("down", 2)))
+    await over(2, () => 0)
+    Effect.runSync(input.pushTo(member, ev("up", 3)))
+    await over(2, () => 0)
+    Effect.runSync(input.pushTo(member, ev("leave", 4)))
+    await over(2, () => 0)
+    expect(order, "its hover's and its press's events").toEqual(["hoverStart", "pressStart", "tap", "hoverEnd"])
+    expect(errorsNamed(logs, "createBatch: a gesture failed"), "the hover's and the press's").toHaveLength(2)
+    broken = false
+    Effect.runSync(input.pushTo(member, ev("enter", 5)))
+    const hovered = await over(20, () => scaleOf(member))
+    expect(hovered[hovered.length - 1], "read again at its next hover").toBeCloseTo(1.2, 6)
   })
 })

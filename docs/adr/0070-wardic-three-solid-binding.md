@@ -226,3 +226,10 @@ Decision 12's "still none: drag, focus" holds for a plain Batch. A `Reorder.Batc
 ## Note (#746, 2026-11-14): a Batch member's hold reached every app
 
 *Amendment (#665)*'s "Only members pay" (PR 4: "an app with no Batch ships none of the hold") stopped holding at #704: the spine's `holdNow` closure, and `batch.ts` through `layout-member.ts`'s `markLayoutElement`, reached every app, 0.5 KB gzipped (ADR-0067, *Amendment (#746)*). #746's `layout` seam takes `markLayoutElement` out of the base (its PR 3), and its PR 7 the rest of the spine's: what the hold works the spine with is built by `member-hold.ts`, over what the spine hands over, so the base keeps the one module slot a Retarget reads and a draggable element's drag hook.
+
+## Amendment (#979, group G, 2026-11-27): a Batch's gesture that throws is its member's own
+
+ADR-0074's rule for a Batch's gestures: #979's row 34 (a three scene's Batch), and Q12 of group G's grill (the DOM's). ADR-0055's *Amendment (#979, group G)* records the group, its cost and its tests; this is the Batch's part.
+- **A scene's Batch reads a gesture's values as it starts** (Q58), as the DOM's always did. Before, it called a `whileHover` or `whileTap` function again at each change of `animate`, from the Batch's Solid effect: one that threw halted Solid, and its own `onDefect` dropped every gesture's throw unlogged. Now its member's flag is set and its event told first, then the function is read and its values stored; a change reads those (Q59). A throw, or a key the Batch hasn't, is reported as the DOM's is, `createBatch: a gesture failed`, and the member stays on the gesture with nothing to turn to.
+- **Both Batches tell a gesture's event whatever its turn does:** a hover's start, and a press's, are told even when its function throws, so its end is never told alone. The DOM's turn runs in a `try`, its throw reported in the `catch` and the event told after it, since Solid 1's event is the app's own callback, which would keep the turn from running if it came first.
+- **Pinned by** BT12–BT14 (three) and CVG4 (Solid 2).

@@ -16,6 +16,9 @@
 // - WA8: five hundred targets, their enters and leaves interleaved: each target's edges are its own.
 // - WA9: `keys` given as a function is read at each key (#712, Q32): while it's `false`, a focused target's
 //   Enter and Space press nothing and the page keeps them; once it's `true`, the next key presses it.
+// - WA10 (#979, row 27; ADR-0074): a press among targets with no onDefect whose handler throws at each
+//   start: nothing goes up a focused target's key dispatch, each run of throws reported once on the watch's
+//   context, and its taps heard.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as PressClaims from "@wardic/core/PressClaims"
@@ -27,6 +30,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -288,3 +292,27 @@ it.effect("WA9: keys as a function is read at each key: off, a focused target's 
     ])
   }))
 
+it.effect("WA10 (#979, row 27): a press among targets with no onDefect whose handler throws at each start: reported once a run, on its context; its taps heard", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    const logged: Array<string> = []
+    const logger = Logger.make(({ message }) => void logged.push(String((message as ReadonlyArray<unknown>)[0])))
+    const heard: Array<string> = []
+    yield* Effect.gen(function* () {
+      yield* opened(Recognizer.watchPressAmong(memberOf, {
+        on: (target, press) => {
+          if (press.phase === "start") throw new Error(`a start threw on ${String(target)}`)
+          heard.push(`${String(target)} ${press.phase}`)
+        },
+      }))
+      // A focused target's keys are a switch of its own.
+      yield* input.pushFocusTo("a", focusOf("focus"))
+      yield* input.pushKey(key("down"))
+      yield* input.pushKey(key("up"))
+      yield* input.pushKey(key("down"))
+      yield* input.pushKey(key("up"))
+      yield* Effect.yieldNow
+    }).pipe(Effect.provide(input.layer), Effect.provide(Logger.layer([logger])))
+    expect(heard, "its taps").toEqual(["a tap", "a tap"])
+    expect(logged.filter((message) => message === "wardic.input: a watch's handler failed"), "once a run: each start's, after a clean tap").toHaveLength(2)
+  }))

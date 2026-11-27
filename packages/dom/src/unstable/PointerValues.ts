@@ -12,8 +12,10 @@
 // Unstable: ADR-0071, decision 5. #833: the storefront's spotlight and magnifier each listened to the pointer
 // and did the arithmetic themselves, where the Solid ward's `when("hover")` is its own per-move listener; core's
 // recognizer knows hover's edges alone, and a per-move Message on Foldkit would render per move (decision 23).
+import * as Report from "@wardic/core/unstable/Report"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Num from "effect/Number"
@@ -55,6 +57,10 @@ const PLACING: ReadonlyArray<string> = ["pointerenter", "pointermove", "pointerd
 
 const UNIT = { minimum: 0, maximum: 1 } as const
 
+/** A value whose dependent threw as it was set: an app's Atom over the pointer, say. */
+const DEPENDENT_FAILED = "wardic.pointer: its dependent failed"
+
+
 /** `offset` as progress across `length`: 0 for a box with none. */
 const progressOf = (offset: number, length: number): number => {
   if (length <= 0) return 0
@@ -69,6 +75,8 @@ const progressOf = (offset: number, length: number): number => {
 export const pointer: (element: Element, options?: Options) => Effect.Effect<PointerValues, never, AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
   function* (element: Element, options: Options = {}) {
     const registry = yield* AtomRegistry.AtomRegistry
+    // Where a value's failure is reported (#979, row 14): what the pointer is read in, a provider's runtime.
+    const context = yield* Effect.context<never>()
     const types = UndefinedOr.match(options.types, { onUndefined: () => MOUSE_AND_PEN, onDefined: identity })
     const x = Atom.make(0)
     const y = Atom.make(0)
@@ -80,23 +88,80 @@ export const pointer: (element: Element, options?: Options) => Effect.Effect<Poi
     // Mounted while read, not kept alive, as the scroll reader's Atom is: a kept-alive Atom's node never leaves the registry.
     const unmounts = [registry.mount(x), registry.mount(y), registry.mount(xProgress), registry.mount(yProgress), registry.mount(width), registry.mount(height), registry.mount(inside)]
     const counts = (event: Event): boolean => Arr.contains(types, (event as PointerEvent).pointerType as PointerType)
+    // #979, row 14 (ADR-0074): a value whose dependent throws, an app's Atom over it, is its own: every value
+    // is set at each event. Before, a throw at `x` left the rest unset, uncaught, every move. Reported once a
+    // run of events that threw, at the run's first, with its key; a clean event ends the run.
+    // A run of events whose sets threw, reported at its first throw, and whether this event's did.
+    let failing = false
+    let eventThrew = false
+    /** The value `key`'s set threw: reported at a run's first throw. Its failure path alone. */
+    const valueFailed = (key: string, defect: unknown): void => {
+      if (Bool.not(Bool.or(eventThrew, failing))) Report.failureOn(context, DEPENDENT_FAILED, Cause.die(defect), { key })
+      eventThrew = true
+    }
     const place = (event: Event): void => {
       if (Bool.not(counts(event))) return
       const { clientX, clientY } = event as PointerEvent
       const box = element.getBoundingClientRect()
       const left = clientX - box.left
       const top = clientY - box.top
-      registry.set(x, left)
-      registry.set(y, top)
-      registry.set(xProgress, progressOf(left, box.width))
-      registry.set(yProgress, progressOf(top, box.height))
-      registry.set(width, box.width)
-      registry.set(height, box.height)
-      registry.set(inside, true)
+      // Per event, a try at each set, written in place: an event's sets done, a run that threw goes on, or a
+      // clean event ends it.
+      try {
+        registry.set(x, left)
+      } catch (defect) {
+        valueFailed("x", defect)
+      }
+      try {
+        registry.set(y, top)
+      } catch (defect) {
+        valueFailed("y", defect)
+      }
+      try {
+        registry.set(xProgress, progressOf(left, box.width))
+      } catch (defect) {
+        valueFailed("xProgress", defect)
+      }
+      try {
+        registry.set(yProgress, progressOf(top, box.height))
+      } catch (defect) {
+        valueFailed("yProgress", defect)
+      }
+      try {
+        registry.set(width, box.width)
+      } catch (defect) {
+        valueFailed("width", defect)
+      }
+      try {
+        registry.set(height, box.height)
+      } catch (defect) {
+        valueFailed("height", defect)
+      }
+      try {
+        registry.set(inside, true)
+      } catch (defect) {
+        valueFailed("inside", defect)
+      }
+      if (eventThrew) {
+        eventThrew = false
+        failing = true
+        return
+      }
+      if (failing) failing = false
     }
     const leave = (event: Event): void => {
       if (Bool.not(counts(event))) return
-      registry.set(inside, false)
+      try {
+        registry.set(inside, false)
+      } catch (defect) {
+        valueFailed("inside", defect)
+      }
+      if (eventThrew) {
+        eventThrew = false
+        failing = true
+        return
+      }
+      if (failing) failing = false
     }
     yield* Effect.acquireRelease(
       Effect.sync(() => {

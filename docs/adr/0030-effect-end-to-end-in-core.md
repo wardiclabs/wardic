@@ -453,3 +453,11 @@ ADR-0071's decision 6 (#561's round 6, Q22), built in #672's first PR.
 ## Amendment (#566, 2026-11-18): exact pins, not the fixed group
 
 The *Amendment (#672)*'s `Report` is unstable, and Wardic's own packages match it through exact pins, not through the Changesets fixed group alone, since `@wardic/solid` left the group at its 2.0: ADR-0071, *Amendment (#566)*.
+
+## Amendment (#979, groups D and G, 2026-11-27): core reports what no binding's fiber sees
+
+Decision 4's "core doesn't report" is for the Frame loop, whose caller may recover. ADR-0074's rule needs a failure reported where no binding's fiber is there to see it:
+- **A Live value's run** (group D, ADR-0043's amendment) reports a dependent or a source that throws;
+- **A watch with no `onDefect`** (group G, ADR-0055's amendment) reports its handler's throw, which went up the platform's dispatch before.
+
+Each reports through `Report.failureOn`, on the Effect context it was built or started in, captured once and used only at a failure, so an app's logger and ErrorReporters, installed on the provider's `env`, hear it. `InputFeed.switched`, a plain function with no context of its own, reports on Effect's default runtime when it's called with no `onDefect`; Recognizer hands its keys' switch its own. The engine itself still doesn't report.

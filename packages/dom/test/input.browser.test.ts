@@ -840,4 +840,30 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         el.remove()
       }
     }).pipe(Effect.scoped))
+
+  it.effect("I22 (#979, row 27; ADR-0074): a child's watch with no onDefect that throws on a key and on a focus: its parent's watch hears both", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const outer = document.createElement("div")
+      outer.tabIndex = 0
+      const inner = document.createElement("button")
+      outer.appendChild(inner)
+      document.body.appendChild(outer)
+      try {
+        const log: Array<string> = []
+        // The child's watch is nearer the event's target, so it's told first along the path.
+        const throws = (): void => {
+          throw new Error("the child's watch threw")
+        }
+        yield* InputFeed.watch(input.keyboard(inner), { on: throws })
+        yield* InputFeed.watch(input.focus(inner), { on: throws })
+        yield* InputFeed.watch(input.keyboard(outer), { on: (e) => void log.push(`outer key ${e.type}`), onDefect: constVoid })
+        yield* InputFeed.watch(input.focus(outer), { on: (e) => void log.push(`outer ${e.type}`), onDefect: constVoid })
+        inner.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+        inner.focus()
+        expect(log, "the parent hears the key and the focus").toEqual(["outer key down", "outer focus"])
+      } finally {
+        outer.remove()
+      }
+    }).pipe(Effect.scoped))
 })

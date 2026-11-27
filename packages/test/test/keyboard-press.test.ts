@@ -20,6 +20,9 @@
 // - KP9: with an Environment that says where focus is (#460), the keys are heard only from a focus to
 //   the blur after (Motion's), or from the start when focus is already within; a blur still cancels the
 //   press it ends first. Closing the scope while focused lets the keys go.
+// - KP10 (#979, row 27; ADR-0074): a press watched with no onDefect, its keys held while focus is within,
+//   whose handler throws at each start: nothing goes up the key's dispatch, each start's throw reported
+//   once a run of throws on the watch's context, and its taps still heard.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
@@ -27,6 +30,7 @@ import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Logger from "effect/Logger"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
@@ -246,4 +250,30 @@ it.effect("KP9: with focusWithin, the keys are heard only while focus is within 
       yield* input.pushKey(key("down", "enter", 12))
     }).pipe(Effect.provide(input.layer))
     expect(heard).toEqual(["start keyboard@4", "tap keyboard@5", "start keyboard@6", "cancel keyboard@7", "start keyboard@10", "tap keyboard@11"])
+  }))
+
+it.effect("KP10 (#979, row 27): a press with no onDefect whose handler throws at each start: reported once a run, on its context; its taps heard", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable({ focusWithin: () => true })
+    const logged: Array<string> = []
+    const logger = Logger.make(({ message }) => void logged.push(String((message as ReadonlyArray<unknown>)[0])))
+    const heard: Array<string> = []
+    yield* Effect.gen(function* () {
+      const scope = yield* opened(Recognizer.watchPress("el", {
+        on: (p) => {
+          if (p.phase === "start") throw new Error(`start threw at ${p.event.timeStamp}`)
+          heard.push(told(p))
+        },
+      }))
+      // Focus already within: its keys are a switch of their own, opened at the start.
+      yield* input.pushKey(key("down", "enter", 1))
+      yield* input.pushKey(key("down", "enter", 2))
+      yield* input.pushKey(key("up", "enter", 3))
+      yield* input.pushKey(key("down", "enter", 4))
+      yield* input.pushKey(key("up", "enter", 5))
+      yield* Effect.yieldNow
+      yield* Scope.close(scope, Exit.void)
+    }).pipe(Effect.provide(input.layer), Effect.provide(Logger.layer([logger])))
+    expect(heard, "its taps").toEqual(["tap keyboard@3", "tap keyboard@5"])
+    expect(logged.filter((message) => message === "wardic.input: a watch's handler failed"), "once for 1 (2 repeats the press), again for 4 after 3's clean tap").toHaveLength(2)
   }))

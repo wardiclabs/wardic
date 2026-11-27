@@ -26,11 +26,16 @@
 //   pinned to the box; the page keeps its document offsets, a border on `<html>` not taken off.
 // - PS13 (#618): a container its last reader let go of, its element off the page, is collected: the
 //   map of containers (`SharedSource.counted` since #518) keeps no element it has released.
+// - PS14 (#979, row 14; ADR-0074): a reader whose Atom's dependent throws: the next reader of its
+//   container hears every scroll, its own Atom holds each, and it's reported once a run of throws,
+//   again after a clean set, on the context it was read in (the app's logger beside the source).
 import * as ScrollSource from "@wardic/core/ScrollSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Arr from "effect/Array"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import * as DomScrollSource from "../src/DomScrollSource.ts"
@@ -491,5 +496,41 @@ layer(TestLayer)("ScrollSource on the DOM (#234)", (it) => {
       yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
       yield* Effect.promise(() => commands.collectGarbage())
       expect(refs.filter((ref) => ref.deref() !== undefined).length, "every released container collected").toBe(0)
+    }))
+
+  it.effect("PS14 (#979, row 14): a reader whose dependent throws: the next reader hears every scroll, reported once a run of throws", () =>
+    Effect.gen(function* () {
+      const logged: Array<string> = []
+      const logger = Logger.make(({ message }) => void logged.push(String((message as ReadonlyArray<unknown>)[0])))
+      // The app's logger beside the source, as a provider's env merges an app's layers beside DomLive.
+      const logging = Layer.merge(TestLayer, Logger.layer([logger]))
+      yield* Effect.gen(function* () {
+        const s = scene()
+        const source = yield* ScrollSource.ScrollSource
+        const registry = yield* AtomRegistry.AtomRegistry
+        const scope = yield* Scope.make()
+        // A first, so its throw going up the listener would keep B from the event.
+        const a = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
+        const b = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
+        const stopA = registry.subscribe(a, (scroll) => {
+          if (Arr.contains([200, 300, 250], scroll.y.current)) throw new Error(`A's dependent threw at ${scroll.y.current}`)
+        })
+        const heard: Array<number> = []
+        const stopB = registry.subscribe(b, (scroll) => void heard.push(scroll.y.current))
+        const held: Array<number> = []
+        // One scroll event each (`scrollTo` fires it): a second would let B catch up, A's read unchanged.
+        Arr.forEach([50, 200, 300, 450, 250], (y) => {
+          scrollTo(s.box, y)
+          held.push(registry.get(a).y.current)
+        })
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
+        expect(heard, "B, every scroll").toEqual([50, 200, 300, 450, 250])
+        expect(held, "A's Atom holds each").toEqual([50, 200, 300, 450, 250])
+        expect(Arr.filter(logged, (message) => message === "wardic.scroll: its dependent failed"), "once for 200 and 300, again for 250 after 450's clean set").toHaveLength(2)
+        stopA()
+        stopB()
+        yield* Scope.close(scope, Exit.void)
+        s.remove()
+      }).pipe(Effect.provide(logging))
     }))
 })

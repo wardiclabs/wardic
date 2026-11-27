@@ -12,10 +12,14 @@
 // - IF6: heldPointer as a feed: a held pointer's page-wide release reaches it, and the target's copy
 //   of the same platform event doesn't, with no Stream between.
 // - IF7: watch (#379) hears each event inside the emit while its Scope is open; a throw goes to
-//   onDefect, as a die, and it goes on; with no onDefect the throw goes up the emit; the close stops
-//   the feed.
+//   onDefect, as a die, and it goes on; the close stops the feed.
 // - IF8: watchWith: a handler that returns false stops the feed, even from inside the feed's start;
 //   onEnd is told when the feed runs out, once.
+// - IF9 (#979, row 27; ADR-0074): a watch with no onDefect whose handler throws is reported once a run of
+//   throws, on the context it started in, and again after a clean call; nothing goes up the emit, so
+//   another watch on its target hears every event.
+// - IF10 (#979, row 27): `switched` with no onDefect: nothing goes up the emit, it goes on, and it's
+//   reported on Effect's default runtime.
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Outbox from "../src/internal/outbox.ts"
@@ -25,6 +29,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import { constVoid } from "effect/Function"
+import * as Logger from "effect/Logger"
 import * as MutableRef from "effect/MutableRef"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -43,6 +48,32 @@ const controlled = <A,>() => {
     }
   }
   return { state, feed }
+}
+
+/** A Logger recording each message, as a layer to run a watch in. */
+const logs = () => {
+  const logged: Array<string> = []
+  const logger = Logger.make(({ message }) => void logged.push(String((message as ReadonlyArray<unknown>)[0])))
+  return { logged, layer: Logger.layer([logger]) }
+}
+
+/** A task: a report forked at a failure has run. */
+const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+/** Every line Effect's default logger writes while `run` runs, a task waited for a forked report. */
+const consoleDuring = async (run: () => void): Promise<ReadonlyArray<string>> => {
+  const said: Array<string> = []
+  const keep = { log: console.log, error: console.error }
+  const hear = (...args: Array<unknown>): void => void said.push(args.map(String).join(" "))
+  console.log = hear
+  console.error = hear
+  try {
+    run()
+    await settled()
+  } finally {
+    Object.assign(console, keep)
+  }
+  return said
 }
 
 /** Until `started()`, a task at a time: a forked Stream subscribes its feed on the scheduler. */
@@ -200,9 +231,6 @@ describe("Input feeds (#318)", () => {
     expect(Cause.hasDies(defects[0]!), "a die").toBe(true)
     Effect.runSync(Scope.close(scope, Exit.void))
     expect(state.stops, "the close stops the feed").toBe(1)
-    // With no onDefect, the throw goes up the emit, as a listener's would.
-    const bare = controlled<number>()
-    Effect.runSync(Effect.scoped(Effect.andThen(InputFeed.watch(bare.feed, { on }), Effect.sync(() => expect(() => bare.state.emit!(2)).toThrow("two")))))
   })
 
   it("IF8: watchWith: a handler that returns false stops the feed, even from inside its start; onEnd is told once", () => {
@@ -227,5 +255,47 @@ describe("Input feeds (#318)", () => {
     Effect.runSync(Effect.scoped(InputFeed.watchWith(eager, upTo(9), { onEnd: () => MutableRef.increment(ends) })))
     expect(heard).toEqual([1, 2, 3])
     expect(MutableRef.get(ends), "the end told once").toBe(1)
+  })
+
+  it("IF9 (#979, row 27): a watch with no onDefect is reported once a run of throws, on its own context; another watch on its target hears every event", async () => {
+    const source = controlled<number>()
+    const shared = InputFeed.byTarget(() => source.feed)
+    const { logged, layer } = logs()
+    const unguarded: Array<number> = []
+    const beside: Array<number> = []
+    const scope = Effect.runSync(Scope.make())
+    // The unguarded watch first, so a throw going up the shared emit would keep the second from the event.
+    Effect.runSync(
+      Effect.gen(function* () {
+        yield* InputFeed.watch(shared("el"), {
+          on: (n) => {
+            if (Arr.contains([2, 3, 5], n)) throw new Error(`threw at ${n}`)
+            unguarded.push(n)
+          },
+        })
+        yield* InputFeed.watch(shared("el"), { on: (n) => void beside.push(n), onDefect: constVoid })
+      }).pipe(Scope.provide(scope), Effect.provide(layer)),
+    )
+    Arr.forEach([1, 2, 3, 4, 5], (n) => expect(() => source.state.emit!(n), `nothing up the emit at ${n}`).not.toThrow())
+    await settled()
+    expect(beside, "the watch beside it hears every event").toEqual([1, 2, 3, 4, 5])
+    expect(unguarded, "it goes on").toEqual([1, 4])
+    expect(Arr.filter(logged, (message) => message === "wardic.input: a watch's handler failed"), "once for 2 and 3, again for 5 after 4's clean call").toHaveLength(2)
+    Effect.runSync(Scope.close(scope, Exit.void))
+  })
+
+  it("IF10 (#979, row 27): switched with no onDefect: nothing goes up the emit, it goes on, and it's reported on Effect's default runtime", async () => {
+    const { state, feed } = controlled<number>()
+    const heard: Array<number> = []
+    const keys = InputFeed.switched(feed, (n) => {
+      if (n === 2) throw new Error("two")
+      heard.push(n)
+    })
+    keys.open()
+    // Effect's default logger writes to the console.
+    const said = await consoleDuring(() => Arr.forEach([1, 2, 3], (n) => expect(() => state.emit!(n), `nothing up the emit at ${n}`).not.toThrow()))
+    expect(heard).toEqual([1, 3])
+    expect(said.filter((line) => line.includes("wardic.input: a watch's handler failed")), "reported once").toHaveLength(1)
+    keys.close()
   })
 })
