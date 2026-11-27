@@ -44,11 +44,17 @@ export interface Measured extends Pair {
 export interface Shape {
   /** Whether `key` from `from` to `to` needs its pair measured: its ends in units that don't blend. */
   readonly needs: (key: string, from: number | string, to: number | string) => boolean
-  /** Asks `pairs` measured on `subject`, at `values`: each key's pair, whose result it reads once it's done. */
+  /**
+   * Asks `pairs` measured on `subject`, at `values`: each key's pair, whose result it reads once it's
+   * done. One the measure can't take (its write throws) is never measured, and `failed` is told, its
+   * Subject's alone.
+   */
+  // #979, row 8 (ADR-0074): `failed`, the asker's, which reports through its own runtime.
   readonly measure: (
     subject: object,
     pairs: Readonly<Record<string, { readonly from: number | string; readonly to: number | string }>>,
     values: Values.Values,
+    failed: (defect: unknown) => void,
   ) => Readonly<Record<string, Requested>>
 }
 
