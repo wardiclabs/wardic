@@ -488,3 +488,10 @@ ADR-0074's rule (one Subject's failure is its own) for Live values: its row 32, 
   - **Two each at one seam:** the transform's once by LF5, as Foldkit's test throws once; an output's `try` by GV8, as Solid 2's transform catches its own throw before the gate sees one.
 
 **Size** (`bun run size`): every app grows, within the 1% gate, since every app has the loop and the gate: `s1-slim` +170 B gzipped, `s2-slim` +117, `f-slim` +343, `t2-stage` +141, `t2-features` +213, and the scroll apps the most, about +600. The five budgets were raised by what was measured, to 96.2, 119.0, 198.6, 246.2 and 253.8. Row 42, against `main` with the rest of group D merged: every app −16 to +20 B gzipped, every budget held.
+
+## Amendment (#979, group G, 2026-11-27): a scroll's reader and a pointer's value, each its own
+
+ADR-0074's rule for two Live values a DOM event sets: #979's row 14. ADR-0055's *Amendment (#979, group G)* records the group, its cost and its tests; this is the Live values' part.
+- **A scroll reader** (*Amendment (#233, #234)*): its `registry.set` in a `try`, so a dependent that throws, an app's Atom or a Solid 1 effect over `createScroll`'s values, keeps neither the container's later readers from the scroll nor itself from holding it. Reported once a run of throws, `wardic.scroll: its dependent failed`, on the context the reader is read in: a provider's runtime, as each Live value's since group D, not the source's build, which an app's logger, merged beside `DomLive`, never reaches.
+- **The pointer's values** (`Wardic.pointer`, #833): each of the seven sets in a `try` of its own, written in place, so every value is set at each event. Reported once a run of events that threw, `wardic.pointer: its dependent failed`, with its key.
+- **Pinned by** PS14 and PV4 (dom), SL7 (Solid 1) and Foldkit's `Wardic.pointer` test.

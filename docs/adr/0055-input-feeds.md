@@ -112,7 +112,7 @@ Stated:
   - reads its services, then subscribes its fold to the target's feed with `acquireRelease`. The Scope's finalizer unsubscribes. It has no fiber, no Stream and no queue.
   - runs the fold and `on` inside the feed's emit, so inside the platform's dispatch;
   - keeps its span for as long as the Scope is open (`Effect.withSpanScoped`, with no call-site stack, ADR-0040), and logs `<span>: watch` once, at the start, as the Streams logged `subscribe`;
-  - hands a throw from the fold or `on` to `onDefect` as a die, then goes on with the next event. With no `onDefect`, the throw goes up the dispatch. Core reports nothing (ADR-0030, decision 4);
+  - hands a throw from the fold or `on` to `onDefect` as a die, then goes on with the next event. With no `onDefect`, the throw goes up the dispatch (*Amended by* *Amendment (#979, group G)*: core reports it, on the watch's context, and the watch goes on). Core reports nothing (ADR-0030, decision 4);
   - with `once` (in view), stops its subscription at the first entry, even when the feed delivers it while starting;
   - tells `onEnd` when the feed runs out (a test's script);
   - for pan, holds the started pan's count in the **Drag activity** from its `"start"` to its `"end"`, and gives it back when the Scope closes mid-pan (a finalizer that runs after the feed stops).
@@ -209,7 +209,7 @@ Decision 2 kept drag's Stream pipeline. #379 measured what that cost, on Solid 2
 ### Tests (PR 2)
 
 - **`packages/core/test/input-feed.test.ts`:**
-  - IF7: `watch` hears each event inside the emit; a throw goes to `onDefect` and it goes on; with none, the throw goes up the emit; the close stops the feed.
+  - IF7: `watch` hears each event inside the emit; a throw goes to `onDefect` and it goes on; with none, the throw goes up the emit (*Amended by* *Amendment (#979, group G)*: IF9 and WT4 pin its report now); the close stops the feed.
   - IF8: `watchWith`: a handler's `false` stops the feed, even from inside its start; `onEnd` told once.
 - **`packages/core/test/drag-bounds.test.ts`, DB6:** `within`, elastic past an edge, delta and velocity left; `withinBounds` maps it.
 - **`packages/test/test/watches.test.ts`:**
@@ -291,3 +291,81 @@ A Batch's members (ADR-0070, *Amendment (#665)*, decision 12) are like targets b
 - **The DOM's feeds:** one window listener set per `memberOf`, shared by its watches through `InputFeed.byTarget`. `pointerover`, `pointerout`, `pointerdown`, `pointerup` and `pointercancel` are heard in the bubble phase, after each element's own listeners, so a press inside a member has marked its claim by then (#439). Enters and leaves come from `pointerover` and `pointerout`, each member on the path once, enters outermost first and leaves innermost first, as `pointerenter` and `pointerleave`. A member's held pointer is core's `heldPointer`, made at a down on it and let go once nothing it pressed is held. There's no `pointermove` listener: a held pointer's moves come through its page-wide feed. `focusin` and `focusout` are heard in the capture phase, as a target's own focus feed. Both listen on the page's window: a member in an iframe's document is heard by neither, where each per-target feed takes its target's window.
 - **The Test Environment:** `TestInput.pushable`'s `pushTo(target, event)` and `pushFocusTo(target, event)` feed them.
 
+## Amendment (#979, group G, 2026-11-27): a listener's other readers and watches hear its event
+
+ADR-0074's rule (one Subject's failure is its own) for the input listeners: #979's group G, its rows 14 (the scroll's and the pointer's readers), 27 (a watch with no `onDefect`) and 34 (a three scene Batch's gestures). ADR-0043, ADR-0070 and ADR-0030 each carry a short amendment for their part, pointing here.
+
+**What happened** (probed on `main` at e5b1b802, in Chromium; three on `TestStage` in Node):
+1. **The scroll's readers** (row 14): a container's one listener reads every reader, each setting its Atom. Effect's `registry.set` runs every dependent, then rethrows the first throw, so a reader whose dependent threw stopped the listener there. The container's later readers missed that scroll, uncaught, every scroll, catching up only at a later read that found the first reader's scroll unchanged. Solid 1 reached it from an app's `createEffect` or `createMemo` over `createScroll`'s values: a second `createScroll` of the box stayed at its first value. Solid 2 didn't, its writes deferred to its own flush.
+2. **The pointer's values** (row 14): `Wardic.pointer`'s seven Atoms are set in a row at each pointer event. A dependent of `x` that threw left the other six unset, uncaught, every move. Each `pointer(element)` has listeners of its own, so no other reader missed it. Only Foldkit exposes them; a view's Atom over them reaches it.
+3. **A watch with no `onDefect`** (row 27): its throw went up the event's dispatch, as this ADR said. The shared loops have no `try`, so the target's later watches (a ward's own `whileHover` subscribed after it), the ancestors along the event's path, and the later members missed the event. *Narrower than the row:* every watch of Wardic's own passes an `onDefect`, so only a Tier-2 caller's could.
+4. **A three scene Batch's gestures** (row 34), *worse than the row:* its `onDefect` was a no-op, so a `whileHover` or `whileTap` function that threw, or one giving a key the Batch hasn't, was dropped unlogged, and the member, flagged hovered, never turned. The next change of `animate` called the function again inside the Batch's Solid effect: its throw came out of `flush()`, and Solid halted.
+5. **The DOM's `createBatch`** (Q12, found by group G's reading, confirmed by CVG4): its hover turned, then told its event, so a function that threw kept the hover's start untold, and its end was told alone.
+
+**Decided** (grilled 2026-11-27, four rounds, every recommendation taken, Q9 corrected; three details changed in the build):
+1. **A scroll reader's set is its own** (Q1): a `try` in each reader's `read`, around its `registry.set`. Its Atom holds the scroll, its other dependents heard it, and the container's later readers hear the event.
+2. **A pointer value's set is its own** (Q2): a `try` at each of the seven sets, so every value is set at each event. A run is counted in events: one whose sets all ran clean ends it. *Inline, by Q2's rule:* a local `setKept` holding the `try` read past noise (below), so each set has a `try` of its own, written in place, a function called only from the `catch` reporting it.
+3. **A watch with no `onDefect` reports its own** (Q3, (a)): its handler's throw is reported on the context the watch started in, captured at its start, only for such a watch, and the watch goes on. Every watch's handler is then guarded, so the shared loops never see a watch's throw; a raw feed subscriber's own code is its caller's. A watch over many targets is one watch, so its run of throws spans its targets, as Q3 chose: a clean call on one ends another's run. Not a `try` per subscriber in the loops, which would rethrow the first, still uncaught; not a required `onDefect`, a breaking change to a stable module. The guarded handler and `switched`'s body move into core's `internal/guarded.ts`, so Recognizer hands its own context to the keys' `switched` with no new public API (Q7). `switched` called directly with none reports on Effect's default runtime.
+4. **A scene Batch reads a gesture's values once, as it starts** (Q4, Q9′): as ADR-0070's Q58 decided for every `createBatch`, and the DOM's already did. The member's flag is set and its event told first, then its function is read and its values stored. One that throws is reported as `createBatch: a gesture failed`, the DOM's message, and the member stays on the gesture with nothing to turn to. A change of `animate` reads the stored values, never the function, so nothing halts, and the held keys stay (Q59). *Corrected in the grill:* Q9 first kept calling the function at each change, on my word that reading it once would change its semantics in a fix. ADR-0070's Q58 says it's read as its gesture starts.
+5. **The DOM's `createBatch` tells a gesture's event whatever its turn does** (Q12): the turn in a `try`, its throw reported in the `catch`, then the event told.
+6. **The messages,** at Error, each with the app's throw as its cause, the first three through core's `Report.failureOn` (unstable), which group D's Live values now report through too (the review: one helper, not a copy in each module):
+
+   | Where | Message | Reported |
+   |---|---|---|
+   | a scroll reader's set | `wardic.scroll: its dependent failed` | once a run of throws, per reader |
+   | a pointer value's set, annotated with its `key` | `wardic.pointer: its dependent failed` | once a run of events that threw, per `pointer()` |
+   | a watch's handler, with no `onDefect` | `wardic.input: a watch's handler failed` | once a run of throws, per watch |
+   | a Batch's gesture, three's as the DOM's | `createBatch: a gesture failed` | each time, as the DOM's (group I makes both once a run) |
+
+**Changed in the build:**
+- **The scroll's report is made on the reader's context, not the source's build** (Q1 said the build's). A provider's `env` merges an app's layers beside `DomLive`, so the context a source's layer is built in has no app logger: probed, its keys were the memo map, Console, Clock, Scheduler, AtomRegistry and Scope. Each reader is read in on a provider's runtime, as group D's Live values are, so it captures its own. PS14 builds its source with the app's logger beside it, as a provider does.
+- **The DOM's order is a `try` around the turn, not "tell first"** (Q12 said tell, then turn). Solid 1's `tell` calls the app's `onHoverStart` unguarded, so telling first would let a callback that throws keep its member from turning, which it doesn't on `main`. Both pieces of the app's code can't come first: the turn's throw is reported in its `catch`, and the event is told after it, so the events stay paired and the turn comes before the callback as it did. (A `finally` first, until the review: a callback that threw there would have replaced the turn's throw, unreported.)
+- **#995 was filed in error.** The grill's side finding (a hovered scene member losing its hover at a change of `animate`) moved the member a whole unit, out from under the test's pointer, so its hover ended, as it should. A change that leaves it under the pointer keeps it: BT14 pins that.
+
+**Found, not here:**
+- Solid 2's Stage sensors and three's `ThreeInput` report on Effect's default runtime, so their failures miss the app's logger: noted under #979's row 26, group I's.
+- By the review, from reading: `DragRecognizer.watchDragAmong` calls its handler before it ends a member's watch, so a handler that throws at a drag's end leaves the member pressed, its later downs ignored for good: noted under #979's row 28, group I's.
+
+**Cost** (Q5). No bench covers input events, so a paired microbench (`.tmp/979g/bench/`) times them: `main`'s sources against the branch's, on happy-dom, nothing throwing. Medians of 21 alternating reps, with a control that times `main` against a second copy of it, on the quiet bench host. The second run, PointerValues inline (the first's `setKept` in the note below):
+
+| per event | Bun 1.3.13 | control | Node 22.22 | control | Node, Maglev | control |
+|---|---|---|---|---|---|---|
+| a scroll to 50 readers | +17.8% | +12.7% | +6.0% [3.6, 9.0] | +0.9% | −4.2% | −5.3% |
+| a pointermove, seven values | +3.2% | +1.3% | +3.7% [1.5, 5.6] | +1.7% | +0.9% [−0.5, 1.4] | −0.2% |
+| a feed's emit to 3 watches with an `onDefect` | −2.8% | −1.1% | −4.0% | −0.1% | −0.1% | +0.1% |
+| the same with none | +40.6% [19.3, 52.6] | +2.0% | +6.9% [5.6, 8.8] | −0.2% | +8.5% [8.0, 8.7] | +0.1% |
+
+- **Past noise, shipped** (the owner, on each):
+  - the scroll's `try`, in Node's top tier: +6.0% and +6.6% in the two runs against +0.9% and +1.9%, about 9 ns per reader per scroll event of 155; within noise in Maglev, and in Bun, whose scroll swings ±15% on identical code;
+  - the pointer's inline `try`s: about 2 points over the control in Node, 20 ns of 960, and 1 in Maglev, within noise in Bun. The first run's `setKept` read +3.5% against −1.0% in Node and +1.5% against +0.1% in Maglev, so Q2's rule took the inline form;
+  - a watch with no `onDefect`: the `try` and flag every binding's watch already pays, about 4 ns per watch per event in Bun. A watch with an `onDefect`, every one of Wardic's own, reads flat everywhere.
+- **`bench:solid --base main --features`** passed both bindings (control +0.0%), for the DOM's `createBatch` change and each press watch's `contextFor`: warm mount +1.5% and +2.5%, each spread across zero, Retargets within ±1%, unmount −2.0% and +2.1%, bytes +0.4% and +0.3%, and retained per element at rest +0.1% to +0.2%, 20 to 50 B. Every gate held.
+
+**Tests** (Q11), each failing on `main` first, but BT14, which pins the stored values `main` didn't need:
+- **Core** (Node):
+  - IF9 (`input-feed.test.ts`): a watch with no `onDefect` whose handler throws, sharing one target's feed with a guarded watch, started first: nothing goes up the emit, the guarded one hears every event, and it's reported once a run of throws on its context, again after a clean call;
+  - IF10: `switched` with none: nothing goes up the emit, and it goes on;
+  - KP10 (`packages/test`, `keyboard-press.test.ts`) and WA10 (`watches-among.test.ts`): a press, and a press among targets, with no `onDefect`, its keys opened while focus is within: each start's throw reported once a run on the watch's context, through the `switched` it hands its context, and its taps heard;
+  - WT4 (`watches.test.ts`), which pinned the throw up the push: nothing goes up it now, the throw reported once on the watch's context, and the next event heard. IF7's last lines, which pinned it up the emit, are gone.
+- **DOM** (Chromium):
+  - PS14 (`scroll.browser.test.ts`): readers A then B of a box, A's dependent throwing: B hears every scroll, A's Atom holds each, reported once a run, again after a clean set;
+  - I22 (`input.browser.test.ts`): a child's watch with no `onDefect` throwing on a key and on a focus: its parent's watch hears both;
+  - PV4 (`pointer-values.browser.test.ts`): `x`'s dependent throwing: every value set at each move, reported once a run with its key, again after a clean move.
+- **Solid 1:** SL7 (`scroll-velocity-time.browser.test.tsx`): an app's `createEffect` over one `createScroll` throwing past 100: a second follows every scroll, nothing thrown inside the dispatch, reported once.
+- **Foldkit** (`values.browser.test.ts`): a view's Atom over `Wardic.pointer`'s progress throwing at each move: `inside`, set after it, still drives the view, reported once.
+- **three** (`scene-batch.solid.test.tsx`, Node):
+  - BT12: a `whileHover` that throws for one member: reported, its hover's start and end told, a change of `animate` while it's hovered moves both members, Solid going on, and its next hover, once it stops, scales it;
+  - BT13: a function giving a key the Batch hasn't: reported at the hover, naming it, and the next change moves both;
+  - BT14 (Q59): a hovered member keeps its hover's values through a change that leaves it under the pointer.
+- **Solid 2:** CVG4 (`create-batch-gestures.browser.test.tsx`): a `whileHover` and a `whileTap` that throw: each reported, the hover's and the press's events all told, and its next hover, once they stop, moves it.
+
+**Mutations:** 27 of 27 caught (`.tmp/979g/mutate.py`), each run alone and restored from a copy, and run again on the reviewed code:
+- each `try` dropped: a watch's with no `onDefect`, a scroll reader's, a pointer value's;
+- each report dropped, made at every throw, or never cleared, the pointer's run ended at each event, and its key dropped;
+- a watch with no `onDefect` reporting on the default runtime, `contextFor` reading none, `Report.failureOn` ignoring the context it's given, and Recognizer's keys, a press's and a press among targets', not handed their watch's;
+- the scroll's report on the default runtime, not its reader's (the build's context, as Q1 had it, has no app logger either);
+- the scene Batch: its `onDefect` a no-op again, a change calling the function again, a change ignoring the stored values, and its event told after the turn;
+- the DOM's `createBatch`: a hover's and a press's turn not caught, so its event isn't told, and a hover's turn's throw unreported.
+- **Missed at one seam:** every throw reported, by KP10, whose two throws are each a run of their own (IF9 catches it); `x`'s `try` dropped, by Foldkit's test, whose view's Atom is over the progress (PV4 catches it).
+
+**Size** (`bun run size`): Solid's slim, colors and layout apps don't change; its others grow 60 to 214 B gzipped, `f-slim` 119, `t2-stage` 163 and `t2-features` 214, every app within the 1% gate. Three budgets were raised by what was measured, to 198.8, 246.4 and 254.1.
