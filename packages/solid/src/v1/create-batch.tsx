@@ -4,7 +4,9 @@
  *
  * @module
  */
+import * as Report from "@wardic/dom/Report"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createRenderEffect, type JSX, on, onCleanup, untrack } from "solid-js"
@@ -79,6 +81,24 @@ const callGesture = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>
   if (Predicate.isNotUndefined(told.input)) info.input = told.input
   if (keyed) info.item = told.item
   callback(told.raw, info)
+}
+
+const START_FAILED = "createBatch: onAnimationStart failed"
+const COMPLETE_FAILED = "createBatch: onAnimationComplete failed"
+
+/**
+ * An app's flight callback, called: one that throws is reported each time, on the Batch's runtime, and its
+ * flight goes on, its run forked and its landing told, as an element's own callback's throw is.
+ */
+// #979 (ADR-0074, row 33): `Spine.animationCallbacks`' shape. A start that threw kept the run from forking,
+// and came out of the change's update; a landing's was swallowed by its fiber's observer. Group I's log once
+// takes both, and an element's, to once a run.
+const callFlight = (runtime: WardicRuntime, failed: string, call: () => void): void => {
+  try {
+    call()
+  } catch (defect) {
+    runtime.runFork(Report.failure(failed, Cause.die(defect)))
+  }
 }
 
 /** A Batch's gesture watches, ended with its owner, over the input it brings: their code loaded at the first (Q62). */
@@ -181,8 +201,8 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
       },
       config,
       {
-        started: () => UndefinedOr.map(config.onAnimationStart, (call) => call()),
-        landed: (landing) => UndefinedOr.map(config.onAnimationComplete, (call) => call(landing)),
+        started: () => UndefinedOr.map(config.onAnimationStart, (call) => callFlight(runtime, START_FAILED, call)),
+        landed: (landing) => UndefinedOr.map(config.onAnimationComplete, (call) => callFlight(runtime, COMPLETE_FAILED, () => call(landing))),
         gesture: (told) => callGesture(config, keyed, told),
       },
     ))
