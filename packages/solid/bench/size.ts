@@ -111,6 +111,11 @@ const GATE = 1.01
  * by what it measured, 0.1 each (94, 95, 142 and 64 B): an app's code on the projection's step its node's own, and
  * one Measured pairs request's failure its own (ADR-0027, *Amendment (#979, group E)*). The layout apps grew the
  * most (379–479 B), within the 1% gate, and `t2-stage` 49 B, within its budget.
+ * #979's group G raised `f-slim`'s, `t2-stage`'s and `t2-features`' to 198.8, 246.4 and 254.1 by what it
+ * measured, 0.1, 0.2 and 0.2 (119, 163 and 214 B): a watch's handler with no `onDefect` reported on its own
+ * context, a scroll reader's and a pointer value's dependents their own, and a scene Batch's gestures read
+ * as they start and reported (ADR-0055, *Amendment (#979, group G)*). Solid's slim apps as they were, and
+ * every app within the 1% gate.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -131,7 +136,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.3, "s2-slim": 119.1, "f-slim": 198.7, "t2-stage": 246.2, "t2-features": 253.9 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.3, "s2-slim": 119.1, "f-slim": 198.8, "t2-stage": 246.4, "t2-features": 254.1 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

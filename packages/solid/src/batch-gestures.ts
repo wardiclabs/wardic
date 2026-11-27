@@ -15,7 +15,7 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import type * as Cause from "effect/Cause"
+import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
@@ -134,14 +134,27 @@ export const batchGesturesOn = (runtime: WardicServices.Runner<WardicServices.Wa
   const hoverOf = (host: BatchMembers.BatchGestureHost) => (element: unknown, edge: Recognizer.Edge): void => {
     const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
-    turn(host, HOVER, i, edge.active)
+    // #979, group G (ADR-0074): a turn whose gesture's function throws is reported here, and its event
+    // told all the same, so a hover's start and end stay paired; a callback that throws (Solid 1's
+    // `onHoverStart`) still follows the turn, the watch's own report. Before, a function that threw kept
+    // its start untold, and its end was told.
+    try {
+      turn(host, HOVER, i, edge.active)
+    } catch (defect) {
+      onDefect(Cause.die(defect))
+    }
     const event = edge.event
     tell(host, i, { name: HOVER_EVENT[`${edge.active}`], raw: event.raw, ...GestureInfo.pointInfoOf(event), input: undefined, element: element as Element })
   }
   const pressOf = (host: BatchMembers.BatchGestureHost) => (element: unknown, press: Recognizer.PressEvent): void => {
     const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
-    turn(host, PRESS, i, press.phase === "start")
+    // Its turn's throw reported and its event told all the same (#979, group G), as a hover's.
+    try {
+      turn(host, PRESS, i, press.phase === "start")
+    } catch (defect) {
+      onDefect(Cause.die(defect))
+    }
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
     tell(host, i, { name, raw: press.event.raw, ...GestureInfo.pressInfoOf(press, element as Element), element: element as Element })

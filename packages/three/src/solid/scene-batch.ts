@@ -61,6 +61,8 @@ interface Member {
   leaving: boolean
   hovered: boolean
   pressed: boolean
+  /** Each gesture's values, read as it started (ADR-0070 Q58): none while it's off, or when they couldn't be read. */
+  readonly held: { hovered: Readonly<Record<string, number>> | undefined; pressed: Readonly<Record<string, number>> | undefined }
   /** Where it started on each key: its `initial`, else its own values. What a key `animate` doesn't set returns to. */
   rest: Readonly<Record<string, number>>
   /** Its targets with no gesture on: `animate`'s values for it now, over its starts. */
@@ -208,11 +210,21 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
     })
   }
 
-  /** A member's target now: its press's over its hover's over `animate`'s. */
+  /** A gesture's values for a member as it starts: its object's, or its function's, called now. */
+  const gestureValuesOf = (given: unknown, member: Member): Readonly<Record<string, number>> | undefined =>
+    UndefinedOr.map(overlayOf(given, member), (overlay) => numbersOf(splitOn(member.subject, valuesAndTransition(overlay)[0])))
+
+  /**
+   * A member's target now: its press's over its hover's over `animate`'s, each gesture's as it read at its
+   * start, so a change never calls a gesture's function (ADR-0070 Q58, Q59).
+   */
   const targetFor = (member: Member): Readonly<Record<string, number>> => {
+    // A gesture's values are held only while it's on (`gestured`, `leave`): per member per change, statements.
     let target = member.base
-    if (member.hovered) target = UndefinedOr.match(overlayOf(config.whileHover, member), { onUndefined: () => target, onDefined: (hover) => ({ ...target, ...numbersOf(splitOn(member.subject, valuesAndTransition(hover)[0])) }) })
-    if (member.pressed) target = UndefinedOr.match(overlayOf(config.whileTap, member), { onUndefined: () => target, onDefined: (tap) => ({ ...target, ...numbersOf(splitOn(member.subject, valuesAndTransition(tap)[0])) }) })
+    const hover = member.held.hovered
+    if (Predicate.isNotUndefined(hover)) target = { ...target, ...hover }
+    const tap = member.held.pressed
+    if (Predicate.isNotUndefined(tap)) target = { ...target, ...tap }
     return target
   }
 
@@ -308,6 +320,8 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
       member.leaving = true
       member.hovered = false
       member.pressed = false
+      member.held.hovered = undefined
+      member.held.pressed = undefined
     })
     const exiting = Arr.filter(going, (member) => Predicate.isNotUndefined(overlayOf(byKey.exit, member)))
     Arr.forEach(
@@ -349,7 +363,7 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
   /** A member entering: its subject made, its start at its `initial`, joined to the Batch. */
   const enter = (key: unknown, item: unknown, i: number, values: StageBatchValues): Member => {
     const [subject, index] = subjectFor(item, i)
-    const member: Member = { key, item, i, subject, index, slot: -1, leaving: false, hovered: false, pressed: false, rest: {}, base: {} }
+    const member: Member = { key, item, i, subject, index, slot: -1, leaving: false, hovered: false, pressed: false, held: { hovered: undefined, pressed: undefined }, rest: {}, base: {} }
     const running = made([[subject, values]])
     const animated = numbersOf(splitOn(subject, values))
     member.base = animated
@@ -383,10 +397,20 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
   /** A member's gesture info. */
   const infoOf = (member: Member): StageBatchMemberInfo =>
     Bool.match(keyed, { onTrue: () => ({ i: member.i, item: member.item, element: member.subject }), onFalse: () => ({ i: member.i, element: member.subject }) })
-  /** A member's gesture changed: it turns toward its stack's target, on the gesture's transition. */
+  /**
+   * A member's gesture changed: its values read as it starts, then it turns toward its stack's target, on the
+   * gesture's transition. A gesture whose values throw is the watch's report, and its member stays on it
+   * with nothing to turn to.
+   */
+  // #979, row 34 (ADR-0074, its group A amendment: Wardic's own first): the flag is set before the app's
+  // function is called, and the event told before both, so a hover's start and end stay paired. Before, a
+  // change of `animate` called a hovered member's function again, inside the Batch's Solid effect, and its
+  // throw halted Solid.
   const gestured = (member: Member, layer: "hovered" | "pressed", on: boolean, given: unknown): void => {
     if (Bool.or(member.leaving, member[layer] === on)) return
     member[layer] = on
+    member.held[layer] = undefined
+    if (on) member.held[layer] = gestureValuesOf(given, member)
     const transition = Bool.match(Bool.and(on, Bool.and(Predicate.isNotUndefined(given), Bool.not(Predicate.isFunction(given)))), {
       onTrue: () => UndefinedOr.match(valuesAndTransition(given as StageBatchValues)[1], { onUndefined: () => configTransition, onDefined: (own) => own }),
       onFalse: () => configTransition,
@@ -397,14 +421,18 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
     if (Bool.or(disposed, listening.has(gesture))) return
     listening.add(gesture)
     if (Predicate.isUndefined(gestureScope)) gestureScope = Scope.makeUnsafe()
-    const onDefect = (): void => undefined
+    // A gesture's function that throws, or values that aren't the Batch's, reported as the DOM's Batch's are
+    // (#979, row 34): before, they were dropped here, unlogged.
+    const onDefect = (cause: Cause.Cause<never>): void => {
+      runtime.runFork(Report.failure("createBatch: a gesture failed", cause))
+    }
     const watch = Bool.match(gesture === "hover", {
       onTrue: () =>
         Recognizer.watchHoverAmong(memberOfNode, {
           on: (target, edge) => {
             const member = target as Member
-            gestured(member, "hovered", edge.active, config.whileHover)
             hooks.gesture(Bool.match(edge.active, { onTrue: () => "hoverStart" as const, onFalse: () => "hoverEnd" as const }), infoOf(member))
+            gestured(member, "hovered", edge.active, config.whileHover)
           },
           onDefect,
         }),
@@ -412,10 +440,10 @@ export const bindSceneBatch = (context: SceneBatchContext, config: StageKeyedBat
         Recognizer.watchPressAmong(memberOfNode, {
           on: (target, press) => {
             const member = target as Member
-            gestured(member, "pressed", press.phase === "start", config.whileTap)
             if (press.phase === "start") hooks.gesture("pressStart", infoOf(member))
             if (press.phase === "tap") hooks.gesture("tap", infoOf(member))
             if (press.phase === "cancel") hooks.gesture("tapCancel", infoOf(member))
+            gestured(member, "pressed", press.phase === "start", config.whileTap)
           },
           onDefect,
         }, { keys: false }),
