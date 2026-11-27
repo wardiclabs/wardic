@@ -21,8 +21,15 @@
 //   keeps the ones it mounted with.
 // - AC11: a start reaches a Variant child's own Variant children (the review's find): the grandchildren
 //   join the change, so the Effect waits for them and the override is theirs too.
+// - AC12 (#979 row 35): a start whose function throws for one element is refused at the call, taking
+//   nothing: its Effect dies with the throw, as a Command's own defect does, no element moves, and the
+//   next start reaches them all.
+// - AC13 (#979 row 35): that start as a Command crashes the app, as a Command's own defect does, with no
+//   element moved.
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { afterEach, describe, expect, it } from "vitest"
@@ -31,7 +38,7 @@ import * as AnimationControls from "@wardic/foldkit/AnimationControls"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { raf, until } from "../../solid/test/browser-helpers.ts"
-import { type ActionsMessage, BOX, boxOf, computedOpacityOf, doneOf, type Embedded, embedActions, frames, logged, said, translateXOf, wait } from "./harness.ts"
+import { type ActionsMessage, BOX, boxOf, capture, computedOpacityOf, doneOf, type Embedded, embedActions, frames, logged, said, translateXOf, wait } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive })
 type W = Wardic.Html<ActionsMessage, never>
@@ -330,5 +337,47 @@ describe("Animation controls on Foldkit (#798)", () => {
     expect(xOf(leaf), "on the override's 0.6 s, not its own 0.2 s").toBeLessThan(-8)
     await until(() => doneOf(held).includes("slow"), 3000, "the override's start lands")
     expect(xOf(leaf)).toBeCloseTo(0, 1)
+  })
+
+  it("AC12: a start whose function throws for one element dies, refused at the call, taking nothing (#979)", async () => {
+    const controls = AnimationControls.make()
+    const held = drive((_on, h, w) => h.div([], [0, 1, 2].map((i) => w.div([h.Id(`c${i}`), w.Custom(i), w.Initial({ x: 0 }), w.Animate(controls), h.Style(BOX)]))), {})
+    const boxes = [await boxOf(held, "c0"), await boxOf(held, "c1"), await boxOf(held, "c2")]
+    await frames(4)
+    let broken = true
+    const toward = (i: number) => {
+      if (broken && i === 1) throw new Error("its definition broke")
+      return { x: (i + 1) * 50 }
+    }
+    const exit = await Effect.runPromiseExit(AnimationControls.start(controls, toward, { duration: 0.1 }))
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause), "it dies").toBe(true)
+    await frames(12)
+    expect(boxes.map(xOf), "none moved").toEqual([0, 0, 0])
+    broken = false
+    await Effect.runPromise(AnimationControls.start(controls, toward, { duration: 0.1 }))
+    expect(boxes.map((box) => Math.round(xOf(box)))).toEqual([50, 100, 150])
+  })
+
+  it("AC13: that start as a Command crashes the app, as a Command's own defect does, with no element moved (#979)", async () => {
+    const controls = AnimationControls.make()
+    const toward = (i: number) => {
+      if (i === 1) throw new Error("its definition broke")
+      return { x: (i + 1) * 50 }
+    }
+    const captured = capture()
+    try {
+      const held = drive((_on, h, w) => h.div([], [0, 1, 2].map((i) => w.div([h.Id(`c${i}`), w.Custom(i), w.Initial({ x: 0 }), w.Animate(controls), h.Style(BOX)]))), {
+        go: AnimationControls.start(controls, toward, { duration: 0.1 }),
+      })
+      const boxes = [await boxOf(held, "c0"), await boxOf(held, "c1"), await boxOf(held, "c2")]
+      await frames(4)
+      held.send("go")
+      await until(() => said(captured.lines, "Application crash"), 2000, "the app crashes")
+      await frames(12)
+      expect(said(captured.lines, "its definition broke"), "with the throw").toBe(true)
+      expect(boxes.map(xOf), "none moved").toEqual([0, 0, 0])
+    } finally {
+      captured.stop()
+    }
   })
 })

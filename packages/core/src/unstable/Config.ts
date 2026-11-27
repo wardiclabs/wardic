@@ -296,9 +296,10 @@ export interface WardicAnimationControls {
    * Animates every element given these controls to `definition`, as a change of its `animate` would,
    * its variant children following. `transitionOverride`, when given, is the transition of this change,
    * over the definition's own, and its stagger. Resolves once each element and its children have landed.
+   * A function definition that throws for one element refuses the call, throwing, with no element changed.
    */
   readonly start: (definition: WardicControlsDefinition, transitionOverride?: WardicTransition) => Promise<void>
-  /** Sets every element given these controls, and its variant children, at `definition` at once. */
+  /** Sets every element given these controls, and its variant children, at `definition` at once; refused, with none set, as `start` is. */
   readonly set: (definition: WardicControlsDefinition) => void
   /** Ends every element's running animation where it is. */
   readonly stop: () => void

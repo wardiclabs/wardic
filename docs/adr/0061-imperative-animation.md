@@ -602,3 +602,11 @@ UndefinedOr.map(onComplete, (complete) => {
   All are fixed.
 
 Group C is done. Groups D to I, and rows 37 and 38 (#981, #983), are left in #979.
+
+## Amendment (#979, group H, 2026-11-27): Animation controls refuse a call whose function throws, taking nothing
+
+ADR-0074's rule for Animation controls (#433): #979's row 35. ADR-0074's *Amendment (#979, group H)* records the group, its cost and its tests; this is the controls' part.
+- **Before:** `start` and `set` set each element's entry as they called its function, so one that threw for a later element came out of the call with the earlier elements already changed and the rest unreached, as row 20's `delay(i, n)` did before group C. Motion's `animationControls.start` does the same (framer-motion 14.9.0).
+- **Now** every element's entry is worked out first, in order, its function called (`Controlled.entryOf`), and only then is each set: a throw comes out of `start()` or `set()` as before, a refusal at the call (ADR-0074's scope), and no element has changed.
+- **On Foldkit,** `AnimationControls.start`'s Command dies with the throw, as a Command's own defect does: ADR-0071's part.
+- **Pinned by** ACV6 (Solid 2, `start` and `set`), AC14 (Solid 1) and Foldkit's AC12.

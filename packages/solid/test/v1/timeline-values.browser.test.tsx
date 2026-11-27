@@ -13,6 +13,9 @@
 // - TL6: the key gone from the `style` stops it; back, it runs again.
 // - TL7: an Imperative animation of the key stops it while it draws the key.
 // - TL8: the key's source swapped for another scroll value's runs the new one.
+// - TL9 (#979 row 7): a transform whose `ease` throws at a point its keyframes sample, on an element mounted
+//   before another, as a container's ref arrives: nothing comes out of the app's setter, the later element
+//   runs its own, and the throw is reported once.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createScroll, createTransform, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid/v1"
@@ -20,6 +23,7 @@ import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
 import { resetScene, settle, wait } from "./reorder-harness.tsx"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(resetScene)
 
@@ -323,5 +327,43 @@ describe("Timeline values in Solid (#240)", () => {
     await settle()
     expect(await sourceOf(fade)).toBe(box)
     expect(opacityOf(fade), "the new one's").toBeCloseTo(0.2, 3)
+  })
+
+  it("TL9: an ease that throws where the keyframes sample, as a container's ref arrives: nothing out of the setter, a later element runs its own (#979)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const [shown, setShown] = createSignal<HTMLDivElement | undefined>(undefined)
+    let box!: HTMLDivElement
+    let broken!: HTMLDivElement
+    let plain!: HTMLDivElement
+    const Scene = () => {
+      const { scrollYProgress } = createScroll({ container: shown })
+      const eased = createTransform(scrollYProgress, [0, 1], [0.2, 1], {
+        ease: (t: number) => {
+          if (t > 0.5) throw new Error("its ease broke")
+          return t
+        },
+      })
+      const opacity = createTransform(scrollYProgress, [0, 1], [0.2, 1])
+      return (
+        <>
+          <Box box={(el) => (box = el)} />
+          <wardic.div ref={broken} style={{ width: "10px", height: "10px", opacity: eased }} />
+          <wardic.div ref={plain} style={{ width: "10px", height: "10px", opacity }} />
+        </>
+      )
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(() => setShown(box), "nothing out of the setter").not.toThrow()
+    await settle()
+    expect(await sourceOf(plain), "the later element's").toBe(box)
+    expect(await runningOn(broken), "none").toHaveLength(0)
+    expect(errorsNamed(logs, "wardic.timeline: a Timeline value failed").length, "once").toBe(1)
+    expect(reports).toEqual(["its ease broke"])
   })
 })

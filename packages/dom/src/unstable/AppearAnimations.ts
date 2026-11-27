@@ -427,7 +427,9 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (mes
   const write = (batch: ReadonlyArray<Entry>): string => {
     // Each entry's plays are its own setting's (#434): the normal ones always, the reduced ones under
     // the media query when an entry follows the user.
-    const resolve = (pick: "normal" | "reduced") => timings(batch, pick)
+    // A `delayChildren` function that throws, reported once a write (#979).
+    const delays = VariantTree.eventDelayFailuresOf(VariantTree.ON_SERVER)
+    const resolve = (pick: "normal" | "reduced") => timings(batch, pick, delays)
     const normal = resolve("normal")
     const reduced = Bool.match(Arr.some(batch, isUser), { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Timings>() })
     const settings = Arr.prepend(Option.toArray(reduced), normal)
@@ -509,7 +511,7 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (mes
  * is among that group's children in its batch, and it doesn't wait on the leader (decision 5 of
  * *Amendment (#245)*). The shell's batch is every entry, so nothing changes for it.
  */
-const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Timings => {
+const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced", delays: VariantTree.DelayFailures): Timings => {
   const memo = new Map<Entry, Result.Result<{ readonly play: TimedPlay; readonly settled: number }, string>>()
   let geometry = false
   const inBatch = new Set(entries)
@@ -554,7 +556,7 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Tim
     })
   /** When `entry` starts: its stagger, after its parent under `beforeChildren`, after its children under `afterChildren`. */
   const startOf = (entry: Entry): Result.Result<number, string> =>
-    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + ownStaggerOf(entry, childrenOf)))
+    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + ownStaggerOf(entry, childrenOf, delays)))
   // A leader written earlier started at first paint: a late child doesn't wait on it.
   const afterParent = (entry: Entry): Result.Result<number, string> =>
     Option.match(Option.filter(entry.group, (g) => Bool.and(g.when === "beforeChildren", inBatch.has(g.leader))), {
@@ -634,23 +636,23 @@ const groupSupports = (
 }
 
 /** An entry's own stagger: none when it's skipped (#468), as its client's snap has no delay; its `when` waits still hold. */
-const ownStaggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<Entry>): number => {
+const ownStaggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<Entry>, delays: VariantTree.DelayFailures): number => {
   if (entry.skipped) return 0
-  return staggerOf(entry, childrenOf)
+  return staggerOf(entry, childrenOf, delays)
 }
 
 /**
  * A Variant child's stagger: its parent's `delayChildren` plus its place (ADR-0007), as the client
  * works it out, among the group's children in its batch (`childrenOf`, #245).
  */
-const staggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<Entry>): number =>
+const staggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<Entry>, delays: VariantTree.DelayFailures): number =>
   Option.match(entry.group, {
     onNone: () => 0,
     onSome: (g) => {
       const children = childrenOf(g)
       const n = children.length
       const i = children.indexOf(entry)
-      return VariantTree.childDelayOf(g.stagger, i, n)
+      return VariantTree.childDelayOf(g.stagger, i, n, delays)
     },
   })
 

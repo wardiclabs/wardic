@@ -37,8 +37,11 @@ export const make: () => AnimationControls = CoreControls.createAnimationControl
  * its `Animate` would (an `Effect` for a Command): `transition`, when given, is the transition of this
  * change over the definition's own, and its stagger. Succeeds once each element and its children have
  * landed, at once with no element given the controls; interrupting it ends every element the controls
- * reach where it is, as `controls.stop()` does.
+ * reach where it is, as `controls.stop()` does. A function definition that throws for an element refuses
+ * the start, with no element changed: the Effect dies with the throw, as a Command's own defect does.
  */
+// #979 (ADR-0074, row 35; the grill's Q9): a refusal at the call is its caller's, and here the caller is a
+// Command, whose defect Foldkit's crash view shows.
 export const start = (controls: AnimationControls, definition: Definition, transition?: WardConfig.WardicTransition): Effect.Effect<void> =>
   Effect.callback<void>((resume) => {
     void controls.start(definition, transition).then(() => resume(Effect.void))

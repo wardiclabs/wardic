@@ -13,12 +13,16 @@
 // - TL6: the key gone from the `style` stops it; back, it runs again.
 // - TL7: an Imperative animation of the key stops it while it draws the key.
 // - TL8: the key's source swapped for another scroll value's runs the new one.
+// - TL9 (#979 row 7): a transform whose `ease` throws at a point its keyframes sample runs none, the gate
+//   drawing its key and its other keys starting; another element on the scroll runs its own; reported once,
+//   not again at a scroll or as the key comes back.
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createScroll, createTransform, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid"
 import { createSignal, flush } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { afterPaint, raf } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { envWith, errorsNamed, type Logged } from "./report-env.ts"
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 const settle = async (): Promise<void> => {
@@ -334,5 +338,60 @@ describe("Timeline values in Solid 2 (#240)", () => {
     await settle()
     expect(await sourceOf(fade)).toBe(box)
     expect(opacityOf(fade), "the new one's").toBeCloseTo(0.2, 3)
+  })
+
+  it("TL9: a transform whose ease throws where its keyframes sample runs none, the gate drawing it; another runs its own; reported once (#979)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    let box!: HTMLDivElement
+    let broken!: HTMLDivElement
+    let plain!: HTMLDivElement
+    const [which, setWhich] = createSignal<"faded" | "plain">("faded")
+    const Scene = () => {
+      const { scrollYProgress } = createScroll({ container: () => box })
+      // Past halfway, a point the frame path never reads here: only the Timeline value's keyframes sample it.
+      const eased = createTransform(scrollYProgress, [0, 1], [0.2, 1], {
+        ease: (t: number) => {
+          if (t > 0.5) throw new Error("its ease broke")
+          return t
+        },
+      })
+      const opacity = createTransform(scrollYProgress, [0, 1], [0.2, 1])
+      const styles = { faded: { width: "10px", height: "10px", opacity: eased }, plain: { width: "10px", height: "10px" } }
+      return (
+        <>
+          <Box box={(el) => (box = el)} />
+          <wardic.div ref={(n: HTMLElement) => (broken = n as HTMLDivElement)} style={styles[which()]} animate={{ x: 30 }} transition={{ duration: 0.05 }} />
+          <wardic.div ref={(n: HTMLElement) => (plain = n as HTMLDivElement)} style={{ width: "10px", height: "10px", opacity }} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(await sourceOf(plain), "the other runs its own").toBe(box)
+    expect(await runningOn(broken), "none").toHaveLength(0)
+    expect(new DOMMatrix(getComputedStyle(broken).transform).m41, "its other key started").toBeCloseTo(30, 0)
+    scrollTo(box, 300)
+    await settle()
+    expect(opacityOf(broken), "the gate draws it").toBeCloseTo(0.2 + 0.8 / 3, 2)
+    expect(opacityOf(plain)).toBeCloseTo(0.2 + 0.8 / 3, 2)
+    // The key gone and back: the same derivation, so it isn't made again.
+    setWhich("plain")
+    flush()
+    await settle()
+    expect(opacityOf(broken), "the key gone: Solid went on").toBe(1)
+    setWhich("faded")
+    flush()
+    await settle()
+    expect(opacityOf(broken), "back, the gate draws it").toBeCloseTo(0.2 + 0.8 / 3, 2)
+    expect(await runningOn(broken), "still none").toHaveLength(0)
+    const failed = errorsNamed(logs, "wardic.timeline: a Timeline value failed")
+    expect(failed.length, "once").toBe(1)
+    expect(failed[0].annotations).toMatchObject({ key: "opacity" })
+    expect(reports).toEqual(["its ease broke"])
   })
 })

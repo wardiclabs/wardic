@@ -22,18 +22,24 @@
 // - CB11: per-value entries as a `wardic.div`'s: an entry with only a `delay` holds that key's Default
 //   transition by it; a top-level `delay` holds the keys on the top level's fields, not one with its own entry.
 // - CB12: an element inside an `<svg>` turns about its own centre: `transform-box: fill-box`.
+// - CB13 (#979 row 33): an `onAnimationStart` that throws is reported each time, and the flight goes on, at
+//   mount and at a change, a `wardic.div` set in the same update moving too, its landing counting every member.
+// - CB14 (#979 row 33): an `onAnimationComplete` that throws is reported each time, and the next flight
+//   starts and lands.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import { createBatch, stagger, wardic, WardicConfig, WardicProvider } from "@wardic/solid/v1"
 import { createSignal, For, type JSX, Show } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, onTestFinished } from "vitest"
 import { raf } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
 const SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
+const LINEAR = { type: "tween", duration: 0.1, ease: "linear" } as const
 
 const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
 const xOf = (el: Element): number => matrixOf(el).m41
@@ -398,5 +404,84 @@ describe("createBatch on Solid 1 (#665)", () => {
     })
     await raf()
     expect([rect.style.transformBox, rect.style.transformOrigin]).toEqual(["fill-box", "50% 50%"])
+  })
+
+  it("CB13: an onAnimationStart that throws is reported each time and the flight goes on, at mount and at a change beside a wardic.div (#979)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const calls: Array<string> = []
+    const errors: Array<string> = []
+    const onError = (event: ErrorEvent): void => {
+      errors.push(event.message)
+      event.preventDefault()
+    }
+    window.addEventListener("error", onError)
+    onTestFinished(() => window.removeEventListener("error", onError))
+    const [target, setTarget] = createSignal(50)
+    const members: Array<HTMLDivElement> = []
+    let div!: HTMLDivElement
+    const Scene = () => {
+      const grid = createBatch({
+        count: 2, initial: { x: 0 }, animate: (i) => ({ x: target() + i }), transition: LINEAR,
+        onAnimationStart: () => {
+          throw new Error("its start broke")
+        },
+        onAnimationComplete: (landing) => calls.push(`complete ${landing.moved}`),
+      })
+      return (
+        <>
+          <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
+          <wardic.div ref={div} style={BOX} animate={{ x: target() }} transition={LINEAR} />
+        </>
+      )
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await readsOver(20, members, xOf)
+    expect(members.map(xOf)).toEqual([50, 51])
+    expect(calls).toEqual(["complete 2"])
+    expect(errorsNamed(logs, "createBatch: onAnimationStart failed").length).toBe(1)
+    // A change: the members and the wardic.div, in one update.
+    setTarget(100)
+    await readsOver(20, members, xOf)
+    expect([...members.map(xOf), xOf(div)]).toEqual([100, 101, 100])
+    expect(calls).toEqual(["complete 2", "complete 2"])
+    expect(errorsNamed(logs, "createBatch: onAnimationStart failed").length).toBe(2)
+    expect(reports).toEqual(["its start broke", "its start broke"])
+    expect(errors, "nothing uncaught, at mount or at the change").toEqual([])
+  })
+
+  it("CB14: an onAnimationComplete that throws is reported each time, and the next flight starts and lands (#979)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const calls: Array<string> = []
+    const [target, setTarget] = createSignal(50)
+    const members: Array<HTMLDivElement> = []
+    const Scene = () => {
+      const grid = createBatch({
+        count: 2, initial: { x: 0 }, animate: (i) => ({ x: target() + i }), transition: LINEAR,
+        onAnimationStart: () => calls.push("start"),
+        onAnimationComplete: () => {
+          throw new Error("its landing broke")
+        },
+      })
+      return <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await readsOver(20, members, xOf)
+    expect(errorsNamed(logs, "createBatch: onAnimationComplete failed").length).toBe(1)
+    setTarget(100)
+    await readsOver(20, members, xOf)
+    expect(members.map(xOf)).toEqual([100, 101])
+    expect(calls).toEqual(["start", "start"])
+    expect(errorsNamed(logs, "createBatch: onAnimationComplete failed").length).toBe(2)
+    expect(reports).toEqual(["its landing broke", "its landing broke"])
   })
 })

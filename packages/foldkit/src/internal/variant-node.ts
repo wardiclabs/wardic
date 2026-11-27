@@ -291,6 +291,30 @@ const ownOrchestration = (
 }
 
 /**
+ * A Variant child's place with the ancestor it joined: its context, its registration, and where its
+ * stagger reports its parent's `delayChildren` throwing (#979), its element's failures once its Mount
+ * hands them over.
+ */
+interface Joined {
+  readonly context: VariantTree.WardicVariantContextValue
+  readonly registration: VariantTree.WardicChildRegistration
+  delayFailures: VariantTree.DelayFailures | undefined
+}
+
+/**
+ * Where a node hands its element's failures: its orchestration's resolutions, and, for a Variant child, its
+ * stagger. An element that's neither keeps nothing, as most elements, at mount, have nothing to keep.
+ */
+const reportsToOf = (joined: Joined | undefined, orchestration: { readonly reportsTo: (failures: Spine.VariantFailures) => void } | undefined): ((failures: Spine.VariantFailures) => void) =>
+  UndefinedOr.match(joined, {
+    onUndefined: () => UndefinedOr.match(orchestration, { onUndefined: () => constVoid, onDefined: (o) => o.reportsTo }),
+    onDefined: (child) => (failures: Spine.VariantFailures) => {
+      child.delayFailures = failures
+      if (Predicate.isNotUndefined(orchestration)) orchestration.reportsTo(failures)
+    },
+  })
+
+/**
  * An element's place in variant orchestration on the client, from its delivered config (read on each
  * ask) and the context the nearest Wardic ancestor provides. `notify` re-checks the port's watches.
  * With **Animation controls** as its first delivery's `animate` (#433; #798, Q4), the config everything
@@ -311,7 +335,7 @@ export const variantNodeOf = (delivered: () => Delivered, parent: VariantTree.Wa
   const change = VariantTree.controlsChangeOf(Bool.match(controlled, { onTrue: () => ownChange, onFalse: constUndefined }), inherited)
   const read: Read = { config: () => configured(delivered()), change }
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
-  const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
+  const joined = UndefinedOr.map(inherited, (context): Joined => ({ context, registration: context.register(), delayFailures: undefined }))
   const orchestration = Bool.match(VariantTree.hasOwnVariants(config), {
     onFalse: constUndefined,
     onTrue: () => ownOrchestration(read, parent, inherited, notify),
@@ -322,10 +346,10 @@ export const variantNodeOf = (delivered: () => Delivered, parent: VariantTree.Wa
   return {
     provided: UndefinedOr.match(orchestration, { onDefined: (o) => o.context, onUndefined: () => VariantTree.passedThrough(config, parent) }),
     inherited,
-    extraDelay: UndefinedOr.map(joined, ({ context, registration }) => (name: string | undefined) => {
-      const s = VariantTree.staggerOfName(context, name)
-      const n = registration.total()
-      return VariantTree.childDelayOf(s, registration.index(), n)
+    extraDelay: UndefinedOr.map(joined, (child) => (name: string | undefined) => {
+      const s = VariantTree.staggerOfName(child.context, name)
+      const n = child.registration.total()
+      return VariantTree.childDelayOf(s, child.registration.index(), n, child.delayFailures)
     }),
     canStart: () =>
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&
@@ -336,7 +360,7 @@ export const variantNodeOf = (delivered: () => Delivered, parent: VariantTree.Wa
     },
     names: namesOf(joined, orchestration),
     bindGestures: UndefinedOr.match(orchestration, { onUndefined: () => constVoid, onDefined: (o) => o.bindGestures }),
-    reportsTo: UndefinedOr.match(orchestration, { onUndefined: () => constVoid, onDefined: (o) => o.reportsTo }),
+    reportsTo: reportsToOf(joined, orchestration),
     dispose: UndefinedOr.match(joined, { onUndefined: () => constVoid, onDefined: ({ registration }) => registration.dispose }),
     configured,
     change,

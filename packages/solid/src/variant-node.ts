@@ -358,7 +358,7 @@ export const createVariantNode = (
     extraDelay: UndefinedOr.map(joined, ({ context, registration }) => (name: string | undefined) => {
       const s = VariantTree.staggerOfName(context, name)
       const n = registration.total()
-      return VariantTree.childDelayOf(s, registration.index(), n)
+      return VariantTree.childDelayOf(s, registration.index(), n, failures)
     }),
     canStart: () =>
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&

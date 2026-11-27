@@ -1103,7 +1103,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // One `wardic.presence.exit` span spans the whole exit, from the leave to the last part's end.
     // A failed run is logged and reported (ADR-0030, decision 4); the node is removed either way.
     const fiber = runtime.runFork(
-      Effect.all(Arr.map(roots, (root) => runOf(root, NO_DELAY)), { concurrency: "unbounded", discard: true }).pipe(
+      // Its stagger's `delayChildren` function that throws, reported once this exit (#979).
+      Effect.all(Arr.map(roots, (root) => runOf(root, NO_DELAY, VariantTree.eventDelayFailuresOf(runtime))), { concurrency: "unbounded", discard: true }).pipe(
         Effect.tapCause((cause) => Report.failure("wardic.presence: an exit failed", cause)),
         Effect.ensuring(Effect.sync(() => partDone(el))),
         // The app's to give, with no call-site stack (#746; ADR-0040, decision 2).
@@ -1117,25 +1118,21 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * A node's exit and its Variant children's (#290), Motion's `animateVariant`: with `when`, one after
    * the other, the children's delays from 0; else together, the children's from `delay`.
    */
-  const runOf = (node: ExitNode, delay: DelayOf): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
+  const runOf = (node: ExitNode, delay: DelayOf, delays: VariantTree.DelayFailures): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     // A list's names each run on their own (#297's PR 2): each name's keys and its children's, in that
     // name's own `when`.
     const groups = node.exit.groups
     if (Predicate.isNotUndefined(groups)) {
       const first = UndefinedOr.match(groups[0], { onUndefined: constUndefined, onDefined: (group) => group.name })
-      return Effect.all(Arr.map(groups, (group) => runName(node, group.name, delay, group.name === first)), { concurrency: "unbounded", discard: true })
+      return Effect.all(Arr.map(groups, (group) => runName(node, group.name, delay, group.name === first, delays)), { concurrency: "unbounded", discard: true })
     }
     const own = exitOf(node.rec, node.exit, delay)
     if (node.kids.length === 0) return own
-    const n = node.kids.length
     // Each name orchestrates the children's keys of that name (#297, Motion's `animateVariant` a name):
     // its own transition's delay and stagger, else the exit's.
-    const slot = (i: number) => (name: string | undefined): number => {
-      const s = VariantTree.staggerOf(transitionOfName(node.exit, name))
-      return VariantTree.childDelayOf(s, i, n)
-    }
+    const slot = slotsOf(node, delays)
     const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices.WardicServices> =>
-      Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, (name) => from(name) + slot(i)(name))), { concurrency: "unbounded", discard: true })
+      Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, (name) => from(name) + slot(i)(name), delays)), { concurrency: "unbounded", discard: true })
     // `when` for a list as a whole, meanwhile (#297's PR 1): the exit's, its last name's that sets it.
     const when = UndefinedOr.map(node.exit.transition, (t) => t.when)
     if (when === "beforeChildren") return Effect.andThen(own, kidsFrom(NO_DELAY))
@@ -1143,25 +1140,27 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     return Effect.all([own, kidsFrom(delay)], { concurrency: "unbounded", discard: true })
   }
 
+  /** Each of `node`'s children's place in its exit's stagger, by the name it exits under: its delay. */
+  const slotsOf = (node: ExitNode, delays: VariantTree.DelayFailures) => {
+    const n = node.kids.length
+    return (i: number) => (name: string | undefined): number => VariantTree.childDelayOf(VariantTree.staggerOf(transitionOfName(node.exit, name)), i, n, delays)
+  }
+
   /**
    * One name of a list's exit (#297's PR 2, Motion's `animateVariant` a name): the element's keys of that
    * name, and its Variant children's, one after the other with that name's `when`, else together. A
    * child whose exit isn't the list runs it whole, under the list's first name.
    */
-  const runName = (node: ExitNode, name: string, delay: DelayOf, first: boolean): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
+  const runName = (node: ExitNode, name: string, delay: DelayOf, first: boolean, delays: VariantTree.DelayFailures): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     const own = exitOf(node.rec, node.exit, delay, name)
-    const n = node.kids.length
-    if (n === 0) return own
-    const slot = (i: number) => (of: string | undefined): number => {
-      const s = VariantTree.staggerOf(transitionOfName(node.exit, of))
-      return VariantTree.childDelayOf(s, i, n)
-    }
+    if (node.kids.length === 0) return own
+    const slot = slotsOf(node, delays)
     const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices.WardicServices> =>
       Effect.all(
         Arr.map(node.kids, (kid, i) => {
           const at: DelayOf = (of) => from(of) + slot(i)(of)
-          if (Predicate.isNotUndefined(kid.exit.groups)) return runName(kid, name, at, first)
-          if (first) return runOf(kid, at)
+          if (Predicate.isNotUndefined(kid.exit.groups)) return runName(kid, name, at, first, delays)
+          if (first) return runOf(kid, at, delays)
           return Effect.void
         }),
         { concurrency: "unbounded", discard: true },
