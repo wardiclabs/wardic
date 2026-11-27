@@ -14,6 +14,8 @@
 // - Since #75, the coordinator is one run on the Frame loop: it settles inside its step, a stop
 //   outside its step interrupts it, and a step that throws fails it alone, logged, until the next
 //   trigger starts a fresh run.
+// - Since #979's row 5 (ADR-0074), an app's code on the step is its node's own: a tween's ease that
+//   throws leaves its node where it was, landing on time, and every other node goes on.
 import { describe, expect, it } from "@effect/vitest"
 import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
@@ -68,6 +70,7 @@ interface Logged {
   readonly level: string
   readonly message: string
   readonly cause: string | undefined
+  readonly annotations: Readonly<Record<string, unknown>>
 }
 
 const COORDINATOR = "wardic.projection.coordinator"
@@ -87,7 +90,7 @@ const exitTag = (exit: Exit.Exit<unknown, unknown>): SpanRecord["exit"] =>
  * went idle opens another), and its Frame loop recording each run and the most coordinator runs
  * live at once.
  */
-const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
+const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: ProjectionSystem.Options) => {
   let open = 0
   let most = 0
   const countTicks = (clock: ClockShape): ClockShape => ({
@@ -171,14 +174,14 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       Spans.layer,
       Logger.layer([
         Logger.map(Logger.formatStructured, (s) => {
-          logs.push({ level: s.level, message: String(s.message), cause: s.cause })
+          logs.push({ level: s.level, message: String(s.message), cause: s.cause, annotations: s.annotations })
         }),
       ]),
       Layer.succeed(References.MinimumLogLevel, "Debug"),
       ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))]),
     ),
   )
-  const system = internalProjection.makeProjectionSystem(runtime, sink)
+  const system = internalProjection.makeProjectionSystem(runtime, sink, options)
   engines.push({ system, runtime })
   return {
     system,
@@ -578,24 +581,23 @@ describe("the coordinator is one run on the Frame loop (#75)", () => {
 })
 
 describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)", () => {
+  // Wardic's own code throwing: the test's sink, as no app's can (the Flush gate takes each element's
+  // write on its own since #969, and an app's code on the step is its node's own since #979's row 5).
   it("logged once, with the defect; a run beside it keeps its Frames; the next trigger starts a fresh run, which settles the node", async () => {
     const sk = makeSink()
-    const e = makeEngine(sk.sink)
+    let failing = false
+    const sink = {
+      ...sk.sink,
+      write: (id: string, partial: Record<string, unknown>): void => {
+        if (failing) throw new Error("write failed")
+        sk.sink.write(id, partial)
+      },
+    }
+    const e = makeEngine(sink)
     let held = 0
     hold(e, () => void held++)
-    let failing = false
     const element = box(0)
-    // A tween's easing, called each step (ADR-0009 *Amendment (#171)*): it throws once failing.
-    const a = await register(e, "a", element, () =>
-      Option.some({
-        type: "tween",
-        duration: 1,
-        ease: (t) => {
-          if (failing) throw new Error("easing failed")
-          return t
-        },
-      }),
-    )
+    const a = await register(e, "a", element)
     fireFrame()
     element.style.left = "200px"
     a.notify()
@@ -606,16 +608,16 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     const heldBefore = held
     fireFrame()
     expect(e.errors().map((l) => l.message)).toEqual(["wardic.projection: coordinator failed"])
-    expect(e.errors()[0]!.cause).toContain("easing failed")
-    expect(e.reports(), "reported once, with the defect").toEqual(["easing failed"])
+    expect(e.errors()[0]!.cause).toContain("write failed")
+    expect(e.reports(), "reported once, with the defect").toEqual(["write failed"])
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure"])
+    failing = false
     const writes = sk.of("a").length
     fireFrames(3)
     expect(held - heldBefore, "the run beside it got every Frame").toBe(4)
     expect(sk.of("a").length, "the node waits where its last step left it").toBe(writes)
     expect(offset(sk.of("a").at(-1)!), "mid-flight").toBeGreaterThan(1)
 
-    failing = false
     // A trigger that seeds nothing (the node's box didn't change) still starts a fresh run.
     a.notify()
     await endOfTask()
@@ -624,5 +626,132 @@ describe("a step that throws fails the coordinator alone (ADR-0027, decision 7)"
     expect(e.coordinatorRuns().map((r) => r.exit)).toEqual(["Failure", "Success"])
     expect(e.errors()).toHaveLength(1)
     expect(e.reports()).toHaveLength(1)
+  })
+})
+
+describe("an app's code on the step is its node's own (#979, row 5; ADR-0074)", () => {
+  it("a tween's ease that throws: its node holds where it was and lands on time, the others go on, reported once a run of throws", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    let failing = false
+    const elementA = box(0)
+    const elementB = box(0)
+    // A tween's easing, called each step (ADR-0009 *Amendment (#171)*): A's throws once failing.
+    const a = await register(e, "a", elementA, () =>
+      Option.some({
+        type: "tween",
+        duration: 1,
+        ease: (t) => {
+          if (failing) throw new Error("easing failed")
+          return t
+        },
+      }),
+    )
+    const b = await register(e, "b", elementB, () => Option.some({ type: "tween", duration: 1, ease: (t) => t }))
+    fireFrame()
+    await endOfTask()
+    elementA.style.left = "200px"
+    elementB.style.left = "200px"
+    a.notify()
+    b.notify()
+    await endOfTask()
+    fireFrames(3)
+
+    failing = true
+    fireFrame()
+    const held = offset(sk.of("a").at(-1)!)
+    expect(held, "A is mid-flight").toBeGreaterThan(150)
+    fireFrames(30)
+    expect(offset(sk.of("a").at(-1)!), "A holds where its last ease put it").toBeCloseTo(held, 5)
+    expect(offset(sk.of("b").at(-1)!), "B goes on").toBeLessThan(110)
+    fireFrames(30)
+    expect(offset(sk.of("a").at(-1)!), "A lands on time, on its slot").toBeLessThan(0.5)
+    expect(offset(sk.of("b").at(-1)!), "B lands").toBeLessThan(0.5)
+    expect(e.coordinatorRuns().map((r) => r.exit), "the coordinator never failed").not.toContain("Failure")
+    expect(e.errors().map((l) => ({ message: l.message, id: l.annotations.id }))).toEqual([{ message: "wardic.projection: a layout animation's ease failed", id: "a" }])
+    expect(e.errors()[0]!.cause).toContain("easing failed")
+    expect(e.reports(), "reported once, with the defect").toEqual(["easing failed"])
+
+    // A clean ease ends the run of throws: the next throw is reported again.
+    failing = false
+    elementA.style.left = "0px"
+    a.notify()
+    await endOfTask()
+    fireFrames(3)
+    expect(e.errors(), "a clean ease reports nothing").toHaveLength(1)
+    failing = true
+    fireFrames(3)
+    expect(e.errors().map((l) => l.message)).toEqual(["wardic.projection: a layout animation's ease failed", "wardic.projection: a layout animation's ease failed"])
+  })
+
+  it("a scale corrector that throws for a node: its other keys and every other node go on, from its seed on, reported once a run of throws", async () => {
+    const sk = makeSink()
+    let failing = false
+    // An app's correctors (#443): A's radius, 10px, throws its corrector once failing; the shadow's is clean.
+    const e = makeEngine(sk.sink, {
+      scaleCorrectors: {
+        borderRadius: {
+          correct: (latest) => {
+            if (failing && latest === "10px") throw new Error("correct failed")
+            return latest
+          },
+        },
+        boxShadow: { correct: (latest) => latest },
+      },
+    })
+    const linear = () => Option.some<ProjectionSystem.LayoutTransition>({ type: "tween", duration: 1, ease: (t) => t })
+    const elementA = box(0)
+    const elementB = box(0)
+    elementA.style.borderRadius = "10px"
+    elementB.style.borderRadius = "20px"
+    for (const element of [elementA, elementB]) element.style.boxShadow = "rgb(0, 0, 0) 2px 2px 4px 0px"
+    const a = await register(e, "a", elementA, linear)
+    const b = await register(e, "b", elementB, linear)
+    fireFrame()
+    await endOfTask()
+
+    // Failing from the Measure pass that seeds them: the seed corrects A's radius too.
+    failing = true
+    for (const element of [elementA, elementB]) {
+      element.style.width = "100px"
+      element.style.height = "100px"
+    }
+    a.notify()
+    b.notify()
+    await endOfTask()
+    fireFrames(5)
+    const early = { a: sk.of("a").at(-1)!.sx, b: sk.of("b").at(-1)!.sx }
+    fireFrames(25)
+    for (const id of ["a", "b"] as const) {
+      expect(sk.of(id).at(-1)!.sx, `${id} scales on`).toBeGreaterThan(early[id] + 0.1)
+      expect(sk.of(id).at(-1)!.sx, `${id} still flying`).toBeLessThan(0.9)
+    }
+    expect(sk.of("b").at(-1)!.partial["border-radius"], "B's radius, corrected").toBeDefined()
+    expect(sk.of("a").at(-1)!.partial["box-shadow"], "A's other corrector writes").toBeDefined()
+    expect(sk.of("a").at(-1)!.partial["border-radius"], "A's failing corrector's key keeps its last value").toBeUndefined()
+    fireFrames(35)
+    for (const id of ["a", "b"]) {
+      expect(sk.of(id).at(-1)!.sx, `${id} lands`).toBeCloseTo(1, 3)
+      expect(offset(sk.of(id).at(-1)!), `${id} lands on its slot`).toBeLessThan(0.5)
+    }
+    expect(e.coordinatorRuns().map((r) => r.exit), "the coordinator never failed").not.toContain("Failure")
+    expect(e.errors().map((l) => ({ message: l.message, id: l.annotations.id, key: l.annotations.key }))).toEqual([
+      { message: "wardic.projection: a scale corrector failed", id: "a", key: "borderRadius" },
+    ])
+    expect(e.reports(), "reported once, with the defect").toEqual(["correct failed"])
+
+    // A clean call ends the run of throws: the next throw is reported again.
+    failing = false
+    for (const element of [elementA, elementB]) {
+      element.style.width = "50px"
+      element.style.height = "50px"
+    }
+    a.notify()
+    b.notify()
+    await endOfTask()
+    fireFrames(3)
+    failing = true
+    fireFrames(3)
+    expect(e.errors().map((l) => l.message)).toEqual(["wardic.projection: a scale corrector failed", "wardic.projection: a scale corrector failed"])
   })
 })

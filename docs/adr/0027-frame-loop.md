@@ -801,3 +801,76 @@ ADR-0074's rule (one Subject's failure is its own), for the loop's `afterTick` h
 - **A `try` per hook, in both loops,** around its direct call, as each run's step has. A hook that throws is reported once until a call returns, `wardic.frameLoop: an afterTick hook failed`, on the context the loop was built with. The tick's other hooks and runs go on, and its window closes as any tick's does.
 - **What it reverses:** *Amendment (#673)*'s "a hook that throws fails its tick before the flag is cleared". TK3 now pins that the window closes after a hook throws, the tick ending as any, and LW8 that a Late round's throwing hook leaves every run going. The test before them, "a hook that throws fails the tick", now pins the hook's own failure: the other hooks run, every run goes on, and it's reported once a run of throws.
 - **Its cost** is ADR-0043's amendment's: a tick's hooks, 100 of them, measured with the rest of group D's sites.
+
+## Amendment (#979, group E, 2026-11-27): an app's code on the projection's step is its node's own
+
+ADR-0074's rule (one Subject's failure is its own) for the DOM's projection: #979's group E, its rows 5 (this coordinator), 13 (the Measure pass, ADR-0018) and 8 (Measured pairs, ADR-0059). ADR-0018 and ADR-0059 each carry a short amendment for their own row, pointing here.
+
+**What happened** (probed on `main` at 47ae7e48, in Chromium, the same in every binding):
+1. **The coordinator** (row 5): its one run steps every layout node each frame, and calls an app's code in three places:
+   - a tween layout transition's `ease`;
+   - an app's scale corrector (`WardicProvider`'s `scaleCorrectors`, on both Solid bindings; Foldkit has none);
+   - a leaving node's direct write, through its Transform template: one the projection draws itself, its gate registration gone.
+
+   One that threw failed the run (*Implementation in #75*'s decision 7): every layout node froze where it was, two at 43.8 px with the ease, at 129.2 with the corrector. It was logged once a run, and a trigger while it still threw failed it again. A leaver's template froze its parent and a node beside it until its exit removed it. A plain `animate` beside them went on.
+2. **The Measure pass** (row 13): ADR-0018's amendment.
+3. **Measured pairs** (row 8): ADR-0059's amendment.
+
+**Decided** (grilled 2026-11-26, two rounds, every recommendation taken; one changed in the build):
+1. **A `try` at each call of an app's code,** around the call itself:
+   - **a tween's `ease`** (`stepFlight`): one that throws leaves its node where its last ease put it, and the node lands on its target on time, its position set to 1 once its time is up;
+   - **a corrector's `correct`** (`withCustomCorrections`): one that throws leaves its keys at the value last written, out of that frame's write, and the node's other keys and every other node go on. A Measure pass's seed derives through it too, so a pass always ends by starting the coordinator;
+   - **a leaver's write** (`writeProjection`): one that throws leaves the leaver as it was drawn, as the gate leaves an element whose write throws (#969), and every other node goes on.
+
+   *Not a `try` per node around its step or its derive:* `derive` has five callers (the frame, a pass's seed, a drag, `deriveSubtree`, the Followers), and a throw inside it would leave a node half derived, its descendants deriving from its delta. Around the app's call, Wardic's own state stays whole, and every caller is covered.
+2. **The Measure pass's hold** (ADR-0018's amendment): a `try` per node around its template. One that throws holds its node where the template's last call did. *Changed in the build:* grilled as `none`, it read a centred node 25 px off, a layout animation the node never made.
+3. **Measured pairs** (ADR-0059's amendment): a `try` per request in both write phases, and a `failed` argument on core's unstable `MeasuredPairs` port, each asker reporting through its own runtime.
+4. **Reported once a run of throws, per node and path** (ADR-0074, rule 3): four fields on `NodeState`. They are `easeFailing`, `writeFailing`, `heldFailing`, and `failingCorrectors`, a set made at its node's first throw: with one flag, a node's clean corrector would end a failing one's run every frame. Each flag is cleared only when it's set, and a corrector leaves the set at its next clean call. *Not on the flight:* there it would start again with each flight, so an `ease` that keeps throwing would be reported at every layout change.
+5. **The messages,** at Error, on the provider's runtime:
+
+   | Where | Message |
+   |---|---|
+   | a tween's `ease`, annotated with its node's `id` | `wardic.projection: a layout animation's ease failed` |
+   | an app's corrector, annotated with its node's `id` and its `key` | `wardic.projection: a scale corrector failed` |
+   | a leaving node's write, annotated with its `id` | `wardic.projection: a leaving node's write failed` |
+   | a template at a Measure pass's hold, annotated with its node's `id` | `wardic.projection: a transformTemplate failed at a Measure pass` |
+   | an exit's Measured pairs, each time | `wardic.presence: an exit's Measured pairs failed` |
+   | a Retarget's, each time, annotated with its `id` | `wardic.spine: a Retarget's Measured pairs failed` |
+
+   A leaving node keeps its node's `id`: the record a disposed node is held by carries it, so the node it comes back as is named.
+
+**Decision 7, now:** an app's code on the step is its node's own. A throw of Wardic's own on the step still fails the coordinator's run alone, logged once as `wardic.projection: coordinator failed`, until the next trigger starts a fresh run. Its test now throws from the test's sink, as no app's code can since #969's gate and this.
+
+**Cost** (round 1 Q4). A paired microbench (`.tmp/979e/bench/`) times the coordinator's frame with an app's code on it: `main`'s `projection.ts` against the branch's, on happy-dom, 200 layout nodes flying a linear tween over 240 frames, their boxes given and their frames fired by hand, nothing throwing. `corrected` adds an app's corrector on `borderRadius`, called at every node each frame. Medians of 21 alternating reps, per node-frame, with a control that times `main` against a second copy of it, on the quiet bench host (the paired ratios' [p25, p75] where they matter):
+
+| scenario | Bun 1.3.13 | control | Node 22.22 | control | Node, Maglev | control |
+|---|---|---|---|---|---|---|
+| tween | −0.2% [−1.6, +2.1] | −1.4% | +10.6% | +14.1% | −0.9% [−1.4, −0.3] | −2.2% |
+| corrected | −1.2% [−1.8, +1.4] | −0.5% | +45.8% | +41.8% | +1.1% [+0.4, +2.3] | +0.6% [−0.0, +1.4] |
+
+- **Within noise:** each reads within its control. Node's top tier slows whichever copy it loads second, `main`'s own copy as much as the branch's (+14.1% and +41.8%); a rerun read +8.4% and +50.0%, against +23.5% and +52.9%. Maglev, the tightest, reads the corrector's `try` half a point over its control, within the control's spread.
+- **`bench:solid --base main --features`** passed both bindings, twice (controls +0.1% and +0.3%). The layout scenes' default transition is a tween, so their frames run the ease's `try` at each of 1,331 nodes. Every frame scene read within its noise, the page frame's spread ±10–26%. The warm tasks read within ±2% in the final run: Solid 2's mount, +4.6% [−1.5, +11.0] in the first run, read −1.5%. Solid 2's page measure read +2.6% [+2.2, +3.6] and +2.3% [+1.3, +2.6], within the gate, against Solid 1's +0.6% and −0.3% on the same `@wardic/dom` code. A node with no template, as every node there is, takes the same field read at the hold as before, so its cause isn't known.
+- **Found by the bench, and fixed:** the Retarget's report (ADR-0059's amendment) was first made once an element, at mount, a closure every ward kept. Retained per element read +0.4% [+0.3, +0.4], 60–100 B, on both bindings. It's now made only when a Retarget asks for pairs, and retained reads −0.0% to +0.1%. The +0.1% is a reorder item's 20 B, about what its layout node's five new fields take.
+- **Nothing made on the clean path:** each flag is cleared only when it's set, and a node's set of failing correctors is made at its first throw.
+
+**Tests** (round 2 Q4), at the agreed seams, each failing on `main` first:
+- **The coordinator** (`dom/test/projection-coordinator.browser.test.ts`):
+  - a tween's `ease` that throws: its node holds where it was and lands on time, and the node beside it lands. Reported once a run of throws, and again after a clean ease;
+  - an app's corrector that throws for one node, from the Measure pass that seeds it: that corrector's key is left unwritten, and the node's other key and the other node scale on and land. Reported once, with its key;
+  - the old "a step that throws" now throws from the test's sink, Wardic's own path, and keeps its assertions.
+- **LV12** (`projection-leavers.browser.test.ts`): a carried leaver whose write throws keeps what it drew, and its parent and a node beside it land. Reported once, with its node's id.
+- **The Measure pass** (`projection-measure-pass.browser.test.ts`): ADR-0018's amendment.
+- **MB1** (`dom/test/measured-pairs.browser.test.ts`, new) and Solid 2's **MW2**: ADR-0059's amendment.
+- **PUV5** (Solid 2) and **PU10** (Solid 1), `projection-utilities`: a provider's corrector that throws for one element leaves its radius as it was, and it and the element beside it animate and land. Reported once.
+- **Not pinned:** a Retarget's report, which only a throw of Wardic's own or the DOM's reaches (ADR-0059's amendment).
+
+**Mutations:** 23 of 23 caught (`.tmp/979e/mutate.py`), each run alone and restored from a copy:
+- each `try` dropped: the ease's, the corrector's, the leaver's, the hold's, and each of the batch's two writes';
+- a report dropped (the ease's, the leaver's, the batch's word to its asker, the presence's), made at every throw (the ease's, the corrector's, the hold's), or never cleared (the same three);
+- the ease's landing on time dropped, a failing corrector's keys written anyway, the leaver's `id` dropped, and the hold at `none` or its last good call not kept;
+- the batch: a request that threw read anyway, and a write's saved style pushed after its write.
+- **Missed first:** a request that threw, read anyway, as each of MB1's throwing requests threw at its first pair. MB1 now has one that throws after another pair of its own was read.
+- **Missed at one seam:** a failing corrector's keys written anyway, by PUV5, whose element's radius is already the corrector's input, so written as given it reads the same. The coordinator's test catches it.
+- After the review's changes, the seven mutations on the code they touched were run again, and each was caught.
+
+**Size** (`bun run size`): `s1-slim` +94 B gzipped, `s2-slim` +95, `f-slim` +142, `t2-stage` +49 and `t2-features` +64. The layout, complete, presence and dom-max apps grew the most, +379 to +479 B, within the 1% gate. Four budgets were raised by what was measured, 0.1 each, to 96.3, 119.1, 198.7 and 253.9; `t2-stage`'s held at 246.2.

@@ -237,12 +237,13 @@ interface PreparedExit {
 /**
  * An exit's Measured pairs (#430): each key whose start and target differ in type, asked of the
  * end-of-task batch, but a key with Keyframes of more than two stops (`stops`, #460). `undefined` with
- * none, nearly every exit.
+ * none, nearly every exit. `failed` is told when the batch can't take them (a Transform template
+ * that throws): they switch, as pairs it couldn't read do.
  */
-const exitMeasuredOf = (element: Element, from: Values.Values, to: Values.Values, stops: RetargetLegs.StopsByKey | undefined): RetargetLegs.MeasuredPairs | undefined => {
+const exitMeasuredOf = (element: Element, from: Values.Values, to: Values.Values, stops: RetargetLegs.StopsByKey | undefined, failed: (defect: unknown) => void): RetargetLegs.MeasuredPairs | undefined => {
   const pairs = Rec.filter(to, (target, key) => Bool.and(Bool.and(Object.hasOwn(from, key), Bool.not(RetargetLegs.hasManyStops(stops, key))), keepsMeasured(key, from[key], target)))
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return DomValues.measuredPairs.measure(castForDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
+  return DomValues.measuredPairs.measure(castForDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from, failed)
 }
 
 /** Whether a start and a target make a Measured pair (#430). */
@@ -745,6 +746,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    */
   const debug = Report.debugOf(runtime, "wardic.presence")
   const exitFailed = Spine.exitVariantFailedOn(runtime)
+  // An exit's Measured pairs the batch couldn't take (its Transform template threw), reported each time (#979, row 8).
+  const exitMeasuredFailed = Spine.exitMeasuredFailedOn(runtime)
 
   // The registry of live child records, keyed by their DOM element. Filled by
   // register() (called from the child's spine on mount), drained as children
@@ -1188,7 +1191,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const skipped = UndefinedOr.match(rec.skipAnimations, { onUndefined: constFalse, onDefined: (own) => own() })
     // Measured pairs (#430): an exit from `auto` to 0 measures both ends, as a Retarget does, unless
     // reduced motion snaps them or the exit is skipped.
-    const measured = Bool.match(Bool.or(reduce, skipped), { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to, stops) })
+    const measured = Bool.match(Bool.or(reduce, skipped), { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to, stops, exitMeasuredFailed) })
     const legs = UndefinedOr.match(exit.groups, {
       onUndefined: () => RetargetLegs.legsOf(from, to, RetargetLegs.delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, skipped, positionalKeys, defaultTransition, moving, undefined, stops, measured),
       onDefined: (groups) =>

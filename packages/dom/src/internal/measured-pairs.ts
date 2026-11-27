@@ -100,6 +100,10 @@ interface Request {
   readonly element: HTMLElement
   readonly slots: ReadonlyArray<Slot>
   readonly values: Values.Values
+  /** Its asker's, told what its write threw (#979, row 8). */
+  readonly failed: (defect: unknown) => void
+  /** Whether its write threw: its pairs are left unread. */
+  threw: boolean
 }
 
 // Module state (#460, Q7): each pair its batch has read, by the pair as asked, kept as long as its asker
@@ -122,16 +126,18 @@ let scheduled = false
 /**
  * Measures `pairs` on `element` at the end of this task, with every other element's in the same batch:
  * each pair, as asked, {@link measured} before the next tick. `values` are what the element draws now,
- * its other transforms among them.
+ * its other transforms among them. Writing them can throw (a Transform template among `values`): then
+ * its pairs are never measured, `failed` is told, and the rest of the batch goes on.
  */
-// #430's Q2.
+// #430's Q2. #979, row 8 (ADR-0074): `failed`, its asker's, which reports through its own runtime.
 export const measure = (
   element: HTMLElement,
   pairs: Readonly<Record<string, { readonly from: number | string; readonly to: number | string }>>,
   values: Values.Values,
+  failed: (defect: unknown) => void,
 ): Readonly<Record<string, Requested>> => {
   const made = Rec.map(pairs, ({ from, to }, key): Requested => ({ key, from, to }))
-  queued.push({ element, slots: Arr.map(Rec.values(made), (pair): Slot => ({ pair, fromPx: undefined, toPx: undefined })), values })
+  queued.push({ element, slots: Arr.map(Rec.values(made), (pair): Slot => ({ pair, fromPx: undefined, toPx: undefined })), values, failed, threw: false })
   if (Bool.not(scheduled)) {
     scheduled = true
     queueMicrotask(flush)
@@ -207,35 +213,42 @@ const savedOf = (element: HTMLElement, property: string): Saved => ({ element, p
 
 /**
  * Write `pairs`' translates at their `end` through the element's whole transform, keeping what was
- * there: the browser lays out any unit, `-100%` included (#594).
+ * there in `saved` before it's written: the browser lays out any unit, `-100%` included (#594).
  */
-const writeTranslates = (request: Request, slots: ReadonlyArray<Slot>, end: "from" | "to"): ReadonlyArray<Saved> => {
-  if (slots.length === 0) return []
+const writeTranslates = (request: Request, slots: ReadonlyArray<Slot>, end: "from" | "to", saved: Array<Saved>): void => {
+  if (slots.length === 0) return
   const { element, values } = request
-  const saved = savedOf(element, "transform")
   const transform = project({ ...values, ...Rec.fromEntries(Arr.map(slots, ({ pair }) => [pair.key, pair[end]] as const)) })["transform"]
+  saved.push(savedOf(element, "transform"))
   element.style.setProperty("transform", UndefinedOr.match(transform as string | undefined, { onUndefined: () => "none", onDefined: String }))
-  return [saved]
 }
 
-/** Write each pair's target inline on its element, keeping what was there; a translate through the element's whole transform. */
-const writeTargets = (request: Request): ReadonlyArray<Saved> => {
+/**
+ * Write each pair's target inline on its element, keeping what was there in `saved` before each is
+ * written; a translate through the element's whole transform.
+ */
+const writeTargets = (request: Request, saved: Array<Saved>): void => {
   const unread = Arr.filter(request.slots, (slot) => Predicate.isUndefined(slot.toPx))
-  const saved: Array<Saved> = [...writeTranslates(request, Arr.filter(unread, (slot) => TRANSLATES.has(slot.pair.key)), "to")]
+  writeTranslates(request, Arr.filter(unread, (slot) => TRANSLATES.has(slot.pair.key)), "to", saved)
   Arr.forEach(unread, ({ pair }) => {
     if (TRANSLATES.has(pair.key)) return
     saved.push(savedOf(request.element, pair.key))
     request.element.style.setProperty(pair.key, cssOf(pair.to))
   })
-  return saved
 }
 
 /**
  * Write each translate pair's start not in px, as a target is (#594): a layout element's transform at
  * this moment is its projection's, or held off for its Measure pass, so reading it as it is gave 0.
  */
-const writeTranslateStarts = (request: Request): ReadonlyArray<Saved> =>
-  writeTranslates(request, Arr.filter(request.slots, (slot) => Bool.and(TRANSLATES.has(slot.pair.key), Predicate.isUndefined(slot.fromPx))), "from")
+const writeTranslateStarts = (request: Request, saved: Array<Saved>): void =>
+  writeTranslates(request, Arr.filter(request.slots, (slot) => Bool.and(TRANSLATES.has(slot.pair.key), Predicate.isUndefined(slot.fromPx))), "from", saved)
+
+/** `request`'s write threw: its pairs are left unread, so its animation switches, and its asker is told. */
+const requestThrew = (request: Request, defect: unknown): void => {
+  request.threw = true
+  request.failed(defect)
+}
 
 /** Put back what {@link writeTargets} replaced. */
 const restore = (saved: ReadonlyArray<Saved>): void =>
@@ -260,27 +273,49 @@ const flush = (): void => {
     slot.toPx = givenPx(slot.pair.to)
     slot.fromPx = givenPx(slot.pair.from)
   }))
+  // #979, row 8 (ADR-0074): each request's write is its own, in a `try` of its own in each write's loop.
+  // One that throws (an exit's Transform template, say) is left unread, its asker told, and the rest of
+  // the batch goes on, every style written so far put back: before, its throw ended the batch
+  // uncaught, every pair in it voided and the targets written before it left inline.
   // WRITE, READ, WRITE: each translate's start not in px, written alone and read (#594).
-  const starts = Arr.flatMap(batch, writeTranslateStarts)
-  if (Arr.isArrayNonEmpty(starts)) {
-    try {
+  const starts: Array<Saved> = []
+  try {
+    Arr.forEach(batch, (request) => {
+      try {
+        writeTranslateStarts(request, starts)
+      } catch (defect) {
+        requestThrew(request, defect)
+      }
+    })
+    if (Arr.isArrayNonEmpty(starts)) {
       Arr.forEach(batch, (request, i) => Arr.forEach(request.slots, (slot) => {
+        if (request.threw) return
         if (Bool.and(TRANSLATES.has(slot.pair.key), Predicate.isUndefined(slot.fromPx))) slot.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), slot.pair.key)
       }))
-    } finally {
-      restore(starts)
     }
+  } finally {
+    restore(starts)
   }
   // READ: each other start not already in px, as the element lays out now.
   Arr.forEach(batch, (request, i) => Arr.forEach(request.slots, (slot) => {
+    if (request.threw) return
     if (Predicate.isUndefined(slot.fromPx)) slot.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), slot.pair.key)
   }))
   const scrollY = globalThis.scrollY
-  // WRITE: each target, inline.
-  const saved = Arr.flatMap(batch, writeTargets)
+  const saved: Array<Saved> = []
   try {
+    // WRITE: each target, inline.
+    Arr.forEach(batch, (request) => {
+      if (request.threw) return
+      try {
+        writeTargets(request, saved)
+      } catch (defect) {
+        requestThrew(request, defect)
+      }
+    })
     // READ: each target not already in px, laid out once.
     Arr.forEach(batch, (request, i) => Arr.forEach(request.slots, (slot) => {
+      if (request.threw) return
       if (Predicate.isUndefined(slot.toPx)) slot.toPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), slot.pair.key)
     }))
   } finally {
@@ -288,8 +323,9 @@ const flush = (): void => {
     restore(saved)
     if (globalThis.scrollY !== scrollY) globalThis.scrollTo(globalThis.scrollX, scrollY)
   }
-  // Each pair read at both ends, as a record of its own.
+  // Each pair read at both ends, as a record of its own: none of a request whose write threw.
   Arr.forEach(batch, (request) => Arr.forEach(request.slots, ({ pair, fromPx, toPx }) => {
+    if (request.threw) return
     if (Predicate.isUndefined(fromPx)) return
     if (Predicate.isUndefined(toPx)) return
     if (Bool.and(Number.isFinite(fromPx), Number.isFinite(toPx))) read.set(pair, { ...pair, fromPx, toPx })

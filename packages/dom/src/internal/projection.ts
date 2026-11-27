@@ -1418,6 +1418,17 @@ interface NodeState {
   customBases: Readonly<Record<string, string>> | undefined
   /** Whether an app's corrector's value is written corrected now (so it's put back once at rest). */
   customCorrected: boolean
+  // --- the app's code, its own (#979, row 5; ADR-0074): each reported once a run of throws ---
+  /** Whether its layout animation's ease threw at its last call. */
+  easeFailing: boolean
+  /** The app's correctors that threw for it at their last call: made at the first throw. */
+  failingCorrectors: Set<CustomCorrector> | undefined
+  /** Whether its write threw at its last call, as a leaving node writes straight onto its element. */
+  writeFailing: boolean
+  /** Whether its Transform template threw as a Measure pass held it for the read. */
+  heldFailing: boolean
+  /** Its Transform template's last result, which a pass holds it at when the template throws: `none` before one. */
+  lastHeld: string
   // --- drag (ADR-0016) ---
   /** Whether this node is being dragged: its target follows the pointer (no spring), held active. */
   dragging: boolean
@@ -1479,6 +1490,8 @@ interface LastPass {
  * `handleLeave` brought it back.
  */
 interface Leaver {
+  /** Its node's id: a node it comes back as is reported by it (#979, row 5). */
+  readonly id: string
   readonly element: HTMLElement
   /** Its last pass; `undefined` when it never had one, and then it can't come back. */
   readonly last: LastPass | undefined
@@ -1551,17 +1564,6 @@ const NO_TRANSLATE: Point.Point = { x: 0, y: 0 }
 const NO_OWN_TRANSLATE = (): Point.Point => NO_TRANSLATE
 /** No values registered for an element (#443): an app's corrector reads its base then. */
 const NO_VALUES: Readonly<Record<string, unknown>> = {}
-
-/**
- * The transform a Measure pass holds `node` at (#443): its Transform template's, `none` for a node
- * with none (Motion's `resetTransform`), which is what an at-rest node already draws (#674). Per pass
- * per node: a field read and an early return.
- */
-const heldTransformFor = (node: { readonly heldTransform: (() => string) | undefined }): string => {
-  const held = node.heldTransform
-  if (Predicate.isUndefined(held)) return "none"
-  return held()
-}
 
 /** No own rotation or opacity of its own: a node the binding gives none, or a leaving one (*Amendment (#166)*). */
 const NO_OWN_ROTATE = (): number => 0
@@ -1991,7 +1993,16 @@ export const makeProjectionSystem = (
     const patch = projectionPatchOf(value, corrected)
     // A leaving node is driven directly: its gate registration is gone.
     if (node.leaving) {
-      renderer.commit(node.element, renderer.project(withExitValues(node, patch)))
+      // #979, row 5 (ADR-0074): as the gate takes each element's write on its own (#969), a leaver's
+      // write that throws (its Transform template's, say) leaves it as it was drawn, and every other
+      // node goes on: before, it failed the coordinator's run, so every layout animation stopped.
+      try {
+        renderer.commit(node.element, renderer.project(withExitValues(node, patch)))
+        if (node.writeFailing) node.writeFailing = false
+      } catch (defect) {
+        if (!node.writeFailing) runtime.runFork(Effect.annotateLogs(Report.failure("wardic.projection: a leaving node's write failed", Cause.die(defect)), { id: node.id }))
+        node.writeFailing = true
+      }
       return
     }
     sink.write(node.id, patch)
@@ -2053,10 +2064,33 @@ export const makeProjectionSystem = (
         for (const key of corrector.writes) out[key] = String(latest)
         continue
       }
-      const corrected = String(corrector.correct(latest, { target: node.lastTarget as Box.Box, treeScale, projectionDelta: node.lastDelta }))
+      // #979, row 5 (ADR-0074): the app's corrector is its node's own. One that throws leaves its keys
+      // at their last value this frame, and the node's other keys and every other node go on: before,
+      // it failed the coordinator's run, or the Measure pass that seeded it, so nothing moved.
+      let corrected: string
+      try {
+        corrected = String(corrector.correct(latest, { target: node.lastTarget as Box.Box, treeScale, projectionDelta: node.lastDelta }))
+        const failing = node.failingCorrectors
+        if (Predicate.isNotUndefined(failing)) failing.delete(corrector)
+      } catch (defect) {
+        correctorFailed(node, corrector, defect)
+        continue
+      }
       for (const key of corrector.writes) out[key] = corrected
     }
     return out
+  }
+
+  /** `corrector` threw for `node`: reported at its first throw of a run, until a clean call. */
+  const correctorFailed = (node: NodeState, corrector: CustomCorrector, defect: unknown): void => {
+    let failing = node.failingCorrectors
+    if (Predicate.isUndefined(failing)) {
+      failing = new Set()
+      node.failingCorrectors = failing
+    }
+    if (failing.has(corrector)) return
+    failing.add(corrector)
+    runtime.runFork(Effect.annotateLogs(Report.failure("wardic.projection: a scale corrector failed", Cause.die(defect)), { id: node.id, key: corrector.key }))
   }
 
   /** An app's corrector's value for `node` (#443): its own for the key, a number or a string, else its base, else none. */
@@ -3597,7 +3631,7 @@ export const makeProjectionSystem = (
             UndefinedOr.match(wrapperLinkOf(child, twin.shift), { onUndefined: () => links, onDefined: (link) => withLink(links, link, child) }),
           ),
       })
-      const follower = makeLeavingNode(leaver.element, layoutId, last, undefined, undefined, chain)
+      const follower = makeLeavingNode(leaver.id, leaver.element, layoutId, last, undefined, undefined, chain)
       follower.fade = readOpacity(leaver.element)
       addNode(follower)
       elementToNode.set(leaver.element, follower)
@@ -3629,7 +3663,7 @@ export const makeProjectionSystem = (
   const holdNode = (node: NodeState): void => {
     const last = lastPassOf(node)
     if (Predicate.isUndefined(last)) return
-    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: undefined, reintroduced: false, pastTask: false })
+    hold({ id: node.id, element: node.element, last, layoutAnchor: node.layoutAnchor, twin: undefined, reintroduced: false, pastTask: false })
   }
 
   /**
@@ -3648,7 +3682,7 @@ export const makeProjectionSystem = (
     // Seen as it goes, at the page's scroll now (#480): a scroll after, a router's at a navigation, comes out.
     const seed = UndefinedOr.map(seedBox, (box) => seedOf(node, layoutId, box, look, measureDocumentScroll()))
     if (Predicate.isUndefined(last) && Predicate.isUndefined(seedBox)) return
-    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: { layoutId, chain: node.paintChain, shift, seed }, reintroduced: false, pastTask: false })
+    hold({ id: node.id, element: node.element, last, layoutAnchor: node.layoutAnchor, twin: { layoutId, chain: node.paintChain, shift, seed }, reintroduced: false, pastTask: false })
   }
 
   /**
@@ -3814,7 +3848,24 @@ export const makeProjectionSystem = (
       // Its app's `onBeforeLayoutMeasure` (#443), before its transform is held for the read.
       if (Predicate.isNotUndefined(node.onBeforeMeasure)) callMeasureHook(node.onBeforeMeasure, "onBeforeLayoutMeasure")
       const own = node.element.style.transform
-      const held = heldTransformFor(node)
+      // Its Transform template's, `none` for a node with none (Motion's `resetTransform`), which is
+      // what an at-rest node already draws (#674). Per pass per node: a field read.
+      let held = "none"
+      const template = node.heldTransform
+      // #979, row 13 (ADR-0074): the app's template is its node's own. One that throws holds its node
+      // where its last call did, so a static part of it is still measured, and the pass goes on:
+      // before, the throw ended it here, every node held before it left held and nothing seeded.
+      if (Predicate.isNotUndefined(template)) {
+        try {
+          held = template()
+          node.lastHeld = held
+          if (node.heldFailing) node.heldFailing = false
+        } catch (defect) {
+          if (!node.heldFailing) runtime.runFork(Effect.annotateLogs(Report.failure("wardic.projection: a transformTemplate failed at a Measure pass", Cause.die(defect)), { id: node.id }))
+          node.heldFailing = true
+          held = node.lastHeld
+        }
+      }
       // A server's Appear animation not yet handed off (#245, ADR-0044 *Amendment (#245)*): its CSS
       // transform beats an inline one, but not an important one. Its timeline runs on; the restore
       // below gives the old value back, at its own priority.
@@ -4780,7 +4831,17 @@ export const makeProjectionSystem = (
     const active = flight.elapsed - timing.delay
     if (active < 0) return false
     const t = Math.min(1, active / timing.duration)
-    flight.position = timing.ease(t)
+    // #979, row 5 (ADR-0074): the app's ease is its node's own. One that throws leaves the node where
+    // its last ease put it, landing on its target on time, and the coordinator's other nodes go on:
+    // before, it failed the coordinator's run, so every layout animation stopped.
+    try {
+      flight.position = timing.ease(t)
+      if (node.easeFailing) node.easeFailing = false
+    } catch (defect) {
+      if (!node.easeFailing) runtime.runFork(Effect.annotateLogs(Report.failure("wardic.projection: a layout animation's ease failed", Cause.die(defect)), { id: node.id }))
+      node.easeFailing = true
+      if (t >= 1) flight.position = 1
+    }
     return t >= 1
   }
 
@@ -5156,9 +5217,10 @@ export const makeProjectionSystem = (
   /**
    * The coordinator's end, told apart (ADR-0027, decision 7): a settle, or an
    * interruption (a stop outside its step, the system's dispose), is nothing; anything
-   * else (a step that threw, the Frame loop's own failure) is logged and reported
+   * else (a step whose own code threw, the Frame loop's own failure) is logged and reported
    * (`Report.failure`, ADR-0030 decision 4). Its nodes then wait where the last step left
-   * them, and the next trigger starts a fresh run.
+   * them, and the next trigger starts a fresh run. An app's code on the step is its node's
+   * own, caught where it's called (#979, row 5), so it never ends the run.
    */
   const coordinatorEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
     Exit.match(exit, {
@@ -5300,6 +5362,7 @@ export const makeProjectionSystem = (
    * its last pass.
    */
   const makeLeavingNode = (
+    id: string,
     el: HTMLElement,
     layoutId: string | undefined,
     recent: LastPass,
@@ -5307,7 +5370,8 @@ export const makeProjectionSystem = (
     layoutAnchor: Point.Point | false | undefined,
     chain: ReadonlyArray<PaintLink> | undefined,
   ): NodeState => ({
-    id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
+    // Driven through the Renderer, not the gate: its id names it in its reports alone.
+    id,
     element: el,
     transition: Option.none,
     path: Option.none,
@@ -5360,6 +5424,11 @@ export const makeProjectionSystem = (
     corrected: false,
     customBases: readCustomBases(el),
     customCorrected: false,
+    easeFailing: false,
+    failingCorrectors: undefined,
+    writeFailing: false,
+    heldFailing: false,
+    lastHeld: "none",
     isScroll: false,
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
@@ -5441,7 +5510,7 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(last)) return false
     const stack = stacks.get(layoutId)
     if (Predicate.isUndefined(stack)) return false
-    const follower = makeLeavingNode(el, layoutId, last, onDone, undefined, undefined)
+    const follower = makeLeavingNode(recent.id, el, layoutId, last, onDone, undefined, undefined)
     recent.reintroduced = true
     addNode(follower)
     elementToNode.set(el, follower)
@@ -5516,7 +5585,7 @@ export const makeProjectionSystem = (
       // Not onto a Lead that is leaving itself (#682): it has no handover to ride.
       if (lead.leaving) return
       if (Bool.not(takesOver(lead))) return
-      const twin = makeLeavingNode(inner, held.layoutId, last, () => undefined, undefined, chainOf(held))
+      const twin = makeLeavingNode(recent.id, inner, held.layoutId, last, () => undefined, undefined, chainOf(held))
       recent.reintroduced = true
       addNode(twin)
       elementToNode.set(inner, twin)
@@ -5539,7 +5608,7 @@ export const makeProjectionSystem = (
       if (recent.reintroduced) return
       if (Bool.not(contains(container, inner))) return
       recent.reintroduced = true
-      const node = makeLeavingNode(inner, undefined, last, undefined, recent.layoutAnchor, undefined)
+      const node = makeLeavingNode(recent.id, inner, undefined, last, undefined, recent.layoutAnchor, undefined)
       addNode(node)
       elementToNode.set(inner, node)
       carried.push(node)
@@ -5903,6 +5972,11 @@ export const makeProjectionSystem = (
       corrected: false,
       customBases: undefined,
       customCorrected: false,
+      easeFailing: false,
+      failingCorrectors: undefined,
+      writeFailing: false,
+      heldFailing: false,
+      lastHeld: "none",
       isScroll: opts.layoutScroll === true,
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,

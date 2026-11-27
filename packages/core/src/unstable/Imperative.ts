@@ -391,7 +391,7 @@ const imperativeTrackOf = (host: Spine.SpineHost, target: VariantTarget.Target, 
   const reduce = host.reducedMotion()
   const skipped = host.skipAnimations()
   let measured: RetargetLegs.MeasuredPairs | undefined
-  if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = Spine.measuredOf(measuredPairs, element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
+  if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = Spine.measuredOf(measuredPairs, element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops, runtime, id)
   // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
   const built = RetargetLegs.legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values, rests, unitScale)
   const variables = Spine.holdsVariable(variableValues, from, to, stops)

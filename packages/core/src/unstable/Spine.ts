@@ -1188,9 +1188,10 @@ const measuringOf = (found: ReadonlyArray<string> | undefined, keyframes: Keyfra
 /**
  * A Retarget's Measured pairs (#430): each of `keys` whose start and target are one, asked of the
  * end-of-task batch with the values the element draws now, but a key with Keyframes of more than two
- * stops (`many`, #460). `undefined` with none.
+ * stops (`many`, #460). `undefined` with none. When the batch can't take them, they switch, as pairs
+ * it couldn't read do, reported on `runtime` with the element's `id`.
  */
-export const measuredOf = (measured: MeasuredPairs.Shape, element: Subject.Subject, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: RetargetLegs.StopsByKey | undefined): RetargetLegs.MeasuredPairs | undefined => {
+export const measuredOf = (measured: MeasuredPairs.Shape, element: Subject.Subject, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: RetargetLegs.StopsByKey | undefined, runtime: Pick<WardicServices.Runner<never>, "runFork">, id: string): RetargetLegs.MeasuredPairs | undefined => {
   const pairs: Record<string, { readonly from: number | string; readonly to: number | string }> = {}
   Arr.forEach(keys, (key) => {
     if (RetargetLegs.hasManyStops(many, key)) return
@@ -1200,8 +1201,20 @@ export const measuredOf = (measured: MeasuredPairs.Shape, element: Subject.Subje
     if (measured.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
   })
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return measured.measure(element, pairs, values)
+  // Its report made only for pairs asked, not once an element (#979, row 8): nearly every Retarget asks none.
+  return measured.measure(element, pairs, values, pairsFailedOn("wardic.spine: a Retarget's Measured pairs failed", runtime, { id }))
 }
+
+/** How Measured pairs the batch couldn't take are reported under `message`, on `runtime`, each time (#979, row 8). */
+const pairsFailedOn =
+  (message: string, runtime: Pick<WardicServices.Runner<never>, "runFork">, annotations: Readonly<Record<string, unknown>>) =>
+  (defect: unknown): void => {
+    runtime.runFork(Effect.annotateLogs(Report.failure(message, Cause.die(defect)), annotations))
+  }
+
+/** How an exit's Measured pairs the batch couldn't take (its Transform template threw) are reported, on `runtime`. */
+export const exitMeasuredFailedOn = (runtime: Pick<WardicServices.Runner<never>, "runFork">): ((defect: unknown) => void) =>
+  pairsFailedOn("wardic.presence: an exit's Measured pairs failed", runtime, {})
 
 /** A key's Keyframes in `keyframes` (#429): per key, per Retarget, so a guard, nothing made. */
 const keyframesAtOf = (keyframes: KeyframesNow | undefined, key: string): KeyframesAt | undefined => {
@@ -3081,7 +3094,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // animation is skipped (#468): the keys found above, and those Keyframes of two stops start from their first.
     let measured: RetargetLegs.MeasuredPairs | undefined
     if (!reduce && !skipped && (Predicate.isNotUndefined(measuring) || Predicate.isNotUndefined(keyframesNow))) {
-      measured = measuredOf(measuredPairs, element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops)
+      measured = measuredOf(measuredPairs, element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops, runtime, id)
     }
     let told: ToldNames | undefined
     if (!silent) told = namesToldOf(animation, resolution, lastResolution)

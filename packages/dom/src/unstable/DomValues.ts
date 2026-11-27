@@ -36,7 +36,7 @@ const withRead = (pair: Requested): MeasuredPairs.Requested => ({ ...pair, measu
 /** The DOM's Measured pairs: a pair whose units don't blend, measured on its element at the end of the task. */
 export const measuredPairs: MeasuredPairs.Shape = {
   needs,
-  measure: (subject, pairs, values) => Rec.map(measure(subject as HTMLElement, pairs, values), withRead),
+  measure: (subject, pairs, values, failed) => Rec.map(measure(subject as HTMLElement, pairs, values, failed), withRead),
 }
 
 /** The DOM's Variable values: a `var(--x)`, resolved on its element as each leg starts. */

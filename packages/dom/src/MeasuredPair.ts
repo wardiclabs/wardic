@@ -12,4 +12,24 @@
  */
 // **Measured pairs** (#430, CONTEXT.md, Motion's `DOMKeyframesResolver`). `@wardic/dom/MeasuredPair`: for
 // binding authors.
-export { measure, measured, type Measured, needs, type Requested } from "./internal/measured-pairs.ts"
+import type * as Values from "@wardic/core/Values"
+import { measure as measureFor, measured, type Requested } from "./internal/measured-pairs.ts"
+
+export { measured, type Measured, needs, type Requested } from "./internal/measured-pairs.ts"
+
+/**
+ * Measures `pairs` on `element` at the end of this task, with every other element's in the same batch:
+ * each pair, as asked, {@link measured} before the next tick. `values` are what the element draws now,
+ * its other transforms among them. If writing them throws (a Transform template among `values`), its
+ * pairs are never measured, the throw is reported to the page as an uncaught one is, and the rest of the
+ * batch goes on.
+ */
+// #979, row 8 (ADR-0074): Wardic's own askers tell the batch's throw to their runtime (`DomValues`' port).
+export const measure = (
+  element: HTMLElement,
+  pairs: Readonly<Record<string, { readonly from: number | string; readonly to: number | string }>>,
+  values: Values.Values,
+): Readonly<Record<string, Requested>> => measureFor(element, pairs, values, reportToPage)
+
+/** A request's throw, with no runtime to tell: the page's. */
+const reportToPage = (defect: unknown): void => globalThis.reportError(defect)
