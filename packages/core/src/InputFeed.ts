@@ -142,12 +142,13 @@ export const byTarget = <A>(lookup: (target: unknown) => InputFeed<A>): ((target
 }
 
 /**
- * Where a watch hands a throw from its handler, so a binding can report it its own way; the watch goes
- * on with the next event. With none, the throw is reported once a run of throws, on the context the
- * watch started in, and the watch goes on.
+ * Where a watch hands its handler's run of throws, at its first, so a binding can report it its own way:
+ * a run lasts from a throw to the next call that returns, and the watch goes on with the next event.
+ * With none, the run is reported then, on the context the watch started in, and the watch goes on.
  */
 // #318, ADR-0055. With none, core reports the throw itself (#979, row 27; ADR-0030, *Amendment (#979,
-// groups D and G)*): where no binding's fiber is there to see it.
+// groups D and G)*): where no binding's fiber is there to see it. Once a run either way (#979 group I,
+// row 26; ADR-0074 decision 3).
 export type OnDefect = (cause: Cause.Cause<never>) => void
 
 /** A watch's handlers. */
@@ -155,7 +156,7 @@ export type OnDefect = (cause: Cause.Cause<never>) => void
 export interface Handlers<A> {
   /** Each event or value, inside the event's dispatch. */
   readonly on: (value: A) => void
-  /** A throw from a handler. Without it, the throw is reported once a run of throws, and the watch goes on. */
+  /** A handler's run of throws, at its first. Without it, the run is reported then, and the watch goes on. */
   readonly onDefect?: OnDefect | undefined
   /** The feed ran out, as a test's script does. */
   readonly onEnd?: (() => void) | undefined
@@ -177,7 +178,7 @@ export interface Switch {
 
 /**
  * A subscription to `feed` its owner opens and closes, each event handed to `handle` inside its emit, a
- * throw to `onDefect`. With none, a throw is reported once a run of throws on Effect's default runtime, as
+ * run of throws to `onDefect` at its first. With none, the run is reported then on Effect's default runtime, as
  * a subscription has no context of its own, and it goes on. For a feed a watch needs only some of the time: a keyboard
  * press holds its target's keys only while focus is within it, so an element at rest holds none. The feed
  * running out ends nothing; its owner closes it when it's done.
@@ -188,8 +189,8 @@ export const switched = <A>(feed: InputFeed<A>, handle: (event: A) => void, onDe
 /**
  * Watches `feed` while the Scope is open, with a handler that can stop: `make` makes this subscription's
  * handler, which hears each event inside its emit and returns whether to go on. `false` stops it, even
- * from inside the feed's start. A throw from it goes to `handlers.onDefect`, else it's reported once a run
- * of throws on the context the watch started in, and the watch goes on. `handlers.onEnd` is told if the
+ * from inside the feed's start. A run of throws from it goes to `handlers.onDefect` at its first, else it's
+ * reported then on the context the watch started in, and the watch goes on. `handlers.onEnd` is told if the
  * feed runs out, and closing the Scope stops the feed.
  */
 // #318, #379: no fiber and no Stream. A recognizer's `once` returns `false`.

@@ -945,3 +945,10 @@ A plain exit reaches `leaveEnds` from its fiber's `Effect.ensuring`, after the `
 **What else changes:** a Batch member's keyed exit under `mode="wait"` that throws this way is now reported as the release's failure, not as #984's `wardic.batch: a member's landing failed`, since the release's `try` catches it first. No test pins that. The `try` reports any throw from the update Solid 1 runs inside the release, not only a held child's start.
 
 **Found, not here:** #987. On Solid 2, under `mode="wait"`, a leaver with no `exit` makes `release()` set its signal inside the effect that reads it, which trips `EFFECT_WRITES_OWN_SOURCE`.
+
+## Amendment (#979, group I, 2026-11-28): `onExitComplete` once a run
+
+ADR-0074's decision 3 for presence's callbacks: #979's row 29. ADR-0074's *Amendment (#979, group I)* records the group, its cost and its tests; this is presence's part.
+- **`onExitComplete`** (`exitCompleteEvents`, Solid 1's) was reported at every throw. It's called each time a presence's exits end, so it's reported once a run now, per presence, and its next call that returns ends the run. The message is unchanged: `wardic.presence: onExitComplete failed`.
+- **`usePresence`'s `safeToRemove` is unchanged:** it's called once, so it's reported each time, as decision 3 says.
+- **Pinned by** EC6 (Solid 1): two presences, each its own run.

@@ -337,6 +337,67 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(reports).toEqual(["the app's onHoverStart broke"])
   })
 
+  it("a gesture callback (#979 group I, row 26): one throwing at each hover is reported once a run, again after a clean call; each callback's run its own", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    let starts = 0
+    let ends = 0
+    let startBreaks = true
+    const { container } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <wardic.div
+          data-hover
+          onHoverStart={() => {
+            starts++
+            if (startBreaks) throw new Error(`the app's onHoverStart broke at ${starts}`)
+          }}
+          onHoverEnd={() => {
+            ends++
+            throw new Error(`the app's onHoverEnd broke at ${ends}`)
+          }}
+          style={{ width: "40px", height: "40px", "margin-top": "60px", "margin-left": "60px" }}
+        />
+        <wardic.div
+          data-other
+          onHoverStart={() => {
+            throw new Error("the other's onHoverStart broke")
+          }}
+          style={{ width: "40px", height: "40px", "margin-left": "60px" }}
+        />
+      </WardicProvider>
+    ))
+    const el = container.querySelector<HTMLElement>("[data-hover]")!
+    const other = container.querySelector<HTMLElement>("[data-other]")!
+    const enter = (): boolean => el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, pointerType: "mouse", isPrimary: true }))
+    const leave = (): boolean => el.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, pointerType: "mouse", isPrimary: true }))
+    await retryGesture(enter, leave, () => starts > 0)
+    /** A hover's end, then its next start. */
+    const again = async (): Promise<void> => {
+      const [s, e] = [starts, ends]
+      leave()
+      await until(() => ends === e + 1)
+      enter()
+      await until(() => starts === s + 1)
+    }
+    await again()
+    await again()
+    expect(reports, "each callback's run, once").toEqual(["the app's onHoverStart broke at 1", "the app's onHoverEnd broke at 1"])
+    // A clean start ends its run, not onHoverEnd's.
+    startBreaks = false
+    await again()
+    startBreaks = true
+    await again()
+    expect(reports).toEqual(["the app's onHoverStart broke at 1", "the app's onHoverEnd broke at 1", "the app's onHoverStart broke at 5"])
+    expect(errorsNamed(logs, "wardic.gesture: onHoverStart failed")).toHaveLength(2)
+    leave()
+    // Another element's onHoverStart: a run of its own, though this one's goes on.
+    const enterOther = (): boolean => other.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 2, pointerType: "mouse", isPrimary: true }))
+    const leaveOther = (): boolean => other.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 2, pointerType: "mouse", isPrimary: true }))
+    await retryGesture(enterOther, leaveOther, () => reports.includes("the other's onHoverStart broke"))
+    leaveOther()
+    expect(errorsNamed(logs, "wardic.gesture: onHoverStart failed")).toHaveLength(3)
+  })
+
   it("onUpdate (#257 item 4): one that throws every frame is reported at its run's first; a frame it returns ends the run", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
@@ -500,7 +561,7 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(errorsNamed(logs, "wardic.runScoped: a fiber failed"), "the track goes on").toEqual([])
   })
 
-  it("drag's release, on a drag transition core rejects (#66): reported, the element rests where dropped, and the next drag drags", async () => {
+  it("drag's release, on a drag transition core rejects (#66): reported once a run, the element rests where dropped, and the next drag drags", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
     const { container } = render(() => (
@@ -521,11 +582,13 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     await raf()
     await raf()
     expect(el.style.transform, "where it was dropped, not back at the origin").toContain("translateX(40px)")
-    // The track goes on: the next drag drags from there, and its release fails alone too.
+    // The track goes on: the next drag drags from there, and its release fails alone too, in the same
+    // run of the track's releases, so not reported again (#979 group I, row 28).
     await dragOf(el, 40, 80)
-    await until(() => reports.length > 1)
-    expect(reports).toHaveLength(2)
+    await raf()
+    await raf()
     expect(el.style.transform).toContain("translateX(80px)")
+    expect(reports).toHaveLength(1)
     expect(errorsNamed(logs, "wardic.runScoped: a fiber failed")).toEqual([])
   })
 })

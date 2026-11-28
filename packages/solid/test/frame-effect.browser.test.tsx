@@ -9,12 +9,15 @@
 // - FX6: an apply that throws is reported; the others run, and it runs again at its next change.
 // - FX7: `createTime()` read in compute runs it every frame.
 // - FX8: outside a provider, it's an error naming `<WardicProvider>`.
+// - FX9: an apply throwing at each change is reported once a run, though frames between its changes don't
+//   call it; a clean apply ends the run, and another Frame effect's run is its own (#979 group I, row 22).
 import { DomLive } from "@wardic/dom"
 import { createFrameEffect, createTime, ward, WardicProvider } from "@wardic/solid"
 import { createRoot, createSignal, flush } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { envWith, errorsNamed, type Logged } from "./report-env.ts"
 
 /** The element's committed translateX: its computed matrix's e, 0 for none. */
 const translateXOf = (el: Element): number => {
@@ -131,6 +134,49 @@ describe("createFrameEffect on the DOM (#884's PR 1)", () => {
     await frames(12)
     expect(times.length).toBeGreaterThanOrEqual(8)
     for (let i = 1; i < times.length; i++) expect(times[i]).toBeGreaterThan(times[i - 1]!)
+  })
+
+  it("FX9: an apply throwing at each change is reported once a run, though frames between its changes don't call it", async () => {
+    const logs: Array<Logged> = []
+    const [count, setCount] = createSignal(0)
+    let aBreaks = true
+    mount(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        {(() => {
+          // Every frame runs the Frame effects: a's are frames it isn't called on, between its changes.
+          const time = createTime()
+          createFrameEffect(time, () => undefined)
+          createFrameEffect(count, (n) => {
+            if (aBreaks && n > 0) throw new Error(`a broke at ${n}`)
+          })
+          createFrameEffect(count, (n) => {
+            if (n >= 3) throw new Error(`b broke at ${n}`)
+          })
+          return null
+        })()}
+      </WardicProvider>
+    ))
+    const failed = (): number => errorsNamed(logs, "wardic.createFrameEffect: an apply failed").length
+    await frames(2)
+    setCount(1)
+    await frames(3)
+    setCount(2)
+    await frames(3)
+    expect(failed()).toBe(1)
+    // b's first throw is reported though a's run goes on.
+    setCount(3)
+    await frames(3)
+    setCount(4)
+    await frames(3)
+    expect(failed()).toBe(2)
+    // A clean apply ends a's run: its next throw is a new one.
+    aBreaks = false
+    setCount(5)
+    await frames(3)
+    aBreaks = true
+    setCount(6)
+    await frames(3)
+    expect(failed()).toBe(3)
   })
 
   it("FX8: outside a provider, it's an error naming <WardicProvider>", () => {

@@ -33,6 +33,8 @@
 // - G16: `Viewport`'s `root` as `"parent"`, and `amount: "all"`: half in view isn't in.
 // - G17: a load that fails is reported once; the element is inert, and the missing Feature said then.
 // - G18: a handler that throws is reported by name, and the gesture goes on: `WhileHover` still applies.
+// - G19 (#979 group I, row 26; ADR-0074 decision 3): one that throws at each hover is reported once a run,
+//   again after a clean call.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Schema from "effect/Schema"
@@ -44,7 +46,7 @@ import * as Features from "@wardic/foldkit/Features"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import type * as Ward from "@wardic/foldkit/Ward"
 import { raf, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
-import { at, BOX, capture, centreOf, embed, type Embedded, embedKeyedList, FAST, landsAt, logged, mouse, opacityOf, PARK, said, settledBox } from "./harness.ts"
+import { at, BOX, capture, centreOf, embed, type Embedded, embedKeyedList, FAST, frames, landsAt, logged, mouse, opacityOf, PARK, said, saidTimes, settledBox } from "./harness.ts"
 
 const Model = Schema.Struct({ on: Schema.Boolean })
 type Model = typeof Model.Type
@@ -529,6 +531,47 @@ describe("the gestures on a w.* element (#793)", () => {
       await mouse.move(centreOf(box))
       await landsAt(box, 1, "hovered, the throw reported")
       await until(() => said(captured.lines, "wardic.gesture: onHoverStart failed"), 2000, "the report, named")
+    } finally {
+      captured.stop()
+    }
+  })
+
+  it("G19 (#979 group I, row 26): a handler that throws at each hover is reported once a run, again after a clean call", async () => {
+    let breaks = true
+    const held = embedBox((_model, w, h) =>
+      w.div([
+        h.Id("box"),
+        w.OnHoverStart(() => {
+          if (breaks) throw new Error("boom")
+          return Message.Seen({ call: "start" })
+        }),
+        h.Style(BOX),
+      ]),
+    )
+    app = held
+    const box = await settledBox(held)
+    const captured = capture()
+    const failed = (): number => saidTimes(captured.lines, "wardic.gesture: onHoverStart failed")
+    /** The pointer onto the box, and off it. */
+    const hover = async (): Promise<void> => {
+      await mouse.move(centreOf(box))
+      await frames(2)
+      await mouse.move(PARK)
+      await frames(2)
+    }
+    try {
+      await hover()
+      await hover()
+      await hover()
+      await until(() => failed() > 0, 2000, "the report")
+      expect(failed(), "once a run").toBe(1)
+      breaks = false
+      await hover()
+      await until(() => calls.includes("start"), 2000, "the clean start")
+      breaks = true
+      await hover()
+      await until(() => failed() > 1, 2000, "the next run's report")
+      expect(failed()).toBe(2)
     } finally {
       captured.stop()
     }

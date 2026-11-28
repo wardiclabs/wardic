@@ -18,9 +18,9 @@ import * as Context from "effect/Context"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import { constUndefined, identity } from "effect/Function"
-import * as MutableRef from "effect/MutableRef"
+import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as Failing from "../internal/failing.ts"
 import * as GestureInfo from "./GestureInfo.ts"
 
 /** `key`'s service among `services`, or `undefined` when they hold none: its Feature isn't there. */
@@ -184,7 +184,8 @@ export interface Telling {
  * (`GestureInfo`), in Motion's order: a locked drag's `onDirectionLock` before its `onDragStart`, a
  * pan's `onPanSessionStart` at the down with the point alone, `onDrag` and `onPan` at the start and
  * each move after. A drag its controls cancelled ends untold (#431). A callback that throws is reported
- * by name and the gesture goes on; `onDrag`'s and `onPan`'s run of throws at its first (#257 item 4).
+ * by name at the first of a run of throws, its next clean call ending the run, and the gesture goes on
+ * (#257 item 4).
  */
 export interface GestureTeller {
   readonly hovered: (edge: Recognizer.Edge) => void
@@ -204,11 +205,11 @@ type MovementCallback = "onDragStart" | "onDragEnd" | "onPanStart" | "onPanEnd"
 // #793 (PR 2): solid's `gestureCallbacksOf`, moved to dom for both bindings: each gives how a handler is invoked.
 export const gestureTellerOf = ({ config, invoke, report }: Telling): GestureTeller => {
   const guard = callbackGuard(report)
-  /** Tell the config's `name`, if it has one, `args`: reported if it throws. */
+  /** Tell the config's `name`, if it has one, `args`: reported at a run of throws' first. */
   const tell = (name: GestureCallbackName, ...args: ReadonlyArray<unknown>): void => {
     const handler = config()[name]
     if (Predicate.isUndefined(handler)) return
-    guard.once(name, () => invoke(handler, args))
+    guard(name, () => invoke(handler, args))
   }
   /**
    * A drag's or a pan's sample, past a pan's session's start: its start's or its end's callback
@@ -222,8 +223,8 @@ export const gestureTellerOf = ({ config, invoke, report }: Telling): GestureTel
     if (Bool.and(Predicate.isUndefined(own), Predicate.isUndefined(each))) return
     const raw = sample.raw as PointerEvent
     const info = GestureInfo.dragInfoOf(sample)
-    UndefinedOr.map(named, (key) => UndefinedOr.map(own, (handler) => guard.once(key, () => invoke(handler, [raw, info]))))
-    UndefinedOr.map(each, (handler) => guard.perMove(every, () => invoke(handler, [raw, info])))
+    UndefinedOr.map(named, (key) => UndefinedOr.map(own, (handler) => guard(key, () => invoke(handler, [raw, info]))))
+    UndefinedOr.map(each, (handler) => guard(every, () => invoke(handler, [raw, info])))
   }
   return {
     hovered: (edge) => {
@@ -259,48 +260,26 @@ export const gestureTellerOf = ({ config, invoke, report }: Telling): GestureTel
 }
 
 /**
- * A guard around an element's gesture callbacks (#257 item 4): `once` runs `call` and reports what it
- * throws; `perMove`, for `onDrag` and `onPan`, reports a run of throws at its first, so one that throws
- * at every move logs once, and a call that returns ends the run. The gesture goes on either way.
+ * A guard around an element's gesture callbacks (#257 item 4): runs `call`, and reports a run of its
+ * throws at the first, so one that throws at every move, or at every hover, logs once, and a call that
+ * returns ends the run. Each callback name has its own run, and the gesture goes on either way.
  */
-interface CallbackGuard {
-  readonly once: (name: GestureCallbackName, call: () => void) => void
-  readonly perMove: (name: GestureCallbackName, call: () => void) => void
-}
+type CallbackGuard = (name: GestureCallbackName, call: () => void) => void
 
 /** A {@link CallbackGuard} reporting through `report`, told the callback's name and what it threw. */
 // #793 (PR 2): solid's `gesture-callbacks.ts`'s `call` and `callPerMove`, moved to dom with the teller.
+// #979 group I, row 26 (ADR-0074 decision 3): the two were one-throw-a-report (`once`) and once a run
+// (`perMove`, for `onDrag` and `onPan`); a hover's or a tap's callback is called again at each, so both
+// are once a run now, one guard.
 const callbackGuard = (report: Telling["report"]): CallbackGuard => {
-  // The per-move callbacks whose last call threw, made at the first throw: most elements never see one.
-  const failing = MutableRef.make<Set<string> | undefined>(undefined)
-  const failingNow = (): Set<string> =>
-    UndefinedOr.match(MutableRef.get(failing), {
-      onUndefined: () => {
-        const made = new Set<string>()
-        MutableRef.set(failing, made)
-        return made
-      },
-      onDefined: identity,
-    })
-  return {
-    once: (name, call) => {
-      try {
-        call()
-      } catch (defect) {
-        report(name, defect)
-      }
-    },
-    perMove: (name, call) => {
-      try {
-        call()
-        UndefinedOr.map(MutableRef.get(failing), (names) => names.delete(name))
-      } catch (defect) {
-        const names = failingNow()
-        if (names.has(name)) return
-        names.add(name)
-        report(name, defect)
-      }
-    },
+  const runs: Failing.Failing<GestureCallbackName> = { failing: undefined }
+  return (name, call) => {
+    try {
+      call()
+      Failing.endRunOf(runs, name)
+    } catch (defect) {
+      if (Failing.firstThrowOf(runs, name)) report(name, defect)
+    }
   }
 }
 

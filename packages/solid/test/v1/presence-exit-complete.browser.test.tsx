@@ -6,12 +6,15 @@
 // - EC3: the presence torn down mid-exit: not called.
 // - EC4: one that throws is reported, and the presence goes on: the next exit's call comes.
 // - EC5: a plain (non-Wardic) child leaves at once, and it's called then.
+// - EC6 (#979 group I, row 29; ADR-0074 decision 3): one throwing at each exit is reported once a run,
+//   again after a clean call; another presence's run is its own.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid/v1"
 import { createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -113,5 +116,57 @@ describe("AnimatePresence's onExitComplete on Solid 1 (#257)", () => {
     setVisible(false)
     await raf()
     expect(calls).toBe(1)
+  })
+
+  it("EC6 (#979 group I, row 29): one throwing at each exit is reported once a run, again after a clean call; another presence's run its own", async () => {
+    const logs: Array<Logged> = []
+    const [aShown, setAShown] = createSignal(true)
+    const [bShown, setBShown] = createSignal(true)
+    let aBreaks = true
+    let aCalls = 0
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <AnimatePresence
+          onExitComplete={() => {
+            aCalls++
+            if (aBreaks) throw new Error("a's onExitComplete broke")
+          }}
+        >
+          <Show when={aShown()}>
+            <p>a</p>
+          </Show>
+        </AnimatePresence>
+        <AnimatePresence
+          onExitComplete={() => {
+            throw new Error("b's onExitComplete broke")
+          }}
+        >
+          <Show when={bShown()}>
+            <p>b</p>
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    const failed = (): number => errorsNamed(logs, "wardic.presence: onExitComplete failed").length
+    /** The child's exit, at once as a plain child's is, and its return. */
+    const leaveAndBack = async (show: (shown: boolean) => void): Promise<void> => {
+      await raf()
+      show(false)
+      await raf()
+      show(true)
+    }
+    await leaveAndBack(setAShown)
+    await leaveAndBack(setAShown)
+    expect(failed(), "a's run, once").toBe(1)
+    await leaveAndBack(setBShown)
+    await leaveAndBack(setBShown)
+    expect(failed(), "b's run, its own").toBe(2)
+    aBreaks = false
+    await leaveAndBack(setAShown)
+    aBreaks = true
+    await leaveAndBack(setAShown)
+    await raf()
+    expect(aCalls, "told at each exit").toBe(4)
+    expect(failed(), "a's new run").toBe(3)
   })
 })

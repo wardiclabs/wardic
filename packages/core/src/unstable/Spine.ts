@@ -1393,16 +1393,29 @@ const nameSettlesOf = (
 /**
  * Solid 1's animation callbacks (#257, Motion's props): each Retarget's start and settle told to the
  * config's `onAnimationStart` / `onAnimationComplete`, with its `definition`, as the Retarget read
- * the config. A callback that throws is reported, and the element animates on. The Solid 2 binding's
- * config has neither: it hands the same facts over as async values.
+ * the config. A callback that throws is reported at the first of a run of throws, its next clean call
+ * ending the run, and the element animates on. The Solid 2 binding's config has neither: it hands the
+ * same facts over as async values.
  */
 export const animationCallbacks = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string): AnimationHooks => {
-  // Per Retarget, per element: the callback looked up first, and nothing made without one.
-  const tell = (name: "onAnimationStart" | "onAnimationComplete", callback: (definition: Config.WardicAnimationDefinition) => void, definition: Config.WardicAnimationDefinition): void => {
+  // #979 group I, row 25 (ADR-0074 decision 3): a run is one callback's throws at its consecutive calls,
+  // each name of a list one call, so a clean name ends it. Two lets, nothing more made per element.
+  let startFailing = false
+  let completeFailing = false
+  // Per Retarget, per element: the callback looked up first, and nothing made without one. Whether it threw,
+  // reported at a run's first throw (`failing` says one is on).
+  const tell = (
+    name: "onAnimationStart" | "onAnimationComplete",
+    callback: (definition: Config.WardicAnimationDefinition) => void,
+    definition: Config.WardicAnimationDefinition,
+    failing: boolean,
+  ): boolean => {
     try {
       callback(definition)
+      return false
     } catch (defect) {
-      runtime.runFork(Report.failure(`wardic.spine: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
+      if (!failing) runtime.runFork(Report.failure(`wardic.spine: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
+      return true
     }
   }
   return {
@@ -1412,10 +1425,12 @@ export const animationCallbacks = (runtime: WardicServices.Runner<WardicServices
       if (Predicate.isUndefined(callback)) return
       const definition = definitionOf(resolution, previous)
       if (Arr.isArray(definition)) {
-        Arr.forEach(definition as ReadonlyArray<string>, (name) => tell("onAnimationStart", callback, name))
+        Arr.forEach(definition as ReadonlyArray<string>, (name) => {
+          startFailing = tell("onAnimationStart", callback, name, startFailing)
+        })
         return
       }
-      tell("onAnimationStart", callback, definition)
+      startFailing = tell("onAnimationStart", callback, definition, startFailing)
     },
     // A list's names were each told as they settled (`namesSettled`).
     settled: (resolution, previous, config) => {
@@ -1423,12 +1438,14 @@ export const animationCallbacks = (runtime: WardicServices.Runner<WardicServices
       if (Predicate.isUndefined(callback)) return
       const definition = definitionOf(resolution, previous)
       if (Arr.isArray(definition)) return
-      tell("onAnimationComplete", callback, definition)
+      completeFailing = tell("onAnimationComplete", callback, definition, completeFailing)
     },
     namesSettled: (names, config) => {
       const callback = config.onAnimationComplete
       if (Predicate.isUndefined(callback)) return
-      Arr.forEach(names, (name) => tell("onAnimationComplete", callback, name))
+      Arr.forEach(names, (name) => {
+        completeFailing = tell("onAnimationComplete", callback, name, completeFailing)
+      })
     },
   }
 }

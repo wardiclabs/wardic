@@ -364,6 +364,30 @@ describe("ThreeInput: hover and press on a scene, hit by a raycast", () => {
     stage.dispose()
   })
 
+  it("IN14: a hover's callback that throws at each hover is reported at each: its leave is a clean call of the watch's (#979 group I)", async () => {
+    const { stage, scene } = staged()
+    const crate = boxAt(scene, 0, 0, 0, "crate")
+    const barrel = boxAt(scene, 3, 0, 0, "barrel")
+    stage.hover(crate, () => {
+      throw new Error("the crate's start broke")
+    })
+    const log = journal()
+    stage.hover(barrel, log.hover("barrel"))
+    const reports = await reportsDuring(() => {
+      for (let i = 0; i < 3; i++) {
+        stage.pointer.over(crate)
+        stage.frame()
+        stage.pointer.over(barrel)
+        stage.frame()
+      }
+    })
+    // A watch's run is its handler's (ADR-0074, group I): the start throws, the leave, with no end to
+    // tell, returns, so each hover's throw is a run of its own; the barrel's watch hears every hover.
+    expect(reports).toEqual(["wardic.hover: a callback failed", "wardic.hover: a callback failed", "wardic.hover: a callback failed"])
+    expect(log.told).toEqual(["start barrel", "end barrel", "start barrel", "end barrel", "start barrel"])
+    stage.dispose()
+  })
+
   it("TS1: a stage's frame advances its time and makes the scene's matrices current, as a render does", async () => {
     const { stage, scene } = staged()
     const crate = boxAt(scene, 0)

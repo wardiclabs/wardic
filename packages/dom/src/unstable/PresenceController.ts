@@ -684,21 +684,29 @@ export interface PresenceController {
 
 /**
  * {@link PresenceEvents} as Motion's (#257, Solid 1's): only its `onExitComplete`, read when it's called. One
- * that throws is reported (`wardic.presence: onExitComplete failed`), and the presence goes on.
+ * that throws is reported (`wardic.presence: onExitComplete failed`) at the first of a run of throws, its
+ * next clean call ending the run, and the presence goes on.
  */
-export const exitCompleteEvents = (runtime: WardicServices.Runner<WardicServices.WardicServices>, onExitComplete: () => (() => void) | undefined): PresenceEvents => ({
-  exitStart: constVoid,
-  exiting: constVoid,
-  exitComplete: () => {
-    const callback = onExitComplete()
-    if (Predicate.isUndefined(callback)) return
-    try {
-      callback()
-    } catch (defect) {
-      runtime.runFork(Report.failure("wardic.presence: onExitComplete failed", Cause.die(defect)))
-    }
-  },
-})
+export const exitCompleteEvents = (runtime: WardicServices.Runner<WardicServices.WardicServices>, onExitComplete: () => (() => void) | undefined): PresenceEvents => {
+  // #979 group I, row 29 (ADR-0074 decision 3): called at each exit's end, so a run is its throws there.
+  let failing = false
+  return {
+    exitStart: constVoid,
+    exiting: constVoid,
+    exitComplete: () => {
+      const callback = onExitComplete()
+      if (Predicate.isUndefined(callback)) return
+      try {
+        callback()
+        if (failing) failing = false
+      } catch (defect) {
+        if (failing) return
+        failing = true
+        runtime.runFork(Report.failure("wardic.presence: onExitComplete failed", Cause.die(defect)))
+      }
+    },
+  }
+}
 
 /** A projection method that takes an HTML element first, taking any element. */
 type TakingAnyElement<F> = F extends (...args: infer P) => infer A ? P extends [HTMLElement, ...infer R] ? (el: Element, ...rest: R) => A : F : F

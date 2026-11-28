@@ -125,6 +125,7 @@ import { pending as appearRuns } from "./appear-slot.ts"
 import * as Report from "@wardic/core/unstable/Report"
 import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, type ScaleCorrectorEntry, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
 import { dashCase } from "./svg.ts"
+import * as Failing from "./failing.ts"
 
 /**
  * What the engine writes each node's projection through: a `FlushGate` is one, so the engine never
@@ -1247,6 +1248,9 @@ interface NodeState {
   /** Called as a Measure pass that measures it begins, and with its box after the read (#443); most nodes have neither. */
   readonly onBeforeMeasure: (() => void) | undefined
   readonly onMeasure: ((box: Box.Box, prev: Option.Option<Box.Box>) => void) | undefined
+  /** The names of the app's callbacks on it whose last call threw, made at the first throw: most nodes never see one. */
+  // #979 group I, row 29 (ADR-0074 decision 3).
+  failing: Set<LayoutCallbackName> | undefined
   /**
    * What the node's handover blends from (ADR-0010 *Amendment (#166)*): the twin's radius, rotation
    * and, for a Switch, opacity, as they were drawn as it began. Eased into the node's own over the
@@ -1601,6 +1605,10 @@ const SIZE_EPSILON = 0.01
 
 /** No layout animation callback: a node the binding gives none (#191). */
 const NO_CALLBACK = (): Option.Option<() => void> => Option.none()
+
+/** An app's callback on a layout node, by the name its report gives it. */
+type LayoutCallbackName = "onLayoutAnimationStart" | "onLayoutAnimationComplete" | "onDragTransitionEnd" | "onBeforeLayoutMeasure" | "onLayoutMeasure"
+
 /** A call with no options. */
 const NO_ANIMATE_LAYOUT_OPTIONS: AnimateLayoutOptions = {}
 
@@ -3798,12 +3806,13 @@ export const makeProjectionSystem = (
   /** The nodes a Measure round measured that have an `onLayoutMeasure` (#443), told at its end. Reused: most rounds tell none. */
   const measuredNow: Array<{ readonly node: NodeState; readonly box: Box.Box; readonly prev: Box.Box | undefined }> = []
 
-  /** Call an app's measure hook (#443): a throw is reported, and the pass goes on. */
-  const callMeasureHook = (hook: () => void, name: string): void => {
+  /** Call `node`'s measure hook `name` (#443): a throw is reported at its run's first, and the pass goes on. */
+  const callMeasureHook = (node: NodeState, hook: () => void, name: "onBeforeLayoutMeasure" | "onLayoutMeasure"): void => {
     try {
       hook()
+      Failing.endRunOf(node, name)
     } catch (defect) {
-      runtime.runFork(Report.failure(`wardic.projection: an ${name} failed`, Cause.die(defect)))
+      if (Failing.firstThrowOf(node, name)) runtime.runFork(Report.failure(`wardic.projection: an ${name} failed`, Cause.die(defect)))
     }
   }
 
@@ -3846,7 +3855,7 @@ export const makeProjectionSystem = (
     const savedTransforms: Array<string | undefined> = []
     for (const node of ordered) {
       // Its app's `onBeforeLayoutMeasure` (#443), before its transform is held for the read.
-      if (Predicate.isNotUndefined(node.onBeforeMeasure)) callMeasureHook(node.onBeforeMeasure, "onBeforeLayoutMeasure")
+      if (Predicate.isNotUndefined(node.onBeforeMeasure)) callMeasureHook(node, node.onBeforeMeasure, "onBeforeLayoutMeasure")
       const own = node.element.style.transform
       // Its Transform template's, `none` for a node with none (Motion's `resetTransform`), which is
       // what an at-rest node already draws (#674). Per pass per node: a field read.
@@ -4319,7 +4328,7 @@ export const makeProjectionSystem = (
     if (measuredNow.length > 0) {
       for (const { node, box, prev } of measuredNow.splice(0)) {
         const tell = node.onMeasure
-        if (Predicate.isNotUndefined(tell)) callMeasureHook(() => tell(box, Option.fromUndefinedOr(prev)), "onLayoutMeasure")
+        if (Predicate.isNotUndefined(tell)) callMeasureHook(node, () => tell(box, Option.fromUndefinedOr(prev)), "onLayoutMeasure")
       }
     }
     deriveGroup(groupOf(changed))
@@ -4451,7 +4460,7 @@ export const makeProjectionSystem = (
       inAfterTickStep = false
     }
     if (Arr.isArrayNonEmpty(flightStarts)) {
-      for (const node of flightStarts.splice(0)) callAppIfAny(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
+      for (const node of flightStarts.splice(0)) callAppIfAny(node, node.onLayoutAnimationStart, "onLayoutAnimationStart")
     }
     return stepped.size
   }
@@ -4488,6 +4497,7 @@ export const makeProjectionSystem = (
   }
 
   /** Call an app's `callback` (#191): one that throws is reported, and the engine goes on. */
+  // Each time: an `onSettled` is called once (#979 group I, ADR-0074 decision 3).
   const callApp = (callback: () => void, name: string): void => {
     try {
       callback()
@@ -4496,9 +4506,22 @@ export const makeProjectionSystem = (
     }
   }
 
-  /** The app's callback, if it gave one: called as {@link callApp} calls it. */
-  const callAppIfAny = (callback: Option.Option<() => void>, name: string): void => {
-    if (Option.isSome(callback)) callApp(callback.value, name)
+  /**
+   * `node`'s app callback `name`, read from `callbackOf` and called if it gave one: a throw from either is
+   * reported at the first of a run of its throws, its next clean call ending the run, and the engine goes on.
+   */
+  // #191; once a run, #979 group I (row 29). The read in the try too (ADR-0074's open list): a binding's
+  // getter can be the app's config (Solid 1's `createWard` accessor), and one that threw came out of the
+  // tick's hook, the nodes after it in the tick's list missing their callbacks.
+  const callAppIfAny = (node: NodeState, callbackOf: () => Option.Option<() => void>, name: LayoutCallbackName): void => {
+    try {
+      const callback = callbackOf()
+      if (Option.isNone(callback)) return
+      callback.value()
+      Failing.endRunOf(node, name)
+    } catch (defect) {
+      if (Failing.firstThrowOf(node, name)) runtime.runFork(Report.failure(`wardic.projection: ${name} failed`, Cause.die(defect)))
+    }
   }
 
   /** Whether `flight` still runs on `node`: not landed, not replaced by a restart, not cut short, not unmounted. */
@@ -4548,13 +4571,13 @@ export const makeProjectionSystem = (
     tickFrame = frameTime()
     tickDt = dt
     if (Arr.isArrayNonEmpty(flightStarts)) {
-      for (const node of flightStarts.splice(0)) callAppIfAny(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
+      for (const node of flightStarts.splice(0)) callAppIfAny(node, node.onLayoutAnimationStart, "onLayoutAnimationStart")
     }
     if (Arr.isArrayNonEmpty(flightLands)) {
-      for (const node of flightLands.splice(0)) callAppIfAny(node.onLayoutAnimationComplete(), "onLayoutAnimationComplete")
+      for (const node of flightLands.splice(0)) callAppIfAny(node, node.onLayoutAnimationComplete, "onLayoutAnimationComplete")
     }
     if (Arr.isArrayNonEmpty(releaseEnds)) {
-      for (const node of releaseEnds.splice(0)) callAppIfAny(node.onReleaseEnd(), "onDragTransitionEnd")
+      for (const node of releaseEnds.splice(0)) callAppIfAny(node, node.onReleaseEnd, "onDragTransitionEnd")
     }
     checkSettlings()
     return undefined
@@ -5391,6 +5414,7 @@ export const makeProjectionSystem = (
     heldTransform: undefined,
     onBeforeMeasure: undefined,
     onMeasure: undefined,
+    failing: undefined,
     blend: undefined,
     seedBlend: undefined,
     seedScroll: undefined,
@@ -5939,6 +5963,7 @@ export const makeProjectionSystem = (
       heldTransform: opts.heldTransform,
       onBeforeMeasure: opts.onBeforeMeasure,
       onMeasure: opts.onMeasure,
+      failing: undefined,
       blend: undefined,
       seedBlend: undefined,
       seedScroll: undefined,
@@ -6143,7 +6168,7 @@ export const makeProjectionSystem = (
           if (active.size === 0) stopTicking()
           // No release runs, so it has ended (#273): told from a microtask, as Motion's instant one resolves.
           queueMicrotask(() => {
-            if (nodes.has(node)) callAppIfAny(node.onReleaseEnd(), "onDragTransitionEnd")
+            if (nodes.has(node)) callAppIfAny(node, node.onReleaseEnd, "onDragTransitionEnd")
           })
           return
         }

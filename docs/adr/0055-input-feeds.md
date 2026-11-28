@@ -369,3 +369,11 @@ ADR-0074's rule (one Subject's failure is its own) for the input listeners: #979
 - **Missed at one seam:** every throw reported, by KP10, whose two throws are each a run of their own (IF9 catches it); `x`'s `try` dropped, by Foldkit's test, whose view's Atom is over the progress (PV4 catches it).
 
 **Size** (`bun run size`): Solid's slim, colors and layout apps don't change; its others grow 60 to 214 B gzipped, `f-slim` 119, `t2-stage` 163 and `t2-features` 214, every app within the 1% gate. Three budgets were raised by what was measured, to 198.8, 246.4 and 254.1.
+
+## Amendment (#979, group I, 2026-11-28): a watch's `onDefect` hears a run's first throw
+
+ADR-0074's decision 3 for the input feeds: #979's row 26, and row 28's Reorder item. ADR-0074's *Amendment (#979, group I)* records the group, its cost and its tests; this is the feeds' part.
+- **The guard** (`internal/guarded.ts`): a watch's `onDefect`, and `switched`'s, heard every throw from its handler. It hears a run's first now, from that throw to the handler's next call that returns, as the report with no `onDefect` already did (group G). Every `onDefect` of Wardic's is a binding's report, so a handler that throws at each move, a drag's samples or a `transformPagePoint`, logs once. `OnDefect`'s, `Handlers.onDefect`'s, `switched`'s and `watchWith`'s docs say so.
+- **A watch's run is its handler's** (a known limit, kept): callbacks that share a handler, with calls between them that return, start a run each gesture, as a hover's start does with its leave between. Each press of `watchDragAmong` is a watch of its own, so a run of its own.
+- **`watchDragAmong` ends a member's watch before its handler hears the end** (group A's *Order first*; group G's *Found, not here*). A handler that threw at a drag's end left the member pressed for good, and its next press started nothing. The watch closes after the dispatch, so the handler still hears the sample.
+- **Pinned by** IF11 (core), D19 (Foldkit, a `transformPagePoint` throwing at a drag's moves) and BG12 (Solid 1's `Reorder.BatchGroup`).

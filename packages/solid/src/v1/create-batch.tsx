@@ -87,17 +87,20 @@ const START_FAILED = "createBatch: onAnimationStart failed"
 const COMPLETE_FAILED = "createBatch: onAnimationComplete failed"
 
 /**
- * An app's flight callback, called: one that throws is reported each time, on the Batch's runtime, and its
- * flight goes on, its run forked and its landing told, as an element's own callback's throw is.
+ * An app's flight callback, called: whether it threw. A throw is reported on the Batch's runtime at the
+ * first of a run (`failing` says one is on), and its flight goes on, its run forked and its landing told,
+ * as an element's own callback's throw is.
  */
 // #979 (ADR-0074, row 33): `Spine.animationCallbacks`' shape. A start that threw kept the run from forking,
-// and came out of the change's update; a landing's was swallowed by its fiber's observer. Group I's log once
-// takes both, and an element's, to once a run.
-const callFlight = (runtime: WardicRuntime, failed: string, call: () => void): void => {
+// and came out of the change's update; a landing's was swallowed by its fiber's observer. Group I (row 25,
+// decision 3): once a run of each callback's throws, ended by its next clean call.
+const callFlight = (runtime: WardicRuntime, failed: string, call: () => void, failing: boolean): boolean => {
   try {
     call()
+    return false
   } catch (defect) {
-    runtime.runFork(Report.failure(failed, Cause.die(defect)))
+    if (!failing) runtime.runFork(Report.failure(failed, Cause.die(defect)))
+    return true
   }
 }
 
@@ -185,6 +188,9 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   const hovers = wantsHover(config)
   const presses = wantsPress(config)
   const gestures = Bool.match(Bool.or(hovers, presses), { onTrue: () => gestureWatchesOf(runtime), onFalse: () => undefined })
+  // Whether its onAnimationStart's, and its onAnimationComplete's, last call threw: each its own run.
+  let startFailing = false
+  let completeFailing = false
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
   const binding = untrack(() =>
     BatchMembers.bindBatch(
@@ -201,8 +207,14 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
       },
       config,
       {
-        started: () => UndefinedOr.map(config.onAnimationStart, (call) => callFlight(runtime, START_FAILED, call)),
-        landed: (landing) => UndefinedOr.map(config.onAnimationComplete, (call) => callFlight(runtime, COMPLETE_FAILED, () => call(landing))),
+        started: () =>
+          UndefinedOr.map(config.onAnimationStart, (call) => {
+            startFailing = callFlight(runtime, START_FAILED, call, startFailing)
+          }),
+        landed: (landing) =>
+          UndefinedOr.map(config.onAnimationComplete, (call) => {
+            completeFailing = callFlight(runtime, COMPLETE_FAILED, () => call(landing), completeFailing)
+          }),
         gesture: (told) => callGesture(config, keyed, told),
       },
     ))

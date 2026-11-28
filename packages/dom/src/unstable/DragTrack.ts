@@ -88,6 +88,7 @@ import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as WardConfig from "./WardConfig.ts"
 import * as DragControls from "./DragControls.ts"
 import * as DragTransition from "./DragTransition.ts"
+import * as Failing from "../internal/failing.ts"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
 
@@ -170,8 +171,8 @@ export type TrackServices = WardicServices.WardicServices | InputSource.InputSou
 export interface DragTrackOptions {
   /**
    * Runs the track in the element's watch Scope: its watches subscribed now, with no
-   * fiber, until the element goes and the Scope closes, which stops a running release. A throw from a
-   * watch's fold goes to the `onDefect` it's given (#209: each binding owns the Scope).
+   * fiber, until the element goes and the Scope closes, which stops a running release. A run of throws
+   * from a watch's fold goes to the `onDefect` it's given, at its first (#209: each binding owns the Scope).
    */
   readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | TrackServices>) => void
   /**
@@ -291,6 +292,17 @@ interface DragTrackState {
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
 type TrackState = MutableRef.MutableRef<DragTrackState>
+
+/** A track's kinds of failure, each with its own run: a response at each sample, a measure, a release. */
+// #979 group I, row 28 (ADR-0074 decision 3): each was reported at every throw.
+type TrackFailure = "release" | "measuring" | "response"
+
+/** `report`, at the start of a run of `kind`'s failures on the track: nothing while one is on. */
+const atRunStart = (failing: Failing.Failing<TrackFailure>, kind: TrackFailure, report: Effect.Effect<void>): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    if (Failing.firstThrowOf(failing, kind)) return report
+    return Effect.void
+  })
 
 const ORIGIN: Point.Point = { x: 0, y: 0 }
 
@@ -559,6 +571,7 @@ const release = (
   position: Point.Point,
   velocity: Point.Point,
   taken: Deferred.Deferred<void>,
+  failing: Failing.Failing<TrackFailure>,
 ): Effect.Effect<void, never, FrameLoop.FrameLoop> => {
   const cfg = opts.config
 
@@ -580,6 +593,11 @@ const release = (
     opts.setDragging(false)
     UndefinedOr.map(opts.onReleaseEnd, (ended) => opts.gate.afterFlush(ended))
   })
+  // A release that dies is reported at the first of the track's run of them, and rests where it was
+  // dropped; one that lands ends the run.
+  const failed = (defect: unknown): Effect.Effect<void> =>
+    atRunStart(failing, "release", Report.failure("wardic.drag: a release failed", Cause.die(defect))).pipe(Effect.andThen(Effect.sync(() => tapFrame(position, ORIGIN))))
+  const landed = Effect.sync(() => Failing.endRunOf(failing, "release"))
   const { axis, bounds } = MutableRef.get(state)
   const edges = edgesOf(cfg, bounds)
   const v = releaseVelocity(cfg, velocity)
@@ -608,7 +626,8 @@ const release = (
         keepVelocity(opts, ORIGIN)
         if (MutableRef.get(state).releasing) directSet(opts, restOfRelease(position, v, axis, edges, transition))
       }).pipe(
-        Effect.catchDefect((defect) => Report.failure("wardic.drag: a release failed", Cause.die(defect)).pipe(Effect.andThen(Effect.sync(() => tapFrame(position, ORIGIN))))),
+        Effect.andThen(landed),
+        Effect.catchDefect(failed),
         Effect.andThen(Microtask.next),
         Effect.andThen(done),
       ),
@@ -626,8 +645,8 @@ const release = (
           Machine.run((frame) => tapFrame({ x: position.x, y: frame.value }, { x: 0, y: frame.velocity })),
         )),
       Match.orElse(() => Machine.inertiaVec(position, v, { ...transition, ...edges }).pipe(Machine.run((frame) => tapFrame(frame.value, frame.velocity)))),
-      Effect.catchDefect((defect) =>
-        Report.failure("wardic.drag: a release failed", Cause.die(defect)).pipe(Effect.andThen(Effect.sync(() => tapFrame(position, ORIGIN))))),
+      Effect.andThen(landed),
+      Effect.catchDefect(failed),
       Effect.andThen(done),
     ),
   )
@@ -724,13 +743,18 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       const watching = yield* FiberHandle.make<void>()
       let watched: Element | undefined = undefined
       let warned = false
+      const failing: Failing.Failing<TrackFailure> = { failing: undefined }
       const setBounds = (bounds: Drag.Bounds | undefined): void => {
         MutableRef.update(state, (st) => ({ ...st, bounds }))
       }
       /** The bounds measured against `container`'s `box`; none, reported, if measuring throws (an app's `onMeasureDragConstraints`). */
       const measured = (container: DragConstraints.DragContainer, box: Element): Effect.Effect<Drag.Bounds | undefined> =>
-        Effect.sync((): Drag.Bounds | undefined => container.bounds(box)).pipe(
-          Effect.catchDefect((defect) => Report.failure("wardic.drag: measuring dragConstraints failed", Cause.die(defect)).pipe(Effect.as(undefined))),
+        Effect.sync((): Drag.Bounds | undefined => {
+          const bounds = container.bounds(box)
+          Failing.endRunOf(failing, "measuring")
+          return bounds
+        }).pipe(
+          Effect.catchDefect((defect) => atRunStart(failing, "measuring", Report.failure("wardic.drag: measuring dragConstraints failed", Cause.die(defect))).pipe(Effect.as(undefined))),
         )
       /**
        * A resize of the element or its container: the bounds measured again. The first measure only
@@ -827,7 +851,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
           taken = Deferred.makeUnsafe<void>()
           return taken
         }).pipe(
-          Effect.flatMap((ended) => FiberHandle.run(releasing, release(opts, state, position, velocity, ended))),
+          Effect.flatMap((ended) => FiberHandle.run(releasing, release(opts, state, position, velocity, ended, failing))),
           Effect.asVoid,
         )
 
@@ -911,11 +935,21 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       })
 
       /**
-       * A response, run inside its event (`opts.fork`): one that fails is reported, and the next
-       * event's runs (ADR-0055 *Amendment (#379)*, Q4). A release reports its own (#66).
+       * A response, run inside its event (`opts.fork`): one that fails is reported at the first of a run
+       * of them, and the next event's runs (ADR-0055 *Amendment (#379)*, Q4). A release reports its own (#66).
        */
-      const respond = (response: Effect.Effect<void, never, FrameLoop.FrameLoop>): void =>
-        opts.fork(response.pipe(Effect.catchCause((cause) => Report.failure("wardic.drag: a response failed", cause))))
+      // Made once a track: a sample's response allocates nothing more than its fold. An interruption
+      // neither starts a run nor ends one.
+      const responded = Effect.sync(() => Failing.endRunOf(failing, "response"))
+      const responseExits = {
+        onSuccess: () => responded,
+        onFailure: (cause: Cause.Cause<never>): Effect.Effect<void> =>
+          Bool.match(Cause.hasInterruptsOnly(cause), {
+            onTrue: () => Effect.void,
+            onFalse: () => atRunStart(failing, "response", Report.failure("wardic.drag: a response failed", cause)),
+          }),
+      }
+      const respond = (response: Effect.Effect<void, never, FrameLoop.FrameLoop>): void => opts.fork(Effect.matchCauseEffect(response, responseExits))
 
       // Subscribed in this order, so the samples hear an event before the grabs. The constraints
       // bound the element's x/y, so they're applied where the gesture's offset meets its base, in

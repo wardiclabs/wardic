@@ -22,10 +22,11 @@
 // - CB11: per-value entries as a `wardic.div`'s: an entry with only a `delay` holds that key's Default
 //   transition by it; a top-level `delay` holds the keys on the top level's fields, not one with its own entry.
 // - CB12: an element inside an `<svg>` turns about its own centre: `transform-box: fill-box`.
-// - CB13 (#979 row 33): an `onAnimationStart` that throws is reported each time, and the flight goes on, at
-//   mount and at a change, a `wardic.div` set in the same update moving too, its landing counting every member.
-// - CB14 (#979 row 33): an `onAnimationComplete` that throws is reported each time, and the next flight
-//   starts and lands.
+// - CB13 (#979 row 33): an `onAnimationStart` that throws: the flight goes on, at mount and at a change, a
+//   `wardic.div` set in the same update moving too, its landing counting every member. Reported once a run
+//   (group I, row 25), again after a clean start.
+// - CB14 (#979 row 33): an `onAnimationComplete` that throws: the next flight starts and lands. Reported
+//   once a run (group I), again after a clean landing; a start's clean call doesn't end it.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
@@ -406,7 +407,7 @@ describe("createBatch on Solid 1 (#665)", () => {
     expect([rect.style.transformBox, rect.style.transformOrigin]).toEqual(["fill-box", "50% 50%"])
   })
 
-  it("CB13: an onAnimationStart that throws is reported each time and the flight goes on, at mount and at a change beside a wardic.div (#979)", async () => {
+  it("CB13: an onAnimationStart that throws: the flight goes on, at mount and at a change beside a wardic.div; reported once a run (#979)", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
     const calls: Array<string> = []
@@ -420,11 +421,13 @@ describe("createBatch on Solid 1 (#665)", () => {
     const [target, setTarget] = createSignal(50)
     const members: Array<HTMLDivElement> = []
     let div!: HTMLDivElement
+    let startBreaks = true
     const Scene = () => {
       const grid = createBatch({
         count: 2, initial: { x: 0 }, animate: (i) => ({ x: target() + i }), transition: LINEAR,
         onAnimationStart: () => {
-          throw new Error("its start broke")
+          if (startBreaks) throw new Error("its start broke")
+          calls.push("start")
         },
         onAnimationComplete: (landing) => calls.push(`complete ${landing.moved}`),
       })
@@ -449,23 +452,35 @@ describe("createBatch on Solid 1 (#665)", () => {
     await readsOver(20, members, xOf)
     expect([...members.map(xOf), xOf(div)]).toEqual([100, 101, 100])
     expect(calls).toEqual(["complete 2", "complete 2"])
+    expect(errorsNamed(logs, "createBatch: onAnimationStart failed").length, "the run goes on").toBe(1)
+    // A clean start ends the run: the next throw is a new one.
+    startBreaks = false
+    setTarget(150)
+    await readsOver(20, members, xOf)
+    startBreaks = true
+    setTarget(200)
+    await readsOver(20, members, xOf)
+    expect(members.map(xOf)).toEqual([200, 201])
+    expect(calls).toEqual(["complete 2", "complete 2", "start", "complete 2", "complete 2"])
     expect(errorsNamed(logs, "createBatch: onAnimationStart failed").length).toBe(2)
     expect(reports).toEqual(["its start broke", "its start broke"])
     expect(errors, "nothing uncaught, at mount or at the change").toEqual([])
   })
 
-  it("CB14: an onAnimationComplete that throws is reported each time, and the next flight starts and lands (#979)", async () => {
+  it("CB14: an onAnimationComplete that throws: the next flight starts and lands; reported once a run, a clean start not ending it (#979)", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
     const calls: Array<string> = []
     const [target, setTarget] = createSignal(50)
     const members: Array<HTMLDivElement> = []
+    let landingBreaks = true
     const Scene = () => {
       const grid = createBatch({
         count: 2, initial: { x: 0 }, animate: (i) => ({ x: target() + i }), transition: LINEAR,
         onAnimationStart: () => calls.push("start"),
         onAnimationComplete: () => {
-          throw new Error("its landing broke")
+          if (landingBreaks) throw new Error("its landing broke")
+          calls.push("complete")
         },
       })
       return <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
@@ -481,6 +496,16 @@ describe("createBatch on Solid 1 (#665)", () => {
     await readsOver(20, members, xOf)
     expect(members.map(xOf)).toEqual([100, 101])
     expect(calls).toEqual(["start", "start"])
+    expect(errorsNamed(logs, "createBatch: onAnimationComplete failed").length, "the run goes on, through a clean start").toBe(1)
+    // A clean landing ends the run: the next throw is a new one.
+    landingBreaks = false
+    setTarget(150)
+    await readsOver(20, members, xOf)
+    landingBreaks = true
+    setTarget(200)
+    await readsOver(20, members, xOf)
+    expect(members.map(xOf)).toEqual([200, 201])
+    expect(calls).toEqual(["start", "start", "start", "complete", "start"])
     expect(errorsNamed(logs, "createBatch: onAnimationComplete failed").length).toBe(2)
     expect(reports).toEqual(["its landing broke", "its landing broke"])
   })

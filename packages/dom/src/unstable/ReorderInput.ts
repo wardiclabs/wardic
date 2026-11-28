@@ -29,8 +29,8 @@ const isPress = (event: InputSource.PointerLikeEvent): boolean => Bool.and(event
  * keys inside their dispatch, so the reorder's `handle()` (the page's `preventDefault`) counts. A blur
  * is judged after this task's own work, one scheduler hop on (#318): a reorder can blur the node it
  * moves and puts focus back after (the driver's `keepFocus`). So `fork` runs that hop on the provider
- * runtime, only when a blur happens, and a blur whose judging fails is reported. A throw from the
- * driver inside an event goes to `onDefect`.
+ * runtime, only when a blur happens, and a blur whose judging fails is reported. A run of throws from
+ * the driver inside an event goes to `onDefect` at its first.
  */
 export const watchItemInput = (
   el: HTMLElement,

@@ -1819,13 +1819,19 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     if (disposed) return Arr.forEach(going, cutExit)
     const exitTargets = new Float64Array(capacity * stride).fill(Number.NaN)
     const moving: Array<number> = []
-    // Per leaver at its exit (#665): statements. An exit that fails is reported, and lets its element go.
+    // Per leaver at its exit (#665): statements. An exit that fails lets its element go, and is reported
+    // once for this task's leavers: one exit function called for each (#979 group I, row 29; ADR-0074
+    // decision 3, an event's run, as an exit's stagger is).
+    let reported = false
     Arr.forEach(going, (i) => {
       try {
         targetsInto(exitTargets, i, exitValuesOf(i, UndefinedOr.getOrThrow(exits[i]).custom))
         moving.push(i)
       } catch (defect) {
-        env.runtime.runFork(Report.failure("createBatch: a member's exit failed", Cause.die(defect)))
+        if (!reported) {
+          reported = true
+          env.runtime.runFork(Report.failure("createBatch: a member's exit failed", Cause.die(defect)))
+        }
         cutExit(i)
         if (unlisted.has(i)) leaveBatch(i)
       }

@@ -13,6 +13,8 @@
 // - SN9: `fromAtom` follows an Atom; `streamToSignal` a core Stream.
 // - SN10: `createInView` is `true` for an element in the viewport, `false` for one below it.
 // - SN11: `createInView` takes Motion's viewport: its `root`, `amount` and `margin` decide what's in view.
+// - SN12 (#979 group I, row 26; ADR-0074): a Stage's sensor whose drag `bounds` throw at each sample: reported
+//   on the provider's runtime, so the app's logger hears it, once a run, again after a clean sample.
 import { DomLive } from "@wardic/dom"
 import {
   createDrag,
@@ -23,10 +25,18 @@ import {
   createReducedMotion,
   fromAtom,
   streamToSignal,
+  type Stage,
   useWardicRuntime,
   ward,
   WardicProvider,
+  WardicStage,
 } from "@wardic/solid"
+import type * as Drag from "@wardic/core/Drag"
+import * as InputSource from "@wardic/core/InputSource"
+import { TestInput } from "@wardic/test"
+import * as Context from "effect/Context"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Schedule from "effect/Schedule"
 import * as Stream from "effect/Stream"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -36,6 +46,14 @@ import { describe, expect, it } from "vitest"
 import "./browser-commands.ts"
 import { retryGesture, until } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { envWith, errorsNamed, type Logged } from "./report-env.ts"
+
+// The Stage's Subjects in SN12, as an Environment adds its own.
+declare module "@wardic/solid" {
+  interface StageSubjects {
+    readonly sensed: { readonly isSensed: true }
+  }
+}
 
 const mouse = { pointerId: 1, pointerType: "mouse", isPrimary: true } as const
 
@@ -341,5 +359,54 @@ describe("sensors on Solid 2: refs that are their readings", () => {
     expect(some(), "half of it shows in the container").toBe(true)
     expect(all(), "amount all: half isn't all").toBe(false)
     expect(grown(), "amount all, the container grown 40 px at the bottom").toBe(true)
+  })
+
+  it("SN12 (#979 group I, row 26): a Stage's sensor reports on the provider's runtime, once a run", async () => {
+    const logs: Array<Logged> = []
+    const pushed = Effect.runSync(TestInput.pushable())
+    const input = Effect.runSync(Effect.scoped(Layer.build(pushed.layer))).pipe(Context.get(InputSource.InputSource))
+    const subject = { isSensed: true } as const
+    const stage: Stage = {
+      isSubject: (value) => (value as { readonly isSensed?: boolean }).isSensed === true,
+      ward: () => {
+        throw new Error("SN12 wards nothing")
+      },
+      animate: () => undefined as never,
+      frameEffects: { add: () => () => undefined, request: () => undefined },
+      input,
+    }
+    let breaks = true
+    // An app's bounds whose x throws while `breaks`: read at each sample.
+    const bounds = {
+      get x(): Drag.Bounds["x"] {
+        if (breaks) throw new Error("its bounds broke")
+        return { min: 0, max: 500 }
+      },
+    } as Drag.Bounds
+    const Sensed = () => {
+      createDrag(subject, { bounds })
+      return null
+    }
+    mount(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <WardicStage value={stage}>
+          <Sensed />
+        </WardicStage>
+      </WardicProvider>
+    ))
+    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void =>
+      Effect.runSync(pushed.push(InputSource.makePointerLikeEvent({ type, x, timeStamp: performance.now() })))
+    const failed = (): number => errorsNamed(logs, "wardic.createDrag: a gesture handler failed").length
+    push("down", 0)
+    for (const x of [10, 20, 30, 40]) push("move", x)
+    await until(() => failed() > 0)
+    expect(failed(), "heard by the app's logger, once a run").toBe(1)
+    breaks = false
+    push("move", 50)
+    breaks = true
+    push("move", 60)
+    await until(() => failed() > 1)
+    expect(failed()).toBe(2)
+    push("up", 60)
   })
 })
