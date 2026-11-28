@@ -1,5 +1,24 @@
 # @wardic/test
 
+## 1.3.2
+
+### Patch Changes
+
+- Updated dependencies [4399320]
+- Updated dependencies [2a1c243]
+- Updated dependencies [f18c362]
+- Updated dependencies [1722a13]
+- Updated dependencies [02f3789]
+- Updated dependencies [52c4821]
+- Updated dependencies [07cd34e]
+- Updated dependencies [f8b72f7]
+- Updated dependencies [7460d44]
+- Updated dependencies [2a4ea78]
+- Updated dependencies [feda717]
+- Updated dependencies [bbfc1ad]
+- Updated dependencies [8fec000]
+  - @wardic/core@1.3.2
+
 ## 1.3.1
 
 ### Patch Changes

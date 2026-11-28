@@ -1,5 +1,53 @@
 # @wardic/foldkit
 
+## 1.3.2
+
+### Patch Changes
+
+- 2a1c243: An app's function that throws in a few more of the bindings' paths is now its own element's or its own call's (#979).
+
+  ```tsx
+  <wardic.ul
+    initial="closed"
+    animate="open"
+    variants={list}
+    transition={{ delayChildren: (i) => delays[i].seconds }}
+  >
+    <For each={items()}>{() => <wardic.li variants={item} />}</For>
+  </wardic.ul>
+  // before: a `delayChildren` function that threw for one child halted Solid 2 at the change
+  // now: that child starts with no delay, the others with theirs, and "wardic.stagger: a delayChildren function failed" is logged once
+  ```
+
+  - **A `delayChildren` function that throws** for one child, on every binding: that child starts with no delay and the others with theirs. Logged once a run of throws as `wardic.stagger: a delayChildren function failed`, with the child's index, and once for a presence's exit or a server render. Before, it halted Solid 2, came out of Solid 1's setter, and on Foldkit kept the later elements from that patch.
+  - **Animation controls' `start(fn)` and `set(fn)`:** a function that throws for one element refuses the call, as before, but no element has changed. Before, the earlier elements had already started. Foldkit's `AnimationControls.start` Command dies with the throw.
+  - **A scroll transform whose `ease` throws** where its native scroll animation's keyframes sample it runs no native animation: Wardic draws its key each frame instead. Logged once as `wardic.timeline: a Timeline value failed`, with its key. Before, it halted Solid 2, broke Solid 1's mount, and failed a Foldkit element's mount.
+  - **Solid 1's `createBatch` `onAnimationStart` and `onAnimationComplete`:** a callback that throws is logged each time as `createBatch: onAnimationStart failed` or `createBatch: onAnimationComplete failed`, and the members still move and land. Before, a start that threw kept them from moving at that change, and dropped the rest of Solid 1's update; a landing's throw was swallowed.
+
+- bbfc1ad: A dynamic variant (a function in `variants`) that throws is now its element's alone, and reported (#979). Before, the throw came out of the app's update. On Solid 1 that froze every element changed in it; Solid 2 halted; and Foldkit crashed the app if it threw at setup, and kept every leaver on the page if it threw in an exit.
+
+  - At a change (`animate`, a `while*` gesture, an inherited name), the element keeps the target it had until the variant resolves again. It's logged once as `wardic.ward: a variant failed`, annotated with the variant's name, until then. One that throws only as its element orchestrates its Variant children (it's resolved there with no values) is logged the same way, and the children animate without that variant's orchestration.
+  - In an `exit`, alone or in a list, the element leaves at once, without its exit, and the others leaving beside it exit. It's logged each time as `wardic.presence: an exit variant failed`.
+  - At setup, the element starts without that variant's values, and it's logged once, not again at its first change. On a server those values are left out of the markup, and it's logged there.
+
+- Updated dependencies [4399320]
+- Updated dependencies [2a1c243]
+- Updated dependencies [f18c362]
+- Updated dependencies [1722a13]
+- Updated dependencies [02f3789]
+- Updated dependencies [52c4821]
+- Updated dependencies [07cd34e]
+- Updated dependencies [f8b72f7]
+- Updated dependencies [467da75]
+- Updated dependencies [7460d44]
+- Updated dependencies [2a4ea78]
+- Updated dependencies [d8f16fc]
+- Updated dependencies [feda717]
+- Updated dependencies [bbfc1ad]
+- Updated dependencies [8fec000]
+  - @wardic/core@1.3.2
+  - @wardic/dom@1.3.2
+
 ## 1.3.1
 
 ### Patch Changes
