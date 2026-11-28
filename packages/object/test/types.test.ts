@@ -80,6 +80,10 @@ const typed = (wardic: WardicObject.WardicObject): void => {
 
   // An inline sequence's options and its Segments are checked, as a declared one's (#963).
   wardic.animate([[ball, { x: 1 }], "next", [ball, { y: 1 }, { at: "next" }], [dots, { x: 2 }], [(value: number) => void value, [0, 1], { duration: 1 }]], { duration: 2, repeat: 1 })
+  // A function Segment takes a value with no options (#975): a number, its stops or a string; an object is its options.
+  wardic.animate([[(value: number) => void value, 5], [(value: number) => void value, [0, 1]], [(value: string) => void value, "10px"], [(value: number) => void value, { duration: 1 }]])
+  // @ts-expect-error: a string's value for a number's callback.
+  wardic.animate([[(value: number) => void value, "10px"]])
   // @ts-expect-error: a sequence's `duration` is a number.
   wardic.animate([[ball, { x: 1 }]], { duration: "slow" })
   // @ts-expect-error: a misspelt option.
