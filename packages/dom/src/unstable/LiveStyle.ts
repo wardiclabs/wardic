@@ -3,8 +3,9 @@
  * flush gate, what each is now, and when one changes.
  *
  * A key is **routed** when its value is live (an `effect/reactivity` Atom, or an accessor: a signal,
- * a memo, `createTransform`'s) or when it's a transform key (`x`, `scale`, `rotate`…), live or not
- * (decisions 2 and 4). A routed key is the key's `style` link, followed while no entry of the
+ * a memo, `createTransform`'s), when it's a transform key (`x`, `scale`, `rotate`…), live or not
+ * (decisions 2 and 4), or when it's a bare number on a length (`width: 200`), which the renderer
+ * draws in px and a binding's own `style` would write as it is. A routed key is the key's `style` link, followed while no entry of the
  * Override stack sets it (decision 1), and Wardic writes it: the gate composes the transform keys
  * into `transform` with its own, and commits the rest once a frame. So the binding's `style` never
  * carries one. A user's own `transform` string applies while no transform key is set; with one,
@@ -44,6 +45,7 @@ import type * as Config from "@wardic/core/unstable/Config"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 import type * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
+import { LENGTH_KEYS } from "../internal/renderer.ts"
 import * as TransformKeys from "../internal/transform-keys.ts"
 
 /**
@@ -181,15 +183,20 @@ export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegist
   return value
 }
 
-/** Whether a style's `key` is routed: its value is live, or it's a transform key with a value. */
+/** The lengths a bare number on is drawn in px (`DomRenderer.LENGTH_KEYS`). */
+const LENGTHS: ReadonlySet<string> = new Set(LENGTH_KEYS)
+
+/** Whether a style's `key` is routed: its value is live, it's a transform key with a value, or a number on a length. */
+// #887 (ADR-0073, *Amendment (#887)*): `style={{ width: 200 }}` typechecks (#522), but Solid writes "200",
+// which a browser drops, so nothing was drawn; the renderer writes "200px".
 const isRouted = (value: unknown, key: string): boolean =>
-  Bool.and(Predicate.isNotNullish(value), Bool.or(isLive(value), isTransformKey(key)))
+  Bool.and(Predicate.isNotNullish(value), Bool.or(Bool.or(isLive(value), isTransformKey(key)), Bool.and(Predicate.isNumber(value), LENGTHS.has(key))))
 
 /** A user's style split: what its binding's `style` carries, and the routed keys' sources. */
 export interface Split {
   /** The style without the routed keys. The user's own when nothing is routed. */
   readonly css: StyleInput
-  /** Each routed key's value as given: an Atom, an accessor, or a transform key's plain value. */
+  /** Each routed key's value as given: an Atom, an accessor, a transform key's plain value, or a number on a length. */
   readonly routed: Readonly<Record<string, unknown>>
   /** Whether a `transform` string was dropped for the transform keys. */
   readonly droppedTransform: boolean
