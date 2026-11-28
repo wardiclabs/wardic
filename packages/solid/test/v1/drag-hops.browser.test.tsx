@@ -180,6 +180,7 @@ it("H3: a move and its release in one task: the release is on the Frame loop by 
     FrameLoop.FrameLoop.useSync((loop) => ({
       afterTick: loop.afterTick,
       inLateWindow: loop.inLateWindow,
+      tickCount: loop.tickCount,
       hint: loop.hint,
       run: (machine, sink) =>
         Effect.suspend(() => {

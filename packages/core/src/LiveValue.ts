@@ -750,9 +750,12 @@ const numberMachine = (name: string, settles: boolean, start: () => (dt: number)
  * @example
  * const speed = yield* LiveValue.velocity(scrollY)
  */
-// Each tick's `dt` is clamped at `Machine.MAX_DT`, as every run's is. "Since the end of the tick before",
-// read by an `afterTick` hook, not the run's own last read: a run started inside a tick takes its first
-// step at the next one, and would otherwise count two frames' change over one `dt`.
+// Each tick's `dt` is clamped at `Machine.MAX_DT`, as every run's is. A step reads the change "since the end
+// of the tick before", read by an `afterTick` hook, not the run's own last read: a run started inside a
+// tick whose Late step doesn't come (back-to-back frames, or past the Late rounds) takes its first step at
+// the next tick, and would otherwise count two frames' change over one `dt`. Its Late step, at the loop's
+// tick count it started at, reads from the source before the change that started it, since the tick's hook
+// has read past that change by then (#991, ADR-0043 *Amendment (#991)*).
 export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
   function* (source: Atom.Atom<number>) {
     const registry = yield* AtomRegistry.AtomRegistry
@@ -770,6 +773,11 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
     // The source at the end of the tick before: where each tick's change is read from. A read that throws
     // keeps it.
     let previous = registry.get(source)
+    // A run's start (#991): the source from before the change that started it, the loop's tick count then,
+    // and whether its first step is still due (only that step can be its Late step).
+    let seed = previous
+    let startedAt = 0
+    let firstDue = false
     const loop = yield* FrameLoop.FrameLoop
     yield* loop.afterTick(() => {
       try {
@@ -784,17 +792,29 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
     // A jump of the source isn't motion: the change is read from where it jumped to.
     const unhear = onJump(registry, source, (value) => {
       previous = value
+      seed = value
     })
     // One token for its lifetime, and one run program, started afresh on the change after a rest:
     // a change while a run goes costs a check, nothing built.
     const token = Supersede.make()
     let running = false
+    // Where a run's first step reads its change from, clearing its due flag: its Late step, at the tick
+    // count it started at, from the source before the change that started it (the tick's hook has moved
+    // `previous` past it); one at a later tick, from the end of the tick before, as every later step does.
+    const takeFirstFrom = (): number => {
+      firstDue = false
+      if (loop.tickCount() === startedAt) return seed
+      return previous
+    }
     const program = numberMachine("wardic.velocity", true, () => (dt) => {
       const step = Math.min(dt, Machine.MAX_DT)
       // A tick in no time (never from the Clock) reads as still.
       if (step === 0) return { value: 0, done: true }
-      // A read that throws reads as still: where the tick before left it.
-      let now = previous
+      // A check on every later step: the first's alone reads the tick count (#991).
+      let before = previous
+      if (firstDue) before = takeFirstFrom()
+      // A read that throws reads as still.
+      let now = before
       try {
         now = registry.get(source)
         if (sourceFailing) sourceFailing = false
@@ -802,7 +822,7 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
         if (!sourceFailing) Report.failureOn(context, SOURCE_FAILED, Cause.die(defect))
         sourceFailing = true
       }
-      const v = (now - previous) / step
+      const v = (now - before) / step
       return { value: v, done: v === 0 }
     }).pipe(
       Machine.run((frame) => {
@@ -820,6 +840,9 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
     const follow = (): void => {
       if (running) return
       running = true
+      seed = previous
+      startedAt = loop.tickCount()
+      firstDue = true
       run(program, { onlyIfMissing: true })
     }
     const unsubscribe = registry.subscribe(source, follow)

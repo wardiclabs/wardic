@@ -34,16 +34,27 @@
 //   value's throw is its reader's.
 // - LF6: a velocity whose dependent throws goes on and rests at 0, reported once.
 //
+// #991, `velocity` over a source that changes inside a tick, its frames run as an app's are, each tick's
+// microtasks after it, where the Late window's runs take their Late steps (#680):
+// - VE5: over a `follow`, the follow's own speed while it moves, and 0 once it rests.
+// - VE6: a velocity of a velocity is acceleration, from the first frame.
+// - VE7: a run after its own on the loop moving its source: the source's speed each frame, and 0 once it stops.
+// - VE8: a jump of its source in the frame its run started in isn't motion; the next frame's change is read
+//   from where it jumped to.
+// - VE9: frames that repeat one timestamp (Firefox's after an input), back to back: each frame's change once.
+//
 // #443, `eachFrame` (Motion's `useAnimationFrame`):
 // - AF1: time 0 at its first frame, then the total of each tick's dt, unclamped; delta the tick's dt in ms.
 // - AF2: delta held to 1–40 ms, as Motion's frame loop holds it; time not.
 // - AF3: closing its Scope ends the run: no frame after.
+import * as Clock from "@wardic/core/Clock"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as Machine from "@wardic/core/Machine"
+import * as Microtask from "@wardic/core/Microtask"
 import type * as ScrollSource from "@wardic/core/ScrollSource"
 import { TestClock, TestProbe } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
@@ -175,10 +186,14 @@ describe("LiveValue.transform: ranges mapped through the registry (#130)", () =>
 
 type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
 
-/** A pushable Clock, the real Frame loop wrapped to count its live runs, and a registry. */
-const harness = () =>
+/**
+ * A pushable Clock, the real Frame loop wrapped to count its live runs, and a registry. Given `frameAt`, the
+ * Clock tells it as each frame's timestamp, as Firefox's frame after an input repeats the one before (#18).
+ */
+const harness = (options: { readonly frameAt?: () => number } = {}) =>
   Effect.gen(function* () {
-    const clock = yield* TestClock.pushable()
+    const pushed = yield* TestClock.pushable()
+    const clock = { ...pushed, layer: clockLayer(pushed.layer, options.frameAt) }
     let live = 0
     const count = (go: LoopShape["run"]): LoopShape["run"] =>
       ((machine: Machine.Machine<Frame.Frame<unknown>>, sink: FrameLoop.Sink<Frame.Frame<unknown>>, options?: Machine.RunOptions) =>
@@ -193,12 +208,29 @@ const harness = () =>
     return { clock, layer, live: () => live }
   })
 
-/** `n` frames of 1/60 s, each `out`'s value after it. */
-const frames = (clock: { readonly advance: (dt?: number) => Effect.Effect<void> }, registry: Context.Service.Shape<typeof AtomRegistry.AtomRegistry>, out: Atom.Atom<number>, n: number) =>
+/** `layer`'s Clock, its `frameAt` replaced when one is given. */
+const clockLayer = <R>(layer: Layer.Layer<Clock.Clock | R>, frameAt: (() => number) | undefined): Layer.Layer<Clock.Clock | R> => {
+  if (frameAt === undefined) return layer
+  return Layer.effect(Clock.Clock)(Clock.Clock.useSync((clock) => ({ ...clock, frameAt }))).pipe(Layer.provideMerge(layer))
+}
+
+/**
+ * `n` frames of 1/60 s, each `out`'s value after it and `after`. Back to back by default, so no Late step is
+ * taken (#680); given `Microtask.next`, each frame's microtasks run, where its Late window takes them, as an
+ * app's frames do.
+ */
+const frames = (
+  clock: { readonly advance: (dt?: number) => Effect.Effect<void> },
+  registry: Context.Service.Shape<typeof AtomRegistry.AtomRegistry>,
+  out: Atom.Atom<number>,
+  n: number,
+  after: Effect.Effect<void> = Effect.void,
+) =>
   Effect.gen(function* () {
     const values: Array<number> = []
     for (let i = 0; i < n; i++) {
       yield* clock.advance(F)
+      yield* after
       values.push(registry.get(out))
     }
     return values
@@ -668,6 +700,116 @@ describe("LiveValue.velocity: a value's velocity per frame while it moves (#234)
         registry.set(source, 2)
         yield* frames(h.clock, registry, out, 2)
         expect(h.live()).toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE5: over a follow, the follow's own speed while it moves, and 0 once it rests", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        // 100 in 0.5 s, linear: 200 a second, each frame's step 3.33 for 30 frames.
+        const followed = yield* LiveValue.follow(source, { type: "tween", duration: 0.5, ease: "linear" })
+        const speed = yield* LiveValue.velocity(followed)
+        registry.set(source, 100)
+        const speeds = (yield* frames(h.clock, registry, speed, 34, Microtask.next)).map((v) => Math.round(v))
+        expect(registry.get(followed), "the follow at rest").toBe(100)
+        expect(speeds.slice(0, 30), "its speed each frame it moves").toEqual(Array.from({ length: 30 }, () => 200))
+        expect(speeds.slice(30), "0 once it rests").toEqual([0, 0, 0, 0])
+        expect(h.live(), "every run ended").toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE6: a velocity of a velocity, its frames run as an app's, is acceleration from the first frame", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const v = yield* LiveValue.velocity(source)
+        const a = yield* LiveValue.velocity(v)
+        const accelerations: Array<number> = []
+        for (const x of [1, 3, 6, 10]) {
+          registry.set(source, x)
+          accelerations.push(...(yield* frames(h.clock, registry, a, 1, Microtask.next)))
+        }
+        // Velocity 60, 120, 180, 240 a second, from 0: 60 more each frame, 3600 a second squared.
+        expect(accelerations.map((x) => Math.round(x))).toEqual([3600, 3600, 3600, 3600])
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE7: a run after its own on the loop moving its source: the source's speed each frame, and 0 once it stops", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const speed = yield* LiveValue.velocity(source)
+        // A change between frames starts its run: 1 in a frame, 60 a second.
+        registry.set(source, 1)
+        expect(Math.round((yield* frames(h.clock, registry, speed, 1, Microtask.next))[0]!), "its run first on the loop").toBe(60)
+        // A run added after it moves the source 2 a frame. In the first tick the velocity steps before it, finds
+        // no change and ends, and the run's write starts it again in the window: its Late step reads the
+        // change. Its new run is after the mover's, so from the next tick it steps after it.
+        let at = 1
+        const mover = yield* Scope.make()
+        yield* LiveValue.eachFrame(() => {
+          at += 2
+          registry.set(source, at)
+        }).pipe(Scope.provide(mover))
+        const speeds = (yield* frames(h.clock, registry, speed, 5, Microtask.next)).map((v) => Math.round(v))
+        expect(speeds, "120 a second, each frame").toEqual([120, 120, 120, 120, 120])
+        yield* Scope.close(mover, Exit.void)
+        expect((yield* frames(h.clock, registry, speed, 2, Microtask.next)).map((v) => Math.round(v)), "0 once it stops").toEqual([0, 0])
+        expect(h.live(), "its run ended").toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE8: a jump of its source in the frame its run started in isn't motion; the next change reads from where it jumped to", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const speed = yield* LiveValue.velocity(source)
+        // Each in a frame's tick, from a run on the loop: a change and a jump, then a change, then nothing.
+        const script: ReadonlyArray<() => void> = [
+          () => {
+            registry.set(source, 1)
+            Effect.runSync(LiveValue.jump(source, 50).pipe(Effect.provideService(AtomRegistry.AtomRegistry, registry)))
+          },
+          () => registry.set(source, 52),
+        ]
+        let frame = 0
+        yield* LiveValue.eachFrame(() => {
+          script[frame]?.()
+          frame++
+        })
+        const speeds = (yield* frames(h.clock, registry, speed, 4, Microtask.next)).map((v) => Math.round(v))
+        expect(speeds[0], "the jump's frame: no motion").toBe(0)
+        expect(speeds[1], "2 from where it jumped to, in a frame: 120 a second").toBe(120)
+        expect(speeds.slice(2), "0 once it rests").toEqual([0, 0])
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("VE9: frames that repeat one timestamp, back to back: a velocity of a velocity counts each frame's change once", () =>
+    Effect.gen(function* () {
+      // Every frame tells the one timestamp, as Firefox's frame after an input repeats the one before.
+      const h = yield* harness({ frameAt: () => 0 })
+      yield* Effect.gen(function* () {
+        const registry = yield* AtomRegistry.AtomRegistry
+        const source = Atom.make(0)
+        const v = yield* LiveValue.velocity(source)
+        const a = yield* LiveValue.velocity(v)
+        const accelerations: Array<number> = []
+        for (const x of [1, 3, 6]) {
+          registry.set(source, x)
+          accelerations.push(...(yield* frames(h.clock, registry, a, 1)))
+        }
+        // As VE3: no Late step, so the acceleration's run takes its first step at the next tick, from that
+        // tick's end, not from before the change that started it, 3600, not 7200.
+        expect(accelerations.slice(1).map((x) => Math.round(x))).toEqual([3600, 3600])
       }).pipe(Effect.scoped, Effect.provide(h.layer))
     }))
 })

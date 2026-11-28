@@ -503,3 +503,54 @@ ADR-0074's rule for a Timeline value (*Amendment (#240)*): #979's row 7. ADR-007
 - **Now** the make runs to its Exit in `TimelineKeys`: a failure is reported, `wardic.timeline: a Timeline value failed` with its `key`, and makes none, so the gate draws the key, as it does any key a Timeline value can't run, where group D's transform keeps its last value. It's kept as made: reported once per element, key and derivation, and tried again only for a new derivation.
 - **Its recheck and its cancels** run Wardic's and the browser's code alone: unchanged.
 - **Pinned by** TL9, on both bindings.
+
+## Amendment (#991, 2026-11-28): a velocity's Late step reads from before the change that started it
+
+**What happened.** Found by #979's group D probe. A `velocity` over a `follow`, a `spring`, or another `velocity` read 0 on every frame its source moved, while one over an Atom an app sets read the right speed. A change inside a tick, from its source's own run, starts the velocity's run there, so it takes its Late step in the microtask the tick queues (ADR-0027 *Amendment (#680)*). Its `afterTick` hook had already moved `previous`, where each step reads its change from, to the source's new value. So the Late step read the source against itself, set 0 and ended, and the next frame's change started it again. Reproduced on `main` (4c232274) at core's seam, each frame running its microtasks, as an app's do:
+- over a linear `follow` moving 200 a second: 0, 0, 0, …;
+- a velocity of a velocity: 0 for 3600.
+
+VE3 passed only because its frames run back to back, and the microtask that takes the Late steps never runs between them. The comment above `velocity` predated #680: a run started inside a tick "takes its first step at the next one".
+
+**Decided** (#991's grill, 2026-11-28, Q1–Q11; Q8–Q11 asked once built):
+1. **A tick count tells a run's Late step** (Q1, Q5, Q8, Q10). A run keeps, as it starts, the source before the change that started it (`previous` then) and the Frame loop's tick count. Its first step, if it comes at that count, is its Late step, and reads from the kept value. Any other step reads from the end of the tick before, as before.
+   - **The count:** the Frame loop's shape gives `tickCount` (`internal/frameLoop.ts`), one add a tick. Neither a Late round nor a binding's hint window is a tick, so a run started in either still reads its count in its Late step. The shape is internal (ADR-0028, decision 11), so `velocity`'s Effect type is unchanged.
+   - **Only the first step reads it,** behind a flag set at the start (Q8). Q5 had every step compare it, since a run steps at most once a frame. That measured 4–5% on a velocity's frame (see *Cost*), and the flag measured nothing.
+   - **A first step at the next tick** reads from that tick's end. That covers back-to-back frames, as `@wardic/test`'s clock runs them, and a run past the Late round cap. So two frames' change never counts over one `dt`, which VE3 and VE9 pin.
+   - **Not the Clock's `frameAt`** (Q10, replacing Q5's stamp, which the review found wrong). It's the frame's raw timestamp, which Firefox repeats on the frame right after an input (#18). So a run past the Late round cap whose first step landed on such a frame would read from the kept value, and count two frames' change over one `dt`. It's also `NaN` before any frame, so a binding's hint window before the loop's first tick (Foldkit's) read 0 on that frame, #991's bug.
+   - **Not chosen:**
+     - reading `Clock.frameAt()` in `velocity` itself, which would add `Clock` to its requirements in a patch;
+     - each step reading from its own last read, which double-counts a first step that isn't a Late step;
+     - running microtasks between `@wardic/test`'s frames, which would change every test's frames.
+2. **Tests** (Q2, Q6, Q9, Q10), each red on `main` first. `frames` takes an Effect it runs after each frame, and VE5–VE8 give it `Microtask.next`, so each frame's microtasks run as an app's do:
+   - **VE5:** over a `follow`, 100 in 0.5 s, linear: 200 a second on each of its 30 frames, then 0, every run ended.
+   - **VE6:** a velocity of a velocity: 3600 from the first frame.
+   - **VE7:** a run added after the velocity's on the loop moves its source 2 a frame: 120 a second each frame, then 0 once it stops. In its first tick the velocity steps first, finds no change and ends, and the run's write starts it again inside the window, its Late step reading the change from the kept value. Its new run is after the mover's, so from the next tick it steps after it.
+   - **VE8** (Q9): a change and a jump of the source in one tick read 0, the jump no motion. The next frame's change of 2 reads 120, from where the source jumped to. It was added once a jump not moving the kept value went uncaught.
+   - **VE9** (Q10): VE3 over a Clock whose every frame tells one timestamp, as Firefox's frame after an input does: 3600, not 7200.
+3. **The record** (Q3, Q11): the comment above `velocity`, this amendment, and a patch for `@wardic/core` and `@wardic/solid`, whose `createVelocity` reads its speed now too. Its JSDoc already said "each frame's change over the frame's time".
+
+**Built:** `velocity` in `packages/core/src/LiveValue.ts`: a run's start keeps `seed` and `startedAt` and sets `firstDue`. Its first step's `takeFirstFrom()` clears the flag and reads `seed` when `loop.tickCount()` is `startedAt`. A jump of the source moves `seed` with `previous`. The Frame loop counts its ticks, and the four browser tests that build its shape by hand give `tickCount` too.
+
+**Mutations:** 7 of 7 caught on the final code, each run alone, the files restored from a copy:
+- `main`'s rule, by VE5 to VE8;
+- the kept value on every later step, by VE2, VE3, VE5 to VE9 and LF6;
+- the kept value taken at the first step instead of the start, by VE5 to VE8;
+- a jump not moving it, by VE8;
+- the flag never set, by VE5 to VE8;
+- the count read from the Clock's `frameAt`, by VE9;
+- the count never added to, by VE3 and VE9.
+
+The flag never cleared survives, as it should: every step then reads the count, as Q5's form did, which costs time but changes nothing a test sees.
+
+**Cost** (Q4, Q10), on the quiet host, with #979's bench (`.tmp/991/bench`). `bench:core` runs no Live values, so its workloads don't reach `velocity`. "Velocity + its hook" is one velocity's frame and hook, its source moving every frame; "a tick's hooks" is a tick's cost per hook, which the count's add a tick would show in. Each run timed `main` against the branch and against an identical copy of `main`, the control, which measures what the run's order and placement alone move. The figures are the branch net of the control, two runs each:
+
+| Engine | Q5's form, every step reading the frame | The flag, with the frame | The flag, with the count (built) |
+|---|---|---|---|
+| Node, max-opt 2 | +5.4, +3.6 | 0.0, −0.3 | +1.8, +2.3 |
+| Bun | +7.7, +0.1 | −5.8, −8.3 | +0.3, −3.4 |
+| Node | −6.7, +14.7 | +6.9, −4.1 | +11.2, +10.9 |
+
+The two flag forms timed against each other, the frame's as the base and the count's as the branch, net of the control: max-opt 2 −1.3, −0.2; Bun −1.2, +1.8; Node +8.1, −6.1. Their steady steps are the same code, and Node's swing runs the other way in each run, so the count costs nothing over the frame. "A tick's hooks", the count's add a tick: within a point of its control everywhere (−1.5 to +0.1).
+
+Bun's and Node's controls moved 15–20% on order and placement alone, so only the max-opt 2 rows, whose intervals stay within a point, are read. In the first full run, the other rows (follow, spring, the gate, the transforms) moved as their controls did.
