@@ -14,12 +14,15 @@
 // - DC9: a fling past the container's edge springs back inside it (the release's edges are the measured bounds).
 // - DC10: the element moved inside its container with neither resizing (a sibling above it grew): the
 //   next drag's start measures it where it is now.
+// - DC11 (#979 group I, row 28; ADR-0074 decision 3): an `onMeasureDragConstraints`, and a release's
+//   `modifyTarget`, throwing at each drag: each reported once a run, again after a clean one.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicBoundingBox, type WardicEnv, WardicProvider } from "@wardic/solid/v1"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 import { pushedFling, pushedPointer } from "../pushed-pointer.ts"
 import { add, centreOf, glide, mouse, type Pt, resetScene, settle } from "./reorder-harness.tsx"
 
@@ -206,5 +209,76 @@ describe("element dragConstraints on Solid 1 (#273)", () => {
     await dragBy(el, 0, 300)
     await frames(3)
     expect(r(el.getBoundingClientRect().bottom), "at the frame's bottom, not 50 px past it").toBe(r(frame.getBoundingClientRect().bottom))
+  })
+
+  it("DC11 (#979 group I, row 28): a measure and a release throwing at each drag are each reported once a run, again after a clean one; another element's its own", async () => {
+    const logs: Array<Logged> = []
+    let measureBreaks = true
+    let releaseBreaks = true
+    let other!: HTMLElement
+    const { el } = await mountIn(
+      (frame, ref) => (
+        <>
+          <wardic.div
+            ref={ref}
+            drag="x"
+            dragConstraints={frame}
+            onMeasureDragConstraints={(box) => {
+              if (measureBreaks) throw new Error("its measure broke")
+              return box
+            }}
+            dragSnapToOrigin
+            dragTransition={{
+              modifyTarget: (target) => {
+                if (releaseBreaks) throw new Error("its release broke")
+                return target
+              },
+            }}
+            style={BOX}
+          />
+          <wardic.div
+            ref={(n: HTMLElement) => (other = n)}
+            drag="x"
+            dragConstraints={frame}
+            onMeasureDragConstraints={() => {
+              throw new Error("the other's measure broke")
+            }}
+            dragMomentum={false}
+            style={{ ...BOX, "margin-top": "20px" }}
+          />
+        </>
+      ),
+      () => ({}),
+      envWith({ logs, reports: [] }),
+    )
+    const measures = (broke = "its measure broke"): number =>
+      errorsNamed(logs, "wardic.drag: measuring dragConstraints failed").filter((log) => log.cause?.includes(broke) === true).length
+    const releases = (): number => errorsNamed(logs, "wardic.drag: a release failed").length
+    /** A drag 30 px right, and its release given time to land. */
+    const dragOnce = async (): Promise<void> => {
+      await dragBy(el, 30, 0)
+      await frames(40)
+    }
+    await dragOnce()
+    await dragOnce()
+    await dragOnce()
+    expect(measures(), "the measures' run, once").toBe(1)
+    expect(releases(), "the releases' run, once").toBe(1)
+    // Another element's measures: a run of its own, though this one's goes on.
+    await dragBy(other, 30, 0)
+    await dragBy(other, 30, 0)
+    await frames(10)
+    expect(measures("the other's measure broke"), "the other's run, its own").toBe(1)
+    // A clean measure and a clean release end their runs: the release lands, back at the origin.
+    measureBreaks = false
+    releaseBreaks = false
+    const origin = r(el.parentElement!.getBoundingClientRect().left)
+    await dragOnce()
+    await until(() => r(el.getBoundingClientRect().left) === origin, 3000)
+    measureBreaks = true
+    releaseBreaks = true
+    await dragOnce()
+    expect(measures()).toBe(2)
+    expect(releases()).toBe(2)
   })
 })

@@ -184,3 +184,33 @@ it("FE9: closing the Scope takes the slot off the loop and withdraws a pending f
   expect(env.hooks).toEqual([])
   expect(env.frames.size).toBe(0)
 })
+
+// #979 group I, row 22 (ADR-0074 decision 3): a run is one effect throwing on consecutive frames.
+it("FE10: an effect that throws every frame is reported once a run, again after a clean frame, and another effect's run is its own", () => {
+  const { effects, told } = counted()
+  let aThrows = true
+  let bThrows = false
+  const a = new Error("a")
+  const b = new Error("b")
+  effects.add(() => {
+    if (aThrows) throw a
+  })
+  effects.add(() => {
+    if (bThrows) throw b
+  })
+  effects.run(0)
+  effects.run(16)
+  effects.run(32)
+  expect(told.reports).toEqual([a])
+  // b's first throw is reported though a's run goes on.
+  bThrows = true
+  effects.run(48)
+  effects.run(64)
+  expect(told.reports).toEqual([a, b])
+  // A clean frame ends a's run: its next throw is a new one.
+  aThrows = false
+  effects.run(80)
+  aThrows = true
+  effects.run(96)
+  expect(told.reports).toEqual([a, b, a])
+})

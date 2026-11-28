@@ -48,6 +48,8 @@ export interface BatchSceneOptions {
   readonly readSizeOf?: (value: string) => { readonly width: number; readonly height: number }
   /** The provider's Environment: `DomLive` when left out; a pushed pointer's for a fling the test times (#783). */
   readonly env?: WardicEnv
+  /** Called at each hold's end, after the scene records it: one that throws is the app's (#979 group I). */
+  readonly onHoldEnd?: (end: ReorderController.HoldEnd<string>) => void
 }
 
 /** The group's place on the page: `reorder-harness.tsx`'s. */
@@ -104,7 +106,10 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
         holds.push(`reorder ${end.value} ${end.from}→${end.to}`)
       }}
       onHoldStart={(start: ReorderController.HoldStart<string>) => holds.push(`start ${start.value} ${start.from}`)}
-      onHoldEnd={(end: ReorderController.HoldEnd<string>) => holds.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)}
+      onHoldEnd={(end: ReorderController.HoldEnd<string>) => {
+        holds.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)
+        o.onHoldEnd?.(end)
+      }}
       axis={layout}
       {...UndefinedOr.match(o.sizeOf, {
         onUndefined: () =>

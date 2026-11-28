@@ -46,6 +46,9 @@
 //   from the same load made.
 // - D18: an `OnDrag` that throws at every move is reported at its run's first (#257 item 4), and the
 //   drag goes on to its end.
+// - D19 (#979 group I, row 26; ADR-0074 decision 3): a `transformPagePoint` that throws at a drag's moves:
+//   each throw drops its move, the drag goes on, and its watch's handler is reported once a run, again
+//   after a clean call.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Schema from "effect/Schema"
@@ -696,6 +699,29 @@ describe("a w.* element's drag (#793, PR 2; ADR-0004)", () => {
       expect(translateOf(box).x, "the drag went on").toBeCloseTo(80, 0)
       await wait(50)
       expect(saidTimes(captured.lines, "wardic.gesture: onDrag failed"), "one report for the run of throws").toBe(1)
+    } finally {
+      captured.stop()
+    }
+  })
+
+  it("D19 (#979 group I, row 26): a transformPagePoint that throws at a drag's moves is reported once a run, again after a clean call", async () => {
+    const captured = capture()
+    try {
+      // Throws for the points between the down and the last move: each drag's three moves before its last.
+      const broken = (p: Pt): Pt => {
+        if (Bool.and(p.x > DOWN.x + 10, p.x < DOWN.x + 70)) throw new Error("its point broke")
+        return p
+      }
+      const { pointer, box } = await pushedBox((w, h) => w.div([h.Id("box"), h.Style(BOX), w.Drag("x"), w.DragMomentum(false), w.Config({ transformPagePoint: broken })], []))
+      const failed = (): number => saidTimes(captured.lines, "wardic.drag: a watch's handler failed")
+      await dragBy(pointer, 80)
+      await wait(50)
+      expect(translateOf(box).x, "the last move dragged").toBeCloseTo(80, 0)
+      expect(failed(), "one report for the drag's three throws").toBe(1)
+      // The last move and the up were clean: the next drag's throws are a new run.
+      await dragBy(pointer, 80)
+      await wait(50)
+      expect(failed()).toBe(2)
     } finally {
       captured.stop()
     }

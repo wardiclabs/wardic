@@ -13,6 +13,8 @@
 // - CVE4: members on SVG `<rect>`s (#702, ADR-0048 *Amendment (#702)*): two leave, each staying for its
 //   exit, staggered by its rank, and going as it lands; `mode="wait"` holds an entering one off the page,
 //   unmoved, until the leaver's exit lands.
+// - CVE5 (#979 group I, row 29; ADR-0074 decision 3): an exit function throwing for each leaver of a change:
+//   each goes at once, and it's reported once for the change's leavers, again for the next change's.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
@@ -22,6 +24,7 @@ import { createSignal, For, untrack } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { envWith, errorsNamed, type Logged } from "./report-env.ts"
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
 const TWEEN = { type: "tween", duration: 0.3 } as const
@@ -272,5 +275,47 @@ describe("a keyed Batch's exits under AnimatePresence on Solid 2 (#665)", () => 
     expect(held.isConnected, "b goes on once a has gone").toBe(true)
     expect(a.isConnected).toBe(false)
     expect(opacityOf(held), "b starts its entrance on the page, not while held").toBeLessThan(0.5)
+  })
+
+  it("CVE5 (#979 group I, row 29): an exit function throwing for each leaver of a change: each goes at once, reported once a change", async () => {
+    const logs: Array<Logged> = []
+    const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "b", "c", "d", "e"])
+    const members = new Map<string, HTMLDivElement>()
+    const Scene = (): JSX.Element => {
+      const list = createBatch({
+        each: items,
+        key: (id) => id,
+        animate: (_, i) => ({ x: i * 40 }),
+        exit: (id) => {
+          throw new Error(`${id}'s exit broke`)
+        },
+        transition: { type: "tween", duration: 0.1 },
+      })
+      return (
+        <AnimatePresence>
+          <For each={items()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => members.set(id, el as HTMLDivElement) })} />}</For>
+        </AnimatePresence>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={envWith({ logs, reports: [] })}>
+        <Scene />
+      </WardicProvider>
+    ))
+    const failed = (): number => errorsNamed(logs, "createBatch: a member's exit failed").length
+    for (let f = 0; f < 5; f++) await raf()
+    // b and c leave in one change.
+    setItems(["a", "d", "e"])
+    await raf()
+    await raf()
+    expect(["b", "c"].map((id) => isOnPage(members.get(id))), "gone at once").toEqual([false, false])
+    expect(failed(), "once for the change's leavers").toBe(1)
+    // d and e leave in the next: its own.
+    setItems(["a"])
+    await raf()
+    await raf()
+    expect(["d", "e"].map((id) => isOnPage(members.get(id)))).toEqual([false, false])
+    expect(isOnPage(members.get("a")), "the stayer stays").toBe(true)
+    expect(failed()).toBe(2)
   })
 })

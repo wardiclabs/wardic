@@ -46,6 +46,8 @@
 // - BG11 (#706, Q20): an item's `initial` keys but `x` and `y` move to their identity as it enters, at its
 //   place: a column fades and grows in; a function `initial` in a grid from its width too; and an item
 //   added later enters so.
+// - BG12 (#979 group I, row 28; ADR-0074): an `onHoldEnd` that throws at a drag's end: the item still
+//   settles in its slot, its next drag moves it and reorders, and the throw is reported once.
 //
 // Items of different sizes, a function's (#714, ADR-0072 *Amendment (#714)*), against a `Reorder.Group` of
 // items of the same sizes laid out by the browser's flexbox:
@@ -94,8 +96,9 @@ import { createSignal, For } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
 import { pushedFling, pushedPointer } from "../pushed-pointer.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 import { type BatchSceneOptions, mountBatchReorder } from "./reorder-batch-harness.tsx"
-import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, resetScene, sampleFrames, type Scene, type SceneOptions, wait } from "./reorder-harness.tsx"
+import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, resetScene, sampleFrames, type Scene, type SceneOptions, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
 
@@ -696,6 +699,33 @@ const GRID_WIDTH = (): number => 280
 
 /** Each value's box under `s`. */
 const boxesOf = (s: Scene, values: ReadonlyArray<string>) => values.map((value) => boxOf(s.item(value)))
+
+describe("Reorder.BatchGroup with an app's end that throws (#979 group I, row 28)", () => {
+  it("BG12: an onHoldEnd that throws at a drag's end: the item settles in its slot, and its next drag moves it", async () => {
+    const logs: Array<Logged> = []
+    let breaks = 1
+    const s = await mountBatchReorder({
+      env: envWith({ logs, reports: [] }),
+      onHoldEnd: () => {
+        if (breaks-- > 0) throw new Error("onHoldEnd broke")
+      },
+    })
+    const slot = boxOf(s.item("c")).top
+    // Not far enough to reorder: c is let go back to its own slot.
+    const first = await drag(s, "c", 0, 20, 10)
+    await mouse.up(first.to)
+    await wait(800)
+    await settle()
+    expect(s.holds, "the hold ended, its onHoldEnd throwing").toEqual(["start c 2", "end c 2→2 drop"])
+    expect(boxOf(s.item("c")).top, "c settled in its slot").toBe(slot)
+    const second = await drag(s, "c", 0, 70, 20)
+    expect(offPointer(s.item("c"), second.to, second.grabOffset), "the next drag moves c, under the pointer").toBeLessThan(1)
+    expect(s.order().join(""), "and reorders").toBe("abdce")
+    await mouse.up(second.to)
+    await wait(800)
+    expect(errorsNamed(logs, "Reorder.BatchGroup: an item's input failed"), "reported once").toHaveLength(1)
+  }, 30_000)
+})
 
 describe("Reorder.BatchGroup of items of different sizes (#714)", () => {
   it("BD1: each item at the place the browser's flexbox gives it, its own size; the group sized as the flexbox's", async () => {

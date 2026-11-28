@@ -7,6 +7,10 @@
 // - LCS2: through `createWard`, the same.
 // - LCS3: on `Reorder.Item`s the app reorders: each moved item starts and completes.
 // - LCS4: `animateLayout(fn, { onSettled })` settles after the last complete.
+// - LCS5 (#979 group I, row 29; ADR-0074 decision 3): a layout callback throwing at each flight, or each
+//   measure, is reported once a run, again after a clean call; each callback's run, and each node's, its own.
+// - LCS6 (#979 group I; ADR-0074's open list): a config's getter for `onLayoutAnimationStart` that throws, read
+//   as the flight starts, is that node's callback failing: reported, and the next node's start still told.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { type AnimateLayout, Reorder, useAnimateLayout, createWard, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/v1"
@@ -14,6 +18,7 @@ import * as Bool from "effect/Boolean"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -133,4 +138,99 @@ it("LCS4: animateLayout's onSettled settles after the last complete", async () =
   await until(() => calls.includes("settled"), 2000)
   expect(calls.at(-1)).toBe("settled")
   expect(calls.filter((c) => c.startsWith("complete")).sort()).toEqual(["complete a", "complete c"])
+})
+
+it("LCS5 (#979 group I, row 29): a layout callback throwing at each flight is reported once a run; each callback's run, and each node's, its own", async () => {
+  const logs: Array<Logged> = []
+  const [moved, setMoved] = createSignal(false)
+  let aStartBreaks = true
+  let landings = 0
+  const left = (): string => Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" })
+  render(() => (
+    <WardicProvider env={envWith({ logs, reports: [] })}>
+      <div style={{ position: "relative", height: "100px" }}>
+        <wardic.div
+          layout
+          layoutDependency={moved()}
+          transition={TWEEN}
+          onLayoutAnimationStart={() => {
+            if (aStartBreaks) throw new Error("a's start broke")
+          }}
+          onLayoutAnimationComplete={() => {
+            landings++
+            throw new Error("a's landing broke")
+          }}
+          onLayoutMeasure={() => {
+            throw new Error("a's measure broke")
+          }}
+          style={{ ...BOX, left: left() }}
+        />
+        <wardic.div
+          layout
+          layoutDependency={moved()}
+          transition={TWEEN}
+          onLayoutAnimationStart={() => {
+            throw new Error("b's start broke")
+          }}
+          style={{ ...BOX, top: "50px", left: left() }}
+        />
+      </div>
+    </WardicProvider>
+  ))
+  const failed = (message: string): number => errorsNamed(logs, `wardic.projection: ${message} failed`).length
+  /** A move, and a's landing waited for. */
+  const flight = async (): Promise<void> => {
+    const count = landings
+    setMoved((m) => !m)
+    await until(() => landings === count + 1, 2000)
+  }
+  for (let i = 0; i < 5; i++) await raf()
+  await flight()
+  await flight()
+  await flight()
+  expect(failed("onLayoutAnimationStart"), "a's run and b's, once each").toBe(2)
+  expect(failed("onLayoutAnimationComplete"), "a's landings, once").toBe(1)
+  expect(failed("an onLayoutMeasure"), "a's measures, once").toBe(1)
+  // A clean start ends a's start run, not its landing's.
+  aStartBreaks = false
+  await flight()
+  aStartBreaks = true
+  await flight()
+  expect(failed("onLayoutAnimationStart"), "a's new run").toBe(3)
+  expect(failed("onLayoutAnimationComplete"), "its landing's run goes on").toBe(1)
+})
+
+it("LCS6 (#979 group I): a config getter for onLayoutAnimationStart that throws is that node's failure; the next node's start is still told", async () => {
+  const logs: Array<Logged> = []
+  const [moved, setMoved] = createSignal(false)
+  let breaks = false
+  const calls: Array<string> = []
+  const Box = (props: { readonly name: string; readonly top: string; readonly breaking: boolean }) => {
+    const ward = createWard(() => ({
+      layout: true,
+      layoutDependency: moved(),
+      transition: TWEEN,
+      // The app's own code, read where the start is told.
+      get onLayoutAnimationStart() {
+        if (Bool.and(props.breaking, breaks)) throw new Error(`${props.name}'s getter broke`)
+        return () => calls.push(`start ${props.name}`)
+      },
+      onLayoutAnimationComplete: () => calls.push(`complete ${props.name}`),
+    }))
+    return <div {...ward({ style: { ...BOX, top: props.top, left: Bool.match(moved(), { onTrue: () => "200px", onFalse: () => "0px" }) } })} />
+  }
+  render(() => (
+    <WardicProvider env={envWith({ logs, reports: [] })}>
+      <div style={{ position: "relative", height: "100px" }}>
+        <Box name="a" top="0px" breaking />
+        <Box name="b" top="50px" breaking={false} />
+      </div>
+    </WardicProvider>
+  ))
+  for (let i = 0; i < 5; i++) await raf()
+  breaks = true
+  setMoved(true)
+  await until(() => calls.filter((call) => call.startsWith("complete")).length === 2, 2000)
+  expect(calls, "b's start told, a's not").toEqual(["start b", "complete a", "complete b"])
+  expect(errorsNamed(logs, "wardic.projection: onLayoutAnimationStart failed"), "a's, as its callback's").toHaveLength(1)
 })

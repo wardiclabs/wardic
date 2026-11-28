@@ -20,6 +20,8 @@
 //   another watch on its target hears every event.
 // - IF10 (#979, row 27): `switched` with no onDefect: nothing goes up the emit, it goes on, and it's
 //   reported on Effect's default runtime.
+// - IF11 (#979 group I, row 26; ADR-0074 decision 3): a watch's onDefect, and switched's, hears a run of
+//   throws at its first, and again after a clean call; another watch's run is its own.
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Outbox from "../src/internal/outbox.ts"
@@ -296,6 +298,47 @@ describe("Input feeds (#318)", () => {
     const said = await consoleDuring(() => Arr.forEach([1, 2, 3], (n) => expect(() => state.emit!(n), `nothing up the emit at ${n}`).not.toThrow()))
     expect(heard).toEqual([1, 3])
     expect(said.filter((line) => line.includes("wardic.input: a watch's handler failed")), "reported once").toHaveLength(1)
+    keys.close()
+  })
+
+  it("IF11 (#979 group I, row 26): onDefect hears a run of throws at its first, again after a clean call; another watch's run is its own", () => {
+    const { state, feed } = controlled<number>()
+    const shared = InputFeed.byTarget(() => feed)
+    const told: Array<string> = []
+    const tell = (name: string) => (cause: Cause.Cause<never>) => void told.push(`${name} ${(Cause.squash(cause) as Error).message}`)
+    const scope = Effect.runSync(Scope.make())
+    Effect.runSync(
+      Effect.gen(function* () {
+        yield* InputFeed.watch(shared("el"), {
+          on: (n) => {
+            if (Arr.contains([2, 3, 4, 6], n)) throw new Error(`a at ${n}`)
+          },
+          onDefect: tell("a"),
+        })
+        yield* InputFeed.watch(shared("el"), {
+          on: (n) => {
+            if (n >= 3) throw new Error(`b at ${n}`)
+          },
+          onDefect: tell("b"),
+        })
+      }).pipe(Scope.provide(scope)),
+    )
+    Arr.forEach([1, 2, 3, 4, 5, 6], (n) => state.emit!(n))
+    // a: 2 to 4 one run, 5 clean, 6 a new one; b: 3 onwards one run, though a's ended.
+    expect(told).toEqual(["a a at 2", "b b at 3", "a a at 6"])
+    Effect.runSync(Scope.close(scope, Exit.void))
+    // switched's too.
+    const keysTold: Array<string> = []
+    const keys = InputFeed.switched(
+      feed,
+      (n) => {
+        if (n !== 3) throw new Error(`keys at ${n}`)
+      },
+      () => void keysTold.push("told"),
+    )
+    keys.open()
+    Arr.forEach([1, 2, 3, 4], (n) => state.emit!(n))
+    expect(keysTold, "1 and 2 one run, 3 clean, 4 a new one").toEqual(["told", "told"])
     keys.close()
   })
 })

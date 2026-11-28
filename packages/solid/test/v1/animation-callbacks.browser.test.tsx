@@ -16,6 +16,8 @@
 // - AC11: over a variant, a hover's definition is its target values, and so is the return: the
 //   variant didn't change (Motion's fallback animation for the keys the hover leaves). The mount, at
 //   its `animate`, tells nothing (#448).
+// - AC12 (#979 group I, row 25; ADR-0074 decision 3): a callback throwing at each Retarget is reported once
+//   a run, again after a clean call; each callback's run, and each element's, is its own.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createWard, wardic, WardicProvider, type WardicAnimationDefinition, type WardicTransition } from "@wardic/solid/v1"
@@ -23,6 +25,7 @@ import * as Bool from "effect/Boolean"
 import { createSignal } from "solid-js"
 import { afterEach, expect, it } from "vitest"
 import { CLEAR, raf, until } from "../browser-helpers.ts"
+import { envWith, errorsNamed, type Logged } from "../report-env.ts"
 
 afterEach(cleanup)
 
@@ -312,4 +315,64 @@ it("AC11: over a variant, a hover's definition is its values, and so is the retu
   el.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, bubbles: true }))
   await until(() => log.calls.length === 4, 2000)
   expect(log.calls).toEqual(['start {"opacity":1}', 'complete {"opacity":1}', 'start {"opacity":0.2}', 'complete {"opacity":0.2}'])
+})
+
+it("AC12 (#979 group I, row 25): a callback throwing at each Retarget is reported once a run; each callback's run, and each element's, its own", async () => {
+  const logs: Array<Logged> = []
+  const [opacity, setOpacity] = createSignal(0.5)
+  let startBreaks = true
+  let completeBreaks = true
+  const landed: Array<string> = []
+  render(() => (
+    <WardicProvider env={envWith({ logs, reports: [] })}>
+      <wardic.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: opacity() }}
+        transition={TWEEN}
+        onAnimationStart={() => {
+          if (startBreaks) throw new Error("a's start broke")
+        }}
+        onAnimationComplete={() => {
+          landed.push("a")
+          if (completeBreaks) throw new Error("a's landing broke")
+        }}
+        style={BOX}
+      />
+      <wardic.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: opacity() }}
+        transition={TWEEN}
+        onAnimationStart={() => {
+          throw new Error("b's start broke")
+        }}
+        style={BOX}
+      />
+    </WardicProvider>
+  ))
+  const failed = (name: string): ReadonlyArray<Logged> => errorsNamed(logs, `wardic.spine: ${name} failed`)
+  /** `opacity` set, and a's landing waited for. */
+  const retarget = async (to: number): Promise<void> => {
+    const count = landed.length
+    setOpacity(to)
+    await until(() => landed.length === count + 1, 2000)
+  }
+  await until(() => landed.length === 1, 2000)
+  await retarget(0.8)
+  await retarget(0.3)
+  expect(failed("onAnimationStart").length, "a's run and b's, once each").toBe(2)
+  expect(new Set(failed("onAnimationStart").map((log) => log.annotations.id)).size, "one an element").toBe(2)
+  expect(failed("onAnimationComplete").length, "a's landings, once").toBe(1)
+  // A clean start ends a's start run, not its landing's.
+  startBreaks = false
+  await retarget(0.6)
+  startBreaks = true
+  await retarget(0.9)
+  expect(failed("onAnimationStart").length, "a's new run").toBe(3)
+  expect(failed("onAnimationComplete").length, "its landing's run goes on").toBe(1)
+  // A clean landing ends that run.
+  completeBreaks = false
+  await retarget(0.4)
+  completeBreaks = true
+  await retarget(0.7)
+  expect(failed("onAnimationComplete").length).toBe(2)
 })
