@@ -54,7 +54,7 @@
  * run gets at its start when the check is on, so the tick is the same either way.
  *
  * Internal (ADR-0028, decision 11): the service's shape (`run`, `runLast`, `afterTick`,
- * `inLateWindow`) and `make`, behind `FrameLoop.layer`.
+ * `inLateWindow`, `tickCount`, `hint`) and `make`, behind `FrameLoop.layer`.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -141,6 +141,13 @@ export interface Shape {
   // ADR-0027 *Amendment (#680)* (was `ticking()`, #673): the projection's Measure pass reads it at a
   // trigger, to know it will run after its frame's tick.
   readonly inLateWindow: () => boolean
+  /**
+   * How many ticks the loop has run: 0 before any. Neither a Late round nor a binding's hint window is a
+   * tick, so a run's Late step reads the count it was started at, and any step at a later tick a greater one.
+   */
+  // #991 (ADR-0043, *Amendment (#991)*): `velocity` tells its run's Late step by it. Not the Clock's
+  // `frameAt`, which repeats on Firefox's frame after an input (#18) and is `NaN` before any frame.
+  readonly tickCount: () => number
   /**
    * A binding's hint: its code runs inside the Refresh frame whose time is `frameTime`, after the
    * frame's tick, as a binding that renders in a frame callback of its own does (ADR-0071 decision 32).
@@ -353,6 +360,8 @@ export const make = Effect.fnUntraced(
     // The dt of the tick that opened the window: a Late step's. A nominal frame before any tick, for a
     // window a hint opens while idle (#791).
     let windowDt = Clock.NOMINAL_DT
+    // The ticks run, for `tickCount` (#991): one add a tick.
+    let ticked = 0
     // The `run` runs added in the window, in add order: their Late step is due. The `runLast` runs added
     // in it take none, and are marked only so the dt-0 step leaves them out: they step at the next tick.
     const lateFirst: Array<Entry> = []
@@ -425,6 +434,7 @@ export const make = Effect.fnUntraced(
     // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
     // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
     const tick = (dt: number): boolean => {
+      ticked++
       // A window this tick finds open is the last frame's, its checkpoint not yet run (back-to-back
       // frames in a test): its runs are on the lanes, so this tick steps them.
       if (lateFirst.length + lateLast.length > 0) dropLate()
@@ -606,6 +616,8 @@ export const make = Effect.fnUntraced(
       }
     }
 
+    const tickCount = (): number => ticked
+
     const afterTick = (hook: (dt: number) => undefined): Effect.Effect<void, never, Scope.Scope> => {
       const added: Hook = { hook, failing: false }
       return Effect.acquireRelease(
@@ -755,7 +767,7 @@ export const make = Effect.fnUntraced(
 
     const inLateWindow = (): boolean => windowOpen
 
-    return { run: runIn(entries, lateFirst), runLast: runIn(lastEntries, lateLast), afterTick, inLateWindow, hint } satisfies Shape
+    return { run: runIn(entries, lateFirst), runLast: runIn(lastEntries, lateLast), afterTick, inLateWindow, tickCount, hint } satisfies Shape
   },
   (self) => traced(self, "wardic.frameloop.make"),
 )

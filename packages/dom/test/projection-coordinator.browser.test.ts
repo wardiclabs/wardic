@@ -131,6 +131,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: Project
   const recordRuns = (loop: LoopShape): LoopShape => ({
     afterTick: loop.afterTick,
     inLateWindow: loop.inLateWindow,
+    tickCount: loop.tickCount,
     hint: loop.hint,
     run: recorded(loop.run, "run"),
     runLast: recorded(loop.runLast, "runLast"),

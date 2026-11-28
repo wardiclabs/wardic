@@ -142,6 +142,7 @@ const countingLoop = () => {
   const wrap = (loop: LoopShape): LoopShape => ({
     afterTick: loop.afterTick,
     inLateWindow: loop.inLateWindow,
+    tickCount: loop.tickCount,
     hint: loop.hint,
     run: counted(loop.run),
     runLast: counted(loop.runLast),
