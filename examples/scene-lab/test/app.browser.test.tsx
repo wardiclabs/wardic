@@ -201,11 +201,24 @@ describe("the scene lab's page (#883's PR 5c)", () => {
     canvas.scrollIntoView({ block: "center" })
     await userEvent.hover(canvas, { position: at() })
     await until(() => output.dataset.hovered === "true", `the mouse at the first label over the moon, not "${output.textContent}"`, 4000)
+    // The applies so far, read each frame from before the click (#945): a count started once the click had
+    // resolved missed the frames before it, and a count of more than 5 asked for a frame rate.
+    const applies: Array<number> = []
+    let sampling = true
+    const sample = () => {
+      if (!sampling) return
+      applies.push(Number(pin.dataset.applies))
+      requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
     await userEvent.click(button)
     // A quarter on: the moon in front of the planet, at the view's middle, the label applied frame by frame on the way.
-    const applied = Number(pin.dataset.applies)
     await until(() => Math.abs(at().x - viewport.clientWidth / 2) < 1, `the label at the view's middle, not at ${pin.dataset.x}`, 4000)
-    expect(Number(pin.dataset.applies) - applied, "an apply each frame it moved").toBeGreaterThan(5)
+    sampling = false
+    // From the first frame it moved in to the one it reached the middle: an apply in each, at any frame rate.
+    const moving = applies.slice(applies.findIndex((count) => count > applies[0]!))
+    expect(moving.length, "frames it moved in").toBeGreaterThan(1)
+    expect(moving.slice(1).filter((count, i) => count === moving[i]).length, "frames it moved in with no apply").toBe(0)
     await userEvent.hover(canvas, { position: at() })
     await until(() => output.dataset.hovered === "true", `the mouse at the label over the moon, not "${output.textContent}"`, 4000)
   })
