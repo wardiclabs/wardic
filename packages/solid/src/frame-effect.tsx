@@ -92,6 +92,10 @@ export const createFrameEffect = <T,>(compute: () => T, apply: (value: T) => voi
   let due = false
   let value: T
   let cleanup: (() => void) | undefined
+  // #979 group I, row 22 (ADR-0074 decision 3): a run is apply's throws at its consecutive calls. A frame
+  // it isn't due on doesn't call it, so doesn't end the run, though the slot's run ends there: its first
+  // throw goes on to the slot's report, the rest of the run's are kept here.
+  let failing = false
   // compute, tracked on Solid's own schedule: it only marks the effect due, and asks for a frame.
   createEffect(
     compute,
@@ -109,9 +113,16 @@ export const createFrameEffect = <T,>(compute: () => T, apply: (value: T) => voi
     due = false
     const ending = cleanup
     cleanup = undefined
-    if (Predicate.isNotUndefined(ending)) ending()
-    const returned = untrack(() => apply(value))
-    if (Predicate.isFunction(returned)) cleanup = returned
+    try {
+      if (Predicate.isNotUndefined(ending)) ending()
+      const returned = untrack(() => apply(value))
+      if (failing) failing = false
+      if (Predicate.isFunction(returned)) cleanup = returned
+    } catch (defect) {
+      if (failing) return
+      failing = true
+      throw defect
+    }
   })
   onCleanup(() => {
     remove()

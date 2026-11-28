@@ -534,7 +534,10 @@ export const bindBatchReorder = <V>(env: BatchMembers.BatchEnv, options: BatchRe
   }
 
   // Each drag phase's step: the item held where the pointer has it before the controller's crossover reads
-  // its offset, and let go after the controller's end.
+  // its offset, and let go after the controller's end, to the place that end gave it.
+  // #979 group I, row 28 (ADR-0074, group A's *Order first*): the end calls the app's onReorderEnd and
+  // onHoldEnd, and one that threw kept the item from being let go, held at the drop for good. It can't go
+  // first, as the end gives its place, so it's let go whatever the app's end does.
   const steps: Readonly<Record<Drag.Sample["phase"], (i: number, driver: ReorderController.ItemDriver, sample: Drag.Sample) => void>> = {
     start: (i, driver, sample) => {
       take(i, sample)
@@ -545,8 +548,11 @@ export const bindBatchReorder = <V>(env: BatchMembers.BatchEnv, options: BatchRe
       driver.onSample(sample)
     },
     end: (i, driver, sample) => {
-      driver.onSample(sample)
-      letGo(i, sample)
+      try {
+        driver.onSample(sample)
+      } finally {
+        letGo(i, sample)
+      }
     },
   }
 

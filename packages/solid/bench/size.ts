@@ -121,6 +121,10 @@ const GATE = 1.01
  * any element changes, and a Timeline value's make that throws reported (ADR-0074, *Amendment (#979, group
  * H)*), core's 0.3–0.4 KB of it minified in every app with a ward; every other such app grew alike (112–182
  * B), Solid 1's Batch app 41, within the 1% gate, and Solid 2's Batch and the reorder Batch apps not at all.
+ * #979's group I raised `f-slim`'s to 199.1 by what it measured, 62 B: a callback that throws at each call
+ * reported once a run, a watch's `onDefect` and an element's gesture callbacks among them (ADR-0074,
+ * *Amendment (#979, group I)*); the other four within their budgets (35, 0, 29 and 24 B), every app within
+ * the 1% gate.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -141,7 +145,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.5, "s2-slim": 119.3, "f-slim": 199.0, "t2-stage": 246.5, "t2-features": 254.3 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.5, "s2-slim": 119.3, "f-slim": 199.1, "t2-stage": 246.5, "t2-features": 254.3 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

@@ -26,6 +26,7 @@
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import * as Atom from "effect/reactivity/Atom"
@@ -41,7 +42,7 @@ import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as ServerInterpolators from "@wardic/dom/unstable/ServerInterpolators"
 import { followAtom } from "./bridge.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
-import { FUNCTION_FAILED, keptComputeOf, MIXER_FAILED, transformFailedOn } from "./kept-transform.ts"
+import { failedOn, FUNCTION_FAILED, keptComputeOf, MIXER_FAILED } from "./kept-transform.ts"
 import { useProvidedRuntime, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
@@ -147,7 +148,7 @@ export function createTransform(
         if (failing) failing = false
       } catch (defect) {
         if (!kept) throw defect
-        if (!failing) transformFailedOn(runtime, message, defect)
+        if (!failing) failedOn(runtime, message, Cause.die(defect))
         failing = true
       }
       return last

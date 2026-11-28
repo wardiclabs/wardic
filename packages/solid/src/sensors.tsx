@@ -40,13 +40,14 @@ import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, DEV, onCleanup, useContext } from "solid-js"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { inViewOptionsOf } from "./gesture-callbacks.ts"
+import { failedOn } from "./kept-transform.ts"
 import type { Listener } from "./waiters.ts"
 import { type StageSubject, WardicStage } from "./stage.ts"
 import { type AnyWard, isWard, type Sensed, sensedOf } from "./ward.tsx"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type { WardicServices } from "./runtime.ts"
 import { fromAtom } from "./bridge.tsx"
-import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
+import { useProvidedRuntime, useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 
 export type { CreateDragOptions } from "./drag-samples.ts"
 
@@ -90,9 +91,10 @@ export const stageSensorOf = <A,>(
   const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
   const scope = Scope.makeUnsafe()
   onCleanup(() => Effect.runSync(Scope.close(scope, Exit.void)))
-  const onDefect = (cause: Cause.Cause<never>): void => {
-    Effect.runFork(Report.failure(`wardic.${name}: a gesture handler failed`, cause))
-  }
+  // #979 group I, row 26 (ADR-0074): on the provider's runtime, so the app's logger and reporters hear it;
+  // a Stage needs no provider, and with none, Effect's default runtime's.
+  const runtime = useProvidedRuntime()
+  const onDefect = (cause: Cause.Cause<never>): void => failedOn(runtime, `wardic.${name}: a gesture handler failed`, cause)
   const watch = watchOf(target, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect })
   Effect.runSync(watch.pipe(Effect.provideService(InputSource.InputSource, (stage as NonNullable<typeof stage>).input), Scope.provide(scope)))
   return value
