@@ -12,6 +12,9 @@ const SHELF = PRODUCTS.filter((product) => ["poppy-plate", "blossom-jar", "slip-
 /** How far a card tilts toward the pointer at its edge, in degrees. */
 const TILT = 8
 
+/** How far the eye is from a card, in px: each card's own depth, so it tilts as if in front of you wherever it sits. */
+const DEPTH = 900
+
 // Under the pointer the card's light comes on: a custom property the stylesheet's glow reads.
 const lighting = {
   rest: { "--light": 0 },
@@ -79,7 +82,7 @@ function SpotCard(props: { readonly product: Product }) {
         initial="rest"
         animate="rest"
         whileHover="lit"
-        style={{ rotateX, rotateY, "--light-x": lightX, "--light-y": lightY }}
+        style={{ transformPerspective: DEPTH, rotateX, rotateY, "--light-x": lightX, "--light-y": lightY }}
       >
         <div class="photo">
           <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />

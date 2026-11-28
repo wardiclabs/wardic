@@ -19,6 +19,9 @@ const SHELF = PRODUCTS.filter((product) => ["poppy-plate", "blossom-jar", "slip-
 /** How far a card tilts toward the pointer at its edge, in degrees. */
 const TILT = 8
 
+/** How far the eye is from a card, in px: each card's own depth, so it tilts as if in front of you wherever it sits. */
+const DEPTH = 900
+
 // Under the pointer the card's light comes on: a custom property the stylesheet's glow reads.
 const lighting = {
   rest: { "--light": 0 },
@@ -95,7 +98,7 @@ const card = (h: HtmlBuilder<Message>, env: PageEnv, product: Product): Html => 
         w.Initial("rest"),
         w.Animate("rest"),
         w.WhileHover("lit"),
-        w.Style({ rotateX: values.rotateX, rotateY: values.rotateY, "--light-x": values.lightX, "--light-y": values.lightY }),
+        w.Style({ transformPerspective: DEPTH, rotateX: values.rotateX, rotateY: values.rotateY, "--light-x": values.lightX, "--light-y": values.lightY }),
       ],
       [
         h.div([h.Class("photo")], [h.img([h.Src(photo.small), h.Srcset(srcsetOf(photo)), h.Sizes("(max-width: 640px) 100vw, 240px"), h.Width(String(photo.width)), h.Height(String(photo.height)), h.Alt(product.name)])]),
