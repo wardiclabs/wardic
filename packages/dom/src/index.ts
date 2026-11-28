@@ -38,7 +38,7 @@ import * as DomPositionalKeys from "./DomPositionalKeys.ts"
 import * as DomProbe from "./DomProbe.ts"
 import * as DomRenderer from "./DomRenderer.ts"
 
-export const VERSION = "1.3.1"
+export const VERSION = "1.3.2"
 
 export * as DomBatch from "./DomBatch.ts"
 export * as DomClock from "./DomClock.ts"

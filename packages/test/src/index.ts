@@ -8,7 +8,7 @@
  * under the test runner's fake timers, as https://wardic.dev/guides/testing shows.
  */
 // The testing guide: #558.
-export const VERSION = "1.3.1"
+export const VERSION = "1.3.2"
 
 export * as TestClock from "./clock.ts"
 export * as TestRenderer from "./renderer.ts"

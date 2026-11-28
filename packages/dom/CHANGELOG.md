@@ -1,5 +1,166 @@
 # @wardic/dom
 
+## 1.3.2
+
+### Patch Changes
+
+- 4399320: One member whose write fails no longer stops its Batch (#977). Before, a member that threw while its Batch drew it ended the Batch's run, so every member stopped where it was and every call on the Batch stayed `"running"`, with nothing logged.
+
+  ```ts
+  const dots = [{ x: 0 }, { x: 0 }];
+  const swarm = wardic.batch(dots);
+  wardic.animate(swarm, { x: 100 });
+  Object.freeze(dots[0]); // a few frames in
+  // before: dots[1] stopped where it was, and the call never finished
+  // now: dots[1] lands; "wardic.batch: a member's write failed" is logged once
+  ```
+
+  - **Each member's own:** a write, or a start taken over from a server's Appear animation, that throws is logged once until every member steps clean. That member moves on with the others, and lands with them.
+  - **An `onComplete` runs once its call has finished.** One that throws is logged each time it lands, and the call stays `"finished"`: its `await` resolves and `play()` plays it again. Before, a throwing `onComplete` left any call `"running"` for good, and on a Batch it stopped the run.
+  - **A member's landing,** a keyed exit's for one, that throws is logged, and the other members still land.
+  - **On the DOM,** an element with no inline style (one of a foreign namespace) is an error naming it when it's given to a Batch, before it joins. One member's Handoff read or release that throws leaves the other members' alone.
+
+- 2a1c243: An app's function that throws in a few more of the bindings' paths is now its own element's or its own call's (#979).
+
+  ```tsx
+  <wardic.ul
+    initial="closed"
+    animate="open"
+    variants={list}
+    transition={{ delayChildren: (i) => delays[i].seconds }}
+  >
+    <For each={items()}>{() => <wardic.li variants={item} />}</For>
+  </wardic.ul>
+  // before: a `delayChildren` function that threw for one child halted Solid 2 at the change
+  // now: that child starts with no delay, the others with theirs, and "wardic.stagger: a delayChildren function failed" is logged once
+  ```
+
+  - **A `delayChildren` function that throws** for one child, on every binding: that child starts with no delay and the others with theirs. Logged once a run of throws as `wardic.stagger: a delayChildren function failed`, with the child's index, and once for a presence's exit or a server render. Before, it halted Solid 2, came out of Solid 1's setter, and on Foldkit kept the later elements from that patch.
+  - **Animation controls' `start(fn)` and `set(fn)`:** a function that throws for one element refuses the call, as before, but no element has changed. Before, the earlier elements had already started. Foldkit's `AnimationControls.start` Command dies with the throw.
+  - **A scroll transform whose `ease` throws** where its native scroll animation's keyframes sample it runs no native animation: Wardic draws its key each frame instead. Logged once as `wardic.timeline: a Timeline value failed`, with its key. Before, it halted Solid 2, broke Solid 1's mount, and failed a Foldkit element's mount.
+  - **Solid 1's `createBatch` `onAnimationStart` and `onAnimationComplete`:** a callback that throws is logged each time as `createBatch: onAnimationStart failed` or `createBatch: onAnimationComplete failed`, and the members still move and land. Before, a start that threw kept them from moving at that change, and dropped the rest of Solid 1's update; a landing's throw was swallowed.
+
+- 1722a13: One element whose writes fail no longer stops the others' (#969). Before, a commit that threw ended the frame's flush, so every element after it went unwritten that frame, other animations' among them, and the error was logged every frame.
+
+  ```ts
+  const stuck = { x: 0 };
+  const plain = { x: 0 };
+  wardic.animate(stuck, { x: 1 });
+  wardic.animate(plain, { x: 1 });
+  Object.freeze(stuck); // after its animation started
+  // before: plain.x stayed where it was, and "wardic.gate: a flush failed" was logged every frame
+  // now: plain animates and lands; "wardic.gate: a commit failed" is logged once, for `stuck`
+  ```
+
+  - **Each element's own:** a write to it that throws, a read of its own value, or a binding's hook for it. That element commits nothing that frame, and every other element still commits, in a frame's flush and in a Measure pass's.
+  - **Logged once,** naming what failed (`a commit failed`, for one), until the element commits again.
+  - **Tried again:** a failed element is written again at the next flush, so it recovers by itself. Its animation runs on, and lands as before.
+
+- 52c4821: An app's code that throws in an input listener no longer keeps the listener's other readers and watches from the event (#979).
+
+  ```tsx
+  const { scrollY } = createScroll({ container: () => box });
+  createEffect(() => {
+    if (scrollY() > 100) throw new Error("…");
+  }); // on Solid 1
+  // before: the throw came out of the box's scroll listener at every scroll, and a second createScroll of the box stopped following it
+  // now: the second follows every scroll, and "wardic.scroll: its dependent failed" is logged once until a scroll sets it cleanly
+  ```
+
+  - **A scroll reader whose dependent throws** (an app's Atom, or a Solid 1 effect, over `createScroll`'s values): the container's other readers hear every scroll. Logged once as `wardic.scroll: its dependent failed`, until a clean scroll.
+  - **Foldkit's `Wardic.pointer`:** a value whose dependent throws no longer leaves the rest of that event's values unset. Logged once as `wardic.pointer: its dependent failed`, with its key.
+  - **A core watch with no `onDefect`** (`InputFeed.watch`, `Recognizer.watchHover` or `watchPress`, `DragRecognizer.watchDrag`, called directly): a handler's throw no longer goes up the event's dispatch, where it kept the target's other watches, the ancestors on its path and the later members from the event. It's logged once a run of throws as `wardic.input: a watch's handler failed`, on the context the watch started in, and the watch goes on. `InputFeed.switched` with none logs on Effect's default runtime.
+  - **A three scene's `createBatch`:** a `whileHover` or `whileTap` function that throws, or gives a key the Batch hasn't, is logged as `createBatch: a gesture failed`, and its member stays where it is. Before, it was dropped silently, and the next `animate` change called it again and halted Solid. A gesture's function is now read as its gesture starts, as on the DOM.
+  - **`createBatch`'s gesture events,** on both Solid bindings and in a three scene: a hover's or a press's start is told even when its gesture's function throws, so its end is never told alone.
+
+- f8b72f7: An app's callback that throws each time it's called is now logged once, not at every call (#979). Its first throw is logged, and its next call that returns ends the run, so a callback that throws every frame or every move logs one line. A callback Wardic calls once, such as `onSettled` or `usePresence`'s `safeToRemove`, is still logged each time.
+
+  ```tsx
+  <wardic.div
+    drag
+    onDrag={() => track(position())}
+    onHoverStart={() => hint.show()}
+  />
+  // before: an onHoverStart that threw was logged at every hover, "wardic.gesture: onHoverStart failed"
+  // now: logged at the first, and again only after a hover whose onHoverStart returned
+  ```
+
+  - **Logged once a run:**
+
+    - Frame effects: `createFrameEffect`'s apply, and `afterWrites`' effects on a Stage;
+    - Solid 1's `onAnimationStart` and `onAnimationComplete`, on an element and on a `createBatch`;
+    - every gesture callback: `onHoverStart`, `onTap`, `onPanStart` and the others, as `onDrag` and `onPan` already were;
+    - a gesture handler's failure, on Solid, Foldkit and three: a watch's own throw at each move, a `transformPagePoint`'s among them;
+    - a drag's failing response, its `onMeasureDragConstraints` and its release's `modifyTarget`;
+    - `onExitComplete`, and the layout callbacks (`onLayoutAnimationStart`, `onLayoutAnimationComplete`, a layout node's `onDragTransitionEnd`, `onBeforeLayoutMeasure` and `onLayoutMeasure`);
+    - a Batch's exit function, once for all of a change's leavers.
+
+    Each callback, on each element, has its own run. The messages are unchanged.
+
+  - **A hover's or a press's start that throws on three's Stage,** and a Reorder item's `onHoldEnd` or `onReorderEnd`, are still logged once a gesture: the calls between them return.
+  - **A Stage's sensors** (`createHover(mesh)`, `createDrag(mesh)` and the rest) report on the provider's runtime, so the app's logger and `ErrorReporter`s hear them. Before, they went to Effect's default logger.
+  - **A `Reorder.BatchGroup` item whose `onHoldEnd` or `onReorderEnd` throws** is still let go to its place, and its next drag moves it. Before, it stayed where it was dropped, and couldn't be dragged again.
+  - **A layout callback's getter that throws,** such as a `createWard` accessor config's, is that element's own failure. Before, it kept the elements after it in the same frame from hearing their `onLayoutAnimationStart`.
+
+- 467da75: A `mode="wait"` presence's held child whose start throws no longer fails silently (#983). On Solid 1, a held element whose function variant threw as it finally started (one reading state that changed while it was held) threw out of the presence's release, with nothing logged.
+
+  - **Reported,** as `wardic.presence: mode="wait"'s release failed`, with the error as its cause, to the console and the app's error reporters, and the presence goes on.
+  - **Under `propagate`,** an inner presence is always torn down once its children have left, though the parent's release throws.
+  - **Solid 2 and Foldkit** release held children later, so this throw couldn't happen there.
+
+- 7460d44: An app's code that throws inside a layout animation no longer stops every layout animation on the page (#979).
+
+  ```tsx
+  <WardicProvider scaleCorrectors={{ borderRadius: { correct: (latest, info) => radiusFor(latest, info) } }}> {/* radiusFor throws for one element */}
+  // before: every layout animation under the provider froze where it was, and the next layout change made them jump
+  // now: that element's radius keeps its last value, every layout animation lands, and "wardic.projection: a scale corrector failed" is logged once until it returns
+  ```
+
+  - **A layout transition's `ease` that throws:** its element stays where its last `ease` put it, and lands on its target on time. Logged once as `wardic.projection: a layout animation's ease failed`, until it returns.
+  - **An app's scale corrector that throws for an element:** that corrector's keys keep their last value, and the element's other keys and every other element go on. Logged once per element and corrector, `wardic.projection: a scale corrector failed`, annotated with its key. Before, one that threw as a layout change began also left that change's elements unanimated.
+  - **A leaving element's `transformTemplate`,** while a layout animation carries it: that element keeps what it drew, and the rest go on. Logged once, `wardic.projection: a leaving node's write failed`.
+  - **A `transformTemplate` that throws while Wardic measures the layout:** its element is measured as its template last drew it, and every element's transform comes back. Before, the elements measured before it were left without their own transform for good (a `rotate` lost), and the layout change wasn't animated. Logged once, `wardic.projection: a transformTemplate failed at a Measure pass`.
+  - **An exit's `transformTemplate` that throws while its Measured pairs are measured** (an exit's `x` to `"100%"`, say): those keys switch, and every other element's pairs in that batch are measured. Logged each time, `wardic.presence: an exit's Measured pairs failed`. Before, the throw was uncaught, every pair in the batch jumped, and some elements were left with their targets written inline.
+
+- d8f16fc: `transformPerspective`, Motion's key for an element's own depth, is drawn on the DOM: a `perspective()` at the head of the element's `transform`, in px for a number (#887).
+
+  ```tsx
+  <wardic.div
+    style={{ transformPerspective: 600 }}
+    whileHover={{ rotateY: 15 }}
+  />
+  // transform: perspective(600px) rotateY(15deg)
+  ```
+
+  - **Where it's drawn:** ahead of the rest of the transform, on a `layout` element too, and on a Batch's members.
+  - **At 0, its identity, there's no perspective.** A depth below 0, a spring's overshoot, is left out, since CSS would drop the whole `transform` with it.
+  - **It animates on a transform's spring,** `rotateY`'s, so a depth and a turn that leave together settle together. Reduced motion lands it at once.
+  - **A server's Appear animation waits for the JavaScript when the depth moves:** CSS blends a depth by its inverse, not as Wardic draws it. `appear="explain"` says so.
+  - **`scaleZ` is typed now,** with `transformPerspective`. #883 drew it, but `animate={{ scaleZ: 2 }}` didn't typecheck.
+  - **`perspective`,** the property that gives an element's children their depth, takes a bare number, drawn in px.
+  - **A bare number on a length in an element's `style` is drawn:** `style={{ width: 200 }}` is 200px, on the client and in a server's HTML. It always typechecked, but nothing was drawn: the binding wrote "200", which a browser drops.
+
+- bbfc1ad: A dynamic variant (a function in `variants`) that throws is now its element's alone, and reported (#979). Before, the throw came out of the app's update. On Solid 1 that froze every element changed in it; Solid 2 halted; and Foldkit crashed the app if it threw at setup, and kept every leaver on the page if it threw in an exit.
+
+  - At a change (`animate`, a `while*` gesture, an inherited name), the element keeps the target it had until the variant resolves again. It's logged once as `wardic.ward: a variant failed`, annotated with the variant's name, until then. One that throws only as its element orchestrates its Variant children (it's resolved there with no values) is logged the same way, and the children animate without that variant's orchestration.
+  - In an `exit`, alone or in a list, the element leaves at once, without its exit, and the others leaving beside it exit. It's logged each time as `wardic.presence: an exit variant failed`.
+  - At setup, the element starts without that variant's values, and it's logged once, not again at its first change. On a server those values are left out of the markup, and it's logged there.
+
+- Updated dependencies [4399320]
+- Updated dependencies [2a1c243]
+- Updated dependencies [f18c362]
+- Updated dependencies [1722a13]
+- Updated dependencies [02f3789]
+- Updated dependencies [52c4821]
+- Updated dependencies [07cd34e]
+- Updated dependencies [f8b72f7]
+- Updated dependencies [7460d44]
+- Updated dependencies [2a4ea78]
+- Updated dependencies [feda717]
+- Updated dependencies [bbfc1ad]
+- Updated dependencies [8fec000]
+  - @wardic/core@1.3.2
+
 ## 1.3.1
 
 ### Patch Changes
