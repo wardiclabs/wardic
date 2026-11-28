@@ -8,6 +8,8 @@
 //   animates in once it's on the page.
 // - PW3: a switch again mid-wait: the child held in between never goes on the page.
 // - PW4: the presence unmounted mid-wait: the held child never goes on the page.
+// - PW5: a leaver with no exit goes at once, and the held child goes on the page by the next frame,
+//   with no diagnostic: its release isn't written inside the effect that presents them (#987).
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createPresence, type Presence, ward, wardic, WardicProvider } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
@@ -24,8 +26,8 @@ const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
 }
 
-/** A `mode="wait"` presence around a keyed `<Show>` of Wardic tabs, with its handle. */
-const mountTabs = (start: string) => {
+/** A `mode="wait"` presence around a keyed `<Show>` of Wardic tabs, with its handle: each tab's `exit` is `given`'s, a fade by default, none in `{}`. */
+const mountTabs = (start: string, given: { readonly exit?: { readonly opacity: number } } = { exit: { opacity: 0 } }) => {
   const [tab, setTab] = createSignal<string | undefined>(start)
   let presence!: Presence
   const Tabs = (): JSX.Element => {
@@ -35,7 +37,7 @@ const mountTabs = (start: string) => {
         <AnimatePresence mode="wait" ref={presence}>
           <Show when={tab()} keyed>
             {(t) => (
-              <wardic.p data-tab={t} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EXIT}>
+              <wardic.p data-tab={t} initial={{ opacity: 0 }} animate={{ opacity: 1 }} {...given} transition={EXIT}>
                 {t}
               </wardic.p>
             )}
@@ -155,5 +157,24 @@ describe('AnimatePresence mode="wait" on Solid 2 (#277)', () => {
     tabs.unmount()
     await frames(20)
     expect(tabs.node("b")).toBeNull()
+  })
+
+  it("PW5: a leaver with no exit goes at once, and the held child goes on the page by the next frame, with no diagnostic (#987)", async () => {
+    // No exit: nothing to play, so the leaver goes in the change it left in, and the held child is released there.
+    const tabs = mountTabs("a", {})
+    await until(() => opacityOf(tabs.node("a")) >= 0.99, 2000)
+    const a = tabs.node("a")!
+    tabs.set("b")
+    await raf()
+    expect(a.isConnected, "a gone at once").toBe(false)
+    const b = tabs.node("b")
+    expect(b, "b on the page by the next frame").not.toBeNull()
+    expect(opacityOf(b), "from its initial").toBeLessThan(0.5)
+    let sawMid = false
+    await until(() => {
+      if (opacityOf(b) > 0.05 && opacityOf(b) < 0.95) sawMid = true
+      return opacityOf(b) >= 0.99
+    }, 2000)
+    expect(sawMid, "it animated in on the page").toBe(true)
   })
 })

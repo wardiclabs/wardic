@@ -620,8 +620,11 @@ export interface PresenceOptions {
   readonly presenceAffectsLayout?: (() => boolean | undefined) | undefined
   /**
    * The children `mode="wait"` held may go on the page now: the binding renders its children again,
-   * through {@link PresenceController.shown}. Left out, a held child stays held.
+   * through {@link PresenceController.shown}. Left out, a held child stays held. It can be called inside
+   * {@link PresenceController.present}: a leaver with nothing to play goes at once there, so a binding
+   * that can't render again inside its own update defers it.
    */
+  // #987 (ADR-0048, *Amendment (#987)*): Solid 2's binding defers a release made there a microtask; Foldkit's defers every one.
   readonly release?: (() => void) | undefined
 }
 
