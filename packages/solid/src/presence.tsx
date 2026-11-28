@@ -106,7 +106,9 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const ref = untrack(() => props.ref)
   const own = Bool.match(hasRef(ref), { onTrue: makePresenceHandle, onFalse: constUndefined })
   // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
-  const [released, release] = createSignal<undefined>(undefined, { equals: false })
+  const [released, setReleased] = createSignal<undefined>(undefined, { equals: false })
+  // Whether the controller is presenting the children now, in the effect below (#987).
+  let presenting = false
   // The presence above, if any (#277's PR 5c): read before this one provides its own.
   const parent = usePresenceContext()
   const presence = PresenceController.makePresence({
@@ -123,7 +125,16 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     anchorX: () => untrack(() => props.anchorX),
     anchorY: () => untrack(() => props.anchorY),
     presenceAffectsLayout: () => untrack(() => props.presenceAffectsLayout),
-    release: () => release(undefined),
+    // #987 (ADR-0048, *Amendment (#987)*): a release made inside `present` (a leaver with nothing to play
+    // goes at once there, or a take-over cuts the last exit short) is in the effect below, whose source
+    // `shown` reads `released`. Set there, the effect re-ran on its own write (EFFECT_WRITES_OWN_SOURCE),
+    // so it's a microtask later, still before the paint. Any other, an exit's end in a tick, is at once:
+    // the held child starts in that tick's Late window (#680).
+    release: () =>
+      Bool.match(presenting, {
+        onTrue: () => queueMicrotask(() => setReleased(undefined)),
+        onFalse: () => setReleased(undefined),
+      }),
   })
   UndefinedOr.map(own, (handle) => (ref as (presence: Presence) => void)(handle.handle))
   onSettledClientOnly(presence.mounted)
@@ -143,7 +154,12 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     createEffect(
       shown,
       (current) => {
-        presence.present(current)
+        presenting = true
+        try {
+          presence.present(current)
+        } finally {
+          presenting = false
+        }
       },
       CLIENT_ONLY,
     )
