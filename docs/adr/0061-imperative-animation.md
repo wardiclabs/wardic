@@ -610,3 +610,27 @@ ADR-0074's rule for Animation controls (#433): #979's row 35. ADR-0074's *Amendm
 - **Now** every element's entry is worked out first, in order, its function called (`Controlled.entryOf`), and only then is each set: a throw comes out of `start()` or `set()` as before, a refusal at the call (ADR-0074's scope), and no element has changed.
 - **On Foldkit,** `AnimationControls.start`'s Command dies with the throw, as a Command's own defect does: ADR-0071's part.
 - **Pinned by** ACV6 (Solid 2, `start` and `set`), AC14 (Solid 1) and Foldkit's AC12.
+
+## Amendment (#975, 2026-11-28): a function Segment takes a value with no options
+
+**What happened.** The function Segment's types took `[callback]`, `[callback, options]` and `[callback, value, options]`. Its JSDoc and Solid's sequences page promised `[callback, value?, options?]`, and Motion's motion value Segments, which these stand in for, take `[value, keyframes]` with no options (`MotionValueSegment`, beside `MotionValueSegmentWithTransition`'s `[value, keyframes, options]`, framer-motion 14.10.1). Run time read a two-part Segment's second part as its options. `[callback, 5]` dropped its 5 and was told 0 to 1. `[callback, [0, 1]]` threw: the array's `at`, its method, reached the sequence's start (`self.startsWith is not a function`).
+
+**Decided (grilled 2026-11-28, Q1–Q5):**
+1. **It's taken** (Q1).
+2. **Value or options** (Q2): a two-part function Segment's second part is its value when it's a number, a string or a list of stops, and its options otherwise. A three-part one reads as before. `stepsOf` decides it once a call, never a frame, by `isFunctionSegmentValue`, which `isSegmentValue` (a target's values) now extends with `null`.
+3. **Types** (Q3): the value forms take their options optionally, `[callback, value, options?]`, a number's and a string's. It's still four forms, which every binding takes from core. An array can't pass for options: its `at` is a method, which `at?: WardicSequenceTime` doesn't take.
+4. **Tests** (Q4): WO34 (`@wardic/object`, Node).
+   - `[callback, 5]` runs from 0 to 5.
+   - `[callback, [1, 0]]` runs through its stops; they differ from the default 0 to 1, so they can't pass for it.
+   - `[callback, ["0px", "10px"]]` and `[callback, "10px"]` run a string's.
+   - `[callback, { duration: 0.1 }]` is still options, moving on its 0.1 s.
+
+   WO34 fails on the old rule with the issue's throw. `@wardic/object`'s types test takes the three value forms and still reads `[callback, { duration: 1 }]` as options.
+5. **The record** (Q5): this amendment and a patch for `@wardic/core`. The JSDoc and Solid's sequences page already said it.
+
+**Mutations:** 5 of 5 caught, each run alone, the file restored from a copy:
+- the old rule;
+- the value check without stops, without strings, or without numbers;
+- a two-part Segment's options read from its third part, which the options Segment's own timing catches.
+
+**Size:** `f-slim` +16 B gzip, though 7 B fewer minified, its budget raised to 199.4. The other budgeted apps were 0, 0, 0 and −22 B.

@@ -946,4 +946,43 @@ describe("WardicObject: animate on plain objects, on pumped frames", () => {
     expect(() => wardic.animate({ x: 0 }, resolver as never)).toThrow(/its target broke/)
     wardic.dispose()
   })
+
+  it("WO34: a function Segment given a value and no options runs from 0 to it, or through its stops, a number's or a string's (#975)", async () => {
+    const wardic = WardicObject.make()
+    const clock = { time: 0 }
+    const toFive: Array<number> = []
+    const stopped: Array<number> = []
+    const lengths: Array<string> = []
+    const toLength: Array<string> = []
+    const quick: Array<number> = []
+    // Before #975 a two-part function Segment's second part was its options: the 5 was dropped, the callback
+    // told 0 to 1, and an array's `at`, its method, reached the sequence's start, which threw.
+    const sequence = wardic.animate([
+      [(value: number) => void toFive.push(value), 5],
+      // Stops other than the 0 to 1 a Segment with no value runs, so they can't pass for it.
+      [(value: number) => void stopped.push(value), [1, 0]],
+      [(value: string) => void lengths.push(value), ["0px", "10px"]],
+      [(value: string) => void toLength.push(value), "10px"],
+      // Two parts and the second its options, as before: 0 to 1 on them.
+      [(value: number) => void quick.push(value), { duration: 0.1, ease: "linear" }],
+    ])
+    await tick()
+    pump(wardic, 120, () => undefined, clock)
+    await tick()
+    expect(sequence.state).toBe("finished")
+    // Told each frame from its first, so its first value is a step on from 0, not 0 itself.
+    expect(toFive[0], "from 0").toBeLessThan(1)
+    expect(toFive.at(-1), "to 5").toBe(5)
+    expect(stopped[0], "from its first stop").toBeGreaterThan(0.8)
+    expect(stopped.at(-1), "to its last").toBe(0)
+    expect(Number.parseFloat(lengths[0]!), "a string's, from its first stop").toBeLessThan(2)
+    expect(lengths.at(-1), "to its last").toBe("10px")
+    expect(Number.parseFloat(toLength[0]!), "a string, from 0").toBeLessThan(2)
+    expect(toLength.at(-1), "to it").toBe("10px")
+    expect(quick.at(-1), "options: 0 to 1").toBe(1)
+    // Told each frame of the sequence, its first stop held before its turn: its own move is the values between.
+    expect(quick.filter((value) => value > 0 && value < 1).length, "on its 0.1 s, not the default 0.3").toBeLessThan(10)
+    await sequence
+    wardic.dispose()
+  })
 })
