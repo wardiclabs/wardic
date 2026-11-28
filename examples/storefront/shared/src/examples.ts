@@ -523,6 +523,24 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: '.room-piece[data-id="sofa"]',
   },
   {
+    id: "test-tiles",
+    area: "gestures",
+    docs: "/guides/animate",
+    title: "Glaze test tiles that turn over",
+    summary: "Tap a glaze's test tile and it turns over to show its recipe, each tile in a depth of its own, wherever it sits on the wall.",
+    why: [
+      "A studio keeps a test tile for every glaze it mixes: a small slab fired with the glaze on its face and its recipe on the back. Turning one over in your hand is how you read it, so a tap turns it here, about its own upright, and the recipe comes round.",
+      "A turn out of the page's plane needs a depth to be seen in. `perspective` on the wall gives the whole wall one, seen from its middle, so a tile at the edge swings toward the centre as it turns. `transformPerspective` gives each tile its own, a `perspective()` at the head of its own transform, so every tile turns as if you held it in front of you. The switch above the wall puts the two side by side: `style={{ perspective: 800 }}` on the wall, or `style={{ transformPerspective: 800 }}` on each tile, a bare number in px either way.",
+      "Each tile is a button: a tap, Enter or Space turns it, `whileTap` presses it in, and its `rotateY` springs to 180 and back. The face turned away is `inert`, so a screen reader reads the face you see.",
+    ],
+    reducedMotion: "A tile turns over at once, its recipe there with no turn between; with no turn to see it in, the switch changes nothing you can see.",
+    uses: ["transformPerspective", "perspective", "rotateY", "whileTap", "when(\"tap\")"],
+    apps: ["solid2"],
+    release: "1.3.2",
+    interact: [".depth-switch button:last-child", ".depth-switch button:first-child", ".test-tile-wall li:nth-child(6) .test-tile"],
+    watch: ".test-tile-wall li:nth-child(6) .test-tile",
+  },
+  {
     id: "toasts",
     foldkit: {
       note: "On Foldkit each toast's stay is a Command's sleep ending in a Message, and the add a Command over the store that tells the app the cart changed.",
@@ -817,10 +835,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     id: "spotlight",
     foldkit: {
       note: "On Foldkit each card's Mount reads the pointer over it as Live values, `Wardic.pointer`, a mouse's or a pen's, and two springs follow its place, centred and sent home once it has left (a derived Atom over `inside`); `LiveValue.transform` maps the springs to where the light sits, and the card's `w.Style` binds the tilt and the light's custom properties. The hover's variant is the card's own, `w.WhileHover`. Touch never hovers, so on a phone the cards stay still.",
-      uses: ["Wardic.pointer", "LiveValue.spring in a Mount", "LiveValue.transform", "a derived Atom over inside", "custom properties in w.Style and variants", "WhileHover"],
+      uses: ["Wardic.pointer", "LiveValue.spring in a Mount", "LiveValue.transform", "a derived Atom over inside", "transformPerspective", "custom properties in w.Style and variants", "WhileHover"],
       why: [
         "A card that answers the pointer feels like an object: tilting toward where you point, with a light where your pointer is, it invites a closer look without a single extra control.",
-        "The pointer's place over the card is Live values its Mount reads from `Wardic.pointer`, a mouse's or a pen's: its progress across the box, centred to run from -1 to 1 each way, and sent home once it has left, a derived Atom over `inside`. Two `LiveValue.spring`s follow it, so the card eases toward the pointer and back to rest when it leaves. `Atom.map` maps the springs to `rotateX` and `rotateY` in the card's `w.Style`, and `LiveValue.transform` to where its light sits, as custom properties the stylesheet's radial gradient reads. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
+        "The pointer's place over the card is Live values its Mount reads from `Wardic.pointer`, a mouse's or a pen's: its progress across the box, centred to run from -1 to 1 each way, and sent home once it has left, a derived Atom over `inside`. Two `LiveValue.spring`s follow it, so the card eases toward the pointer and back to rest when it leaves. `Atom.map` maps the springs to `rotateX` and `rotateY` in the card's `w.Style`, and `LiveValue.transform` to where its light sits, as custom properties the stylesheet's radial gradient reads. Each card tilts in a depth of its own, `transformPerspective: 900` in its `w.Style`, so the three tilt alike wherever they sit. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
         "The hover is the card's own, `w.WhileHover(\"lit\")`, which lights it; the tilt and the light's place follow the pointer each frame, with no Message per move.",
       ],
     },
@@ -830,11 +848,12 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     summary: "Move over a piece and its card tilts toward your pointer, with a soft light under it that follows.",
     why: [
       "A card that answers the pointer feels like an object: tilting toward where you point, with a light where your pointer is, it invites a closer look without a single extra control.",
-      "The pointer's place over the card, from -1 to 1 each way, is two signals that two `createSpring`s follow, so the card eases toward the pointer and back to rest when it leaves. `createTransform` maps the springs twice: to `rotateX` and `rotateY` in the card's `style`, and to where its light sits, as custom properties the stylesheet's radial gradient reads. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
+      "The pointer's place over the card, from -1 to 1 each way, is two signals that two `createSpring`s follow, so the card eases toward the pointer and back to rest when it leaves. `createTransform` maps the springs twice: to `rotateX` and `rotateY` in the card's `style`, and to where its light sits, as custom properties the stylesheet's radial gradient reads. Each card tilts in a depth of its own, `transformPerspective: 900` in its `style`, so the three tilt alike wherever they sit. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
       "The card hears its hover from Wardic. On Solid 2, its ward is made beside the effects that read it and given to the element through `wardRef`. It only listens (`w.ward()`): the card's own props light it and tilt it. An effect over `card.when(\"hover\")` hears the pointer over the card, from where it came in and at each move, with the card it's over (`element`, so no `ref`), and places the light and the tilt; one over `card.when(\"hoverEnd\")` sends the card back flat. A `hover` at each move is Wardic's own: Motion's hover has only a start and an end. On Solid 1, the element's `onHoverStart` and `onHoverEnd` do the same, with its own `pointermove` for the moves in between. Touch never hovers, so on a phone the cards stay still.",
     ],
     reducedMotion: "The cards don't tilt, and the light is where the pointer is, without the spring. It still comes on and goes off.",
-    uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover", "when(\"hover\") (Solid\u00a02)"],
+    uses: ["createSpring", "createTransform", "transformPerspective", "custom properties in style and variants", "whileHover", "when(\"hover\") (Solid\u00a02)"],
+    release: "1.3.2",
     interact: "drag:.spot-grid li:first-child .spot-card:60:40",
     watch: ".spot-grid li:first-child .spot-card",
   },
