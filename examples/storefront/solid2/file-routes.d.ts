@@ -65,6 +65,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/gestures/test-tiles";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/gestures/test-tiles")>;
+      $$route?: undefined;
+    },
+    {
       path: "/gestures/wishlist";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/gestures/wishlist")>;
@@ -520,6 +526,14 @@ declare module "virtual:file-routes" {
       id: "/shipping/rearrange";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/shipping/rearrange")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/gestures/test-tiles";
+      id: "/gestures/test-tiles";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/gestures/test-tiles")>;
       $$route?: undefined;
       children?: undefined;
     },

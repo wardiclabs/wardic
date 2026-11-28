@@ -523,6 +523,24 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: '.room-piece[data-id="sofa"]',
   },
   {
+    id: "test-tiles",
+    area: "gestures",
+    docs: "/guides/animate",
+    title: "Glaze test tiles that turn over",
+    summary: "Tap a glaze's test tile and it turns over to show its recipe, each tile in a depth of its own, wherever it sits on the wall.",
+    why: [
+      "A studio keeps a test tile for every glaze it mixes: a small slab fired with the glaze on its face and its recipe on the back. Turning one over in your hand is how you read it, so a tap turns it here, about its own upright, and the recipe comes round.",
+      "A turn out of the page's plane needs a depth to be seen in. `perspective` on the wall gives the whole wall one, seen from its middle, so a tile at the edge swings toward the centre as it turns. `transformPerspective` gives each tile its own, a `perspective()` at the head of its own transform, so every tile turns as if you held it in front of you. The switch above the wall puts the two side by side: `style={{ perspective: 800 }}` on the wall, or `style={{ transformPerspective: 800 }}` on each tile, a bare number in px either way.",
+      "Each tile is a button: a tap, Enter or Space turns it, `whileTap` presses it in, and its `rotateY` springs to 180 and back. The face turned away is `inert`, so a screen reader reads the face you see.",
+    ],
+    reducedMotion: "A tile turns over at once, its recipe there with no turn between; with no turn to see it in, the switch changes nothing you can see.",
+    uses: ["transformPerspective", "perspective", "rotateY", "whileTap", "when(\"tap\")"],
+    apps: ["solid2"],
+    release: "1.3.2",
+    interact: [".depth-switch button:last-child", ".depth-switch button:first-child", ".test-tile-wall li:nth-child(6) .test-tile"],
+    watch: ".test-tile-wall li:nth-child(6) .test-tile",
+  },
+  {
     id: "toasts",
     foldkit: {
       note: "On Foldkit each toast's stay is a Command's sleep ending in a Message, and the add a Command over the store that tells the app the cart changed.",
