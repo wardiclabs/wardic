@@ -3,6 +3,8 @@
 //
 // - TPB1: an element's depth with a turn paints as CSS's own `perspective(600px) rotateY(30deg)`.
 // - TPB2: a `layout` element keeps its depth at the head of the projection's transform through a flight.
+// - TPB3: a bare number on a length key in `style` is drawn in px, `perspective` and `width` among them, as
+//   the types promise (#522): static, changed, and given a string (`"none"`) and a number again.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
 import type { JSX } from "@solidjs/web"
@@ -62,5 +64,30 @@ describe("transformPerspective on Solid 2's page (#887)", () => {
     const flying = s.stop().filter((f) => f.v.includes("translate3d("))
     expect(flying.length, "frames in flight").toBeGreaterThan(3)
     expect(flying.filter((f) => !f.v.startsWith("perspective(600px) translate3d(")), "each with its depth first").toEqual([])
+  })
+
+  it("TPB3: a bare number on a length key in style is drawn in px, static or changed, and a string as it is", async () => {
+    const [depth, setDepth] = createSignal<number | string>(800)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        {/* eslint-disable-next-line solid/style-prop -- a bare number on a length is what this checks: Wardic draws it in px */}
+        <wardic.div data-still style={{ ...BOX, left: "40px", width: 120, perspective: 600 }} />
+        <wardic.div data-wall style={{ ...BOX, left: "200px", perspective: depth() }} />
+      </WardicProvider>
+    ))
+    await settle()
+    const still = host.querySelector<HTMLElement>("[data-still]")!
+    const wall = host.querySelector<HTMLElement>("[data-wall]")!
+    expect([still.style.width, still.style.perspective], "static").toEqual(["120px", "600px"])
+    expect(getComputedStyle(still).width).toBe("120px")
+    expect(wall.style.perspective).toBe("800px")
+    setDepth("none")
+    flush()
+    await settle()
+    expect(wall.style.perspective, "a string, as Solid writes it").toBe("none")
+    setDepth(400)
+    flush()
+    await settle()
+    expect(wall.style.perspective, "a number again").toBe("400px")
   })
 })

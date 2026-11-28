@@ -124,9 +124,10 @@ export type WardicValues =
 /**
  * The CSS lengths a value takes a bare number on, drawn in `px` (#522, Motion's `animate={{ height: 200 }}`):
  * the DOM renderer's `LENGTH_KEYS`, so a number typechecks only where it's drawn as a length. Every
- * other length takes `csstype`'s value, `0` or a string. `style` keeps Solid's own types: Solid writes a
- * number there as it is.
+ * other length takes `csstype`'s value, `0` or a string. In an element's `style`, a number on one of these
+ * is drawn by Wardic too, in px, so `style={{ width: 200 }}` is 200px.
  */
+// #887: the style's number routed to the renderer (`LiveStyle`), where before a binding wrote it as it is.
 export type WardicLengths = { readonly [K in DomRenderer.LengthKey]?: number | CSSProperties[K] }
 
 /** The DOM's keys and their values fill core's {@link Config.ValueKeys}, typing every config type built on it. */

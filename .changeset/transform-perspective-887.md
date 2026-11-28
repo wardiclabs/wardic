@@ -15,3 +15,4 @@
 - **A server's Appear animation waits for the JavaScript when the depth moves:** CSS blends a depth by its inverse, not as Wardic draws it. `appear="explain"` says so.
 - **`scaleZ` is typed now,** with `transformPerspective`. #883 drew it, but `animate={{ scaleZ: 2 }}` didn't typecheck.
 - **`perspective`,** the property that gives an element's children their depth, takes a bare number, drawn in px.
+- **A bare number on a length in an element's `style` is drawn:** `style={{ width: 200 }}` is 200px, on the client and in a server's HTML. It always typechecked, but nothing was drawn: the binding wrote "200", which a browser drops.
