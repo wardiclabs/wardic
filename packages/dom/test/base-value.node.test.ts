@@ -7,6 +7,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import { describe, expect, it } from "vitest"
 import * as Option from "effect/Option"
+import * as TransformKeys from "../src/internal/transform-keys.ts"
 
 describe("base values: the DOM's pure helpers (ADR-0022)", () => {
   it("D1: styleValueOf reads an object style by its key, then by the key dash-cased", () => {
@@ -77,8 +78,9 @@ describe("base values: the DOM's pure helpers (ADR-0022)", () => {
     expect(OwnValues.styleValueOf({ x: 4 }, "x")).toEqual(Option.some(4))
   })
 
-  it("D8: every key core gives an identity is a transform key to the DOM's project", () => {
-    for (const key of Object.keys(BaseValue.TRANSFORM_IDENTITY)) {
+  it("D8: every key core gives an identity, and the DOM's own (#887), is a transform key to the DOM's project", () => {
+    expect(Object.keys(TransformKeys.TRANSFORM_IDENTITY).sort()).toEqual([...Object.keys(BaseValue.TRANSFORM_IDENTITY), "transformPerspective"].sort())
+    for (const key of Object.keys(TransformKeys.TRANSFORM_IDENTITY)) {
       const patch = DomRenderer.project({ [key]: 2 })
       expect(patch[key], key).toBeUndefined()
       expect(typeof patch.transform, key).toBe("string")

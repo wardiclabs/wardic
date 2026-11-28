@@ -6,6 +6,8 @@
 // - BW2: every transform key at its identity writes `none`; with no transform key, none is written;
 //   `opacity` is written as `project` gives it.
 // - BW3: it draws the transform keys and `opacity`, and nothing else.
+// - BW4 (#887): the DOM's own depth, `transformPerspective`, heads a member's transform as `project`'s does,
+//   left out at or below 0; `styleOf` the same.
 import type * as Batch from "@wardic/core/Batch"
 import * as DomBatch from "@wardic/dom/DomBatch"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -52,5 +54,15 @@ describe("the DOM's Batch writer (#665)", () => {
     const draws = ["x", "y", "z", "translateX", "translateY", "translateZ", "scale", "scaleX", "scaleY", "rotate", "rotateX", "rotateY", "rotateZ", "skewX", "skewY", "opacity"]
     expect(draws.filter((key) => !DomBatch.writer.writes(key))).toEqual([])
     expect(["width", "backgroundColor", "pathRotation", "--x", "originX", "transform"].filter(DomBatch.writer.writes)).toEqual([])
+  })
+
+  it("BW4 (#887): the DOM's own depth heads a member's transform as project's; left out at or below 0, as on a server", () => {
+    const values = { rotateY: 30, x: 10, transformPerspective: 600 }
+    expect(DomBatch.writer.writes("transformPerspective")).toBe(true)
+    expect(writeOf(Object.keys(values), values)).toEqual(projected(values))
+    expect(writeOf(Object.keys(values), values).transform).toBe("perspective(600px) translateX(10px) rotateY(30deg)")
+    expect(writeOf(["transformPerspective", "rotateY"], { transformPerspective: -8, rotateY: 30 }), "a spring's overshoot past 0").toEqual({ transform: "rotateY(30deg)" })
+    expect(DomBatch.styleOf({ transformPerspective: 600, rotateY: 30 })).toEqual({ transform: "perspective(600px) rotateY(30deg)" })
+    expect(DomBatch.styleOf({ transformPerspective: -8, rotateY: 30 })).toEqual({ transform: "rotateY(30deg)" })
   })
 })

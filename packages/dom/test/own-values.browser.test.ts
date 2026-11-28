@@ -146,4 +146,10 @@ describe("ownValues: an element's own value for a key (ADR-0022)", () => {
     mount(el)
     expect(own("opacity")).toEqual(Option.some("0.5"))
   })
+
+  it("OV15 (#887): the DOM's own transform key, transformPerspective, takes its identity, 0, never read", () => {
+    const { result, reads } = countReads(() => OwnValues.of(div("", "perspective: 300px"))("transformPerspective"))
+    expect(result, "no perspective").toEqual(Option.some(0))
+    expect(reads).toBe(0)
+  })
 })

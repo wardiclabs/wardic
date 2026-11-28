@@ -21,3 +21,7 @@ it.effect("PK2: PositionalKeysDomLive provides it as the Environment's ReducedMo
     expect(keys.isPositional("opacity")).toBe(false)
   }).pipe(Effect.provide(DomPositionalKeys.layer)),
 )
+
+it("PK3 (#887): the DOM's own depth, transformPerspective, is positional: a depth that moves reads as motion, and Motion snaps it", () => {
+  expect(DomPositionalKeys.isPositional("transformPerspective")).toBe(true)
+})

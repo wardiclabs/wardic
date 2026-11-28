@@ -62,3 +62,13 @@ it("DD5: more than two keyframes run on Motion's keyframesTransition: 0.8 s, eac
     expect(value, `at ${t} s`).toBeCloseTo(motion[i], 1)
   })
 })
+
+it.effect("DD6 (#887): the DOM's own depth, transformPerspective, runs on a transform's spring, rotateY's, through the layer too", () =>
+  Effect.gen(function* () {
+    expect(DomDefaultTransition.transitionFor("transformPerspective", 600)).toEqual({ type: "spring", stiffness: 500, damping: 25, restSpeed: 10 })
+    // So a depth and an angle that leave together (`whileHover={{ transformPerspective, rotateY }}`) decay in step.
+    expect(DomDefaultTransition.transitionFor("transformPerspective", 0), "toward 0 too").toBe(DomDefaultTransition.transitionFor("rotateY", 0))
+    const defaults = yield* DefaultTransition.DefaultTransition
+    expect(defaults.transitionFor("transformPerspective", 600)).toBe(DomDefaultTransition.transitionFor("rotateY", 15))
+  }).pipe(Effect.provide(DomDefaultTransition.layer)),
+)

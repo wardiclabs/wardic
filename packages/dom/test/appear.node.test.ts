@@ -42,6 +42,9 @@
 //   member's style is its own values, the slot and its delay; a rule written once.
 // - AP22 (#794): a slot named by the binding (a Foldkit element's path) is its property under
 //   `--wardic-a`, defined under that name; the sheet's count is unmoved by it.
+// - AP23 (#887): a Batch whose members' depth, `transformPerspective`, moves has no rule: CSS blends a
+//   `perspective()` by its inverse, not as Wardic draws it; a depth every member holds is in the rule,
+//   unless a member's is at or below 0, which Wardic leaves out and CSS doesn't.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
@@ -643,6 +646,23 @@ describe("a Batch's rule (#706)", () => {
     expect(Result.isFailure(unwritable) && unwritable.failure).toBe("a start or target that isn't a finite number (x)")
     const infinite = spec([[0, 0, Number.POSITIVE_INFINITY, 0]], [[100, 0, 0, 1]])
     expect(Result.isFailure(infinite) && infinite.failure).toBe("a start or target that isn't a finite number (rotate)")
+  })
+
+  it("AP23 (#887): a depth that moves has no rule, as CSS blends it by its inverse; one every member holds is in the rule", () => {
+    const keys = ["transformPerspective", "rotateY"]
+    const transition = { type: "spring", stiffness: 300, damping: 30 } as const
+    const spec = (starts: ReadonlyArray<ReadonlyArray<number>>, targets: ReadonlyArray<ReadonlyArray<number>>) =>
+      Appear.batchKeyframes({ key: "spring 300/30", keys, transition, starts, targets })
+    // 100px to 1000px reads 181.8px halfway in CSS's blend (linear in 1/depth), where Wardic's frame reads 550px.
+    const moving = spec([[100, 0]], [[1000, 30]])
+    expect(Result.isFailure(moving) && moving.failure).toBe("transformPerspective moves, and CSS blends a depth by its inverse, not as Wardic draws it")
+    const held = ok(spec([[600, 0], [600, 0]], [[600, 30], [600, 45]]))
+    expect(held.css).toContain("perspective(600px) rotateY(")
+    // A member at 0 (no perspective to Wardic, 1px to CSS) or below it (refused, with the stop's transform), beside one at 600: no rule.
+    for (const depth of [0, -10]) {
+      const floored = spec([[depth, 0], [600, 0]], [[depth, 30], [600, 45]])
+      expect(Result.isFailure(floored) && floored.failure, String(depth)).toBe("transformPerspective at or below 0 on a member, which CSS draws unlike Wardic")
+    }
   })
 
   it("AP20: one rule a shape and span, its name under its key's prefix; a reduced rule's snap holds its start to its delay", () => {

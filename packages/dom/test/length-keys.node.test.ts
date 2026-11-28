@@ -7,6 +7,7 @@
 //   property.
 // - LK3: the list is Motion's `px` keys (motion-dom's `numberValueTypes`), in Wardic's spelling, plus
 //   `min-width`, `min-height`, the gaps and `letter-spacing`.
+// - LK4 (#887): `perspective`, an element's children's depth, is drawn in px, as Motion's is.
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import { describe, expect, it } from "vitest"
 
@@ -62,6 +63,8 @@ const MOTION_PX_KEYS = [
   "fontSize",
   "backgroundPositionX",
   "backgroundPositionY",
+  // Motion's `transformValueTypes`, which `numberValueTypes` takes in (motion-dom 14.10.1; #887).
+  "perspective",
 ]
 
 const hyphenated = (key: string): string => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
@@ -80,5 +83,10 @@ describe("the CSS lengths a number is drawn in px on (#522)", () => {
   it("LK3: Motion's px keys, in Wardic's spelling, and Wardic's own", () => {
     const own = ["min-width", "min-height", "gap", "row-gap", "column-gap", "letter-spacing"]
     expect([...DomRenderer.LENGTH_KEYS].sort()).toEqual([...MOTION_PX_KEYS.map(hyphenated), ...own].sort())
+  })
+
+  it("LK4 (#887): perspective, an element's children's depth, is drawn in px", () => {
+    expect(DomRenderer.project({ perspective: 800 })).toEqual({ perspective: "800px" })
+    expect(DomRenderer.project({ perspective: "none" })).toEqual({ perspective: "none" })
   })
 })
