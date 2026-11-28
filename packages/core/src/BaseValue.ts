@@ -20,11 +20,11 @@ import type * as Values from "./Values.ts"
 /**
  * Each transform key's identity: the value that leaves an element untransformed, 1 for a scale and 0 for
  * a translation, rotation or skew. A transform key's Own value is its identity, as Motion's is. These are
- * the keys an Environment builds one `transform` from.
+ * the keys every Environment builds one `transform` from; an Environment may add keys of its own.
  */
 // Motion's `defaultTransformValue` (motion-dom parse-transform.ts:62-64 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8),
 // and what Motion uses at runtime, since every motion element's read takes its projected branch
-// (HTMLVisualElement.ts:51). `@wardic/dom`'s renderer derives its set from this one.
+// (HTMLVisualElement.ts:51). `@wardic/dom`'s table extends this one with the DOM's own key (#887).
 export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freeze({
   x: 0,
   y: 0,

@@ -66,7 +66,7 @@ function Crate(props: { open: boolean }) {
      All four are kept (decisions 22–25 below). The rest is built, measured or three's own practice, so it stays closed.
 3. **One set of primitives for any Subject, scenes first** (Q3). They're designed to take any Subject. Scenes use them first, and the DOM gains them as additions. `w.div`, the `ward(config)` spread and `<AnimatePresence>` stay as they are. A hook given an element can't write the server's HTML; only a spread or a component can.
    - Rejected: the rethink for scenes only; replacing `w.div` and `<AnimatePresence>` too.
-4. **"3D" means three.js scenes** (Q4). The DOM's 3D gaps, `scaleZ` (ADR-0069's step 1) and Motion's `transformPerspective`, are key additions, not API design, so they go in one DOM issue of their own.
+4. **"3D" means three.js scenes** (Q4). The DOM's 3D gaps, `scaleZ` (ADR-0069's step 1) and Motion's `transformPerspective`, are key additions, not API design, so they go in one DOM issue of their own. *`scaleZ` done in #883, `transformPerspective` in #887 (*Amendment (#887)*).*
 5. **Hooks are the whole of `@wardic/three/solid` v1** (Q5). Components can come later as thin sugar over the hooks, if users ask. Nothing forces a Wardic component, and nothing rules one out.
 6. **Solid 2 only** (Q34). `@wardic/solid/v1` gains none of the new hooks:
    - `ward(subject, config)`;
@@ -1081,3 +1081,60 @@ ADR-0074's decision 3 for decision 19's Frame effects, and its rule for a Stage'
 - **`createFrameEffect` keeps its own run,** since its entry returns cleanly on a frame it isn't due on. Its apply's first throw goes on to the slot's report, the rest of that run's are kept, and its next apply that returns ends the run.
 - **A Stage's sensors** (`createHover(mesh)`, `createDrag(mesh)` and the rest) reported on Effect's default runtime, so an app's logger and `ErrorReporter`s heard nothing. They report on the provider's runtime now, and on Effect's default with no provider, since a Stage needs none. three's own runtime takes no app Layer, so its reports still miss the app's logger: #999.
 - **Pinned by** FE10 (core), FX9 and SN12 (Solid 2).
+
+## Amendment (#887, 2026-11-28): the DOM's own depth, `transformPerspective`
+
+Decision 4's last DOM key. #887 asked for `scaleZ` and Motion's `transformPerspective`. `scaleZ` landed with #883 (*Amendment (#883)*), and #887's grill (2026-11-28, Q1–Q16) settled the depth: a `perspective()` at the head of an element's own transform, in px.
+
+**Decided:**
+1. **A key of the DOM's own** (Q1). No scene draws an element's own perspective, since a scene's is its camera's, so core names no such key. `@wardic/dom`'s `internal/transform-keys.ts` holds the DOM's transform table: core's `TRANSFORM_IDENTITY`, and `transformPerspective`. Every dom reader of a transform key goes through it: the renderer, Own values, `LiveStyle`, a Batch's members and its writer, `MemberHold`, `ElementSetup` and Appear. The DOM's Positional keys and Default transition compose it with what they add, as `positional-keys.ts` already added the box's keys. TK1 pins that no dom source reads core's table but it.
+   - Rejected: the key in core's table, a CSS term in core; a Reference in core that an Environment fills with its keys, new core API for one key.
+   - Core still names six keys only the DOM draws, from Motion's list in #47: `translateX`/`Y`/`Z`, `rotate`, `skewX` and `skewY`. Moving them breaks a stable export, so #1002 holds that for a major. `pathRotation` is core's own: its path legs write it.
+2. **Its identity is 0, Motion's** (Q2): no perspective, so it's left out, and it's the key's Own value. An `animate={{ transformPerspective: 800 }}` with nothing set springs up from 0, as Motion's does.
+3. **Left out at or below 0** (Q3). CSS refuses a negative `perspective()`, and the element's whole `transform` with it, so a spring's overshoot past 0 draws no perspective for those frames rather than no transform. A string `parseFloat` can't read (`var(--d)`) is drawn. ADR-0023's *Amendment (#887)*.
+4. **At the head** (Q4): ahead of the translate group, Motion's `transformPropOrder`, and on a projected element ahead of its `translate3d`, as Motion's `buildProjectionTransform` puts it, so it projects what follows.
+5. **Typed** (Q5): `WardicTransformShorthands` gains `transformPerspective`, and `scaleZ`, which #883 drew but never typed. A ward reads either as a number.
+6. **`perspective` is a length key** (Q6): a bare number on it is drawn in px, as Motion's is.
+7. **A patch** (Q7): decision 4 called these key additions, not API design, and a minor would read 1.4.0, the roadmap's performance viewer.
+8. **A transform's spring, `rotateY`'s** (Q10): the DOM's Default transition gives it the same object, so a depth and an angle that leave together (`whileHover={{ transformPerspective, rotateY }}`) decay in step, and the warp holds to the end. Core's `byKey` is unchanged.
+9. **Positional** (Q11): reduced motion lands it at once, as Motion's does.
+10. **A Batch member's key** (Q12): the writer draws it at the head, left out at or below 0, and `styleOf` the same on a server.
+11. **Appear declines a depth that moves** (Q13). CSS blends two `perspective()`s by decomposing their matrices (CSS Transforms 2, §14), linear in 1/depth: 100px to 1000px reads 181.8px halfway, where Wardic's frame reads 550px. A rule's stops, thinned on a straight line, can't stand in for it, as a Timeline value can't (`timeline.ts`). An element whose depth moves at mount waits for the JavaScript, `appear="explain"` saying why, and a Batch's rule does the same. A Batch's rule draws a depth every member holds in each stop.
+
+**As built:**
+- **One rule for the depth:** `TransformKeys.drawsDepth`, above 0, a string read by `parseFloat`, and drawn when it can't be read. The renderer, a projected element's transform, `addsToTransform`, the Batch writer, `styleOf` and a Batch's Appear rule all ask it.
+- **The walk is main's** (Q8): the renderer's plain walk and a Batch member's write each draw the depth ahead of their loop, in a statement of their own, and walk every other function as before. As one more entry in the walk, the depth cost an element at rest 13% in Maglev and 4% in Bun (the gate's variant A), though no element held one; as a read ahead of it, nothing measurable (variant C).
+- **A Batch's types:** `WardicBatchKey` gains `transformPerspective` and `scaleZ` (the spec review: a Batch member took them at runtime, and its object forms refused them).
+- **A Batch's Appear rule** draws a depth its members hold in every stop, each one's as a custom property where they differ. A member's at or below 0 has no rule, since Wardic leaves it out and CSS draws `perspective(0px)` as 1px, or refuses a negative one with the stop's whole `transform` (the spec review).
+- **TK1** reads dom's sources for core's table by its module's namespace or a named import.
+
+**Known limits:**
+- **An element's Appear rule leaves out a transform key already at its target** (ADR-0044's *Note (#448)*), so a still depth beside a moving `rotateY` isn't in the rule: the turn plays flat until the Handoff. It's every transform key's, not the depth's: a still `x` beside a moving `rotate` is dropped the same way (probed: the Starting style `translateX(10px)`, the rule's first stop `transform:none`). A Batch's rule writes held keys. Filed as #1004.
+- **The projection's box math doesn't know the depth.** `perspective(d) translateZ(z)` paints a box d/(d−z) larger, and `composeValues` maps an ancestor with both as unscaled. A parent's `perspective` property has the same gap, and rotations out of the plane are already unmappable.
+
+**Tests** (Q14), each failing first:
+- **`DomRenderer.project`** (dom, `transform-perspective.node.test.ts`): TP1, `perspective(800px)` ahead of the translate group, a string as it is; TP2, left out at 0 and below it, drawn just above it and as a string `parseFloat` can't read; TP3, at the head of a projected element's transform, ahead of a translate in another unit.
+- **The DOM's table:** TK1, no dom source reads core's table but `transform-keys.ts`, by namespace or named import; IT1 and D8 over the DOM's table; OV15 (`own-values.browser.test.ts`), the depth's Own value 0, never read off the element.
+- **The DOM's services:** DD6, `rotateY`'s spring, the same object, through the layer too; PK3, positional.
+- **A Batch:** BW4, its writer and `styleOf` draw the depth at the head, left out at or below 0; AP23, a Batch's Appear rule declined when the depth moves or a member's is at or below 0, and drawn when every member holds one.
+- **An element's Appear:** AR29 (Solid 2), a depth that moves waits for the JavaScript, `appear="explain"` saying why.
+- **`perspective`:** LK4, drawn in px.
+- **The types** (Solid 2, `transform-keys-types.ssr.test.tsx`): TKT1, `transformPerspective` and `scaleZ` in a target, `style`, a transition entry and a ward's read; TKT2, `perspective` a number; TKT3, a Batch member's values.
+- **The page** (Solid 2, `transform-perspective.browser.test.tsx`): TPB1, a depth with a turn paints as CSS's own `perspective(600px) rotateY(30deg)`; TPB2, a `layout` element keeps its depth at the head of every frame of a flight.
+
+**Cost** (Q8), on the quiet host, main's dom source against the branch's, medians of 21 alternating reps with their [5th, 15th], a control of main against a copy of itself (`.tmp/887-bench`), no element holding a depth:
+
+| per call | Bun | Node | Maglev |
+|---|---|---|---|
+| an element's transform (4 keys and an opacity) | +0.1% [−0.7, 1.0] | +0.7% [−0.4, 2.7] | +0.1% [−0.2, 1.1] |
+| an element at rest | +0.0% [−0.8, 0.4] | −0.9% [−1.3, −0.7] | +1.8% [1.6, 2.4] |
+| a projected element | +3.7% [2.6, 4.2] | +1.6% [0.2, 4.2] | +2.7% [2.4, 3.5] |
+| a Batch member's write | +0.2% [−0.3, 0.8] | +0.6% [0.3, 0.9] | −0.8% [−1.3, −0.4] |
+| the control's widest | +1.9% | +2.7%, −3.5% | −2.2% |
+
+- **The first gate failed:** with the depth as one more entry in each walk, an element at rest cost +7.0% in Bun, +8.6% in Node and +14.2% in Maglev. Three variants found it: the entry alone, variant A, was the cost; the identity test inlined, variant B, saved nothing; a read ahead of main's walk, variant C, measured nothing. The renderer and the Batch writer are variant C.
+- **A projected element pays one read a frame,** its depth's, in `buildProjectionTransform`: about 2% in Maglev across three gates (+1.6%, +2.2%, +2.7%), within its noise in Bun (−1.6% to +3.7% across them) and Node.
+- **`bench:solid --features`** passed every gate in both bindings against main: warm tasks, bytes, retained, the layout tree's frames and the feature pages.
+- **Size:** 191, 186 and 267 B gzip on `s1-slim`, `s2-slim` and `f-slim` (428, 428 and 551 B minified), the DOM's table, its read ahead of the walk and its Default transition's, in every app with a Wardic element; their budgets raised to 96.7, 119.5 and 199.3. `t2-stage` and `t2-features` as they were, and every app within the 1% gate.
+
+**The record:** this amendment; ADR-0022's and ADR-0023's *Amendment (#887)*; CONTEXT.md's **Identity**; the hover docs on `WardicTransformShorthands`' two keys; a patch changeset for `@wardic/dom`.

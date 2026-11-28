@@ -461,7 +461,7 @@ The pure half of the Renderer — translating engine values into the environment
 _Avoid_: render, format, serialize.
 
 **Identity** (a transform key's):
-The value at which a transform key leaves the element untransformed: 1 for `scale`, `scaleX` and `scaleY`, 0 for the rest. An element whose transform keys are all at their identity is projected with no transform (ADR-0023).
+The value at which a transform key leaves the element untransformed: 1 for `scale`, `scaleX`, `scaleY` and `scaleZ`, 0 for the rest. For the DOM's own transform key, an element's own depth (`transformPerspective`), 0 is no perspective rather than a depth. An element whose transform keys are all at their identity is projected with no transform (ADR-0023).
 _Avoid_: default (Motion's `defaultTransformValue`), zero, rest value.
 
 **Commit**:
