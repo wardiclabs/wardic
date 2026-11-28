@@ -196,7 +196,8 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
     presenceAffectsLayout: () => optionsNow().presenceAffectsLayout,
     // The last leaver has gone: the children `wait` held go on the page, in a delivery of their own. A
     // microtask later, not now: a take-over ends the last exit inside `shown` or `present` (dom's
-    // `leaveEnds`), where a delivery can't run; Solid's release is a signal, read later, for the same reason.
+    // `leaveEnds`), where a delivery can't run. Solid 1's release is a signal, read later, for the same
+    // reason; Solid 2's is a microtask later too when it's made inside `present` (#987).
     release: () => {
       queueMicrotask(() => deliver([], true))
     },

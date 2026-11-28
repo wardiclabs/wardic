@@ -952,3 +952,39 @@ ADR-0074's decision 3 for presence's callbacks: #979's row 29. ADR-0074's *Amend
 - **`onExitComplete`** (`exitCompleteEvents`, Solid 1's) was reported at every throw. It's called each time a presence's exits end, so it's reported once a run now, per presence, and its next call that returns ends the run. The message is unchanged: `wardic.presence: onExitComplete failed`.
 - **`usePresence`'s `safeToRemove` is unchanged:** it's called once, so it's reported each time, as decision 3 says.
 - **Pinned by** EC6 (Solid 1): two presences, each its own run.
+
+## Amendment (#987, 2026-11-28): Solid 2's release made inside `present` is a microtask later
+
+**What happened.** Found in #983's grill (its *Amendment (#983)*'s "Found, not here"). On Solid 2, under `mode="wait"`, a leaver with no `exit` (`initial`, `animate` or `variants` alone) has nothing to play. So it goes at once inside `present`: `leave`, then `driveExit` with no busy root, `partDone`, `finishExit`, and `leaveEnds`, which calls `options.release()`. Solid 2's binding calls `present` in its effect, and that effect's source, the `shown` memo, reads the `released` signal the release sets. So the effect re-ran on its own write. Solid's dev checks report `EFFECT_WRITES_OWN_SOURCE` and `EFFECT_RELAY_TEAR` on `released`, and a strict dev setup fails on them. The entering child went on the page in the same flush, in a second pass, so nothing visible broke. Reproduced on `main` (a5cddfe7).
+
+**Decided** (#987's grill, 2026-11-28, Q1–Q6, Q1 asked again once built):
+1. **Only Solid 2's binding changes** (Q1, then Q1′: a′). A release the controller makes while the binding is in `present` is a microtask later, still before the paint. Any other release, an exit's end in a tick, is at once, as before. Solid 1 and the controller are unchanged. Solid 1 has the same shape, but its effect runs again in the same batch, with nothing reported.
+   - **Q1's (a), every release a microtask later,** as Foldkit's binding does, failed LV1 once built (`leg-start-timing.browser.test.tsx`, *Amendment (#680)* of ADR-0027). An exit that ends in a tick released its held child after the microtask that closes the tick's Late window, so the child's first frame was drawn at its `initial`.
+   - **Not chosen:** the controller deferring every release, or only those made in `present` or `shown`. Either would change Solid 1 and release dom's fixed group, and on Solid 2 it is still a microtask. Nor `shown` declining to hold a child when no leaver has anything to play: it would resolve each leaver's exit before its leave, a dynamic one with the presence's `custom`, and repeat `leave`'s checks (the hooks holding it, the twins it hands back, the exits inside).
+2. **Tests** (Q2): PW5 (`presence-wait.browser.test.tsx`), under the dev-check gate. A leaver with `initial` and `animate` and no `exit` goes at once, and the held child is on the page by the next frame, animating in from its `initial`. Nothing is reported. It fails on `main` with the two codes.
+3. **Docs** (Q3): a comment at Solid 2's `release`, and a sentence in the controller's `release` JSDoc: it can be called inside `present`, so a binding that can't render again inside its own update defers it. The review found Foldkit's comment saying Solid's release needs no deferral, so it now says Solid 2's is deferred from `present` too.
+4. **The record** (Q4–Q6): this amendment, and a patch for `@wardic/solid` alone.
+
+**Built:** `AnimatePresence` in `packages/solid/src/presence.tsx`. It sets a `presenting` flag around `presence.present`, and its `release` option defers a release made while the flag is set. That's every release made inside `present`: a leaver with nothing to play, a take-over that cuts the last exit short there, or a `usePresence` hook's `safeToRemove` called at once.
+
+**Measured** (a throwaway probe, three runs each). Each cell is the held child's opacity in its first painted frame, 0 being its `initial`:
+
+| How the leaver goes | `main` | every release later (a) | a release in `present` later (a′, built) |
+|---|---|---|---|
+| Its exit ends in a tick (LV1) | 0.26 | 0 | 0.26 |
+| No exit, switched by a click | 0.26, both codes | 0.26 | 0.26 |
+| No exit, switched inside a tick | 0.26, both codes | 0 | 0 |
+
+**What else changes:** the third row. A leaver with no exit, switched by a change made inside a frame tick (an effect on another ward's `settled()`), puts its held child on the page in the same frame. But that child's first frame is now drawn at its `initial`, where before it was one step in. It's the case LV3 already pins for any start made after the Late window, which paints its origin first. It's not tested: a test would pin a cost, not a promise.
+
+**Also probed:**
+- **The presence unmounted** after the release is queued but before its microtask runs. The write lands on the disposed presence and does nothing: no error, no report, and nothing on the page.
+- **A take-over that ends the last exit while a child is held** (a `<For>`'s child back under its key): nothing was reported on `main`, so there was nothing to fix there.
+
+**Mutations:** 4 of 4 caught, each run alone, the file restored from a copy:
+- the release at once, as before (PW5);
+- the microtask kept but `released` never set (PW5);
+- every release a microtask, Q1's (a) (LV1);
+- the flag never reset after `present` (LV1).
+
+**Cost:** the release runs once a set of exits, not per frame, so there's no bench. `bun run size`: `s2-presence` +0.1 KB minified, its gzip unchanged at 166.9 KB, and every budget held.
