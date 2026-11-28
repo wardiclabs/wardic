@@ -45,7 +45,7 @@ import type * as Config from "@wardic/core/unstable/Config"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 import type * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
-import { LENGTH_KEYS } from "../internal/renderer.ts"
+import { LENGTH_KEY_SET } from "../internal/length-keys.ts"
 import * as TransformKeys from "../internal/transform-keys.ts"
 
 /**
@@ -183,14 +183,11 @@ export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegist
   return value
 }
 
-/** The lengths a bare number on is drawn in px (`DomRenderer.LENGTH_KEYS`). */
-const LENGTHS: ReadonlySet<string> = new Set(LENGTH_KEYS)
-
 /** Whether a style's `key` is routed: its value is live, it's a transform key with a value, or a number on a length. */
 // #887 (ADR-0073, *Amendment (#887)*): `style={{ width: 200 }}` typechecks (#522), but Solid writes "200",
 // which a browser drops, so nothing was drawn; the renderer writes "200px".
 const isRouted = (value: unknown, key: string): boolean =>
-  Bool.and(Predicate.isNotNullish(value), Bool.or(Bool.or(isLive(value), isTransformKey(key)), Bool.and(Predicate.isNumber(value), LENGTHS.has(key))))
+  Bool.and(Predicate.isNotNullish(value), Bool.or(Bool.or(isLive(value), isTransformKey(key)), Bool.and(Predicate.isNumber(value), LENGTH_KEY_SET.has(key))))
 
 /** A user's style split: what its binding's `style` carries, and the routed keys' sources. */
 export interface Split {
