@@ -30,7 +30,10 @@ import * as RefreshFrameSource from "../RefreshFrameSource.ts"
 export interface FrameEffectsOptions {
   /** Asks the Environment for a frame, whose end runs the effects. Called once a request, until the run. */
   readonly requestFrame: () => void
-  /** What an effect that throws reports: the rest of the frame's effects still run. */
+  /**
+   * What an effect that throws reports, at the first frame of a run of throws: its next frame that
+   * returns ends the run. The rest of the frame's effects still run.
+   */
   readonly report: (defect: unknown) => void
 }
 
@@ -64,6 +67,13 @@ export const make = (options: FrameEffectsOptions): FrameEffects => {
   let running = false
   let removedInRun = 0
   let asked = false
+  // #979 group I, row 22 (ADR-0074 decision 3): a run of throws is reported once, at its first. A throw is
+  // its run's first unless the entry threw at the run before, so a frame it returns from ends the run. The
+  // runs are numbered, and the run an entry last threw in is kept here, written only in the catch: the
+  // clean path does nothing. A flag on the entry cleared there cost Node 12% on a bare effect, and a number
+  // on the entry written in the catch 3% (group I's microbench); this one nothing.
+  let runs = 0
+  const threwAt = new Map<Entry, number>()
 
   /** The entries no longer live taken out, in place, keeping the rest's order. */
   const compact = (): void => {
@@ -81,6 +91,7 @@ export const make = (options: FrameEffectsOptions): FrameEffects => {
     return () => {
       if (!entry.live) return
       entry.live = false
+      threwAt.delete(entry)
       if (running) {
         removedInRun++
         return
@@ -98,6 +109,7 @@ export const make = (options: FrameEffectsOptions): FrameEffects => {
   const run: FrameEffects["run"] = (time) => {
     asked = false
     running = true
+    runs++
     // Those added before the run: one added in it waits for the next frame.
     const count = entries.length
     try {
@@ -107,7 +119,8 @@ export const make = (options: FrameEffectsOptions): FrameEffects => {
         try {
           entry.effect(time)
         } catch (defect) {
-          report(defect)
+          if (threwAt.get(entry) !== runs - 1) report(defect)
+          threwAt.set(entry, runs)
         }
       }
     } finally {

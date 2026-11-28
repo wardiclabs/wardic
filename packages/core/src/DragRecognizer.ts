@@ -591,10 +591,13 @@ export const watchDragAmong: (
       }
       const own: PressedMember = { scope: Scope.forkUnsafe(scope, "sequential"), pointerId: told.pointerId, started: false }
       pressed.set(member, own)
+      // #979 group I, row 28 (ADR-0074, group A's *Order first*): the watch ended before the app hears the
+      // end, so a handler that throws at it can't leave the member pressed, its next press starting nothing.
+      // The end closes the watch after this dispatch, so the handler still hears this sample.
       const on = (sample: Drag.Sample): void => {
         if (sample.phase === "start") own.started = true
-        handlers.on(member, sample)
         if (sample.phase === "end") end(member, own)
+        handlers.on(member, sample)
       }
       run(watchDrag(member, { ...options, listen: false, adoptable: true }, { on, onDefect: handlers.onDefect }).pipe(Scope.provide(own.scope)))
       hand(member, own, told)

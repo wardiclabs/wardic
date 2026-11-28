@@ -188,7 +188,7 @@ export interface HoverHandlers extends InputFeed.Handlers<Edge> {
 /**
  * Watches hover on `target` while the Scope is open: `handlers.on` hears each start and end, as
  * `hoverEvents` tells them, and `handlers.onMove` each move over it while the hover is on, inside the
- * pointer event's dispatch. A throw from either goes to `handlers.onDefect`.
+ * pointer event's dispatch. A run of throws from either goes to `handlers.onDefect` at its first.
  *
  * @example
  * yield* Recognizer.watchHover(card, {
