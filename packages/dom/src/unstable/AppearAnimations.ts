@@ -47,6 +47,8 @@ import * as AppearHandoff from "@wardic/core/unstable/AppearHandoff"
 import type * as WardConfig from "./WardConfig.ts"
 import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import * as ServerInterpolators from "./ServerInterpolators.ts"
+import { DEPTH_MOVES_REASON } from "../internal/appear.ts"
+import * as TransformKeys from "../internal/transform-keys.ts"
 import type * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 
@@ -230,8 +232,10 @@ export const specOf = (m: AppearHandoff.MountAnimation): Result.Result<Appear.Sp
 /**
  * Why a mount animation can't play before hydration, or `None` when it can (decision 4): a key
  * starting from anything but `initial`, a value the DOM reads from the element (`auto`, `var()`),
- * or a start that can't take its target's shape (a length pair in two units).
+ * a start that can't take its target's shape (a length pair in two units), or the element's own
+ * depth, `transformPerspective`, which CSS blends unlike Wardic. `to` holds the keys that move.
  */
+// #887 (ADR-0073, *Amendment (#887)*, Q13): the depth, as a Batch's rule leaves it (`appear.ts`'s `DEPTH_MOVES_REASON`).
 export const unplayable = (initial: Values.Values, to: Values.Values): Option.Option<string> =>
   Arr.findFirst(Rec.toEntries(to), ([key, target]) =>
     Option.match(Option.fromUndefinedOr(initial[key]), {
@@ -243,7 +247,7 @@ export const unplayable = (initial: Values.Values, to: Values.Values): Option.Op
             // A start that can't take its target's shape, a length in another unit among them (ADR-0024).
             Bool.match(Option.isNone(OwnValues.valueLike(start, target)), {
               onTrue: () => Option.some(`${key}'s start and target don't take one shape`),
-              onFalse: () => Option.none(),
+              onFalse: () => Bool.match(key === TransformKeys.PERSPECTIVE, { onTrue: () => Option.some(DEPTH_MOVES_REASON), onFalse: () => Option.none() }),
             }),
         }),
     }))

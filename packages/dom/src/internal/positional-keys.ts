@@ -10,6 +10,7 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import { dashCase } from "./svg.ts"
+import * as TransformKeys from "./transform-keys.ts"
 
 /** The box's position and size, as CSS properties. */
 const BOX_KEYS: ReadonlySet<string> = new Set(["width", "height", "top", "left", "right", "bottom"])
@@ -17,8 +18,9 @@ const BOX_KEYS: ReadonlySet<string> = new Set(["width", "height", "top", "left",
 /** A key of the box's position or size, written as a CSS name or in camelCase. */
 const isBoxKey: Predicate.Predicate<string> = (key) => BOX_KEYS.has(dashCase(key))
 
-/** Whether reduced motion lands `key` at once: a transform, or a key that places or sizes the box. */
-export const isPositional: Predicate.Predicate<string> = Predicate.or(ReducedMotion.isTransform, isBoxKey)
+/** Whether reduced motion lands `key` at once: one of the DOM's transforms, or a key that places or sizes the box. */
+// #887 (Q11): the DOM's transforms, core's and its own, so its depth lands at once, as Motion's does.
+export const isPositional: Predicate.Predicate<string> = Predicate.or(TransformKeys.isTransformKey, isBoxKey)
 
 /** The DOM Environment's `ReducedMotion.PositionalKeys`. */
 export const PositionalKeysDomLive: Layer.Layer<ReducedMotion.PositionalKeys> = Layer.succeed(ReducedMotion.PositionalKeys, { isPositional })
