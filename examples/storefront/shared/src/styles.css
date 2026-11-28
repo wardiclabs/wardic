@@ -3146,7 +3146,8 @@ button.product-card:hover .photo {
   max-width: 52ch;
 }
 
-/* Cards with a light: the grid gives them depth to tilt in; the light is a gradient where the pointer is. */
+/* Cards with a light: each card tilts in a depth of its own, its transformPerspective (#1003); the light is a
+   gradient where the pointer is. */
 .spot-grid {
   list-style: none;
   margin: 0;
@@ -3154,7 +3155,6 @@ button.product-card:hover .photo {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-5);
-  perspective: 900px;
 }
 
 .spot-card {
