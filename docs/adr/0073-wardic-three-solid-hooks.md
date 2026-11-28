@@ -1107,6 +1107,7 @@ Decision 4's last DOM key. #887 asked for `scaleZ` and Motion's `transformPerspe
 - **A Batch's types:** `WardicBatchKey` gains `transformPerspective` and `scaleZ` (the spec review: a Batch member took them at runtime, and its object forms refused them).
 - **A Batch's Appear rule** draws a depth its members hold in every stop, each one's as a custom property where they differ. A member's at or below 0 has no rule, since Wardic leaves it out and CSS draws `perspective(0px)` as 1px, or refuses a negative one with the stop's whole `transform` (the spec review).
 - **TK1** reads dom's sources for core's table by its module's namespace or a named import.
+- **A number on a length in `style` is drawn** (found building #1003's example, the user's call). `style={{ width: 200 }}` has typechecked since #522, but `LiveStyle` routed only live values and transform keys, so Solid wrote "200", which a browser drops, and nothing was drawn; a server wrote it the same. `LiveStyle` now routes a bare number on one of the renderer's length keys, `perspective` among them, so the renderer draws it in px on the client and the server, as a live value always was. A string stays the binding's own. The check runs where a style is split (an element's mount, a style's change), not per frame; it isn't measured.
 
 **Known limits:**
 - **An element's Appear rule leaves out a transform key already at its target** (ADR-0044's *Note (#448)*), so a still depth beside a moving `rotateY` isn't in the rule: the turn plays flat until the Handoff. It's every transform key's, not the depth's: a still `x` beside a moving `rotate` is dropped the same way (probed: the Starting style `translateX(10px)`, the rule's first stop `transform:none`). A Batch's rule writes held keys. Filed as #1004.
@@ -1120,7 +1121,7 @@ Decision 4's last DOM key. #887 asked for `scaleZ` and Motion's `transformPerspe
 - **An element's Appear:** AR29 (Solid 2), a depth that moves waits for the JavaScript, `appear="explain"` saying why.
 - **`perspective`:** LK4, drawn in px.
 - **The types** (Solid 2, `transform-keys-types.ssr.test.tsx`): TKT1, `transformPerspective` and `scaleZ` in a target, `style`, a transition entry and a ward's read; TKT2, `perspective` a number; TKT3, a Batch member's values.
-- **The page** (Solid 2, `transform-perspective.browser.test.tsx`): TPB1, a depth with a turn paints as CSS's own `perspective(600px) rotateY(30deg)`; TPB2, a `layout` element keeps its depth at the head of every frame of a flight.
+- **The page** (Solid 2, `transform-perspective.browser.test.tsx`): TPB1, a depth with a turn paints as CSS's own `perspective(600px) rotateY(30deg)`; TPB2, a `layout` element keeps its depth at the head of every frame of a flight; TPB3, a bare number on a length in `style` drawn in px, static, changed, given a string and a number again.
 
 **Cost** (Q8), on the quiet host, main's dom source against the branch's, medians of 21 alternating reps with their [5th, 15th], a control of main against a copy of itself (`.tmp/887-bench`), no element holding a depth:
 
