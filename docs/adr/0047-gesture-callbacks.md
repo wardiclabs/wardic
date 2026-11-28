@@ -299,3 +299,10 @@ At each change it toggles `whileInView` and calls `onViewportEnter(entry)` or `o
     - focus by the keyboard, not a click, over in view.
   - solid (Solid 1): `test/motion-props.ssr.test.tsx` MP1–MP2, every motion prop reaching the config.
   - solid (Solid 2): GX16–GX18, and `ward.tsx`'s types-only check that every Solid 2 motion prop is read.
+
+## Amendment (#979, group I, 2026-11-28): one teller, once a run
+
+ADR-0074's decision 3 for an element's gesture callbacks: #979's row 26. ADR-0074's *Amendment (#979, group I)* records the group, its cost and its tests; this is the callbacks' part.
+- **Before:** dom's teller had two guards. `perMove`, for `onDrag` and `onPan`, reported a run of throws once (#257 item 4). `once`, for every other callback, reported every throw, though a hover's, a tap's and a pan's callbacks are called again at each gesture.
+- **Now** they're one guard: each element and callback name has its own run, reported at its first throw and ended by that callback's next call that returns. The names are kept in dom's `internal/failing.ts`, made at the first throw. The messages (`wardic.gesture: onTap failed`, and so on) are unchanged.
+- **Pinned by** the gesture callbacks' hover test in Solid 1's `error-reporting.browser.test.tsx` (two elements, `onHoverStart` and `onHoverEnd` each its own run), and G19 on Foldkit.

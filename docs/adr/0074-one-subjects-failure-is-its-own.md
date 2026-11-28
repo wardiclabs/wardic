@@ -111,15 +111,15 @@ Evidence:
 
 Not a throw, but silent: a three key whose place is gone (a material swapped mid-run) is skipped, its call lands, and nothing is logged (P).
 
-**Already following the rule:** rows 1, 2, 12, 23 and 24. Rows 22, 25, 26, 28 and 29 isolate and end but log every throw: group I.
+**Already following the rule:** rows 1, 2, 12, 23 and 24. Rows 22, 25, 26, 28 and 29 isolate and end but log every throw: group I (*Amendment (#979, group I)*: once a run now; with it every row follows the rule, and #979 closes).
 
 **Not determined by the audit:** these are left to their groups' tests.
 - whether `hooks.landed`'s throw (`BatchMembers.ts:2047`) is swallowed (*Amendment (#979, group H)*: it was, by the run's fiber observer; Solid 1's, the only app code there, is reported now);
-- how Solid surfaces a synchronous mount or effect throw;
-- whether Solid 1's `mode="wait"` release runs inside `Batch.step`;
+- how Solid surfaces a synchronous mount or effect throw (*Amendment (#979, group I)*, from groups F's and H's probes);
+- whether Solid 1's `mode="wait"` release runs inside `Batch.step` (*Amendment (#979, group I)*: yes, behind a keyed exit's landing);
 - how Foldkit reports a dead Command fiber (*Amendment (#979, group H)*: its crash view replaces the app);
-- whether `transformPagePoint` runs under `onDefect`;
-- whether a `config()` getter can throw at `projection.ts:4500`.
+- whether `transformPagePoint` runs under `onDefect` (*Amendment (#979, group I)*: yes; one that throws at a release is #1000);
+- whether a `config()` getter can throw at `projection.ts:4500` (*Amendment (#979, group I)*: yes, read outside the `try`; fixed there).
 
 ## Considered Options
 
@@ -227,3 +227,113 @@ This ADR's rule for the paths each binding owns: #979's group H, its rows 7 (Tim
 - each binding's variant node reporting on Effect's default runtime, Foldkit's never handed its failures, a presence's exit's stagger reporting on the default runtime, and an exit's event made a name at a time.
 
 **Size** (`bun run size`): every app with a ward grows 110 to 199 B gzipped, core's 0.3 to 0.4 KB of it minified, Solid 1's Batch app 41 B, and Solid 2's Batch and the reorder Batch apps not at all; every app within the 1% gate. All five budgets were raised by what was measured, to 96.5, 119.3, 199.0, 246.5 and 254.3 (172, 178, 175, 110 and 199 B).
+
+## Amendment (#979, group I, 2026-11-28): a run of throws is reported once
+
+Decision 3 for the paths that already isolated their failures and went on, but logged every throw: #979's group I, its rows 22 (Frame effects), 25 (an element's animation callbacks), 26 (gesture callbacks, and a watch's handler), 28 (a drag's response, its constraints and a Reorder item) and 29 (presence and layout callbacks, a Batch's exit function). Group I is the last group. With it, every row of the audit follows the rule, and #979 closes. ADR-0020, ADR-0039, ADR-0047, ADR-0048, ADR-0055, ADR-0070 and ADR-0073 each carry a short amendment for their part, pointing here.
+
+**What happened** (probed on `main` at 17fed52a, in Chromium, and three's Stage in Node):
+1. **Row 22, confirmed.** `FrameEffects.run` reported each effect's throw at every frame. Solid 2's `createFrameEffect` is reported through it (`wardic.createFrameEffect: an apply failed`), and so is `@wardic/object`'s `afterWrites` (`wardic.afterWrites: an effect failed`). A `createFrameEffect` under a `<WardicStage>` joins the Stage's Frame effects, so it's reported under the second name.
+2. **Row 25, confirmed.** `Spine.animationCallbacks` reported every throw of `onAnimationStart` and `onAnimationComplete`, and a list told each of its names. Solid 1's `createBatch` did the same from group H.
+3. **Row 26, confirmed and wider.**
+   - dom's teller had two guards: `perMove`, once a run, for `onDrag` and `onPan`, and `once`, every throw, for every other callback, though a hover's and a tap's are called again at each hover and tap.
+   - Every `onDefect` of Wardic's, twelve of them across the bindings, is a binding's report, and core's guard handed it every throw. So the guard was the one place to fix them all. With no `onDefect`, the guard already reported once a run (group G).
+   - Solid 2's Stage sensors reported on Effect's default runtime. Six throws, from a `createDrag` whose `bounds` getter threw under a provider with its own logger, gave six lines from the default logger and none from the app's.
+   - three's runtime, `WardicObject.makeWith`'s, takes no app Layer, so "the provider's runtime" would change nothing there.
+4. **Row 28, confirmed, and two order bugs.**
+   - `DragTrack` reported a failing response at each sample, a failing constraints measure at each start or resize, and a failing release (an app's `modifyTarget`, not in the row) at each release.
+   - Probed on Solid 1's `Reorder.BatchGroup` with a real mouse, an `onHoldEnd` throwing at an item's first drag end. The item's second drag moved it 0 px, and it stayed where it was dropped, at 180 against its slot's 160.
+     - Core's `DragRecognizer.watchDragAmong` called the app's handler before ending the member's watch, so the member stayed pressed for good, and its next press started nothing.
+     - Solid's `batch-reorder.ts` called the controller's end, so the app's `onReorderEnd` and `onHoldEnd`, before letting the item go.
+   - Solid 2's group defers its end through its Waiters, so no app code ran there.
+5. **Row 29, confirmed.**
+   - `onExitComplete` was reported at every throw, once a presence's exits ended.
+   - `usePresence`'s `safeToRemove` and `animateLayout`'s `onSettled` are called once, so they already followed decision 3.
+   - The projection's layout callbacks were reported at every flight, and its measure hooks (`onBeforeLayoutMeasure`, `onLayoutMeasure`) at every Measure pass.
+   - A Batch's exit function was called for each leaver of a change, so N leavers gave N lines.
+6. `onDragTransitionEnd` is reported under two names: `wardic.gesture:` normally, `wardic.projection:` for a layout node's drag.
+
+**Decided** (grilled 2026-11-27, three rounds, Q1–Q19, every recommendation taken; Q7 and Q10 their (a), Q13 the Batch's exit function once a change):
+1. **A run** (Q2): one callback of one Subject on one path. It's reported at its first throw and ended by its next normal return.
+   - The flag lives on what Wardic already keeps per registration, so nothing is made per frame. The clean path reads the flag and writes it only when it's set.
+   - Each callback has its own run: `onAnimationStart` and `onAnimationComplete` are two, as are `onHoverStart` and `onHoverEnd`. A once-only callback is reported each time.
+2. **The guard** (Q7, (a)): an `onDefect` hears a run's first throw, as the report with no `onDefect` already did, so the twelve sites change in one place. A watch's handler that throws at each move logs once.
+3. **One teller** (Q8): dom's `once` goes through `perMove`'s run, so each element and callback name has one run.
+4. **Row 26's runtime** (Q4, Q9): Solid 2's Stage sensors report on the provider's runtime, and on Effect's default with no provider, since a Stage needs none. three's runtime is left as it is: #999.
+5. **The animation callbacks** (Q10, (a)): `Spine.animationCallbacks` keeps two `let`s in its closure, one run for each callback, and a list's names are that callback's calls, so a clean name ends its run (group H's limit). Solid 1's `createBatch` keeps two `let`s too. CB13 and CB14 were rewritten from "each time" to once a run.
+6. **Row 28's order** (Q3, Q11), by group A's *Order first*:
+   - `watchDragAmong` ends a member's watch before the app hears the end. The end closes the watch after the dispatch, so the handler still hears the sample.
+   - `batch-reorder.ts` can't let an item go first, since the controller's end gives its place, so the end runs in a `try` and the item is let go in its `finally`.
+7. **The drag track** (Q12): a response, a constraints measure and a release each have their own run per track.
+8. **Row 29** (Q13):
+   - `onExitComplete` has its run per presence.
+   - A layout node has one run per callback, its names held on the node.
+   - A Batch's exit function is reported once for a change's leavers, as an exit's stagger is once for its event (group H).
+   - `usePresence` and `onSettled` are unchanged.
+9. **The messages** (Q5, Q14): their messages and annotations are unchanged, and so are `onDragTransitionEnd`'s two names. Only how often they're logged changes, and no "recovered" line is added.
+
+**Changed in the build:**
+- **Frame effects keep the run an effect last threw in, not a flag on its entry** (measured, Q6). The flag, read on the clean path and cleared there, cost Node 12% on a bare effect, with Bun unmoved. A number on the entry, written only in the catch, still cost Node 3%. So the slot numbers its runs, and a `Map` beside its list keeps the run each effect last threw in, written only when it throws. A throw is its run's first unless the effect threw at the run before. The clean path does nothing, and the entry's shape is `main`'s.
+- **`createFrameEffect` keeps its own run.** Its slot's entry returns cleanly on every frame the effect isn't due, which would end the entry's run between two changes that throw. So the effect's first throw goes on to the slot's report, the run's later throws are kept, and its next apply that returns ends the run. Its cleanup runs in the same `try`.
+- **A release's run ends only when the release lands.** A response's interruption neither starts a run nor ends one.
+- **dom's `internal/failing.ts`** (from the review): the teller, a layout node and a drag track share one set of failing names, each with its names typed.
+- **Solid's `failedOn`** (from the review): a cause reported on the provider's runtime, else on Effect's default. It was `transformFailedOn` (group D), and the Stage sensors go through it now.
+- **A layout callback's getter is read inside its `try`** (the owner's choice, after the probe below): `callAppIfAny` takes the node's getter and calls it there.
+
+**Known limits** (the owner's choice, after the build):
+- **A watch's run is its handler's.** Where two of the app's callbacks share one handler, with calls between them that return, each gesture's throw is a new run:
+  - three's hover and press, where a start that throws at each hover is reported at each, since the leave tells no end and returns (IN14);
+  - a Reorder item's `onHoldEnd` or `onReorderEnd`, since the drag's moves between them return.
+  
+  Those are reported once a gesture, not per frame. A handler's throws at each move, a drag's samples, a `transformPagePoint` and an item's input among them, are reported once a run.
+- **`watchDragAmong` starts each press's own watch,** so each press has its own run.
+- **A list's names:** a clean name ends its run (group H's).
+
+**The audit's open list, answered:**
+- **How Solid surfaces a synchronous mount or effect throw** (groups F and H, ADR-0007's and this ADR's amendments):
+  - **Solid 2:** a variant that threw at a change was logged by Solid in development, and recovered at its next change. One that threw at a leave or at setup halted Solid for good (`REACTIVITY_HALTED` out of `flush()`), as a Timeline value's make and a `delayChildren` function did.
+  - **Solid 1:** the throw came out of the app's setter, Solid 1 dropping the rest of that update, or out of `render()` at mount.
+- **Whether Solid 1's `mode="wait"` release runs inside `Batch.step`** (ADR-0048, *Amendment (#983)*; ADR-0069, *Amendment (#977)*): yes, for a Batch member's keyed exit, behind the member's landing in the step, whose `try` kept it from ending the run. Since #983 the release's own `try` catches the throw first.
+- **Whether `transformPagePoint` runs under `onDefect`:** yes. `watchDrag` maps each pointer event inside its watch's handler, so a throw drops that event and goes to `onDefect`, once a run now. A mapping that throws only at a gesture's release leaves the gesture open, the drag active and its claim held, until the next press on the element: #1000.
+- **Whether a `config()` getter can throw at `projection.ts:4500`:** yes. That line was the projection's after-tick read of `node.onLayoutAnimationStart()`, and its neighbours read the other two callbacks. A binding's getter can be the app's code: Solid 1's `createWard` accessor, unmemoized with no `WardicConfig` above, or a getter on its config object. The read was outside the `try`, so a throw came out of the tick's hook, and the frame loop reported it. The nodes after it in that tick's list missed their callbacks. Fixed here (LCS6).
+
+**Found, not here:** #999 (three's runtime reports to no app logger) and #1000 (a `transformPagePoint` that throws at a release).
+
+**Cost** (Q6), measured against `main` on the quiet bench host, nothing throwing. Every gate passed.
+- **A paired microbench** for the two paths no bench drives, in Bun, Node and Node's Maglev. It runs 21 alternating reps, and a control times `main` against a second copy of itself.
+  - **A frame's 100 Frame effects:** within noise in each engine, over two passes. Bun +0.1% and −2.8%, Node +1.2% and −0.1%, Maglev −0.8% and −2.8%. The controls were −0.1% to +1.5%, Maglev's −1.9% and −4.1%. The first design, a flag on the entry, cost Node 11.8% and Maglev 12.2%, so it was replaced (*Changed in the build*).
+  - **100 watches' events with an `onDefect`** (the guard): Bun −0.8%, Node +1.1%, Maglev −1.0%, the controls within ±1.2%.
+- **`bench:core`:** every workload within noise in Bun, Node and Chromium.
+- **`bench:solid --features`:** every task within noise, the control −0.7%. A round allocates 0.4% more per element on Solid 1, and the same on Solid 2. At rest, which isn't gated:
+  - an element with hover and press holds 0.11 KB more on each binding;
+  - a Reorder item holds 0.24 KB more on Solid 1, and 0.34 KB more on Solid 2.
+- **`bench:foldkit`:** every task within noise, the control −0.6%.
+
+**Tests** (Q6, Q15), each failing on `main` first but IN14, which pins a limit `main` has too:
+- **core:** FE10 (`frame-effects.test.ts`), a Frame effect throwing every frame; IF11 (`input-feed.test.ts`), a watch's `onDefect`, and `switched`'s, hearing a run's first throw.
+- **Solid 2:**
+  - FX9 (`frame-effect.browser.test.tsx`): a `createFrameEffect` whose apply throws at each change, with frames between the changes;
+  - SN12 (`sensors.browser.test.tsx`): a Stage's `createDrag` whose `bounds` throw at each sample, heard by the app's logger once a run;
+  - CVE5 (`create-batch-exits.browser.test.tsx`): an exit function throwing for each leaver, reported once a change.
+- **Solid 1:**
+  - AC12 (`animation-callbacks.browser.test.tsx`): an element's animation callbacks, two elements;
+  - CB13 and CB14 (`create-batch.browser.test.tsx`), rewritten to once a run, a start's clean call not ending a landing's run;
+  - the gesture callbacks' hover test (`error-reporting.browser.test.tsx`), two elements, and the #66 release test rewritten;
+  - DC11 (`drag-constraints.browser.test.tsx`): a measure and a release throwing at each drag, two elements; DW2 (`drag-watch.browser.test.tsx`): a response failing at each sample;
+  - EC6 (`presence-exit-complete.browser.test.tsx`): two presences;
+  - LCS5 and LCS6 (`layout-callbacks.browser.test.tsx`): the layout callbacks and a measure hook, two nodes; a config getter that throws, the next node's start still told;
+  - BG12 (`reorder-batch.browser.test.tsx`): an `onHoldEnd` that throws at a drag's end. The item settles in its slot, its next drag moves it and reorders, and the throw is reported once.
+- **three:** IN14 (`input.test.ts`), the limit above.
+- **Foldkit:** G19 (`gestures.browser.test.ts`), a gesture callback; D19 (`drag.browser.test.ts`), a `transformPagePoint` throwing at a drag's moves, through the watch's `onDefect`.
+- Each row's test pins three things: once across a run, again after a clean call, and another Subject's run kept separate.
+
+**Mutations:** 43 of 43 caught, each run alone from a copy, each mutated file parse-checked:
+- each once-a-run record never set, never cleared, or bypassed so every throw is reported. That's the guard, Frame effects (its runs never numbered, too), `createFrameEffect`, the teller, Spine's two callbacks, Solid 1 `createBatch`'s two, a drag track's three runs, `onExitComplete`, a layout node's callbacks and measure hooks, and a Batch's exit wave;
+- a landing's run ended by a start's clean call (Spine and `createBatch`);
+- the two orders reverted;
+- a Stage's sensors back on Effect's default runtime;
+- a layout callback's getter read outside its `try`.
+
+IN14, the limit's test, also catches the guard's run never ending.
+
+**Size** (`bun run size`): `f-slim` grew 62 B and its budget was raised by what was measured, to 199.1. `s1-slim`, `s2-slim`, `t2-stage` and `t2-features` grew 35, 0, 29 and 24 B, within their budgets, and every app stayed within the 1% gate.

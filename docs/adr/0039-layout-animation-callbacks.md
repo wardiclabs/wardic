@@ -101,3 +101,11 @@ A Measure pass that runs after its frame's tick takes the first step of the node
 - **A flight that step brings to rest** lands at the next tick, so its complete fires there (decision 3).
 
 Pinned by `packages/dom/test/projection-after-tick.browser.test.ts` AT6: the start comes once, after the pass's two writes (the seed and the step), before the next tick's.
+
+## Amendment (#979, group I, 2026-11-28): a node's callbacks once a run, and their getters inside the `try`
+
+ADR-0074's decision 3 for the layout callbacks: #979's row 29, and an open question of its audit. ADR-0074's *Amendment (#979, group I)* records the group, its cost and its tests; this is the callbacks' part.
+- **Once a run per node and callback:** `onLayoutAnimationStart`, `onLayoutAnimationComplete` and a layout node's `onDragTransitionEnd` were reported at every flight, and `onBeforeLayoutMeasure` and `onLayoutMeasure` at every Measure pass. Each is now reported at its run's first throw, and its next call that returns ends the run. The names are kept on the node, in a set made at its first throw (dom's `internal/failing.ts`). The messages are unchanged.
+- **`onSettled` is unchanged:** it's called once, so it's reported each time.
+- **A callback's getter is read inside the `try`:** the after-tick pass read `node.onLayoutAnimationStart()`, and the other two callbacks' getters, outside it. A binding's getter can be the app's code: Solid 1's `createWard` accessor, unmemoized with no `WardicConfig` above, or a getter on its config. One that threw came out of the tick's hook, so the nodes after it in that tick's list missed their callbacks. It's that node's callback failing now.
+- **Pinned by** LCS5 and LCS6 (Solid 1).

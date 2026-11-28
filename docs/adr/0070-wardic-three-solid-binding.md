@@ -240,3 +240,10 @@ ADR-0074's rule for Solid 1's `createBatch` callbacks: #979's row 33. ADR-0074's
 - **Before:** `onAnimationStart` ran before the Batch's run was forked, unguarded. One that threw kept the run from forking, and came out of the change's update, Solid 1 dropping the rest of it (another Batch's and `wardic.*` elements' Retargets with it), or, at mount, out of the arrivals' flush, uncaught. The flight stayed marked started, so the next change told no start, and its landing counted none of its members. `onAnimationComplete` ran in the run's fiber observer, which swallowed its throw unlogged.
 - **Now** each is called in a `try` in Solid 1's binding, as an element's own are (`Spine.animationCallbacks`): reported each time, `createBatch: onAnimationStart failed` and `createBatch: onAnimationComplete failed`, and the flight goes on, its run forked and its landing told. Group I makes both, and an element's, once a run. Solid 2's Batch hands a flight over as async values, Wardic's own code, so `BatchMembers` is unchanged.
 - **Pinned by** CB13 and CB14 (Solid 1).
+
+## Amendment (#979, group I, 2026-11-28): a Batch's flight callbacks once a run, and its exit function once a change
+
+ADR-0074's decision 3 for a Batch's callbacks: #979's rows 25 and 29. ADR-0074's *Amendment (#979, group I)* records the group, its cost and its tests; this is the Batch's part.
+- **Solid 1's `onAnimationStart` and `onAnimationComplete`** (group H's `callFlight`) are each their own run per Batch, reported at the first throw and ended by that callback's next call that returns.
+- **An exit function that throws** (`BatchMembers.playExits`) was reported for each leaver of a change. It's reported once for the change's leavers now, as an exit's stagger is once for its event (ADR-0074, *Amendment (#979, group H)*), and each leaver is still let go. The next change's leavers report again.
+- **Pinned by** CB13 and CB14 (Solid 1), rewritten from "each time", and CVE5 (Solid 2).
