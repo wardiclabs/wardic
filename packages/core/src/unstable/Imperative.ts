@@ -1001,8 +1001,8 @@ export type WardicSegmentTarget = Omit<Config.WardicTargetValues, "transition">
 export type WardicFunctionSegment =
   | readonly [callback: (value: number) => void]
   | readonly [callback: (value: number) => void, options: WardicSegmentOptions]
-  | readonly [callback: (value: number) => void, value: number | Config.WardicKeyframes<number>, options: WardicSegmentOptions]
-  | readonly [callback: (value: string) => void, value: string | Config.WardicKeyframes<string>, options: WardicSegmentOptions]
+  | readonly [callback: (value: number) => void, value: number | Config.WardicKeyframes<number>, options?: WardicSegmentOptions]
+  | readonly [callback: (value: string) => void, value: string | Config.WardicKeyframes<string>, options?: WardicSegmentOptions]
 
 /**
  * A sequence's options: `duration`, the whole sequence scaled to it; `delay`; `repeat`, `repeatType`
@@ -1195,8 +1195,11 @@ const segmentTransitionOf = (options: WardicSegmentOptions | undefined, key: str
   return Bool.match(Predicate.isUndefined(delay), { onTrue: () => run, onFalse: () => ({ ...run, delay }) as Sequence.Transition })
 }
 
+/** Whether a function Segment's second part is its value: a number, a string or a list of stops. Anything else is its options. */
+const isFunctionSegmentValue: Predicate.Predicate<unknown> = /*#__PURE__*/ Predicate.or(/*#__PURE__*/ Predicate.or(Predicate.isNumber, Predicate.isString), Arr.isArray)
+
 /** Whether a Segment's value is one: a number, a string, `null` or Keyframes. */
-const isSegmentValue: Predicate.Predicate<unknown> = /*#__PURE__*/ Predicate.or(/*#__PURE__*/ Predicate.or(Predicate.isNumber, Predicate.isString), /*#__PURE__*/ Predicate.or(Predicate.isNull, Arr.isArray))
+const isSegmentValue: Predicate.Predicate<unknown> = /*#__PURE__*/ Predicate.or(isFunctionSegmentValue, Predicate.isNull)
 
 /** A Segment's values: those that are a value, `null` or Keyframes. */
 const segmentValuesOf = (target: WardicSegmentTarget): Readonly<Record<string, Sequence.Stop | ReadonlyArray<Sequence.Stop>>> =>
@@ -1247,9 +1250,12 @@ const stepsOf = <S extends object>(ports: Ports<S>, sequence: ReadonlyArray<unkn
     }
     if (Predicate.isFunction(parts[0])) {
       const call = parts[0] as (value: number | string) => void
-      const three = parts.length === 3
-      const given = Bool.match(three, { onTrue: () => parts[1] as Sequence.Stop | ReadonlyArray<Sequence.Stop>, onFalse: () => ZERO_TO_ONE })
-      const options = Bool.match(three, { onTrue: () => parts[2], onFalse: () => parts[1] }) as WardicSegmentOptions | undefined
+      // #975 (ADR-0061, *Amendment (#975)*): two parts are a value and no options when the second is one,
+      // as Motion's `[value, keyframes]`; read as options, a number was dropped, and an array's `at` threw.
+      const [given, options] = Bool.match(Bool.or(parts.length === 3, isFunctionSegmentValue(parts[1])), {
+        onTrue: () => [parts[1] as Sequence.Stop | ReadonlyArray<Sequence.Stop>, parts[2] as WardicSegmentOptions | undefined] as const,
+        onFalse: () => [ZERO_TO_ONE, parts[1] as WardicSegmentOptions | undefined] as const,
+      })
       const target = { [VALUE]: given }
       return { subjects: [{ call }], target, transitions: segmentTransitionsOf(target, options, defaults), at: atOf(options) }
     }
