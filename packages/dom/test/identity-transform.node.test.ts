@@ -11,6 +11,7 @@ import * as Projection from "@wardic/core/Projection"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Svg from "@wardic/dom/Svg"
 import { describe, expect, it } from "vitest"
+import * as TransformKeys from "../src/internal/transform-keys.ts"
 
 const IDENTITY = { x: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }, y: { translate: 0, scale: 1, origin: 0.5, originPoint: 0 } }
 /** A projection with no layout delta (`tx`, `ty` 0 unless given) and no tree scale. */
@@ -22,8 +23,9 @@ const projected = (tx = 0, ty = 0) => ({
 })
 
 describe("identity transforms: the normal path (ADR-0023)", () => {
-  it("IT1: each transform key alone at its identity projects transform: none", () => {
-    for (const [key, identity] of Object.entries(BaseValue.TRANSFORM_IDENTITY)) {
+  it("IT1: each of the DOM's transform keys alone at its identity projects transform: none", () => {
+    // Core's and the DOM's own (#887).
+    for (const [key, identity] of Object.entries(TransformKeys.TRANSFORM_IDENTITY)) {
       expect(DomRenderer.project({ [key]: identity }), key).toEqual({ transform: "none" })
     }
   })

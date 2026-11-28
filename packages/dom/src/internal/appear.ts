@@ -16,7 +16,6 @@
  * @module
  */
 import * as Batch from "@wardic/core/Batch"
-import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import * as Projection from "@wardic/core/Projection"
@@ -35,6 +34,7 @@ import { spacesRegistered } from "./colors.ts"
 import { drawnUnitOf, project, TEMPLATE_KEY, TRANSFORM_FUNCS, type TransformTemplate, unitOf } from "./renderer.ts"
 import { PREFIX } from "./appear-slot.ts"
 import { dashCase, isPathKey, isSvgInnerTag, splitPatchForTag, svgAttrNameOf } from "./svg.ts"
+import * as TransformKeys from "./transform-keys.ts"
 
 /** An element's mount animation, as its binding describes it. */
 export interface Spec {
@@ -245,7 +245,7 @@ const toleranceFor = (key: string, svgInner: boolean, bare: boolean, unit: strin
 /** A bare number's tolerance, by the unit `project` draws `key` in. */
 const bareTolerance = (key: string): number =>
   Bool.match(drawnUnitOf(key) === "", {
-    onTrue: () => Bool.match(BaseValue.TRANSFORM_IDENTITY[key] === 1, { onTrue: () => 0.001, onFalse: () => 0.002 }),
+    onTrue: () => Bool.match(TransformKeys.TRANSFORM_IDENTITY[key] === 1, { onTrue: () => 0.001, onFalse: () => 0.002 }),
     onFalse: () => 0.1,
   })
 
@@ -796,6 +796,21 @@ const batchNameOf = (spec: BatchSpec, columns: ReadonlyArray<Column>): string =>
 // Module state (#460, Q7): a cache keyed by what it caches.
 const batchCache = /*#__PURE__*/ new Map<string, Result.Result<Keyframes, string>>()
 
+/**
+ * Why a rule can't stand in for an element's own depth that moves: CSS blends two `perspective()`s by
+ * decomposing their matrices, linear in 1/depth (CSS Transforms 2, §14), so 100px to 1000px reads 181.8px
+ * halfway, where Wardic's frame reads 550px. A depth that doesn't move is drawn the same in every stop.
+ */
+// #887 (ADR-0073, *Amendment (#887)*, Q13), as Timeline values leave `perspective()` out (`timeline.ts`).
+export const DEPTH_MOVES_REASON = `${TransformKeys.PERSPECTIVE} moves, and CSS blends a depth by its inverse, not as Wardic draws it`
+
+/**
+ * Why a Batch's rule can't draw its members' depths: a member's is at or below 0, which Wardic leaves out,
+ * and CSS draws as 1px, or refuses with the stop's whole `transform`.
+ */
+// #887: a rule draws a depth its members hold in every stop, each one's own as a custom property.
+const DEPTH_AT_FLOOR_REASON = `${TransformKeys.PERSPECTIVE} at or below 0 on a member, which CSS draws unlike Wardic`
+
 /** A spec's first key with a start or target that isn't a finite number: a rule can't write it. */
 const unfiniteKeyOf = (spec: BatchSpec): Option.Option<string> =>
   Arr.findFirst(spec.keys, (_, k) => Arr.some(Arr.appendAll(spec.starts, spec.targets), (values) => Bool.not(Number.isFinite(values[k] as number))))
@@ -812,7 +827,10 @@ export const batchKeyframes = (spec: BatchSpec): Result.Result<BatchKeyframes, s
   if (Option.isSome(unfinite)) return Result.fail(`a start or target that isn't a finite number (${unfinite.value})`)
   const movers = moversOf(spec)
   const columns = columnsOf(spec.keys, movers)
+  if (Arr.some(columns, (column) => Bool.and(column.key === TransformKeys.PERSPECTIVE, column.moves))) return Result.fail(DEPTH_MOVES_REASON)
   const written = writtenOf(movers, columns)
+  const depth = Arr.findFirst(written.transform, (column) => column.key === TransformKeys.PERSPECTIVE)
+  if (Option.isSome(depth) && Arr.some(movers.targets, (values) => Bool.not(TransformKeys.drawsDepth(values[depth.value.k])))) return Result.fail(DEPTH_AT_FLOOR_REASON)
   if (Bool.and(Arr.isReadonlyArrayEmpty(written.transform), Option.isNone(written.opacity))) return Result.fail("no key moves")
   const name = batchNameOf(spec, columns)
   const rule = Option.getOrElse(Option.fromUndefinedOr(batchCache.get(name)), () => remember(batchCache, name, sampleBatch(spec, columns, written, name)))

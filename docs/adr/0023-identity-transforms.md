@@ -77,3 +77,7 @@ This amends ADR-0009 (the projection transform's woven terms), ADR-0014 (an svg-
     - `base-values-sinks.browser.test.tsx` (K7–K8: the commit sinks, `wardic.create(Component)` and `use:ward`);
   - the server tier: `server.ssr.test.tsx` (SV20: an identity `initial` renders `transform: none` on `wardic.div`, an svg-inner element and a component wrap; with a non-identity key, only that key's function);
   - the hydrate project: F15 (an identity `initial` holds `none` through hydration, then animates from it) and F16 (it keeps `none` at rest).
+
+## Amendment (#887, 2026-11-28): an element's own depth is left out below its identity too
+
+The DOM's own transform key, `transformPerspective` (ADR-0073, *Amendment (#887)*), is left out at its identity, 0, which is no perspective, and below it. CSS refuses a negative `perspective()`, and with it the element's whole `transform`, so a spring's overshoot past 0 draws no perspective for those frames, not no transform. Decision 3's test is unchanged for every other key; a string `parseFloat` can't read (`var(--d)`) is drawn. The renderer's walk, a projected element's transform and a Batch member's write all take it (TP2, TP3, BW4).

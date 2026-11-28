@@ -25,7 +25,6 @@
  */
 // Unstable: ADR-0071, decision 5. #672 (PR3-Q1): solid's `live-style.ts`, the DOM's `style` prop, moved
 // to dom for every DOM binding; the spine reads it through its LiveRoutes.
-import * as BaseValue from "@wardic/core/BaseValue"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import type * as Values from "@wardic/core/Values"
@@ -45,6 +44,7 @@ import type * as Config from "@wardic/core/unstable/Config"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 import type * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
+import * as TransformKeys from "../internal/transform-keys.ts"
 
 /**
  * A live value as a binding takes it: an accessor, such as a signal, a memo or another live value, or an
@@ -170,8 +170,8 @@ export const rangesOf = (
 ): Effect.Effect<Atom.Atom<unknown>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   LiveValue.transform(source as Atom.Atom<number>, input, output as ReadonlyArray<number | string>, options as LiveValue.TransformOptions | undefined)
 
-/** Whether `key` is a transform key, composed into `transform` (`x`, `scale`, `rotate`…). */
-export const isTransformKey = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))
+/** Whether `key` is one of the DOM's transform keys, composed into `transform` (`x`, `scale`, `rotate`, `transformPerspective`…). */
+export const isTransformKey: (key: string) => boolean = TransformKeys.isTransformKey
 
 /** A style value, read now: an Atom (or the one an accessor carries) through `registry`, an accessor untracked, anything else as it is. */
 export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegistry, untrack: Reactivity.Reactivity["untrack"]): unknown => {

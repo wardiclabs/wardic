@@ -158,3 +158,7 @@ With `initial={false}` an element starts at its `animate` (ADR-0003, *Amendment 
 ## Note (#130, 2026-10-18): a Live value is a `style` link
 
 ADR-0043 makes a value the user moves, given in `style`, the key's `style` link, live: the element follows it while no entry of the Override stack sets the key, and a return goes to where it is then. `style` also takes the transform keys from #130's PR 2. See ADR-0043.
+
+## Amendment (#887, 2026-11-28): the DOM's transform keys are core's and its own
+
+Consequences' "The DOM renderer takes its transform keys from core's identities" now reads the DOM's table: core's `TRANSFORM_IDENTITY`, and the DOM's own key, an element's own depth (`transformPerspective`, identity 0). Every dom reader goes through it (`internal/transform-keys.ts`), so the depth's Own value is its identity and never read off the element, as core's keys' are (OV15). Core names no key only the DOM draws. See ADR-0073, *Amendment (#887)*.

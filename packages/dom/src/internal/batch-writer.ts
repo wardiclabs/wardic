@@ -14,6 +14,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import { TRANSFORM_FUNCS, unitOf } from "./renderer.ts"
+import * as TransformKeys from "./transform-keys.ts"
 
 /** A transform function a Batch writes: its key's index in the Batch, what goes either side of its value, and its identity. */
 interface Part {
@@ -37,9 +38,17 @@ const FUNC_PARTS: ReadonlyArray<Omit<Part, "k"> & { readonly key: string }> = Ar
   identity: func.identity,
 }))
 
+/** What a member's write walks: every part but the element's own depth, which it writes ahead of them. */
+// #887 (ADR-0073, *Amendment (#887)*, Q8), as the renderer's walk.
+const WALKED_PARTS = Arr.filter(FUNC_PARTS, (part) => part.key !== TransformKeys.PERSPECTIVE)
+
+/** What goes either side of a member's own depth in its write. */
+const DEPTH_OPEN = "perspective("
+const DEPTH_CLOSE = `${unitOf(TransformKeys.PERSPECTIVE)})`
+
 /** A Batch's write, for its keys in their order: built once, when the Batch is made. */
 const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64Array, base: number) => void) => {
-  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNC_PARTS, (part) =>
+  const parts: ReadonlyArray<Part> = Arr.filterMap(WALKED_PARTS, (part) =>
     Option.match(Arr.findFirstIndex(keys, (key) => key === part.key), {
       onNone: () => Result.failVoid,
       onSome: (k) => Result.succeed({ k, open: part.open, close: part.close, identity: part.identity }),
@@ -47,14 +56,23 @@ const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64
   const count = parts.length
   // Its index for the per-frame write, or -1 for none: a plain read there (ADR-0025, the per-frame path).
   const opacityAt = Option.getOrElse(Arr.findFirstIndex(keys, (key) => key === "opacity"), () => -1)
-  // Per frame, per moving member (ADR-0025, *Amendment (#69)*): a counted loop over its transform
-  // functions in the renderer's order, each left out at its identity, the string built by concatenation
-  // as the renderer's is (ADR-0034); `none` when every one is at its identity (ADR-0023).
+  const depthAt = Option.getOrElse(Arr.findFirstIndex(keys, (key) => key === TransformKeys.PERSPECTIVE), () => -1)
+  const writesTransform = Bool.or(count > 0, depthAt !== -1)
+  // Per frame, per moving member (ADR-0025, *Amendment (#69)*): its own depth first, then a counted loop
+  // over its transform functions in the renderer's order, each left out at its identity, the string built
+  // by concatenation as the renderer's is (ADR-0034); `none` when every one is left out (ADR-0023).
   return (el, positions, base) => {
     const style = (el as HTMLElement).style
-    if (count > 0) {
+    if (writesTransform) {
       let transform = ""
       let separator = ""
+      if (depthAt !== -1) {
+        const depth = positions[base + depthAt]
+        if (TransformKeys.drawsDepth(depth)) {
+          transform = DEPTH_OPEN + depth + DEPTH_CLOSE
+          separator = " "
+        }
+      }
       for (let p = 0; p < count; p++) {
         const part = parts[p]
         const value = positions[base + part.k]
@@ -71,7 +89,7 @@ const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64
 
 /**
  * A member's style as a server writes it (#665's PR 6, Q63): `values`' `transform` and `opacity`, the
- * strings `forKeys`' write draws them with, each left out at its identity. What the client then writes
+ * strings `forKeys`' write draws them with, each left out as there. What the client then writes
  * at the member's arrival is the same, so its element doesn't move at hydration.
  */
 export const styleOf = (values: Readonly<Record<string, number>>): Readonly<Record<string, string>> => {
@@ -80,6 +98,9 @@ export const styleOf = (values: Readonly<Record<string, number>>): Readonly<Reco
   const functions = Arr.filterMap(FUNC_PARTS, (part) => {
     const value = values[part.key]
     if (Bool.or(Predicate.isUndefined(value), value === part.identity)) return Result.failVoid
+    if (part.key === TransformKeys.PERSPECTIVE) {
+      if (Bool.not(TransformKeys.drawsDepth(value))) return Result.failVoid
+    }
     return Result.succeed(part.open + value + part.close)
   })
   if (functions.length > 0) style.transform = functions.join(" ")

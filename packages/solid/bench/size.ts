@@ -125,6 +125,10 @@ const GATE = 1.01
  * reported once a run, a watch's `onDefect` and an element's gesture callbacks among them (ADR-0074,
  * *Amendment (#979, group I)*); the other four within their budgets (35, 0, 29 and 24 B), every app within
  * the 1% gate.
+ * #887 raised `s1-slim`'s, `s2-slim`'s and `f-slim`'s to 96.7, 119.5 and 199.3 by what it measured, 191, 186
+ * and 267 B (428, 428 and 551 B minified): the DOM's own transform key, an element's own depth, its table, its
+ * read ahead of the renderer's walk and its Default transition's (ADR-0073, *Amendment (#887)*), in every app
+ * with a Wardic element; `t2-stage` and `t2-features` as they were (1 and −1 B), every app within the 1% gate.
  * `@wardic/three/solid`'s
  * base app, `t2-stage`, holds 298.8 from its first number, 298.3, with the same room (#885, ADR-0073
  * *Amendment (#885)* Q12): 163.5 over three.js alone (`t2-three`), 98.6 KB of its minified bytes `@wardic/dom`'s, the DOM's ward that `ward` reaches (#927).
@@ -145,7 +149,7 @@ const GATE = 1.01
  * `@wardic/dom` 0.7 KB of either's minified bytes and culori none; their budgets were lowered to those, with the
  * same room. `@wardic/solid`'s own `ward` on a mesh still carries the page's ward, as a page with both pays anyway.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.5, "s2-slim": 119.3, "f-slim": 199.1, "t2-stage": 246.5, "t2-features": 254.3 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.7, "s2-slim": 119.5, "f-slim": 199.3, "t2-stage": 246.5, "t2-features": 254.3 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

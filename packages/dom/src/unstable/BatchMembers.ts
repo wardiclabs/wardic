@@ -24,7 +24,6 @@
 // ADR-0070 decisions 10–15 and *Amendment (#665)*. The DOM's writer, imported here so an app that never
 // makes a Batch ships none of it (ADR-0070, *Amendment (#665)*).
 import * as Batch from "@wardic/core/Batch"
-import * as BaseValue from "@wardic/core/BaseValue"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -58,16 +57,19 @@ import * as BatchCalls from "@wardic/core/unstable/BatchCalls"
 import { delayedBy, INSTANT, isFirstStop, isPair, type KeyPlan, memberTransitionsOf, staggerOf, unstaggered } from "@wardic/core/unstable/BatchCalls"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import * as TransformKeys from "../internal/transform-keys.ts"
 
 /** The keys a Batch's members animate on the DOM: the transforms and `opacity`, as numbers. */
+// #887: the element's own depth, and `scaleZ`, which #883 drew but never typed.
 export type WardicBatchKey =
+  | "transformPerspective"
   | "x" | "y" | "z" | "translateX" | "translateY" | "translateZ"
-  | "scale" | "scaleX" | "scaleY"
+  | "scale" | "scaleX" | "scaleY" | "scaleZ"
   | "rotate" | "rotateX" | "rotateY" | "rotateZ"
   | "skewX" | "skewY"
   | "opacity"
 
-/** A member's values: numbers on its keys, in `px` for a move, degrees for a turn, unitless for a scale and `opacity`. */
+/** A member's values: numbers on its keys, in `px` for a move and a depth, degrees for a turn, unitless for a scale and `opacity`. */
 export type WardicBatchValues = { readonly [K in WardicBatchKey]?: number }
 
 /**
@@ -450,7 +452,7 @@ export type BatchGroup = "transform" | "opacity"
 /** The group `key` is drawn in on the DOM: a transform key's `transform`, `opacity`'s own, or none. */
 export const batchGroupOf = (key: string): BatchGroup | undefined => {
   if (key === "opacity") return "opacity"
-  if (Predicate.isNotUndefined(BaseValue.TRANSFORM_IDENTITY[key])) return "transform"
+  if (Predicate.isNotUndefined(TransformKeys.TRANSFORM_IDENTITY[key])) return "transform"
   return undefined
 }
 
@@ -663,7 +665,7 @@ const noMember = (i: number, count: number): never => fail(`it has no member ${i
 /** Each key's identity: a transform's, and `opacity`'s 1, an element's own with no style of its own. */
 // Per member per key at mount (#540): statements.
 export const identityOf = (key: string): number => {
-  const identity = BaseValue.TRANSFORM_IDENTITY[key]
+  const identity = TransformKeys.TRANSFORM_IDENTITY[key]
   if (Predicate.isUndefined(identity)) return 1
   return identity
 }

@@ -52,6 +52,8 @@
 //   patch too; with none, neither has one.
 // - AR28 (#979 row 43): a `delayChildren` function that throws for one Variant child times that child's rule
 //   with no delay and the others' as given; the render goes on, and it's reported once.
+// - AR29 (#887): an element whose own depth, `transformPerspective`, moves waits for the JavaScript, and
+//   `appear="explain"` says why: CSS blends a `perspective()` by its inverse, not as Wardic draws it.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -748,5 +750,11 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     const first = page(ui)
     expect(headCss(first), "a colour sampled into the rules").toContain("background-color")
     expect(page(ui)).toBe(first)
+  })
+
+  it("AR29 (#887): an element whose depth moves waits for the JavaScript, and explain says why", async () => {
+    const explained = await said(() =>
+      page(() => <wardic.div initial={{ transformPerspective: 300, rotateY: 0 }} animate={{ transformPerspective: 600, rotateY: 30 }} />, { appear: "explain" }))
+    expect(explained).toEqual(["wardic.appear: <div> (transformPerspective, rotateY) waits for the JavaScript: transformPerspective moves, and CSS blends a depth by its inverse, not as Wardic draws it"])
   })
 })

@@ -43,6 +43,7 @@ import * as LiveStyle from "./LiveStyle.ts"
 import * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
+import * as TransformKeys from "../internal/transform-keys.ts"
 
 /**
  * A mounted element's Base-value links (ADR-0022): a key with no value starts from its `style`
@@ -92,7 +93,7 @@ export const restingOf = (key: string, initial: Values.Values, style: object | s
   Option.getOrUndefined(
     Option.fromUndefinedOr(initial[key]).pipe(
       Option.orElse((): Option.Option<unknown> => Option.flatMap(OwnValues.styleValueOf(style, key), (raw) => Option.fromNullishOr(read(raw)))),
-      Option.orElse((): Option.Option<unknown> => BaseValue.transformIdentity(key)),
+      Option.orElse((): Option.Option<unknown> => TransformKeys.transformIdentity(key)),
     ),
   )
 

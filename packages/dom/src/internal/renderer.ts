@@ -17,11 +17,11 @@
  * per-frame hot path, so — exactly like core's `applyTo` per-frame writes and
  * the Clock's `tick` — they stay quiet (no span, no per-call log).
  */
-import * as BaseValue from "@wardic/core/BaseValue"
 import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { dashCase, isSvgInner, setSvgAttrs, splitPatch } from "./svg.ts"
+import * as TransformKeys from "./transform-keys.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
@@ -30,18 +30,21 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 /**
- * CSS transform functions in their canonical emission order: translate group,
- * then scale, then rotate, then skew. `project` walks this list and emits a
+ * CSS transform functions in their canonical emission order: the element's own
+ * depth, then the translate group, then scale, then rotate, then skew. `project` walks this list and emits a
  * func for each key that is present in `values` and not at its identity, so the
  * resulting `transform` string is always grouped in this order regardless of
  * input key order.
  *
  * `key` is the property name accepted on engine values (shorthands `x`/`y`/`z`
- * included); `fn` is the CSS function name it renders as; `identity` is core's
- * (ADR-0022), the value at which `project` leaves the key out (ADR-0023).
+ * included); `fn` is the CSS function name it renders as; `identity` is the DOM's
+ * (core's, ADR-0022, and the DOM's own), the value at which `project` leaves the key out (ADR-0023).
+ * The element's own depth is left out below it too (`TransformKeys.drawsDepth`).
  */
 // Exported for the Batch writer (#665), which draws a member's transform in the same order.
 export const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string; readonly identity: number }> = [
+  // The element's own depth (#887), Motion's `transformPerspective`: first, so it projects what follows.
+  { key: TransformKeys.PERSPECTIVE, fn: "perspective" },
   // translate group — shorthands x/y/z map onto translateX/Y/Z
   { key: "x", fn: "translateX" },
   { key: "y", fn: "translateY" },
@@ -64,7 +67,15 @@ export const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn:
   // skew group
   { key: "skewX", fn: "skewX" },
   { key: "skewY", fn: "skewY" },
-].map((f) => ({ ...f, identity: UndefinedOr.getOrThrow(BaseValue.TRANSFORM_IDENTITY[f.key]) }))
+].map((f) => ({ ...f, identity: UndefinedOr.getOrThrow(TransformKeys.TRANSFORM_IDENTITY[f.key]) }))
+
+/**
+ * What a plain render walks: every transform function but the element's own depth, which it draws ahead
+ * of them in a statement of its own.
+ */
+// #887 (ADR-0073, *Amendment (#887)*, Q8): one more step in the walk cost an element at rest 13% in Maglev,
+// 4% in Bun; a read ahead of it, nothing (the cost gate's variants).
+const WALKED_FUNCS = TRANSFORM_FUNCS.filter((f) => f.key !== TransformKeys.PERSPECTIVE)
 
 /**
  * Whether a transform value is at its identity (ADR-0023), Motion's test
@@ -79,14 +90,15 @@ const isIdentity = (value: unknown, identity: number): boolean => {
 }
 
 /**
- * Whether `key`'s `value` adds to the element's `transform` (#240): a transform key off its identity, a
+ * Whether `key`'s `value` adds to the element's `transform` (#240): a transform key it draws, a
  * `transform` string, the projection's value or a Transform template. A Timeline value drawing
  * `transform` runs only while nothing else does. Per frame: statements.
  */
 export const addsToTransform = (key: string, value: unknown): boolean => {
   if (key === Projection.KEY || key === TEMPLATE_KEY || key === "transform") return true
-  const identity = BaseValue.TRANSFORM_IDENTITY[key]
+  const identity = TransformKeys.TRANSFORM_IDENTITY[key]
   if (Predicate.isUndefined(identity)) return false
+  if (key === TransformKeys.PERSPECTIVE) return TransformKeys.drawsDepth(value)
   return !isIdentity(value, identity)
 }
 
@@ -101,11 +113,12 @@ type TransformUnit = "px" | "deg" | ""
 
 /**
  * Default-unit map for transform values: translate (and the x/y/z shorthands)
- * are lengths → `px`; rotate/skew are angles → `deg`; scale* are unitless.
+ * are lengths → `px`, as is the element's own depth; rotate/skew are angles → `deg`; scale* are unitless.
  * A value that is already a string is used verbatim (explicit units honoured),
  * so this map only drives the formatting of bare numbers.
  */
 const TRANSFORM_UNITS: Record<string, TransformUnit> = {
+  [TransformKeys.PERSPECTIVE]: "px",
   x: "px",
   y: "px",
   z: "px",
@@ -125,11 +138,6 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
   skewY: "deg",
 }
 
-/**
- * Fast membership test for "is this key a transform key?": core's transform keys, the ones
- * it gives an identity (ADR-0022), so the two lists can't drift. Every one has a unit above.
- */
-const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(BaseValue.TRANSFORM_IDENTITY))
 
 /**
  * The CSS properties a bare number on is a length, drawn in `px`, spelled as Wardic's keys are
@@ -196,6 +204,8 @@ export const LENGTH_KEYS = [
   "letter-spacing",
   "background-position-x",
   "background-position-y",
+  // An element's children's depth (#887), Motion's: the property beside the element's own `transformPerspective`.
+  "perspective",
 ] as const
 
 /** One of `LENGTH_KEYS`: a CSS property a bare number on is drawn in `px`. */
@@ -411,6 +421,10 @@ const buildProjectionTransform = (
   const translateByUnit = otherUnitTranslate(latest["translateX"], latest["translateY"])
   if (translateByUnit !== "") funcs.unshift(translateByUnit)
   if (ownByUnit !== "") funcs.unshift(ownByUnit)
+  // The element's own depth heads it all, as Motion's `buildProjectionTransform` puts it, so it projects
+  // what follows (#887).
+  const depth = latest[TransformKeys.PERSPECTIVE]
+  if (Predicate.isNotUndefined(depth) && TransformKeys.drawsDepth(depth)) funcs.unshift(`perspective(${formatTransformValue(TransformKeys.PERSPECTIVE, depth)})`)
   if (funcs.length === 0) return "none"
   return funcs.join(" ")
 }
@@ -498,14 +512,23 @@ const projectsNothing = (projection: Projection.Value): boolean => {
 
 /**
  * The transform keys a plain render draws (ADR-0023): each one present and not at its identity, in
- * the canonical order; `""` when every one present is at its identity; `undefined` with none. Built
- * by concatenation, not an array joined (ADR-0034): this runs per element per frame.
+ * the canonical order, the element's own depth first; `""` when every one present is at its identity;
+ * `undefined` with none. Built by concatenation, not an array joined (ADR-0034): this runs per element
+ * per frame.
  */
 const plainTransformOf = (values: Record<string, unknown>): string | undefined => {
   let transform = ""
   let separator = ""
   let present = false
-  for (const { key, fn, identity } of TRANSFORM_FUNCS) {
+  const depth = values[TransformKeys.PERSPECTIVE]
+  if (Predicate.isNotUndefined(depth)) {
+    present = true
+    if (TransformKeys.drawsDepth(depth)) {
+      transform = `perspective(${formatTransformValue(TransformKeys.PERSPECTIVE, depth)})`
+      separator = " "
+    }
+  }
+  for (const { key, fn, identity } of WALKED_FUNCS) {
     if (!Object.hasOwn(values, key)) continue
     present = true
     const value = values[key]
@@ -609,7 +632,7 @@ export const project = (values: Readonly<Record<string, unknown>>): Renderer.Pat
     // Copy non-transform style keys (transform keys are consumed by the weave /
     // owned by the projection; the reserved keys never render).
     for (const key in values) {
-      if (key === Projection.KEY || key === TEMPLATE_KEY || TRANSFORM_KEYS.has(key)) continue
+      if (key === Projection.KEY || key === TEMPLATE_KEY || TransformKeys.TRANSFORM_KEYS.has(key)) continue
       patch[key] = formatStyleValue(key, values[key])
     }
     // Shared-element crossfade (ADR-0010): compose the crossfade factor with the
@@ -635,7 +658,7 @@ export const project = (values: Readonly<Record<string, unknown>>): Renderer.Pat
 
   // Non-transform keys: copy across with default-unit handling.
   for (const key in values) {
-    if (key === TEMPLATE_KEY || TRANSFORM_KEYS.has(key)) continue
+    if (key === TEMPLATE_KEY || TransformKeys.TRANSFORM_KEYS.has(key)) continue
     patch[key] = formatStyleValue(key, values[key])
   }
 

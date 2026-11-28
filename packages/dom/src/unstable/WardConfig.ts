@@ -49,6 +49,11 @@ export interface CSSProperties extends CSS.PropertiesHyphen {
  * is used verbatim).
  */
 export interface WardicTransformShorthands {
+  /**
+   * The element's own depth, Motion's `transformPerspective`: a `perspective()` at the head of its
+   * transform, a bare number in px. Its children's depth is the `perspective` property's.
+   */
+  readonly transformPerspective?: number | string
   readonly x?: number | string
   readonly y?: number | string
   readonly z?: number | string
@@ -58,6 +63,9 @@ export interface WardicTransformShorthands {
   readonly scale?: number | string
   readonly scaleX?: number | string
   readonly scaleY?: number | string
+  /** The scale along the element's depth, CSS's `scaleZ()`: seen only beside a turn out of its plane. */
+  // #883 drew it, #887 typed it.
+  readonly scaleZ?: number | string
   readonly rotate?: number | string
   readonly rotateX?: number | string
   readonly rotateY?: number | string

@@ -12,7 +12,6 @@
 // ADR-0070, *Amendment (#665)*: only members pay. A spine reads one module slot a Retarget while no
 // Batch has been made, and a WeakMap after; this module's code is reached through `provideBatchHolds`,
 // which only `createBatch` calls.
-import * as BaseValue from "@wardic/core/BaseValue"
 import * as Arr from "effect/Array"
 import { constFalse } from "effect/Function"
 import * as Iter from "effect/Iterable"
@@ -20,6 +19,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as BatchMembers from "./BatchMembers.ts"
 import * as Spine from "@wardic/core/unstable/Spine"
+import * as TransformKeys from "../internal/transform-keys.ts"
 
 // What a hold works its spine with (#746): here, not in the spine, so an app with no Batch ships none
 // of it (ADR-0070's *Note (#746)*). Functions over the host, not closures: a hold makes none of its own.
@@ -81,7 +81,7 @@ const makeMemberHold = (host: Spine.HoldHost): Spine.MemberHold => {
     if (anyRunning(host, undrawn)) return true
     return Arr.some(Rec.keys(snapshot.values), (key) => {
       if (!undrawn(key)) return false
-      return snapshot.values[key] !== BaseValue.TRANSFORM_IDENTITY[key]
+      return snapshot.values[key] !== TransformKeys.TRANSFORM_IDENTITY[key]
     })
   }
 

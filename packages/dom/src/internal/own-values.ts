@@ -10,7 +10,6 @@
  * Observability: per element and cold (once per key), so quiet; the spine logs what it
  * started from and returned to.
  */
-import * as BaseValue from "@wardic/core/BaseValue"
 import * as Interpolator from "@wardic/core/Interpolator"
 import * as Bool from "effect/Boolean"
 import * as Match from "effect/Match"
@@ -20,6 +19,7 @@ import * as Predicate from "effect/Predicate"
 import * as Str from "effect/String"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
+import * as TransformKeys from "./transform-keys.ts"
 
 /** An element's own value for a key: the raw value read, a string, a transform key's identity, or `None`. */
 export type OwnValue = (key: string) => Option.Option<number | string>
@@ -53,7 +53,7 @@ export const ownValues = (element: Element): OwnValue => {
       onFalse: () => Option.none(),
     })
   const read = (key: string): Option.Option<number | string> =>
-    Option.orElse(BaseValue.transformIdentity(key), () =>
+    Option.orElse(TransformKeys.transformIdentity(key), () =>
       Option.orElse(attributeOf(key), () => nonEmpty(computedStyle().getPropertyValue(dashCase(key)).trim()))
     )
   return (key) =>
