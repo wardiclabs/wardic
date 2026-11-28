@@ -426,14 +426,19 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
       </WardicProvider>
     ))
     await raf()
+    // Read in a task after the frame, once Wardic's step for it has run, so the reading and the frame
+    // timeline are the same frame's (#946): read between the frame's callbacks, it was the frame before's,
+    // and on a loaded runner that frame began more than the 40 ms the wall clock was allowed before t0.
+    await wait(0)
     flush()
-    const t0 = performance.now()
+    const f0 = document.timeline.currentTime as number
     const start = time()
     await wait(300)
     flush()
     const elapsed = time() - start
     expect(elapsed).toBeGreaterThan(200)
-    expect(elapsed).toBeLessThan(performance.now() - t0 + 40)
+    // Milliseconds of frames: what the frame timeline advanced by, whatever a frame's length.
+    expect(Math.abs(elapsed - ((document.timeline.currentTime as number) - f0)), "the frame timeline's advance").toBeLessThan(1)
     unmount()
     const ended = time()
     await wait(100)
